@@ -69,7 +69,7 @@ Top image, content below in flex column. Natural flow, no absolute needed.
 </div>
 ```
 
-## 3. Split layout — 60/40 (A4 paysage)
+## 3. Split layout — 60/40 (A4 landscape)
 
 Two-column split: image left, content right. Use flex with fixed proportions.
 
@@ -193,7 +193,7 @@ Equal-weight photo gallery. The key trick: `min-height:0` and `min-width:0` on e
 </div>
 ```
 
-## 6. Editorial — Magazine spread (A4 paysage)
+## 6. Editorial — Magazine spread (A4 landscape)
 
 Asymmetric grid with text overlapping image. Uses CSS Grid for 2D placement.
 

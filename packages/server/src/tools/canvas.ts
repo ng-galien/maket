@@ -42,7 +42,7 @@ const MaketCanvasSchema = z.object({
 		"Paper (A2–A8, mm) or screen (DESKTOP/TABLET/MOBILE, mm-equivalent). Unspecified keeps the current value.",
 	),
 	orientation: z
-		.enum(["portrait", "paysage"])
+		.enum(["portrait", "landscape"])
 		.optional()
 		.describe("Page orientation. Unspecified keeps the current value."),
 	background: z

@@ -22,7 +22,7 @@ If they accept, load the pre-built tutorial pages from the plugin assets:
 
 ### How to load the onboarding
 
-1. `maket_doc new(doc: "Welcome to Maket", format: "A5", orientation: "paysage", category: "tutorial")`
+1. `maket_doc new(doc: "Welcome to Maket", format: "A5", orientation: "landscape", category: "tutorial")`
 2. `maket_preview open`
 3. Read `assets/onboarding/page1-bienvenue.html` and pass its content to `maket_html set`
 4. `maket_page add(name: "Your images")` → Read `assets/onboarding/page2-images.html` → `maket_html set`
