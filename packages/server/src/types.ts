@@ -12,7 +12,7 @@ export const FORMATS: Record<string, { w: number; h: number }> = {
 	A6: { w: 105, h: 148 },
 	A7: { w: 74, h: 105 },
 	A8: { w: 52, h: 74 },
-	// Screen formats (1px ≈ 0.2mm, real ratios) — fixed orientation, ignore paysage/portrait
+	// Screen formats (1px ≈ 0.2mm, real ratios) — fixed orientation, ignore landscape/portrait
 	DESKTOP: { w: 288, h: 205 },
 	TABLET: { w: 167, h: 239 },
 	MOBILE: { w: 79, h: 170 },
@@ -28,7 +28,8 @@ export function computeCanvasDims(
 	orientation: string,
 ): { w: number; h: number } {
 	const f = FORMATS[format] ?? DEFAULT_DIMS;
-	const isLandscape = orientation === "paysage" && !SCREEN_FORMATS.has(format);
+	const isLandscape =
+		orientation === "landscape" && !SCREEN_FORMATS.has(format);
 	return { w: isLandscape ? f.h : f.w, h: isLandscape ? f.w : f.h };
 }
 
@@ -58,7 +59,7 @@ export interface DocMeta {
 
 export interface Page {
 	name?: string;
-	elements: any[];
+	elements: unknown[];
 	html?: string;
 	canvas?: Partial<Canvas>;
 }
@@ -81,7 +82,6 @@ export interface Document {
 	category: string;
 	canvas: Canvas;
 	meta: DocMeta;
-	elements: any[];
 	pages: Page[];
 	activePage: number;
 	nextId: number;
@@ -89,66 +89,32 @@ export interface Document {
 	_pending?: PendingMessage[];
 	_layout?: LayoutReport;
 	_displayed?: boolean;
-	/** Safe accessor for the current active page */
-	readonly currentPage: Page;
-	/** Safe accessor for a page by index — throws if out of bounds */
-	pageAt(idx: number): Page;
 }
 
-/** Document implementation with elements getter/setter pointing to active page */
-export class DocumentModel implements Document {
-	id: string;
+export interface DocumentInit {
+	id?: string;
 	name: string;
-	category: string;
+	category?: string;
 	canvas: Canvas;
-	meta: DocMeta;
-	pages: Page[];
-	activePage: number;
-	nextId: number;
-	_pending?: PendingMessage[];
-	_layout?: LayoutReport;
-	_displayed?: boolean;
+	meta?: DocMeta;
+	pages?: Page[];
+	elements?: unknown[];
+	activePage?: number;
+	nextId?: number;
+}
 
-	constructor(init: {
-		id?: string;
-		name: string;
-		category?: string;
-		canvas: Canvas;
-		meta?: DocMeta;
-		pages?: Page[];
-		elements?: any[];
-		activePage?: number;
-		nextId?: number;
-	}) {
-		this.id = init.id || crypto.randomUUID();
-		this.name = init.name;
-		this.category = init.category || "general";
-		this.canvas = init.canvas;
-		this.meta = init.meta || {};
-		this.pages = init.pages || [
-			{ name: "Page 1", elements: init.elements || [] },
-		];
-		this.activePage = init.activePage || 0;
-		this.nextId = init.nextId || 1;
-	}
-
-	get currentPage(): Page {
-		return this.pageAt(this.activePage);
-	}
-
-	pageAt(idx: number): Page {
-		const p = this.pages[Math.min(idx, this.pages.length - 1)] ?? this.pages[0];
-		if (!p) throw new Error(`No pages in document "${this.name}"`);
-		return p;
-	}
-
-	get elements(): any[] {
-		return this.currentPage.elements;
-	}
-
-	set elements(val: any[]) {
-		this.currentPage.elements = val;
-	}
+/** Factory — produces a plain Document with sane defaults. */
+export function createDocument(init: DocumentInit): Document {
+	return {
+		id: init.id || crypto.randomUUID(),
+		name: init.name,
+		category: init.category || "general",
+		canvas: init.canvas,
+		meta: init.meta || {},
+		pages: init.pages || [{ name: "Page 1", elements: init.elements || [] }],
+		activePage: init.activePage || 0,
+		nextId: init.nextId || 1,
+	};
 }
 
 export interface DocSummary {

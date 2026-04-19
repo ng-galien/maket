@@ -1,6 +1,6 @@
 import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it } from "vitest";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
 import type { Config } from "./config.js";
 import { createDocuments } from "./documents.js";
@@ -10,7 +10,7 @@ import { createWsHandler } from "./ws-handler.js";
 import { createWsRegistry } from "./ws-registry.js";
 
 function makeDoc(name: string) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",

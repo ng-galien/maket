@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { canvasPack, createMaketCanvasTool } from "./canvas.js";
 
 function fixture() {
@@ -16,7 +16,7 @@ function fixture() {
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",
@@ -48,13 +48,13 @@ describe("maket_canvas (setup)", () => {
 
 		const tool = createMaketCanvasTool({ documents, bus });
 		const res = await tool.handler(
-			{ doc: "d", format: "A3", orientation: "paysage" },
+			{ doc: "d", format: "A3", orientation: "landscape" },
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
 		const d = documents.resolve("d");
 		expect(d?.canvas.format).toBe("A3");
-		expect(d?.canvas.orientation).toBe("paysage");
+		expect(d?.canvas.orientation).toBe("landscape");
 		expect(d?.canvas.w).toBe(420);
 		expect(d?.canvas.h).toBe(297);
 		expect(listener).toHaveBeenCalledWith({ docName: "d" });

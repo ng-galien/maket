@@ -14,7 +14,7 @@ import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
-import { computeCanvasDims, DocumentModel, type Page } from "../types.js";
+import { computeCanvasDims, createDocument, type Page } from "../types.js";
 import { text } from "./_helpers.js";
 
 export interface DocumentsDeps {
@@ -70,7 +70,7 @@ const MaketDocSchema = z.object({
 		"For new: paper/screen format. Default A3. Paper sizes are mm; DESKTOP/TABLET/MOBILE are screen aspect ratios scaled to mm.",
 	),
 	orientation: z
-		.enum(["portrait", "paysage"])
+		.enum(["portrait", "landscape"])
 		.optional()
 		.describe("For new: page orientation. Default portrait."),
 	background: z
@@ -172,7 +172,7 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 	const fmt = args.format || "A3";
 	const orient = args.orientation || "portrait";
 	const { w, h } = computeCanvasDims(fmt, orient);
-	const newDoc = new DocumentModel({
+	const newDoc = createDocument({
 		name: args.doc,
 		category: args.category || "general",
 		canvas: {
@@ -216,7 +216,8 @@ function runFocus(args: Args, documents: Documents, bus: Bus) {
 	if (pageIdx < 0 || pageIdx >= d.pages.length)
 		return text(`Page ${args.page} not found (${d.pages.length} pages)`, true);
 	d.activePage = pageIdx;
-	const p = d.pageAt(pageIdx);
+	const p = d.pages[pageIdx];
+	if (!p) return text(`Page ${args.page} not found`, true);
 	const dc = d.canvas;
 	const charteName = d.meta?.charte;
 	const charteInfo = charteName
@@ -281,7 +282,7 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		activePage: sourceDoc.activePage,
 		nextId: sourceDoc.nextId,
 	});
-	const clone = new DocumentModel(cloneData);
+	const clone = createDocument(cloneData);
 	documents.all().set(clone.name, clone);
 	documents.persist(clone.name);
 	const cloneCharte = clone.meta?.charte

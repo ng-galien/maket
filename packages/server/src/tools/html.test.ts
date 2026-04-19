@@ -6,7 +6,7 @@ import { createAssetsService } from "../services/assets.js";
 import { createDocuments } from "../services/documents.js";
 import type { LayoutService } from "../services/layout.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketHtmlTool, htmlPack } from "./html.js";
 
 function fakeLayout(): LayoutService & { measure: ReturnType<typeof vi.fn> } {
@@ -35,7 +35,7 @@ function fixture() {
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string, html = "") {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",

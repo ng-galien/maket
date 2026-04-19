@@ -6,7 +6,7 @@ import type { Config } from "../services/config.js";
 import { createDocuments } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketPdfTool, pdfPack } from "./pdf.js";
 
 function fixture() {
@@ -37,7 +37,7 @@ function fixture() {
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",

@@ -8,7 +8,7 @@ import { createDocuments } from "../services/documents.js";
 import type { GmailClient } from "../services/gmail-client.js";
 import type { PdfService } from "../services/pdf.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketGmailTool, gmailPack } from "./gmail.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
@@ -83,7 +83,7 @@ function fixture(gmailOpts: { connected?: boolean; api?: GmailApiMock } = {}) {
 }
 
 function makeEmailDoc(name: string, html = `<div data-id="body">hi</div>`) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		category: "email",
 		canvas: {
@@ -280,7 +280,7 @@ describe("maket_gmail — action=draft", () => {
 		const { store, documents, cleanup, ...deps } = fixture({
 			connected: true,
 		});
-		const d = new DocumentModel({
+		const d = createDocument({
 			name: "bare",
 			canvas: {
 				format: "A4",
@@ -333,7 +333,7 @@ describe("maket_gmail — action=draft", () => {
 		const { store, documents, gmailClient, pdfService, cleanup, ...deps } =
 			fixture({ connected: true });
 		store.saveDoc(makeEmailDoc("mail"));
-		const attachmentDoc = new DocumentModel({
+		const attachmentDoc = createDocument({
 			name: "brochure",
 			canvas: {
 				format: "A4",

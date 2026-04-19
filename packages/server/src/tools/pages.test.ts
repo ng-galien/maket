@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketPageTool, pagesPack } from "./pages.js";
 
 function fixture() {
@@ -20,7 +20,7 @@ function makeDoc(name: string, pageCount = 1) {
 		name: `P${i + 1}`,
 		elements: [],
 	}));
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",

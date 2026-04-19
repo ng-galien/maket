@@ -43,13 +43,13 @@ export interface DocumentsDeps {
 	store: Store;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: canvas element shapes are loose
-function lightweightElements(elements: any[]): any[] {
+function lightweightElements(elements: unknown[]): unknown[] {
 	return elements.map((el) => {
-		if (el.type === "image" && el.path)
-			return { ...el, href: `/assets/${el.path}` };
-		if (el.type === "frame" && el.children)
-			return { ...el, children: lightweightElements(el.children) };
+		const e = el as { type?: string; path?: string; children?: unknown[] };
+		if (e.type === "image" && e.path)
+			return { ...e, href: `/assets/${e.path}` };
+		if (e.type === "frame" && e.children)
+			return { ...e, children: lightweightElements(e.children) };
 		return el;
 	});
 }
@@ -98,19 +98,14 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 		all() {
 			return cache;
 		},
-		// biome-ignore lint/suspicious/noExplicitAny: see lightweightElements
-		lightView(doc: Document | null, focusPage?: number): any {
+		lightView(doc: Document | null, focusPage?: number): Document | null {
 			if (!doc) return doc;
 			const focus = focusPage ?? 0;
 			return {
 				...doc,
-				elements: lightweightElements(
-					(doc as unknown as { elements: unknown[] }).elements || [],
-				),
 				pages: doc.pages.map((p, i) => ({
 					...p,
-					elements:
-						i === focus ? lightweightElements(p.elements as unknown[]) : [],
+					elements: i === focus ? lightweightElements(p.elements) : [],
 				})),
 				activePage: focus,
 			};

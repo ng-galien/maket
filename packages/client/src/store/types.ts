@@ -28,7 +28,6 @@ export interface Document {
 	name: string;
 	category: string;
 	canvas: Canvas;
-	elements: Element[];
 	pages: Page[];
 	activePage: number;
 	meta?: Record<string, any>;

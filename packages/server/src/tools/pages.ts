@@ -151,7 +151,8 @@ function runRename(args: Args, d: Document, documents: Documents, bus: Bus) {
 	const idx = resolvePageIndex(d, args.page);
 	if (idx < 0 || idx >= d.pages.length)
 		return text(`Page "${args.page}" not found or out of range`, true);
-	const pg = d.pageAt(idx);
+	const pg = d.pages[idx];
+	if (!pg) return text(`Page "${args.page}" not found`, true);
 	const oldName = pg.name || "Untitled";
 	pg.name = args.name;
 	documents.persist(d.name);

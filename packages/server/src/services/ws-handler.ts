@@ -198,7 +198,8 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 			case "clear_canvas": {
 				const d = wsDoc(msg);
 				if (d) {
-					d.elements = [];
+					const page = d.pages[d.activePage];
+					if (page) page.elements = [];
 					d.nextId = 1;
 					bus.emit("elements:cleared", { docName: d.name });
 				}

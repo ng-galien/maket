@@ -9,7 +9,7 @@
 import crypto from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import type { Charte, Document, Page } from "../types.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
@@ -414,7 +414,7 @@ export class DocumentStore implements Store {
 		if (pages.length === 0) {
 			pages.push({ name: "Page 1", elements: [] });
 		}
-		return new DocumentModel({
+		return createDocument({
 			id: row.id || crypto.randomUUID(),
 			name: row.name,
 			category: row.category || "general",

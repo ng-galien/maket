@@ -298,7 +298,7 @@ export const useDoc = () => useFocusedDoc();
 export const useElements = () =>
 	useStore((s) => {
 		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		return doc?.elements ?? EMPTY_ELEMENTS;
+		return doc?.pages[doc.activePage]?.elements ?? EMPTY_ELEMENTS;
 	});
 export const usePageHtml = () =>
 	useStore((s) => {
@@ -322,5 +322,6 @@ export const useSelectedElement = (): Element | null =>
 	useStore((s) => {
 		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
 		if (!doc || s.selectedIds.length !== 1) return null;
-		return doc.elements.find((el) => el.id === s.selectedIds[0]) ?? null;
+		const els = doc.pages[doc.activePage]?.elements ?? EMPTY_ELEMENTS;
+		return els.find((el) => el.id === s.selectedIds[0]) ?? null;
 	});

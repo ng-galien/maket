@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Config } from "../services/config.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketPreviewTool, previewPack } from "./preview.js";
 
 function fixture() {
@@ -51,7 +51,7 @@ describe("maket_preview — action=snapshot", () => {
 	it("errors when page is out of range", async () => {
 		const { store, documents, config, cleanup } = fixture();
 		store.saveDoc(
-			new DocumentModel({
+			createDocument({
 				name: "d",
 				canvas: {
 					format: "A4",
@@ -76,7 +76,7 @@ describe("maket_preview — action=snapshot", () => {
 	it("errors when page has no HTML", async () => {
 		const { store, documents, config, cleanup } = fixture();
 		store.saveDoc(
-			new DocumentModel({
+			createDocument({
 				name: "d",
 				canvas: {
 					format: "A4",

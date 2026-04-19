@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketMermaidTool, mermaidPack } from "./mermaid.js";
 
 /**
@@ -11,7 +11,7 @@ import { createMaketMermaidTool, mermaidPack } from "./mermaid.js";
  */
 function fixture() {
 	const store = createSQLiteStore(":memory:");
-	const doc = new DocumentModel({
+	const doc = createDocument({
 		name: "test",
 		canvas: {
 			format: "A4",

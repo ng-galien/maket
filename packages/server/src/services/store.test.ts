@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createSQLiteStore } from "./store.js";
 
 function makeDoc(name: string) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",

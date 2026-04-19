@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
-import { DocumentModel } from "../types.js";
+import { createDocument } from "../types.js";
 import { createMaketMessageTool, messagesPack } from "./messages.js";
 
 function fixture() {
@@ -16,7 +16,7 @@ function fixture() {
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string) {
-	return new DocumentModel({
+	return createDocument({
 		name,
 		canvas: {
 			format: "A4",
