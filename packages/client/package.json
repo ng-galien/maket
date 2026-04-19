@@ -1,0 +1,33 @@
+{
+	"name": "@maket/client",
+	"private": true,
+	"version": "1.0.0",
+	"type": "module",
+	"license": "MIT",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@maket/shared": "*",
+		"@tailwindcss/vite": "^4.2.1",
+		"d3-selection": "^3.0.0",
+		"d3-zoom": "^3.0.0",
+		"lucide-react": "^0.577.0",
+		"react": "^19.2.4",
+		"react-dom": "^19.2.4",
+		"tailwindcss": "^4.2.1",
+		"zustand": "^5.0.12"
+	},
+	"devDependencies": {
+		"@types/d3-selection": "^3.0.11",
+		"@types/d3-zoom": "^3.0.8",
+		"@types/node": "^24.12.0",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.0",
+		"typescript": "~5.9.3",
+		"vite": "^8.0.0"
+	}
+}

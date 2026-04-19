@@ -1,0 +1,11 @@
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.{ts,tsx,js,jsx,json}"
+      run: npx biome check --write --staged --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: npm run typecheck
+    test:
+      run: npm run test

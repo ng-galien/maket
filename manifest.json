@@ -1,0 +1,59 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "maket",
+  "display_name": "Maket",
+  "version": "1.0.0",
+  "description": "Visual design tool for Claude — compose posters, flyers, labels, social posts with PDF export.",
+  "long_description": "Maket turns Claude into a visual designer. Describe what you want — a poster, a flyer, a product label — and Claude composes it with precise typography, brand chartes, and your image library.\n\nA live preview opens automatically in your browser and updates in real time as Claude works. Annotate elements directly in the preview to give feedback. Export to PDF when you're done.",
+  "author": {
+    "name": "Alexandre Boyer",
+    "url": "https://github.com/alexandreboyer"
+  },
+  "license": "MIT",
+  "homepage_url": "https://github.com/ng-galien/maket",
+  "documentation": "https://github.com/ng-galien/maket#readme",
+  "support": "https://github.com/ng-galien/maket/issues",
+  "keywords": ["design", "pdf", "maket", "visual", "documents", "html", "canvas"],
+  "server": {
+    "type": "node",
+    "entry_point": "index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/index.js"],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "maket_doc",
+      "description": "Manage documents: new, focus, list, delete, duplicate, rename, meta, state."
+    },
+    { "name": "maket_page", "description": "Manage pages within a document: add, remove, rename, reorder, list." },
+    { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },
+    {
+      "name": "maket_html",
+      "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (layout overflow)."
+    },
+    {
+      "name": "maket_message",
+      "description": "Read and acknowledge pending user messages attached to a document: list, ack."
+    },
+    {
+      "name": "maket_charte",
+      "description": "Manage brand style guides: list, view (returns context_token), set, delete."
+    },
+    {
+      "name": "maket_image",
+      "description": "Manage the asset library: list, view, meta (requires context_token), import, delete."
+    },
+    { "name": "maket_preview", "description": "Open the live preview URL or snapshot a page to PNG." },
+    { "name": "maket_mermaid", "description": "Render a Mermaid diagram to SVG and inject it into a page." },
+    { "name": "maket_pdf", "description": "Export the document to PDF via headless Chromium." },
+    { "name": "maket_gmail", "description": "Gmail integration: connect, search, read, draft." }
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "win32", "linux"]
+  }
+}

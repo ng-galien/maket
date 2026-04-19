@@ -1,0 +1,47 @@
+{
+  "name": "maket",
+  "version": "1.0.0",
+  "description": "Visual design tool for Claude — compose posters, flyers, labels, social posts with PDF export",
+  "license": "MIT",
+  "author": "Alexandre Boyer",
+  "homepage": "https://github.com/ng-galien/maket#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ng-galien/maket.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ng-galien/maket/issues"
+  },
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build:client": "npm run build -w @maket/client",
+    "start": "MAKET_PORT=3333 MAKET_DATA_DIR=\"$PWD/.maket\" npx tsx packages/server/index.ts",
+    "dev": "MAKET_PORT=3333 MAKET_DATA_DIR=\"$PWD/.maket\" npx tsx --watch packages/server/index.ts & npm run dev -w @maket/client & wait",
+    "dev:watch": "MAKET_PORT=3333 MAKET_DATA_DIR=\"$PWD/.maket\" npx tsx --watch packages/server/index.ts & npm run build -w @maket/client -- --watch & wait",
+    "dev:server": "MAKET_PORT=3333 MAKET_DATA_DIR=\"$PWD/.maket\" npx tsx --watch packages/server/index.ts",
+    "dev:client": "npm run dev -w @maket/client",
+    "lint": "biome check packages/",
+    "lint:fix": "biome check --write packages/",
+    "typecheck": "tsc -b packages/shared packages/server",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "quality": "npm run lint && npm run typecheck && npm run test",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.7",
+    "@vitest/coverage-v8": "^4.1.4",
+    "esbuild": "^0.25.0",
+    "lefthook": "^2.1.4",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "maket": {
+      "command": "maket",
+      "args": [],
+      "env": {}
+    }
+  }
+}

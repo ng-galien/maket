@@ -1,0 +1,78 @@
+// ============================================================
+// CHARTE CSS — Generate CSS variables from design tokens
+// ============================================================
+
+import type { Charte } from "../types.js";
+
+/** Quote font names with spaces for CSS font-family */
+function quoteFontValue(group: string, value: string): string {
+	if (
+		group !== "font" ||
+		!value.includes(" ") ||
+		value.startsWith("'") ||
+		value.startsWith('"')
+	)
+		return value;
+	return `'${value}'`;
+}
+
+/** Flatten charte tokens to a list of [varName, cssValue] pairs */
+function flattenTokens(charte: Charte): [string, string][] {
+	const entries: [string, string][] = [];
+	if (!charte.tokens) return entries;
+	for (const [group, values] of Object.entries(charte.tokens)) {
+		if (!values || typeof values !== "object") continue;
+		for (const [key, value] of Object.entries(values)) {
+			entries.push([`--charte-${group}-${key}`, quoteFontValue(group, value)]);
+		}
+	}
+	return entries;
+}
+
+/** Generate :root { } CSS string from charte tokens */
+export function charteToCSS(charte: Charte): string {
+	const entries = flattenTokens(charte);
+	if (entries.length === 0) return "";
+	return `:root {\n${entries.map(([k, v]) => `  ${k}: ${v};`).join("\n")}\n}`;
+}
+
+/** Generate Google Fonts @import from charte font tokens */
+export function charteFontImport(charte: Charte): string {
+	const fonts = charte.tokens?.font;
+	if (!fonts) return "";
+
+	const GENERIC = new Set([
+		"serif",
+		"sans-serif",
+		"monospace",
+		"system-ui",
+		"cursive",
+		"fantasy",
+		"inherit",
+	]);
+	const families = new Set<string>();
+
+	for (const value of Object.values(fonts)) {
+		const [first = ""] = value.split(",");
+		const name = first.replace(/['"]/g, "").trim();
+		if (!name || GENERIC.has(name.toLowerCase())) continue;
+		families.add(name);
+	}
+
+	if (families.size === 0) return "";
+	const params = [...families].map(
+		(f) =>
+			`family=${f.replace(/ /g, "+")}:ital,wght@0,300;0,400;0,600;0,700;1,400`,
+	);
+	return `@import url('https://fonts.googleapis.com/css2?${params.join("&")}&display=swap');`;
+}
+
+/** Parse CSS var definitions from a :root {} block. Returns Map<varName, value> */
+export function parseCharteVars(css: string): Map<string, string> {
+	const vars = new Map<string, string>();
+	for (const match of css.matchAll(/(--charte-[^:]+):\s*([^;]+)/g)) {
+		const [, key = "", val = ""] = match;
+		if (key) vars.set(key.trim(), val.trim());
+	}
+	return vars;
+}

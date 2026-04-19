@@ -1,0 +1,214 @@
+@import "tailwindcss";
+
+@theme {
+  --color-app: light-dark(#EBEBED, #09090B);
+  --color-panel: light-dark(#FFF, #18181B);
+  --color-input: light-dark(#F4F4F5, #27272A);
+  --color-border: light-dark(#E4E4E7, #3F3F46);
+  --color-border-hover: light-dark(#D4D4D8, #52525B);
+
+  --color-text-1: light-dark(#18181B, #FAFAFA);
+  --color-text-2: light-dark(#71717A, #A1A1AA);
+  --color-text-3: light-dark(#A1A1AA, #71717A);
+
+  --color-accent: #10B981;
+  --color-accent-soft: light-dark(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.12));
+  --color-accent-border: light-dark(rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.25));
+
+  --color-danger: light-dark(#EF4444, #F87171);
+  --color-danger-soft: light-dark(rgba(239, 68, 68, 0.08), rgba(248, 113, 113, 0.12));
+  --color-danger-border: light-dark(#FCA5A5, #991B1B);
+
+  --color-warning: light-dark(#F59E0B, #FBBF24);
+  --color-warning-soft: light-dark(rgba(245, 158, 11, 0.08), rgba(251, 191, 36, 0.12));
+
+  --color-blue: light-dark(#3B82F6, #60A5FA);
+  --color-blue-soft: light-dark(#DBEAFE, rgba(96, 165, 250, 0.12));
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --z-panel: 40;
+  --z-bar: 50;
+  --z-popover: 150;
+  --z-overlay: 200;
+  --z-modal: 201;
+  --z-toast: 9999;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: var(--color-app);
+  color: var(--color-text-1);
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+}
+
+/* Global focus states */
+button:focus-visible,
+[role="button"]:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Workspace watermark — rendered as a React component in Board.tsx */
+
+/* Page canvas — element interaction styles */
+.page-canvas {
+  border-radius: 2px;
+  box-shadow: 0 8px 40px light-dark(rgba(0,0,0,0.12), rgba(0,0,0,0.3)), 0 2px 8px light-dark(rgba(0,0,0,0.08), rgba(0,0,0,0.2));
+  position: relative;
+  overflow: hidden;
+  contain: layout style paint;
+  content-visibility: auto;
+}
+
+.page-canvas [data-id] {
+  cursor: pointer;
+  transition: outline 150ms ease;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+}
+.page-canvas [data-id]:hover {
+  outline-color: var(--color-accent-border);
+}
+.page-canvas [data-id].selected {
+  outline-color: var(--color-accent);
+}
+/* Inline text editing */
+.page-canvas [data-id][contenteditable="true"] {
+  outline: 2px solid light-dark(#2563eb, #60a5fa) !important;
+  outline-offset: 2px;
+  cursor: text;
+  user-select: text;
+  caret-color: light-dark(#2563eb, #60a5fa);
+}
+.page-canvas.is-editing [data-id]:not([contenteditable="true"]) {
+  pointer-events: none;
+}
+
+/* Element hover toolbar */
+.element-toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: light-dark(#ffffff, #1e1e2e);
+  border: 1px solid light-dark(#e5e7eb, #313244);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  opacity: 0;
+  animation: toolbar-in 150ms ease forwards;
+}
+@keyframes toolbar-in {
+  to { opacity: 1; }
+}
+.tb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: light-dark(#6b7280, #a1a1aa);
+  cursor: pointer;
+  padding: 0;
+  transition: all 100ms ease;
+}
+.tb-btn svg {
+  pointer-events: none;
+}
+.tb-edit:hover {
+  background: light-dark(#eff6ff, #1e3a5f);
+  color: light-dark(#2563eb, #60a5fa);
+}
+.tb-comment:hover {
+  background: light-dark(#fef3c7, #422006);
+  color: light-dark(#d97706, #fbbf24);
+}
+
+
+.page-canvas [data-id].flagged-delete {
+  opacity: 0.3;
+  outline: 2px dashed var(--color-danger);
+  outline-offset: 2px;
+}
+.page-canvas [data-id].has-note {
+  outline: 2px solid #059669;
+  outline-offset: 2px;
+}
+
+/* Doc label — name truncated, full info on hover */
+.doc-label-name {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.doc-label {
+  position: relative;
+}
+
+/* Doc tooltip — overlay on hover with fade-in */
+.doc-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: light-dark(#ffffff, #1e1e2e);
+  border: 1px solid light-dark(#e5e7eb, #313244);
+  border-radius: 8px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  white-space: nowrap;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+.doc-tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: light-dark(#e5e7eb, #313244);
+}
+.doc-label:hover .doc-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Doc close button */
+.doc-close-btn:hover {
+  color: var(--color-danger) !important;
+  background: var(--color-danger-soft) !important;
+}
+
+/* Popover animation */
+@keyframes popoverIn {
+  from {
+    opacity: 0;
+    transform: translateX(-8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}

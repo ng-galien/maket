@@ -1,0 +1,26 @@
+{
+	"name": "@maket/server",
+	"version": "1.0.0",
+	"type": "module",
+	"main": "index.ts",
+	"license": "MIT",
+	"private": true,
+	"dependencies": {
+		"@maket/shared": "*",
+		"@modelcontextprotocol/sdk": "^1.12.1",
+		"awilix": "^13.0.3",
+		"beautiful-mermaid": "^1.1.3",
+		"express": "^4.21.0",
+		"googleapis": "^171.4.0",
+		"jimp": "^1.6.0",
+		"linkedom": "^0.18.12",
+		"puppeteer": "^24.39.1",
+		"ws": "^8.18.0",
+		"zod": "^4.3.6"
+	},
+	"devDependencies": {
+		"@types/express": "^5.0.6",
+		"@types/node": "^25.5.0",
+		"@types/ws": "^8.18.1"
+	}
+}

@@ -1,0 +1,9 @@
+{
+  "name": "maket",
+  "version": "1.0.0",
+  "description": "Visual design skill for Maket — plans layouts, composes documents, and guides Claude through structured design workflows",
+  "author": {
+    "name": "Alexandre Boyer",
+    "email": "alexandre@boyer.dev"
+  }
+}

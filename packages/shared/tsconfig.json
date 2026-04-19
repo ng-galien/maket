@@ -1,0 +1,15 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"composite": true,
+		"declaration": true,
+		"declarationMap": true,
+		"noEmit": false,
+		"outDir": "dist",
+		"rootDir": "src"
+	},
+	"include": ["src"]
+}

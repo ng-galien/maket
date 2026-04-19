@@ -1,0 +1,326 @@
+import { create } from "zustand";
+import { useShallow } from "zustand/shallow";
+import type { DocSummary, Document, Element } from "./types";
+import { wsSend } from "./ws";
+
+export interface PendingMessage {
+	id: string;
+	type: "note" | "delete" | "drop-image" | "drop-text" | "classify-images";
+	elementId?: string;
+	docName?: string;
+	pageIndex?: number;
+	text?: string;
+	file?: string;
+	position?: string;
+	ts: number;
+}
+
+interface AppState {
+	// Connection
+	connected: boolean;
+
+	// Multi-doc workspace
+	docs: Map<string, Document>;
+	workspaceDocNames: string[];
+	focusedDocName: string | null;
+
+	// Global
+	docList: DocSummary[];
+	chartesCss: Map<string, string>;
+	chartesVersion: number;
+
+	// UI
+	selectedIds: string[];
+	editingElementId: string | null;
+	showPopover: boolean;
+	activePanel: "chartes" | "photos" | "docs" | "exchange" | null;
+	barPosition: "top" | "bottom";
+	darkMode: boolean;
+	locked: boolean;
+	zoom: number;
+
+	// Pending messages (user → Claude)
+	pending: PendingMessage[];
+
+	// Actions
+	setConnected: (v: boolean) => void;
+	upsertDoc: (
+		doc: Document,
+		docList: DocSummary[],
+		charteCss?: string,
+		addToWorkspace?: boolean,
+		focus?: boolean,
+	) => void;
+	addDocToWorkspace: (docName: string) => void;
+	removeDocFromWorkspace: (docName: string) => void;
+	setFocusedDoc: (docName: string | null) => void;
+	selectElement: (id: string | null, toggle?: boolean) => void;
+	setEditingElement: (id: string | null) => void;
+	setActivePanel: (
+		v: "chartes" | "photos" | "docs" | "exchange" | null,
+	) => void;
+	togglePanel: (panel: "chartes" | "photos" | "docs" | "exchange") => void;
+	setBarPosition: (v: "top" | "bottom") => void;
+	setDarkMode: (v: boolean) => void;
+	toggleDarkMode: () => void;
+	setLocked: (v: boolean) => void;
+	setZoom: (v: number) => void;
+	addPending: (msg: PendingMessage) => void;
+	removePending: (id: string) => void;
+
+	// Deprecated — backward compat
+	setServerState: (
+		doc: Document | null,
+		docList: DocSummary[],
+		charteCss?: string,
+	) => void;
+}
+
+function syncPending() {
+	setTimeout(() => {
+		wsSend({ type: "sync_pending", pending: useStore.getState().pending });
+	}, 0);
+}
+
+function syncWorkspace() {
+	setTimeout(() => {
+		wsSend({
+			type: "workspace_update",
+			displayed: useStore.getState().workspaceDocNames,
+		});
+	}, 0);
+}
+
+function loadWorkspace(): string[] {
+	try {
+		return JSON.parse(localStorage.getItem("maket-workspace") || "null") ?? [];
+	} catch {
+		return [];
+	}
+}
+
+function saveWorkspace(names: string[]) {
+	localStorage.setItem("maket-workspace", JSON.stringify(names));
+}
+
+const _savedWorkspace = loadWorkspace();
+const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
+
+export const useStore = create<AppState>((set, get) => ({
+	connected: false,
+	docs: new Map(),
+	workspaceDocNames: _savedWorkspace,
+	focusedDocName:
+		_savedFocused && _savedWorkspace.includes(_savedFocused)
+			? _savedFocused
+			: null,
+	docList: [],
+	chartesCss: new Map(),
+	chartesVersion: 0,
+	selectedIds: [],
+	editingElementId: null,
+	showPopover: false,
+	pending: [],
+	activePanel: null,
+	barPosition:
+		(localStorage.getItem("bar-position") as "top" | "bottom") || "bottom",
+	darkMode:
+		localStorage.getItem("dark-mode") === "true" ||
+		window.matchMedia("(prefers-color-scheme: dark)").matches,
+	locked: false,
+	zoom: 100,
+
+	setConnected: (connected) => set({ connected }),
+
+	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
+		set((s) => {
+			const docs = new Map(s.docs);
+			docs.set(doc.name, doc);
+			const inWorkspace = s.workspaceDocNames.includes(doc.name);
+			let workspaceDocNames = s.workspaceDocNames;
+			if (!inWorkspace && addToWorkspace) {
+				// Insert near same-category docs, or before focused doc
+				const newCat = docList.find((d) => d.name === doc.name)?.category;
+				const sameCatIdxs = s.workspaceDocNames
+					.map((n, i) => ({ n, i }))
+					.filter(
+						({ n }) => docList.find((d) => d.name === n)?.category === newCat,
+					)
+					.map(({ i }) => i);
+				const insertAfter =
+					sameCatIdxs.length > 0
+						? Math.max(...sameCatIdxs)
+						: s.focusedDocName
+							? s.workspaceDocNames.indexOf(s.focusedDocName) - 1
+							: s.workspaceDocNames.length - 1;
+				const pos = insertAfter + 1;
+				workspaceDocNames = [
+					...s.workspaceDocNames.slice(0, pos),
+					doc.name,
+					...s.workspaceDocNames.slice(pos),
+				];
+			}
+			// Steal focus only if explicitly requested, or if nothing is focused yet
+			const shouldFocus = focus || !s.focusedDocName;
+			const focusedDocName =
+				!inWorkspace && addToWorkspace && shouldFocus
+					? doc.name
+					: (s.focusedDocName ??
+						(workspaceDocNames.length > 0 ? doc.name : null));
+			const chartesCss = new Map(s.chartesCss);
+			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
+			saveWorkspace(workspaceDocNames);
+			syncWorkspace();
+			if (focusedDocName)
+				localStorage.setItem("maket-focused-doc", focusedDocName);
+			return { docs, workspaceDocNames, focusedDocName, docList, chartesCss };
+		}),
+
+	addDocToWorkspace: (docName) =>
+		set((s) => {
+			if (s.workspaceDocNames.includes(docName)) return {};
+			const workspaceDocNames = [...s.workspaceDocNames, docName];
+			saveWorkspace(workspaceDocNames);
+			return { workspaceDocNames };
+		}),
+
+	removeDocFromWorkspace: (docName) =>
+		set((s) => {
+			const workspaceDocNames = s.workspaceDocNames.filter(
+				(n) => n !== docName,
+			);
+			saveWorkspace(workspaceDocNames);
+			syncWorkspace();
+			const docs = new Map(s.docs);
+			docs.delete(docName);
+			const focusedDocName =
+				s.focusedDocName === docName
+					? (workspaceDocNames[workspaceDocNames.length - 1] ?? null)
+					: s.focusedDocName;
+			return {
+				workspaceDocNames,
+				docs,
+				focusedDocName,
+				selectedIds: focusedDocName !== s.focusedDocName ? [] : s.selectedIds,
+			};
+		}),
+
+	setFocusedDoc: (docName) =>
+		set((s) => {
+			if (s.focusedDocName === docName) return {};
+			localStorage.setItem("maket-focused-doc", docName ?? "");
+			return { focusedDocName: docName, selectedIds: [] };
+		}),
+
+	selectElement: (id, toggle = false) =>
+		set((s) => {
+			if (!id) return { selectedIds: [], showPopover: false };
+			if (toggle) {
+				const has = s.selectedIds.includes(id);
+				return {
+					selectedIds: has
+						? s.selectedIds.filter((x) => x !== id)
+						: [...s.selectedIds, id],
+					showPopover: false,
+				};
+			}
+			return { selectedIds: [id], showPopover: false };
+		}),
+
+	setEditingElement: (id) => set({ editingElementId: id }),
+
+	setActivePanel: (activePanel) => set({ activePanel }),
+	togglePanel: (panel) =>
+		set((s) => ({ activePanel: s.activePanel === panel ? null : panel })),
+	setBarPosition: (barPosition) => {
+		localStorage.setItem("bar-position", barPosition);
+		set({ barPosition });
+	},
+	setDarkMode: (darkMode) => {
+		localStorage.setItem("dark-mode", String(darkMode));
+		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+		set({ darkMode });
+	},
+	toggleDarkMode: () => {
+		const next = !get().darkMode;
+		localStorage.setItem("dark-mode", String(next));
+		document.documentElement.style.colorScheme = next ? "dark" : "light";
+		set({ darkMode: next });
+	},
+	setLocked: (locked) => set({ locked }),
+	setZoom: (zoom) => set({ zoom }),
+	addPending: (msg) => {
+		set((s) => ({
+			pending: [
+				...s.pending,
+				{ ...msg, docName: msg.docName ?? s.focusedDocName ?? undefined },
+			],
+		}));
+		syncPending();
+	},
+	removePending: (id) => {
+		set((s) => ({ pending: s.pending.filter((m) => m.id !== id) }));
+		syncPending();
+	},
+
+	// Deprecated — calls upsertDoc for backward compat
+	setServerState: (doc, docList, charteCss) => {
+		if (doc) get().upsertDoc(doc, docList, charteCss);
+		else set({ docList });
+	},
+}));
+
+// Stable empty arrays to avoid new-reference re-render loops
+const EMPTY_ELEMENTS: Element[] = [];
+const EMPTY_PAGES: { name: string; elements: Element[] }[] = [];
+
+// ---- Selectors ----
+
+/** The focused document (what BottomBar, Layers, Exchange operate on) */
+export const useFocusedDoc = () =>
+	useStore(
+		useShallow((s) =>
+			s.focusedDocName ? (s.docs.get(s.focusedDocName) ?? null) : null,
+		),
+	);
+
+/** Workspace doc names (stable array ref via shallow compare) */
+export const useWorkspaceDocNames = () =>
+	useStore(useShallow((s) => s.workspaceDocNames));
+
+/** Get a single doc by name (for WorkspaceDoc component) */
+export function useDocByName(name: string) {
+	return useStore(useShallow((s) => s.docs.get(name) ?? null));
+}
+
+// Legacy selectors — read from focusedDoc
+export const useDoc = () => useFocusedDoc();
+export const useElements = () =>
+	useStore((s) => {
+		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
+		return doc?.elements ?? EMPTY_ELEMENTS;
+	});
+export const usePageHtml = () =>
+	useStore((s) => {
+		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
+		if (!doc) return "";
+		const page = doc.pages[doc.activePage];
+		return page?.html ?? "";
+	});
+export const usePages = () =>
+	useStore((s) => {
+		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
+		return doc?.pages ?? EMPTY_PAGES;
+	});
+export const useActivePage = () =>
+	useStore((s) => {
+		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
+		return doc?.activePage ?? 0;
+	});
+export const useSelectedIds = () => useStore((s) => s.selectedIds);
+export const useSelectedElement = (): Element | null =>
+	useStore((s) => {
+		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
+		if (!doc || s.selectedIds.length !== 1) return null;
+		return doc.elements.find((el) => el.id === s.selectedIds[0]) ?? null;
+	});
