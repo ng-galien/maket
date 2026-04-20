@@ -1,5 +1,5 @@
 import type { PendingMessage } from "@maket/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
 import type { Config } from "./config.js";
@@ -123,6 +123,84 @@ describe("ws-handler — sync_pending", () => {
 		expect(documents.resolve("a")?._pending).toEqual([]);
 		expect(documents.resolve("b")?._pending).toEqual([]);
 
+		cleanup();
+	});
+});
+
+describe("ws-handler — lock guards", () => {
+	it("refuses delete_document when the doc is locked", () => {
+		const { store, bus, documents, handler, cleanup } = fixture();
+		const locked = makeDoc("locked");
+		locked.meta.locked = true;
+		store.saveDoc(locked);
+		store.saveDoc(makeDoc("other"));
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		handler({ type: "delete_document", name: "locked" }, STUB_WS);
+
+		expect(documents.resolve("locked")).not.toBeNull();
+		expect(store.loadOne("locked")).not.toBeNull();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ text: expect.stringMatching(/locked/i) }),
+		);
+		cleanup();
+	});
+
+	it("refuses rename_document when the doc is locked", () => {
+		const { store, bus, documents, handler, cleanup } = fixture();
+		const locked = makeDoc("locked");
+		locked.meta.locked = true;
+		store.saveDoc(locked);
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		handler(
+			{ type: "rename_document", name: "locked", newName: "renamed" },
+			STUB_WS,
+		);
+
+		expect(documents.resolve("locked")).not.toBeNull();
+		expect(documents.resolve("renamed")).toBeNull();
+		expect(toast).toHaveBeenCalled();
+		cleanup();
+	});
+
+	it("refuses update_meta when the doc is locked", () => {
+		const { store, bus, documents, handler, cleanup } = fixture();
+		const locked = makeDoc("locked");
+		locked.meta.locked = true;
+		store.saveDoc(locked);
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		handler(
+			{
+				type: "update_meta",
+				docName: "locked",
+				designNotes: "should be ignored",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("locked")?.meta.designNotes).toBeUndefined();
+		expect(toast).toHaveBeenCalled();
+		cleanup();
+	});
+
+	it("still allows lock_document to toggle a locked doc back to unlocked", () => {
+		const { store, documents, handler, cleanup } = fixture();
+		const locked = makeDoc("locked");
+		locked.meta.locked = true;
+		store.saveDoc(locked);
+		documents.loadAll();
+
+		handler({ type: "lock_document", name: "locked", locked: false }, STUB_WS);
+
+		expect(documents.resolve("locked")?.meta.locked).toBe(false);
 		cleanup();
 	});
 });

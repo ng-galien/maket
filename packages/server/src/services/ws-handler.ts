@@ -157,6 +157,13 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 			case "update_meta": {
 				const d = wsDoc(msg);
 				if (!d) break;
+				if (d.meta?.locked === true) {
+					bus.emit("toast", {
+						text: `"${d.name}" is locked — unlock it to edit metadata`,
+						level: "info",
+					});
+					break;
+				}
 				if (!d.meta) d.meta = {};
 				if (msg.designNotes != null) d.meta.designNotes = msg.designNotes;
 				if (msg.teamNotes != null) d.meta.teamNotes = msg.teamNotes;
@@ -210,8 +217,16 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 
 			case "delete_document": {
 				const name = msg.name;
-				if (!name || !documents.all().has(name)) break;
+				const d = documents.resolve(name ?? "");
+				if (!name || !d) break;
 				if (documents.all().size <= 1) break;
+				if (d.meta?.locked === true) {
+					bus.emit("toast", {
+						text: `"${name}" is locked — unlock it to delete`,
+						level: "info",
+					});
+					break;
+				}
 				documents.delete(name);
 				bus.emit("document:deleted", { docName: name });
 				break;
@@ -222,6 +237,13 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				if (!name || !newName || name === newName) break;
 				const d = documents.resolve(name);
 				if (!d) break;
+				if (d.meta?.locked === true) {
+					bus.emit("toast", {
+						text: `"${name}" is locked — unlock it to rename`,
+						level: "info",
+					});
+					break;
+				}
 				if (documents.all().has(newName)) {
 					bus.emit("toast", {
 						text: `Name "${newName}" already exists`,
