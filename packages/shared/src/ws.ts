@@ -132,6 +132,9 @@ export interface WsUpdateMetaMessage {
 	teamNotes?: string;
 	rating?: number;
 	charte?: string;
+	/** Re-classify the document into a different category. The server
+	 * writes to `doc.category` (top-level), not `doc.meta`. */
+	category?: string;
 }
 
 export interface WsDeleteAssetMessage {

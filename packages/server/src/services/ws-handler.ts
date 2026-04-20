@@ -163,6 +163,8 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				if (msg.rating != null)
 					d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
 				if (msg.charte != null) d.meta.charte = msg.charte;
+				if (msg.category != null) d.category = msg.category || "general";
+				documents.persist(d.name);
 				bus.emit("meta:updated", { docName: d.name });
 				break;
 			}

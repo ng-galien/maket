@@ -19,7 +19,10 @@ import {
 	sendLoadDoc,
 	sendLockDoc,
 	sendRenameDoc,
+	wsSend,
 } from "../store/ws";
+
+const DRAG_MIME = "application/x-maket-doc";
 
 // Category color by hash
 function catColor(cat: string): string {
@@ -194,6 +197,8 @@ export function DocsTab() {
 	const [collapsed, setCollapsed] = useState<Set<string>>(() =>
 		loadCollapsed(),
 	);
+	const [dragOverCat, setDragOverCat] = useState<string | null>(null);
+	const [draggingName, setDraggingName] = useState<string | null>(null);
 
 	const toggleCategory = (cat: string) => {
 		setCollapsed((prev) => {
@@ -294,13 +299,42 @@ export function DocsTab() {
 			{/* Categories */}
 			{[...grouped.entries()].map(([cat, docs]) => {
 				const isCollapsed = !searching && collapsed.has(cat);
+				const dropActive = dragOverCat === cat;
 				return (
 					<div key={cat}>
-						{/* Category header — click anywhere toggles */}
+						{/* Category header — click toggles collapse, drop reassigns doc */}
 						<button
 							type="button"
 							onClick={() => toggleCategory(cat)}
-							className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-black/[0.03] transition group/cat"
+							onDragOver={(e) => {
+								if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
+								e.preventDefault();
+								e.dataTransfer.dropEffect = "move";
+								if (dragOverCat !== cat) setDragOverCat(cat);
+							}}
+							onDragLeave={(e) => {
+								const related = e.relatedTarget as Node | null;
+								if (!related || !e.currentTarget.contains(related))
+									setDragOverCat((c) => (c === cat ? null : c));
+							}}
+							onDrop={(e) => {
+								const name = e.dataTransfer.getData(DRAG_MIME);
+								setDragOverCat(null);
+								setDraggingName(null);
+								if (!name) return;
+								const src = docList.find((d) => d.name === name);
+								if (!src || src.category === cat) return;
+								wsSend({
+									type: "update_meta",
+									docName: name,
+									category: cat,
+								});
+							}}
+							className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition group/cat ${
+								dropActive
+									? "bg-accent/15 ring-2 ring-accent/40"
+									: "hover:bg-black/[0.03]"
+							}`}
 							aria-expanded={!isCollapsed}
 						>
 							<ChevronRight
@@ -318,11 +352,17 @@ export function DocsTab() {
 									flexShrink: 0,
 								}}
 							/>
-							<span className="text-xs font-bold text-text-3 uppercase tracking-wider flex-1 text-left">
+							<span
+								className={`text-xs font-bold uppercase tracking-wider flex-1 text-left ${
+									dropActive ? "text-accent" : "text-text-3"
+								}`}
+							>
 								{cat}
 							</span>
-							<span className="text-xs text-text-3 tabular-nums">
-								{docs.length}
+							<span
+								className={`text-xs tabular-nums ${dropActive ? "text-accent" : "text-text-3"}`}
+							>
+								{dropActive ? t("doc_drop_here") : docs.length}
 							</span>
 						</button>
 
@@ -347,6 +387,16 @@ export function DocsTab() {
 											)
 										}
 										canDelete={docList.length > 1}
+										dragging={draggingName === d.name}
+										onDragStart={(e) => {
+											e.dataTransfer.effectAllowed = "move";
+											e.dataTransfer.setData(DRAG_MIME, d.name);
+											setDraggingName(d.name);
+										}}
+										onDragEnd={() => {
+											setDraggingName(null);
+											setDragOverCat(null);
+										}}
 									/>
 								))}
 							</div>
@@ -374,6 +424,9 @@ interface DocRowProps {
 	mode: RowMode;
 	onModeChange: (mode: RowMode) => void;
 	canDelete: boolean;
+	dragging: boolean;
+	onDragStart: (e: React.DragEvent) => void;
+	onDragEnd: (e: React.DragEvent) => void;
 }
 
 function DocRow({
@@ -386,13 +439,28 @@ function DocRow({
 	mode,
 	onModeChange,
 	canDelete,
+	dragging,
+	onDragStart,
+	onDragEnd,
 }: DocRowProps) {
 	const t = useT();
 	const locked = doc.locked === true;
 	const editing = mode.kind === "rename" || mode.kind === "duplicate";
+	const dragEnabled = mode.kind === "idle";
 
 	return (
-		<div className="relative group">
+		<div
+			className={`relative group ${dragging ? "opacity-40" : ""}`}
+			draggable={dragEnabled}
+			onDragStart={(e) => {
+				if (!dragEnabled) {
+					e.preventDefault();
+					return;
+				}
+				onDragStart(e);
+			}}
+			onDragEnd={onDragEnd}
+		>
 			{editing ? (
 				<InlineNameEditor
 					initial={mode.kind === "rename" ? doc.name : `${doc.name} copy`}

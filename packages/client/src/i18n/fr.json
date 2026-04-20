@@ -16,6 +16,7 @@
 	"doc_duplicate_prompt": "Nom de la copie :",
 	"doc_delete_confirm": "Supprimer « {name} » ? Cette action est irréversible.",
 	"doc_delete_hold": "Maintenir pour supprimer « {name} »",
+	"doc_drop_here": "Déposer ici",
 	"no_image": "Aucune image",
 	"no_charte": "Aucune charte",
 	"loading": "Chargement...",
