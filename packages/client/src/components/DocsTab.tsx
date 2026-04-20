@@ -88,6 +88,68 @@ function saveCollapsed(set: Set<string>): void {
 	}
 }
 
+/**
+ * Multi-criteria search parser.
+ *   @cat       — restrict to category `cat`
+ *   #locked    — only locked docs
+ *   #unlocked  — only unlocked docs
+ *   :N         — rating ≥ N (1–5)
+ *   <rest>     — fuzzy substring on name
+ * Tokens accumulate (AND), so `@flyer #locked :4 summer` means
+ * "flyer AND locked AND rating≥4 AND name contains summer".
+ */
+interface Query {
+	category: string | null;
+	locked: boolean | null;
+	minRating: number;
+	text: string;
+}
+
+interface QueryChip {
+	key: string;
+	label: string;
+	onRemove: () => void;
+}
+
+function parseQuery(raw: string): Query {
+	const tokens = raw.split(/\s+/).filter(Boolean);
+	let category: string | null = null;
+	let locked: boolean | null = null;
+	let minRating = 0;
+	const text: string[] = [];
+	for (const tok of tokens) {
+		if (tok.startsWith("@") && tok.length > 1) {
+			category = tok.slice(1).toLowerCase();
+		} else if (tok === "#locked") {
+			locked = true;
+		} else if (tok === "#unlocked") {
+			locked = false;
+		} else if (/^:\d$/.test(tok)) {
+			minRating = Math.max(minRating, Number(tok.slice(1)));
+		} else {
+			text.push(tok);
+		}
+	}
+	return { category, locked, minRating, text: text.join(" ").toLowerCase() };
+}
+
+function matchesQuery(d: DocSummary, q: Query): boolean {
+	if (q.category && (d.category || "general").toLowerCase() !== q.category)
+		return false;
+	if (q.locked !== null && (d.locked === true) !== q.locked) return false;
+	if (q.minRating > 0 && (d.rating ?? 0) < q.minRating) return false;
+	if (q.text && !d.name.toLowerCase().includes(q.text)) return false;
+	return true;
+}
+
+function stripToken(raw: string, predicate: (tok: string) => boolean): string {
+	return raw
+		.split(/\s+/)
+		.filter(Boolean)
+		.filter((tok) => !predicate(tok))
+		.join(" ");
+}
+
 export function DocsTab() {
 	const t = useT();
 	const docList = useStore((s) => s.docList);
@@ -118,9 +180,35 @@ export function DocsTab() {
 	// that one — collapsed state is only meaningful when you're browsing.
 	const searching = search.trim().length > 0;
 
-	const filtered = docList.filter((d) =>
-		d.name.toLowerCase().includes(search.toLowerCase()),
-	);
+	const query = parseQuery(search);
+	const filtered = docList.filter((d) => matchesQuery(d, query));
+
+	const chips: QueryChip[] = [];
+	if (query.category) {
+		chips.push({
+			key: "cat",
+			label: `@${query.category}`,
+			onRemove: () =>
+				setSearch(
+					stripToken(search, (t) => t.toLowerCase() === `@${query.category}`),
+				),
+		});
+	}
+	if (query.locked !== null) {
+		const tok = query.locked ? "#locked" : "#unlocked";
+		chips.push({
+			key: "lock",
+			label: tok,
+			onRemove: () => setSearch(stripToken(search, (t) => t === tok)),
+		});
+	}
+	if (query.minRating > 0) {
+		chips.push({
+			key: "rating",
+			label: `≥ ${"★".repeat(query.minRating)}`,
+			onRemove: () => setSearch(stripToken(search, (t) => /^:\d$/.test(t))),
+		});
+	}
 
 	// Group by category
 	const grouped = new Map<string, typeof docList>();
@@ -145,13 +233,33 @@ export function DocsTab() {
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
 		>
 			{/* Search */}
-			<div className="px-1">
+			<div className="px-1 flex flex-col gap-1.5">
 				<input
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
-					placeholder={t("search")}
+					placeholder={t("search_hint")}
 					className="w-full px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 				/>
+				{chips.length > 0 && (
+					<div className="flex flex-wrap gap-1 px-1">
+						{chips.map((c) => (
+							<button
+								key={c.key}
+								type="button"
+								onClick={c.onRemove}
+								className="group flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-2xs font-semibold hover:bg-accent/15 transition"
+							>
+								<span>{c.label}</span>
+								<span
+									aria-hidden
+									className="opacity-60 group-hover:opacity-100 leading-none"
+								>
+									×
+								</span>
+							</button>
+						))}
+					</div>
+				)}
 			</div>
 
 			{/* Categories */}

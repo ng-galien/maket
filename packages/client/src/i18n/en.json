@@ -2,6 +2,7 @@
 	"photos": "Photos",
 	"chartes": "Brand",
 	"search": "Search...",
+	"search_hint": "Search… @category #locked :rating",
 	"no_document": "No document",
 	"doc_menu": "Actions",
 	"doc_locked": "Locked document",
