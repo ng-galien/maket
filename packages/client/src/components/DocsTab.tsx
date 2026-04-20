@@ -12,7 +12,8 @@ import {
 	Trash2,
 	Unlock,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import type { DocSummary } from "../store/types";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
@@ -807,6 +808,7 @@ function DocCard({
 	const confirming = mode.kind === "confirm-delete";
 	const dragEnabled = mode.kind === "idle";
 	const aspect = docAspectRatio(doc);
+	const menuButtonRef = useRef<HTMLButtonElement>(null);
 	// Real page snapshot served by the server. `t=<updatedAt>` acts both as
 	// a cache-key on the ThumbnailService and as a cache-buster in the
 	// browser: when the doc changes, updatedAt changes, url changes, the
@@ -931,6 +933,7 @@ function DocCard({
 						</div>
 					</div>
 					<button
+						ref={menuButtonRef}
 						type="button"
 						aria-label={t("doc_menu")}
 						onClick={(e) => {
@@ -955,6 +958,7 @@ function DocCard({
 					onClose={onMenuClose}
 					canDelete={canDelete}
 					locked={locked}
+					anchorRef={menuButtonRef}
 					onRename={() => {
 						onMenuClose();
 						onModeChange({ kind: "rename" });
@@ -992,6 +996,7 @@ function DocRow({
 	const locked = doc.locked === true;
 	const editing = mode.kind === "rename" || mode.kind === "duplicate";
 	const dragEnabled = mode.kind === "idle";
+	const menuButtonRef = useRef<HTMLButtonElement>(null);
 
 	return (
 		<div
@@ -1110,6 +1115,7 @@ function DocRow({
 
 			{!editing && mode.kind !== "confirm-delete" && (
 				<button
+					ref={menuButtonRef}
 					type="button"
 					aria-label={t("doc_menu")}
 					onClick={(e) => {
@@ -1133,6 +1139,7 @@ function DocRow({
 					onClose={onMenuClose}
 					canDelete={canDelete}
 					locked={locked}
+					anchorRef={menuButtonRef}
 					onRename={() => {
 						onMenuClose();
 						onModeChange({ kind: "rename" });
@@ -1307,6 +1314,10 @@ interface DocMenuProps {
 	onRename: () => void;
 	onDuplicate: () => void;
 	onDeleteRequest: () => void;
+	/** The ⋮ button that opened the menu — used to anchor the popover with
+	 * fixed coordinates so ancestor `overflow-hidden` containers (SidePanel,
+	 * scrollable panel) can't clip it. */
+	anchorRef: React.RefObject<HTMLElement | null>;
 }
 
 function DocMenu({
@@ -1317,24 +1328,56 @@ function DocMenu({
 	onRename,
 	onDuplicate,
 	onDeleteRequest,
+	anchorRef,
 }: DocMenuProps) {
 	const t = useT();
 	const ref = useRef<HTMLDivElement>(null);
+	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+	// Measure anchor once — use layoutEffect so the menu mounts at the right
+	// coordinates and doesn't flash at (0,0).
+	useLayoutEffect(() => {
+		const a = anchorRef.current;
+		if (!a) return;
+		const rect = a.getBoundingClientRect();
+		const MENU_W = 192;
+		const GAP = 4;
+		const top = rect.bottom + GAP;
+		const right = Math.max(8, window.innerWidth - rect.right);
+		// Keep the menu fully on-screen vertically — flip above if there's no
+		// room below.
+		const ESTIMATED_H = 210;
+		const flipped =
+			top + ESTIMATED_H > window.innerHeight - 8
+				? Math.max(8, rect.top - GAP - ESTIMATED_H)
+				: top;
+		void MENU_W;
+		setPos({ top: flipped, right });
+	}, [anchorRef]);
 
 	useEffect(() => {
 		const onDocClick = (e: MouseEvent) => {
-			if (!ref.current?.contains(e.target as Node)) onClose();
+			if (ref.current?.contains(e.target as Node)) return;
+			if (anchorRef.current?.contains(e.target as Node)) return;
+			onClose();
 		};
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") onClose();
 		};
+		// Any scroll in an ancestor invalidates our fixed position — just
+		// close. Users re-open fast enough that recomputing is not worth it.
+		const onScroll = () => onClose();
 		document.addEventListener("mousedown", onDocClick);
 		document.addEventListener("keydown", onKey);
+		window.addEventListener("scroll", onScroll, true);
+		window.addEventListener("resize", onScroll);
 		return () => {
 			document.removeEventListener("mousedown", onDocClick);
 			document.removeEventListener("keydown", onKey);
+			window.removeEventListener("scroll", onScroll, true);
+			window.removeEventListener("resize", onScroll);
 		};
-	}, [onClose]);
+	}, [onClose, anchorRef]);
 
 	const handleCopy = async () => {
 		await copyToClipboard(doc.name);
@@ -1346,10 +1389,13 @@ function DocMenu({
 		onClose();
 	};
 
-	return (
+	if (!pos) return null;
+
+	return createPortal(
 		<div
 			ref={ref}
-			className="absolute right-1.5 top-[calc(100%-4px)] z-50 w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] overflow-hidden py-1"
+			className="fixed z-[210] w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
+			style={{ top: pos.top, right: pos.right }}
 		>
 			<MenuItem icon={<Copy size={13} />} onClick={handleCopy}>
 				{t("doc_copy_name")}
@@ -1379,7 +1425,8 @@ function DocMenu({
 			>
 				{t("doc_delete")}
 			</MenuItem>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
