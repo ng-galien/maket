@@ -11,7 +11,7 @@ import { useStore } from "./useStore";
 
 const BUBBLE_LANGS: Record<string, Record<string, string>> = { fr, en };
 
-function translateBubble(
+export function translateBubble(
 	key: string | undefined,
 	params?: Record<string, string>,
 ): string {
@@ -59,7 +59,7 @@ function findPageCanvas(
 	return document.querySelector(".page-canvas") as HTMLElement | null;
 }
 
-function measurePageLayout(page: HTMLElement) {
+export function measurePageLayout(page: HTMLElement) {
 	const pageRect = page.getBoundingClientRect();
 	const containerHeight = Math.round(pageRect.height);
 	const containerWidth = Math.round(pageRect.width);
