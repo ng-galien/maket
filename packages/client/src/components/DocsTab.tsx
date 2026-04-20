@@ -603,7 +603,13 @@ function BulkActionBar({
 	const t = useT();
 	const [showCatPicker, setShowCatPicker] = useState(false);
 	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+	const [creatingCat, setCreatingCat] = useState(false);
 	const pickerRef = useRef<HTMLDivElement>(null);
+	const newCatInputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		if (creatingCat) newCatInputRef.current?.focus();
+	}, [creatingCat]);
 
 	// All known categories, deduped + sorted. A bulk "change to" picker is
 	// most useful when it lists what already exists plus a free-form input.
@@ -622,8 +628,10 @@ function BulkActionBar({
 	useEffect(() => {
 		if (!showCatPicker) return;
 		const onDocClick = (e: MouseEvent) => {
-			if (!pickerRef.current?.contains(e.target as Node))
+			if (!pickerRef.current?.contains(e.target as Node)) {
 				setShowCatPicker(false);
+				setCreatingCat(false);
+			}
 		};
 		document.addEventListener("mousedown", onDocClick);
 		return () => document.removeEventListener("mousedown", onDocClick);
@@ -646,33 +654,51 @@ function BulkActionBar({
 					{showCatPicker && (
 						<div
 							ref={pickerRef}
-							className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
+							className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-56 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
 						>
-							{categories.map((cat) => (
-								<button
-									key={cat}
-									type="button"
-									onClick={() => {
-										setShowCatPicker(false);
-										onRecategorize(cat);
+							{!creatingCat &&
+								categories.map((cat) => (
+									<button
+										key={cat}
+										type="button"
+										onClick={() => {
+											setShowCatPicker(false);
+											onRecategorize(cat);
+										}}
+										className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+									>
+										{cat}
+									</button>
+								))}
+							{!creatingCat && <div className="h-px bg-black/[0.06] my-1" />}
+							{creatingCat ? (
+								<input
+									ref={newCatInputRef}
+									type="text"
+									placeholder={t("bulk_new_category")}
+									onKeyDown={(e) => {
+										if (e.key === "Enter") {
+											const value = e.currentTarget.value.trim();
+											setCreatingCat(false);
+											setShowCatPicker(false);
+											if (value) onRecategorize(value);
+										} else if (e.key === "Escape") {
+											e.currentTarget.value = "";
+											setCreatingCat(false);
+										}
 									}}
-									className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+									onBlur={() => setCreatingCat(false)}
+									className="w-full px-3 py-1.5 text-sm bg-transparent outline-none placeholder:text-text-3 border-b border-accent/40"
+								/>
+							) : (
+								<button
+									type="button"
+									onClick={() => setCreatingCat(true)}
+									className="w-full text-left px-3 py-1.5 text-sm text-accent hover:bg-accent/5 transition font-semibold"
 								>
-									{cat}
+									+ {t("bulk_new_category_cta")}
 								</button>
-							))}
-							<div className="h-px bg-black/[0.06] my-1" />
-							<button
-								type="button"
-								onClick={() => {
-									setShowCatPicker(false);
-									const next = window.prompt(t("bulk_new_category"));
-									if (next) onRecategorize(next);
-								}}
-								className="w-full text-left px-3 py-1.5 text-sm text-accent hover:bg-accent/5 transition font-semibold"
-							>
-								+ {t("bulk_new_category_cta")}
-							</button>
+							)}
 						</div>
 					)}
 				</div>
