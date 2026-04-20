@@ -19,8 +19,8 @@ function Watermark() {
 		<div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none select-none z-0">
 			<div
 				style={{
-					fontFamily: "'Raleway', sans-serif",
-					fontSize: 200,
+					fontFamily: "var(--font-display)",
+					fontSize: "var(--text-display)",
 					fontWeight: 800,
 					letterSpacing: 30,
 					textTransform: "uppercase",
@@ -37,7 +37,7 @@ function Watermark() {
 			>
 				<div
 					style={{
-						fontFamily: "monospace",
+						fontFamily: "var(--font-mono)",
 						fontSize: 28,
 						fontWeight: 600,
 						letterSpacing: 3,
@@ -45,7 +45,7 @@ function Watermark() {
 				>
 					{t("watermark_command")}
 				</div>
-				<div style={{ fontSize: 20, fontWeight: 400 }}>
+				<div style={{ fontSize: "var(--text-xl)", fontWeight: 400 }}>
 					{t("watermark_pan")} · {t("watermark_zoom")}
 				</div>
 			</div>

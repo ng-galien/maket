@@ -1,35 +1,89 @@
 @import "tailwindcss";
 
+/* Fonts — Raleway for brand moments (watermark, display), JetBrains Mono for
+   the technical voice. UI chrome stays on system-ui for perf + native feel. */
+@import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap");
+
 @theme {
-  --color-app: light-dark(#EBEBED, #09090B);
-  --color-panel: light-dark(#FFF, #18181B);
-  --color-input: light-dark(#F4F4F5, #27272A);
-  --color-border: light-dark(#E4E4E7, #3F3F46);
-  --color-border-hover: light-dark(#D4D4D8, #52525B);
+  /* ---------- Fonts ---------- */
+  --font-display: "Raleway", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
 
-  --color-text-1: light-dark(#18181B, #FAFAFA);
-  --color-text-2: light-dark(#71717A, #A1A1AA);
-  --color-text-3: light-dark(#A1A1AA, #71717A);
+  /* ---------- Type scale (px) ----------
+     Converges the 10/11/12/13/14 arbitrary classes scattered across components.
+     `base` = 13 is the primary UI reading size (tighter than web-default 14-16
+     because this is a tool chrome, not content). */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-display: 200px;
 
-  --color-accent: #10B981;
+  /* ---------- Surfaces ---------- */
+  --color-app: light-dark(#ebebed, #09090b);
+  --color-panel: light-dark(#fff, #18181b);
+  --color-input: light-dark(#f4f4f5, #27272a);
+  --color-border: light-dark(#e4e4e7, #3f3f46);
+  --color-border-hover: light-dark(#d4d4d8, #52525b);
+
+  /* ---------- Text ---------- */
+  --color-text-1: light-dark(#18181b, #fafafa);
+  --color-text-2: light-dark(#71717a, #a1a1aa);
+  --color-text-3: light-dark(#a1a1aa, #71717a);
+
+  /* ---------- Accent (emerald) ---------- */
+  --color-accent: #10b981;
   --color-accent-soft: light-dark(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.12));
   --color-accent-border: light-dark(rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.25));
 
-  --color-danger: light-dark(#EF4444, #F87171);
+  /* ---------- Danger ---------- */
+  --color-danger: light-dark(#ef4444, #f87171);
   --color-danger-soft: light-dark(rgba(239, 68, 68, 0.08), rgba(248, 113, 113, 0.12));
-  --color-danger-border: light-dark(#FCA5A5, #991B1B);
+  --color-danger-border: light-dark(#fca5a5, #991b1b);
 
-  --color-warning: light-dark(#F59E0B, #FBBF24);
+  /* ---------- Warning ---------- */
+  --color-warning: light-dark(#f59e0b, #fbbf24);
   --color-warning-soft: light-dark(rgba(245, 158, 11, 0.08), rgba(251, 191, 36, 0.12));
+  --color-warning-border: light-dark(#fcd34d, #78350f);
 
-  --color-blue: light-dark(#3B82F6, #60A5FA);
-  --color-blue-soft: light-dark(#DBEAFE, rgba(96, 165, 250, 0.12));
+  /* ---------- Editing (contenteditable & similar blue-accent states) ---------- */
+  --color-editing: light-dark(#2563eb, #60a5fa);
+  --color-editing-soft: light-dark(#dbeafe, rgba(96, 165, 250, 0.12));
+  --color-editing-border: light-dark(#bfdbfe, rgba(96, 165, 250, 0.25));
 
-  --radius-sm: 5px;
+  /* Back-compat alias — some older code refers to --color-blue */
+  --color-blue: var(--color-editing);
+  --color-blue-soft: var(--color-editing-soft);
+
+  /* ---------- Radius (aligned with Tailwind v4 scale) ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
+  --radius-2xl: 20px;
 
+  /* ---------- Shadows — depth ladder for panels/tooltips/popovers ---------- */
+  --shadow-xs: 0 1px 2px light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.3));
+  --shadow-sm: 0 2px 8px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.2));
+  --shadow-md: 0 4px 16px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.25));
+  --shadow-lg: 0 8px 40px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.3));
+  --shadow-xl: 0 20px 60px light-dark(rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.4));
+  --shadow-canvas: 0 8px 40px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.3)),
+    0 2px 8px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.2));
+
+  /* ---------- Motion ---------- */
+  --duration-fast: 100ms;
+  --duration-base: 150ms;
+  --duration-slow: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---------- Stacking ---------- */
   --z-panel: 40;
   --z-bar: 50;
   --z-popover: 150;
@@ -44,8 +98,11 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  /* ss01: single-story a | tnum: tabular figures for zoom %, counters, ratings */
+  font-feature-settings: "ss01", "tnum";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   background: var(--color-app);
   color: var(--color-text-1);
   overflow: hidden;
@@ -66,12 +123,12 @@ textarea:focus-visible {
   outline-offset: 2px;
 }
 
-/* Workspace watermark — rendered as a React component in Board.tsx */
-
-/* Page canvas — element interaction styles */
+/* ============================================================
+   Page canvas — element interaction styles
+   ============================================================ */
 .page-canvas {
   border-radius: 2px;
-  box-shadow: 0 8px 40px light-dark(rgba(0,0,0,0.12), rgba(0,0,0,0.3)), 0 2px 8px light-dark(rgba(0,0,0,0.08), rgba(0,0,0,0.2));
+  box-shadow: var(--shadow-canvas);
   position: relative;
   overflow: hidden;
   contain: layout style paint;
@@ -80,7 +137,7 @@ textarea:focus-visible {
 
 .page-canvas [data-id] {
   cursor: pointer;
-  transition: outline 150ms ease;
+  transition: outline var(--duration-base) var(--ease-out);
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
@@ -90,32 +147,47 @@ textarea:focus-visible {
 .page-canvas [data-id].selected {
   outline-color: var(--color-accent);
 }
+
 /* Inline text editing */
 .page-canvas [data-id][contenteditable="true"] {
-  outline: 2px solid light-dark(#2563eb, #60a5fa) !important;
+  outline: 2px solid var(--color-editing) !important;
   outline-offset: 2px;
   cursor: text;
   user-select: text;
-  caret-color: light-dark(#2563eb, #60a5fa);
+  caret-color: var(--color-editing);
 }
 .page-canvas.is-editing [data-id]:not([contenteditable="true"]) {
   pointer-events: none;
 }
 
-/* Element hover toolbar */
+.page-canvas [data-id].flagged-delete {
+  opacity: 0.3;
+  outline: 2px dashed var(--color-danger);
+  outline-offset: 2px;
+}
+.page-canvas [data-id].has-note {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ============================================================
+   Element hover toolbar
+   ============================================================ */
 .element-toolbar {
   display: flex;
   gap: 2px;
   padding: 2px;
-  background: light-dark(#ffffff, #1e1e2e);
-  border: 1px solid light-dark(#e5e7eb, #313244);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
   opacity: 0;
-  animation: toolbar-in 150ms ease forwards;
+  animation: toolbar-in var(--duration-base) var(--ease-out) forwards;
 }
 @keyframes toolbar-in {
-  to { opacity: 1; }
+  to {
+    opacity: 1;
+  }
 }
 .tb-btn {
   display: flex;
@@ -124,37 +196,28 @@ textarea:focus-visible {
   width: 22px;
   height: 22px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   background: transparent;
-  color: light-dark(#6b7280, #a1a1aa);
+  color: var(--color-text-2);
   cursor: pointer;
   padding: 0;
-  transition: all 100ms ease;
+  transition: all var(--duration-fast) var(--ease-out);
 }
 .tb-btn svg {
   pointer-events: none;
 }
 .tb-edit:hover {
-  background: light-dark(#eff6ff, #1e3a5f);
-  color: light-dark(#2563eb, #60a5fa);
+  background: var(--color-editing-soft);
+  color: var(--color-editing);
 }
 .tb-comment:hover {
-  background: light-dark(#fef3c7, #422006);
-  color: light-dark(#d97706, #fbbf24);
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
 }
 
-
-.page-canvas [data-id].flagged-delete {
-  opacity: 0.3;
-  outline: 2px dashed var(--color-danger);
-  outline-offset: 2px;
-}
-.page-canvas [data-id].has-note {
-  outline: 2px solid #059669;
-  outline-offset: 2px;
-}
-
-/* Doc label — name truncated, full info on hover */
+/* ============================================================
+   Doc label + tooltip
+   ============================================================ */
 .doc-label-name {
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -164,22 +227,23 @@ textarea:focus-visible {
   position: relative;
 }
 
-/* Doc tooltip — overlay on hover with fade-in */
 .doc-tooltip {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 50%;
   transform: translateX(-50%) translateY(4px);
-  background: light-dark(#ffffff, #1e1e2e);
-  border: 1px solid light-dark(#e5e7eb, #313244);
-  border-radius: 8px;
+  background: var(--color-panel);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
   padding: 8px 12px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  box-shadow: var(--shadow-md);
   white-space: nowrap;
   z-index: 10000;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 150ms ease, transform 150ms ease;
+  transition:
+    opacity var(--duration-base) var(--ease-out),
+    transform var(--duration-base) var(--ease-out);
 }
 .doc-tooltip::after {
   content: "";
@@ -188,20 +252,21 @@ textarea:focus-visible {
   left: 50%;
   transform: translateX(-50%);
   border: 5px solid transparent;
-  border-top-color: light-dark(#e5e7eb, #313244);
+  border-top-color: var(--color-border);
 }
 .doc-label:hover .doc-tooltip {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
 
-/* Doc close button */
 .doc-close-btn:hover {
   color: var(--color-danger) !important;
   background: var(--color-danger-soft) !important;
 }
 
-/* Popover animation */
+/* ============================================================
+   Popover animation
+   ============================================================ */
 @keyframes popoverIn {
   from {
     opacity: 0;
