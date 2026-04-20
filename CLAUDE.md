@@ -5,11 +5,10 @@ Visual design tool for Claude — compose HTML/CSS documents with live preview, 
 ## Commands
 
 ```bash
-npm run dev            # Server --watch + Vite dev server (HMR on :5173, API on :24842 — shared ~/.maket workspace)
-npm run dev:isolated   # Same but on :3333 + $PWD/.maket — use when hacking server code against real data
+npm run dev            # Server --watch + Vite dev server (HMR on :5173, API on :24843, data in $PWD/.maket)
 npm run dev:watch      # Server --watch + client `vite build --watch` → public/
 npm run dev:server     # Server only, --watch
-npm run dev:client     # Vite dev server only (HMR on :5173, proxies to :24842)
+npm run dev:client     # Vite dev server only (HMR on :5173, proxies to :24843)
 npm run build:client   # Vite production build → public/
 npm run lint           # biome check
 npm run lint:fix       # biome check --write
@@ -99,7 +98,7 @@ public/                 Built client output (Vite → public/)
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MAKET_PORT` | `24843` | HTTP server port (`.mcpb` desktop extension typically holds 24842). `dev:isolated` → 3333, `e2e:server` → 3399. |
+| `MAKET_PORT` | `24843` | HTTP server port (`.mcpb` desktop extension typically holds 24842). `start:isolated` → 3333, `e2e:server` → 3399. |
 | `MAKET_TITLE` | `Maket` | App name shown in UI |
 | `MAKET_DB` | `~/.maket/documents.db` | SQLite database path |
 | `MAKET_DATA_DIR` | `~/.maket/` | User data (assets, docs) |
