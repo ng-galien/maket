@@ -1,0 +1,46 @@
+name: Publish to npm
+
+# Uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret required.
+# One-time setup on npmjs.com: Settings → Trusted Publishers → add a pending
+# publisher for @ng-galien/maket bound to repo ng-galien/maket, workflow
+# filename "publish.yml", and (optional) environment "release".
+
+on:
+  push:
+    tags:
+      - "v*" # e.g. v1.0.1, v1.1.0, v2.0.0
+  workflow_dispatch:
+
+jobs:
+  publish:
+    name: Stage & publish @ng-galien/maket
+    runs-on: ubuntu-latest
+
+    # `id-token: write` is what lets GitHub mint the short-lived OIDC token
+    # that npm verifies against the trusted publisher config. Without it,
+    # `npm publish` falls back to token auth and fails.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing requires npm CLI >= 11.5.1. Node 22's bundled npm
+      # may be older — upgrade in place so `npm publish` speaks OIDC.
+      - name: Ensure npm >= 11.5.1
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: npm install --no-audit
+
+      - name: Stage & publish
+        run: node scripts/pack-npm.ts --publish
