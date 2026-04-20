@@ -300,8 +300,13 @@ export function DocsTab() {
 		}
 	};
 
-	// Flat visible order across categories — drives shift-range selection.
-	const flatOrder = [...grouped.values()].flat().map((d) => d.name);
+	// Flat ORDER OF VISIBLE docs across categories — drives shift-range
+	// selection. A search query forces every category open (same logic as
+	// `isCollapsed` below); otherwise we skip docs inside a collapsed
+	// category so a shift-click never silently selects off-screen rows.
+	const flatOrder = [...grouped.entries()]
+		.filter(([cat]) => searching || !collapsed.has(cat))
+		.flatMap(([, docs]) => docs.map((d) => d.name));
 
 	const handleRowClick = (name: string, e: React.MouseEvent) => {
 		if (e.metaKey || e.ctrlKey) {
