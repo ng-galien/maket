@@ -1,8 +1,11 @@
+import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
 import {
 	ChevronRight,
 	Copy,
 	Files,
 	FileText,
+	LayoutGrid,
+	List,
 	Lock,
 	MoreVertical,
 	Pencil,
@@ -23,6 +26,16 @@ import {
 } from "../store/ws";
 
 const DRAG_MIME = "application/x-maket-doc";
+const VIEW_KEY = "maket-docs-view";
+type View = "list" | "grid";
+
+function docAspectRatio(doc: DocSummary): number {
+	const { w, h } = computeCanvasDims(
+		doc.format,
+		doc.orientation ?? DEFAULT_ORIENTATION,
+	);
+	return h / w;
+}
 
 // Category color by hash
 function catColor(cat: string): string {
@@ -199,6 +212,19 @@ export function DocsTab() {
 	);
 	const [dragOverCat, setDragOverCat] = useState<string | null>(null);
 	const [draggingName, setDraggingName] = useState<string | null>(null);
+	const [view, setView] = useState<View>(() => {
+		const stored = localStorage.getItem(VIEW_KEY);
+		return stored === "grid" ? "grid" : "list";
+	});
+
+	const setViewAndPersist = (v: View) => {
+		setView(v);
+		try {
+			localStorage.setItem(VIEW_KEY, v);
+		} catch {
+			/* private mode */
+		}
+	};
 
 	const toggleCategory = (cat: string) => {
 		setCollapsed((prev) => {
@@ -266,14 +292,44 @@ export function DocsTab() {
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
 		>
-			{/* Search */}
+			{/* Search + view toggle */}
 			<div className="px-1 flex flex-col gap-1.5">
-				<input
-					value={search}
-					onChange={(e) => setSearch(e.target.value)}
-					placeholder={t("search_hint")}
-					className="w-full px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
-				/>
+				<div className="flex items-center gap-1.5">
+					<input
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						placeholder={t("search_hint")}
+						className="flex-1 min-w-0 px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
+					/>
+					<div className="flex rounded-lg bg-input p-0.5">
+						<button
+							type="button"
+							onClick={() => setViewAndPersist("list")}
+							aria-label={t("view_list")}
+							title={t("view_list")}
+							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+								view === "list"
+									? "bg-panel shadow-sm text-text-1"
+									: "text-text-3 hover:text-text-1"
+							}`}
+						>
+							<List size={14} />
+						</button>
+						<button
+							type="button"
+							onClick={() => setViewAndPersist("grid")}
+							aria-label={t("view_grid")}
+							title={t("view_grid")}
+							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+								view === "grid"
+									? "bg-panel shadow-sm text-text-1"
+									: "text-text-3 hover:text-text-1"
+							}`}
+						>
+							<LayoutGrid size={14} />
+						</button>
+					</div>
+				</div>
 				{chips.length > 0 && (
 					<div className="flex flex-wrap gap-1 px-1">
 						{chips.map((c) => (
@@ -366,39 +422,49 @@ export function DocsTab() {
 							</span>
 						</button>
 
-						{/* Doc list */}
+						{/* Docs — rows or thumbnail cards */}
 						{!isCollapsed && (
-							<div className="flex flex-col gap-0.5 mt-0.5">
-								{docs.map((d) => (
-									<DocRow
-										key={d.name}
-										doc={d}
-										onWs={isOnWorkspace(d.name)}
-										onToggle={() => toggleDoc(d.name)}
-										menuOpen={menuFor === d.name}
-										onMenuOpen={() => setMenuFor(d.name)}
-										onMenuClose={() => setMenuFor(null)}
-										mode={
-											modeFor?.name === d.name ? modeFor.mode : { kind: "idle" }
-										}
-										onModeChange={(mode) =>
+							<div
+								className={
+									view === "grid"
+										? "grid grid-cols-2 gap-2 mt-1"
+										: "flex flex-col gap-0.5 mt-0.5"
+								}
+							>
+								{docs.map((d) => {
+									const rowProps = {
+										doc: d,
+										onWs: isOnWorkspace(d.name),
+										onToggle: () => toggleDoc(d.name),
+										menuOpen: menuFor === d.name,
+										onMenuOpen: () => setMenuFor(d.name),
+										onMenuClose: () => setMenuFor(null),
+										mode:
+											modeFor?.name === d.name
+												? modeFor.mode
+												: ({ kind: "idle" } as RowMode),
+										onModeChange: (mode: RowMode) =>
 											setModeFor(
 												mode.kind === "idle" ? null : { name: d.name, mode },
-											)
-										}
-										canDelete={docList.length > 1}
-										dragging={draggingName === d.name}
-										onDragStart={(e) => {
+											),
+										canDelete: docList.length > 1,
+										dragging: draggingName === d.name,
+										onDragStart: (e: React.DragEvent) => {
 											e.dataTransfer.effectAllowed = "move";
 											e.dataTransfer.setData(DRAG_MIME, d.name);
 											setDraggingName(d.name);
-										}}
-										onDragEnd={() => {
+										},
+										onDragEnd: () => {
 											setDraggingName(null);
 											setDragOverCat(null);
-										}}
-									/>
-								))}
+										},
+									};
+									return view === "grid" ? (
+										<DocCard key={d.name} {...rowProps} />
+									) : (
+										<DocRow key={d.name} {...rowProps} />
+									);
+								})}
 							</div>
 						)}
 					</div>
@@ -427,6 +493,189 @@ interface DocRowProps {
 	dragging: boolean;
 	onDragStart: (e: React.DragEvent) => void;
 	onDragEnd: (e: React.DragEvent) => void;
+}
+
+/**
+ * Grid-view card — a scaled iframe preview over the doc's first page plus
+ * a caption strip. Uses the same mode state machine as DocRow so rename /
+ * duplicate / confirm-delete flows stay consistent between views.
+ */
+function DocCard({
+	doc,
+	onWs,
+	onToggle,
+	menuOpen,
+	onMenuOpen,
+	onMenuClose,
+	mode,
+	onModeChange,
+	canDelete,
+	dragging,
+	onDragStart,
+	onDragEnd,
+}: DocRowProps) {
+	const t = useT();
+	const locked = doc.locked === true;
+	const editing = mode.kind === "rename" || mode.kind === "duplicate";
+	const confirming = mode.kind === "confirm-delete";
+	const dragEnabled = mode.kind === "idle";
+	const aspect = docAspectRatio(doc);
+	// Preview URL — same /print route the server already exposes, with the
+	// auto-print script suppressed via ?thumb=1.
+	const previewUrl = `/print?name=${encodeURIComponent(doc.name)}&thumb=1`;
+
+	return (
+		<div
+			className={`relative group/card ${dragging ? "opacity-40" : ""}`}
+			draggable={dragEnabled}
+			onDragStart={(e) => {
+				if (!dragEnabled) {
+					e.preventDefault();
+					return;
+				}
+				onDragStart(e);
+			}}
+			onDragEnd={onDragEnd}
+		>
+			<button
+				type="button"
+				onClick={onToggle}
+				className={`block w-full overflow-hidden rounded-xl border transition ${
+					onWs
+						? "border-accent/40 ring-2 ring-accent/20"
+						: "border-black/5 hover:border-black/10"
+				} bg-white`}
+				style={{ aspectRatio: `1 / ${aspect}` }}
+			>
+				{/* Scaled iframe — relies on CSS aspect-ratio to reserve space,
+				    `loading="lazy"` defers fetch until the card is close to view. */}
+				<div className="relative w-full h-full overflow-hidden bg-white">
+					<iframe
+						title={doc.name}
+						src={previewUrl}
+						loading="lazy"
+						tabIndex={-1}
+						className="absolute top-0 left-0 origin-top-left pointer-events-none"
+						style={{
+							width: "400%",
+							height: "400%",
+							transform: "scale(0.25)",
+							border: 0,
+							background: "white",
+						}}
+					/>
+					{locked && (
+						<div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center">
+							<Lock size={10} />
+						</div>
+					)}
+					{onWs && (
+						<div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-accent text-white text-2xs font-bold">
+							✓
+						</div>
+					)}
+				</div>
+			</button>
+
+			{/* Caption */}
+			{editing ? (
+				<div className="mt-1">
+					<InlineNameEditor
+						initial={mode.kind === "rename" ? doc.name : `${doc.name} copy`}
+						placeholder={
+							mode.kind === "rename"
+								? t("doc_rename_prompt")
+								: t("doc_duplicate_prompt")
+						}
+						onCommit={(value) => {
+							const trimmed = value.trim();
+							onModeChange({ kind: "idle" });
+							if (!trimmed) return;
+							if (mode.kind === "rename") {
+								if (trimmed === doc.name) return;
+								sendRenameDoc(doc.name, trimmed);
+							} else {
+								sendDuplicateDoc(doc.name, trimmed);
+							}
+						}}
+						onCancel={() => onModeChange({ kind: "idle" })}
+					/>
+				</div>
+			) : confirming ? (
+				<div className="mt-1">
+					<HoldToDelete
+						label={t("doc_delete_hold", { name: doc.name })}
+						onConfirm={() => {
+							onModeChange({ kind: "idle" });
+							sendDeleteDoc(doc.name);
+						}}
+						onCancel={() => onModeChange({ kind: "idle" })}
+					/>
+				</div>
+			) : (
+				<div className="mt-1 px-1 flex items-center gap-1.5">
+					{doc.charteColor && (
+						<span
+							className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
+							style={{ background: doc.charteColor }}
+							title={doc.charte || ""}
+						/>
+					)}
+					<div className="flex-1 min-w-0">
+						<div
+							className={`text-xs truncate ${onWs ? "font-bold text-accent" : "font-semibold text-text-1"}`}
+						>
+							{doc.name}
+						</div>
+						<div className="flex items-center gap-1 text-2xs text-text-3">
+							<span className="font-bold">{doc.format}</span>
+							<span>{doc.pageCount ?? 1}p</span>
+							{(doc.rating ?? 0) > 0 && (
+								<span className="text-amber-500">★{doc.rating}</span>
+							)}
+						</div>
+					</div>
+					<button
+						type="button"
+						aria-label={t("doc_menu")}
+						onClick={(e) => {
+							e.stopPropagation();
+							if (menuOpen) onMenuClose();
+							else onMenuOpen();
+						}}
+						className={`w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
+							menuOpen
+								? "bg-black/[0.06]"
+								: "opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+						}`}
+					>
+						<MoreVertical size={13} />
+					</button>
+				</div>
+			)}
+
+			{menuOpen && (
+				<DocMenu
+					doc={doc}
+					onClose={onMenuClose}
+					canDelete={canDelete}
+					locked={locked}
+					onRename={() => {
+						onMenuClose();
+						onModeChange({ kind: "rename" });
+					}}
+					onDuplicate={() => {
+						onMenuClose();
+						onModeChange({ kind: "duplicate" });
+					}}
+					onDeleteRequest={() => {
+						onMenuClose();
+						onModeChange({ kind: "confirm-delete" });
+					}}
+				/>
+			)}
+		</div>
+	);
 }
 
 function DocRow({

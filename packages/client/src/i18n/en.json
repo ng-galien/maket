@@ -17,6 +17,8 @@
 	"doc_delete_confirm": "Delete \"{name}\"? This cannot be undone.",
 	"doc_delete_hold": "Hold to delete \"{name}\"",
 	"doc_drop_here": "Drop here",
+	"view_list": "List view",
+	"view_grid": "Grid view",
 	"no_image": "No images",
 	"no_charte": "No brand guides",
 	"loading": "Loading...",

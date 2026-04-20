@@ -43,6 +43,7 @@ export interface DocSummary {
 	elementCount: number;
 	rating?: number;
 	locked?: boolean;
+	orientation?: string;
 	/** Name of the associated charte, when the doc has one. Used as tooltip
 	 * on the colour dot. */
 	charte?: string;
