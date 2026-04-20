@@ -47,10 +47,15 @@ Gating logic like `lockGuard` must run in MCP tools, `ws-handler` cases, **AND**
 ### Tool output
 Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpers.ts`. Never build the MCP content envelope inline. Use the `next: string[]` option on business-flow hinges so the agent sees what call to make next.
 
-### UI discipline
-- **No `window.prompt` / `window.confirm`.** Inline editors (`InlineNameEditor`) or hold-to-confirm patterns (`components/shared/HoldToDelete.tsx`).
-- Popovers inside `SidePanel` **portal to `document.body`** with fixed coords — `overflow-hidden` on the panel clips absolute positioning. `z-index ≥ 210` (panel is 201).
-- Client has `verbatimModuleSyntax: true` — type-only imports must use `import type`.
+### Client mirrors server state over WS
+- **Zustand = single source of truth.** No Context, no prop-drilled server state. Selectors + `useShallow` for derived shapes.
+- **WS for mutations, HTTP only for binaries** (assets, `.maket` bundles). Handlers write the store directly via `useStore.getState()`.
+- **Pending queue is the optimistic layer** — `addPending` enqueues, `ack_messages` settles. Don't pre-apply edits to the store.
+- **Toasts are server-authored** — `spawnBubble` fires only from the `activity` WS handler.
+- **Edit mode is server-authoritative** — any `state` message exits it; don't try to preserve selection across reloads.
+- **No `window.prompt` / `window.confirm`** — `InlineNameEditor` for names, `HoldToDelete` or reversible `flagged-delete` for destructive.
+- **Popovers inside `SidePanel` portal to `document.body`** (panel's `overflow-hidden` clips). Use `--z-popover` / `--z-modal` tokens.
+- **`verbatimModuleSyntax: true`** — `import type` for types.
 
 ### Tests
 - Co-located: `foo.ts` + `foo.test.ts`. DB tests use `createSQLiteStore(":memory:")` — never touch the filesystem.
