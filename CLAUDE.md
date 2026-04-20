@@ -87,15 +87,19 @@ public/                 Built client output (Vite → public/)
 - **Awilix PROXY destructure trap** — every destructured name on `deps` triggers a container lookup. Put optional test overrides on a separate `opts` arg (see `LayoutService`, `PdfService`).
 - **Container self-reference** — `bootstrap.ts` registers `container: asValue(container)` so factories needing the container itself (e.g. `createMcpRouter` calling `mountTools`) can resolve it via DI.
 - **SIGINT → `container.dispose()`** — closes SQLite via the store disposer; don't call `store.close()` directly.
-- **`@maket/shared` = wire contract only** — `WsServerMessage` / `WsClientMessage` discriminated unions, HTTP response envelopes, `PendingMessage`. Domain types (`Document`, `Canvas`, `Page`, `DocSummary`) stay per-side on purpose — server persistence vs client UI projection diverge.
+- **`@maket/shared`** — wire contracts + invariant data both sides must agree on (`FORMATS`, `computeCanvasDims`, orientation constants). Divergent domain shapes (`Document`, `DocSummary`) stay per-side on purpose.
 - **`wsRegistry.broadcast(msg: WsServerMessage)`** — accepts typed objects; JSON.stringify happens inside. Don't pre-stringify at call sites.
+- **No `window.prompt` / `window.confirm`** — use `InlineNameEditor` or in-bar two-tap / `HoldToDelete` for destructive confirms.
+- **Popovers inside `SidePanel` portal to `document.body`** — fixed coords from trigger's `getBoundingClientRect()`, `z-index ≥ 210` (panel is 201). Absolute positioning gets clipped by the panel's `overflow-hidden`.
+- **Cross-cutting invariants apply everywhere** — `lockGuard` must gate MCP tools, `ws-handler` cases, AND bulk UI. One missed entry point = full bypass.
+- **Escape user strings inside `<style>`** — CSS values via `escapeCssValue`, kill `</style` via `stripStyleClose` (`ThumbnailService` pattern).
 - **Tests co-located** — `foo.ts` + `foo.test.ts`. Use `createSQLiteStore(":memory:")` for DB tests. Coverage thresholds in `vitest.config.ts` (core 90%, services 80%).
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MAKET_PORT` | `24842` | HTTP server port (shared). `dev:isolated` and `e2e:server` override it. |
+| `MAKET_PORT` | `24843` | HTTP server port (`.mcpb` desktop extension typically holds 24842). `dev:isolated` → 3333, `e2e:server` → 3399. |
 | `MAKET_TITLE` | `Maket` | App name shown in UI |
 | `MAKET_DB` | `~/.maket/documents.db` | SQLite database path |
 | `MAKET_DATA_DIR` | `~/.maket/` | User data (assets, docs) |
@@ -106,7 +110,8 @@ public/                 Built client output (Vite → public/)
 
 - **Bootstrapping another project** — Use `make bootstrap DIR=/path/to/project PORT=3335` to create `.mcp.json`, `.claude/skills/`, and a `package.json` with a `maket:dev` script. Never overwrites existing files.
 - **Server must run first** — The MCP connects via HTTP. Start with `npm run dev` before opening Claude Code.
-- **Port conflict** — Kill stale processes: `lsof -ti:24842 | xargs kill` (or `:3333` in isolated mode)
+- **Port conflict** — Kill stale processes: `lsof -ti:24843 | xargs kill` (or `:3333` in isolated mode).
+- **Tailwind v4 `@import` ordering** — `@import url(...)` MUST precede `@import "tailwindcss"` in `index.css`; Tailwind inlines its import in place, so anything after gets buried and PostCSS rejects.
 - **SQLite migrations** — `store.ts` checks column existence, not version numbers.
 - **Pre-commit hooks** — lefthook runs biome + typecheck + vitest. All three must pass.
 - **Biome per-package** — Each package has its own `biome.json` with `root: false`, inheriting from root config.
