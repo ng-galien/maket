@@ -20,7 +20,10 @@ jobs:
           cache: "npm"
 
       - name: Install dependencies
-        run: npm ci
+        # `npm install` instead of `npm ci` so transitive dep ranges that
+        # accept a newer esbuild (^0.27 || ^0.28) don't fail strict lockfile
+        # checks when the registry resolves to the newer version.
+        run: npm install --no-audit
 
       - name: Lint & Format (Biome)
         run: npm run lint
