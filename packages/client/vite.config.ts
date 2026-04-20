@@ -3,6 +3,10 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+const PORT = process.env.MAKET_PORT ?? "24842";
+const http = `http://localhost:${PORT}`;
+const ws = `ws://localhost:${PORT}`;
+
 export default defineConfig({
 	plugins: [react(), tailwindcss()],
 	resolve: {
@@ -16,14 +20,14 @@ export default defineConfig({
 	},
 	server: {
 		proxy: {
-			"/api": "http://localhost:3333",
-			"/assets": "http://localhost:3333",
-			"/ws": { target: "ws://localhost:3333", ws: true },
+			"/api": http,
+			"/assets": http,
+			"/ws": { target: ws, ws: true },
 			// Server-rendered HTML routes — Vite falls back to the SPA shell if
 			// these aren't proxied, swallowing the real response.
-			"/print": "http://localhost:3333",
-			"/auth": "http://localhost:3333",
-			"/mcp": "http://localhost:3333",
+			"/print": http,
+			"/auth": http,
+			"/mcp": http,
 		},
 	},
 });

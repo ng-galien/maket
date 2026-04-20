@@ -100,7 +100,7 @@ Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
 
 ## Plugin & skills
 
-The `plugin/` directory ships three Claude Code skills that give Claude the judgment layer on top of the tools:
+The `plugin/claude/` directory ships three Claude Code skills that give Claude the judgment layer on top of the tools:
 
 - **`maket`** — Design director. Plans layouts, applies typographic hierarchy, composes step-by-step. Triggers on creative briefs ("make me a poster", "design a flyer for…").
 - **`maket-charte`** — Brand-identity expert. Builds coherent design-token systems from a brief, an industry, or a reference URL.

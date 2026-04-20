@@ -5,7 +5,7 @@
 #
 # Creates (never overwrites existing files):
 #   DIR/.mcp.json          — HTTP MCP config pointing to localhost:PORT
-#   DIR/.claude/skills/    — Synced skills from plugin/skills/
+#   DIR/.claude/skills/    — Synced skills from plugin/claude/skills/
 #   DIR/package.json       — package.json with maket:dev script
 
 MAKET_ROOT := $(shell pwd)
@@ -44,7 +44,7 @@ ifndef DIR
 endif
 	@for skill in $(SKILLS); do \
 		mkdir -p "$(DIR)/.claude/skills/$$skill"; \
-		rsync -a --delete "$(MAKET_ROOT)/plugin/skills/$$skill/" "$(DIR)/.claude/skills/$$skill/"; \
+		rsync -a --delete "$(MAKET_ROOT)/plugin/claude/skills/$$skill/" "$(DIR)/.claude/skills/$$skill/"; \
 	done
 	@echo "✓ Skills synced → $(DIR)/.claude/skills/"
 

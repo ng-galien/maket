@@ -1,4 +1,9 @@
 {
   "files": [],
-  "references": [{ "path": "packages/shared" }, { "path": "packages/server" }, { "path": "packages/client" }]
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/server" },
+    { "path": "packages/client" },
+    { "path": "packages/stdio-bridge" }
+  ]
 }

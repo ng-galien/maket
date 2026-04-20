@@ -2,7 +2,7 @@
   "mcpServers": {
     "maket": {
       "type": "http",
-      "url": "http://localhost:3333/mcp"
+      "url": "http://localhost:24842/mcp"
     }
   }
 }

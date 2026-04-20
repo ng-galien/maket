@@ -36,16 +36,20 @@ function checkMcpbCli(): void {
   }
 }
 
+// Keep in sync with packages/server/package.json `dependencies`.
+// Native modules and heavy runtime deps stay external — bundled into staging
+// via `npm install --omit=dev`.
 const EXTERNALS = [
-  "@modelcontextprotocol/ext-apps",
   "@modelcontextprotocol/sdk",
-  "@resvg/resvg-js",
+  "awilix",
+  "beautiful-mermaid",
   "express",
-  "ws",
-  "puppeteer",
-  "linkedom",
-  "docx",
+  "googleapis",
   "jimp",
+  "linkedom",
+  "puppeteer",
+  "ws",
+  "zod",
 ];
 
 function pack(dev: boolean): void {
@@ -59,24 +63,35 @@ function pack(dev: boolean): void {
 
     // Step 1: Build client (React/Vite → public/)
     log("Building client...");
-    execSync("cd client-react && npx vite build", { cwd: ROOT, stdio: "inherit" });
+    execSync("npm run build:client", { cwd: ROOT, stdio: "inherit" });
 
-    // Step 2: Bundle server code (TypeScript → single JS file for Node via esbuild)
-    log("Bundling server...");
-    const externalFlags = EXTERNALS.map((e) => `--external:${e}`).join(" ");
+    // Step 2a: Bundle the stdio bridge (Claude Desktop entry → index.js)
+    log("Bundling stdio-bridge → index.js...");
     execSync(
-      `npx esbuild index.ts --bundle --platform=node --format=esm --outfile="${join(stagingDir, "index.js")}" ${externalFlags}`,
+      `npx esbuild packages/stdio-bridge/src/index.ts --bundle --platform=node --format=esm --outfile="${join(stagingDir, "index.js")}"`,
       { cwd: ROOT, stdio: "inherit" },
     );
 
-    // Step 3: Install production dependencies in staging
+    // Step 2b: Bundle the HTTP server (spawned by the bridge via MAKET_SERVER_CMD → server.js)
+    log("Bundling server → server.js...");
+    const externalFlags = EXTERNALS.map((e) => `--external:${e}`).join(" ");
+    execSync(
+      `npx esbuild packages/server/index.ts --bundle --platform=node --format=esm --outfile="${join(stagingDir, "server.js")}" ${externalFlags}`,
+      { cwd: ROOT, stdio: "inherit" },
+    );
+
+    // Step 3: Install production dependencies in staging.
+    // Root package.json has no runtime deps post monorepo split — pull them
+    // from @maket/server (the externalized ones bundle uses at runtime).
     log("Installing production dependencies...");
-    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
+    const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
+    const serverPkg = JSON.parse(readFileSync(join(ROOT, "packages/server/package.json"), "utf-8"));
+    const { "@maket/shared": _shared, ...serverDeps } = serverPkg.dependencies ?? {};
     const stagingPkg = {
       name: "maket",
-      version: pkg.version,
+      version: rootPkg.version,
       type: "module",
-      dependencies: pkg.dependencies,
+      dependencies: serverDeps,
     };
     writeFileSync(join(stagingDir, "package.json"), JSON.stringify(stagingPkg, null, 2));
     execSync("npm install --omit=dev", { cwd: stagingDir, stdio: "inherit" });
@@ -87,7 +102,7 @@ function pack(dev: boolean): void {
 
     // Step 5: Generate manifest
     const baseManifest = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf-8"));
-    baseManifest.version = pkg.version;
+    baseManifest.version = rootPkg.version;
 
     if (dev) {
       delete baseManifest.user_config;

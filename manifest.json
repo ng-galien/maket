@@ -11,7 +11,6 @@
     "url": "https://github.com/alexandreboyer"
   },
   "license": "MIT",
-  "homepage_url": "https://github.com/ng-galien/maket",
   "documentation": "https://github.com/ng-galien/maket#readme",
   "support": "https://github.com/ng-galien/maket/issues",
   "keywords": ["design", "pdf", "maket", "visual", "documents", "html", "canvas"],
@@ -21,7 +20,9 @@
     "mcp_config": {
       "command": "node",
       "args": ["${__dirname}/index.js"],
-      "env": {}
+      "env": {
+        "MAKET_SERVER_ENTRY": "${__dirname}/server.js"
+      }
     }
   },
   "tools": [

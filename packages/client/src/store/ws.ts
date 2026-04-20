@@ -248,7 +248,7 @@ export function initWs(): void {
 }
 
 function connect(): void {
-	// In dev, route through Vite proxy /ws → ws://localhost:3333; in prod, same host
+	// In dev, route through Vite proxy /ws → ws://localhost:${MAKET_PORT}; in prod, same host
 	const url = import.meta.env.DEV
 		? `ws://${location.host}/ws`
 		: `ws://${location.host}`;
