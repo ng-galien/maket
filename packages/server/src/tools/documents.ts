@@ -2,24 +2,44 @@
  * documents pack — maket_doc (compound).
  *
  * A single tool dispatches every document-lifecycle verb: new, focus, list,
- * delete, duplicate, rename, meta (absorbed from the old chartes pack), and
- * state (absorbed from the old canvas pack).
+ * delete, duplicate, rename, meta (absorbed from the old chartes pack),
+ * state (absorbed from the old canvas pack), export/import (.maket bundles).
  *
- * Deps: `documents` (cache + persist), `bus` (document:* + toast events).
+ * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
+ * `store` (charte read/write for bundle import/export), `config` (EXPORTS_DIR).
  */
 
+import { readFileSync, writeFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import {
+	bundleFilename,
+	decodeBundle,
+	encodeBundle,
+	MAKET_BUNDLE_EXT,
+	uniqueName,
+} from "../lib/maket-format.js";
 import type { Bus } from "../services/bus.js";
+import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
-import { computeCanvasDims, createDocument, type Page } from "../types.js";
+import type { Store } from "../services/store.js";
+import {
+	type Charte,
+	computeCanvasDims,
+	createDocument,
+	type Document,
+	type Page,
+} from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
 
 export interface DocumentsDeps {
 	documents: Documents;
 	bus: Bus;
+	store: Store;
+	config: Config;
 }
 
 const ActionSchema = z.enum([
@@ -32,6 +52,8 @@ const ActionSchema = z.enum([
 	"meta",
 	"state",
 	"lock",
+	"export",
+	"import",
 ]);
 
 const FormatSchema = z.enum([
@@ -112,6 +134,24 @@ const MaketDocSchema = z.object({
 		.describe(
 			"For lock: true to lock the document (refuses MCP edits), false to unlock. Omit to toggle.",
 		),
+	docs: z
+		.array(z.string())
+		.optional()
+		.describe(
+			"For export: list of doc names to include in the bundle. Omit to export all documents. Ignored by other actions.",
+		),
+	output: z
+		.string()
+		.optional()
+		.describe(
+			"For export: output filename (defaults to <doc>.maket or maket-bundle.maket). Absolute paths are honoured; bare names land in EXPORTS_DIR.",
+		),
+	input: z
+		.string()
+		.optional()
+		.describe(
+			"For import: absolute or EXPORTS_DIR-relative path to a .maket file to load.",
+		),
 });
 
 const DESCRIPTION = [
@@ -129,6 +169,8 @@ const DESCRIPTION = [
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
 	"  state     — summarise `doc`'s state: canvas, pages with element counts, charte, pending messages.",
 	"  lock      — lock or unlock `doc`. When locked, every doc-scoped mutation (maket_html, maket_page, maket_canvas, maket_mermaid, maket_doc delete/rename/meta) refuses until it's unlocked. Global resources (maket_image, maket_charte) are unaffected — they aren't owned by a single doc. Pass locked=true/false, or omit to toggle.",
+	"  export    — write a `.maket` bundle (gzipped JSON) to EXPORTS_DIR. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes are embedded automatically. Override the filename with `output`.",
+	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes skip names that already exist so your current brand isn't overwritten.",
 ].join("\n");
 
 function pageElementCount(page: Page): number {
@@ -140,7 +182,7 @@ function totalElementCount(pages: Page[]): number {
 }
 
 export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
-	const { documents, bus } = deps;
+	const { documents, bus, store, config } = deps;
 	return {
 		metadata: {
 			name: "maket_doc",
@@ -168,6 +210,10 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 					return runState(args, documents);
 				case "lock":
 					return runLock(args, documents, bus);
+				case "export":
+					return runExport(args, documents, store, config);
+				case "import":
+					return runImport(args, documents, store, bus, config);
 			}
 		},
 	};
@@ -400,10 +446,161 @@ function runLock(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
+function runExport(
+	args: Args,
+	documents: Documents,
+	store: Store,
+	config: Config,
+) {
+	const all = documents.all();
+	const names: string[] =
+		args.docs && args.docs.length > 0
+			? args.docs
+			: args.doc
+				? [args.doc]
+				: [...all.keys()];
+
+	if (names.length === 0) return text("No documents to export", true);
+
+	const selected: Document[] = [];
+	const missing: string[] = [];
+	for (const name of names) {
+		const d = documents.resolveOrLoad(name);
+		if (!d) missing.push(name);
+		else selected.push(d);
+	}
+	if (missing.length)
+		return text(`Documents not found: ${missing.join(", ")}`, true);
+
+	const charteNames = new Set<string>();
+	for (const d of selected) if (d.meta?.charte) charteNames.add(d.meta.charte);
+	const chartes: Charte[] = [];
+	for (const name of charteNames) {
+		try {
+			const c = store.loadCharte(name);
+			if (c) chartes.push(c);
+		} catch {
+			/* skip unreadable chartes — export is best-effort */
+		}
+	}
+
+	const buf = encodeBundle(selected, chartes);
+	const defaultName =
+		selected.length === 1
+			? selected[0]?.name || "maket-bundle"
+			: "maket-bundle";
+	const filename = args.output
+		? args.output.endsWith(MAKET_BUNDLE_EXT)
+			? args.output
+			: `${args.output}${MAKET_BUNDLE_EXT}`
+		: bundleFilename(defaultName);
+	const outPath = isAbsolute(filename)
+		? filename
+		: join(config.EXPORTS_DIR, filename);
+	writeFileSync(outPath, buf);
+
+	const docLabel =
+		selected
+			.slice(0, 3)
+			.map((d) => d.name)
+			.join(", ") + (selected.length > 3 ? `, +${selected.length - 3}` : "");
+	const charteLabel = chartes.length ? ` + ${chartes.length} charte(s)` : "";
+	return text(
+		`Exported ${selected.length} document(s)${charteLabel} → ${outPath} (${Math.round(buf.length / 1024)} KB)\n  ${docLabel}`,
+	);
+}
+
+function runImport(
+	args: Args,
+	documents: Documents,
+	store: Store,
+	bus: Bus,
+	config: Config,
+) {
+	if (!args.input) return text("input is required for action=import", true);
+	const resolved = isAbsolute(args.input)
+		? args.input
+		: resolve(join(config.EXPORTS_DIR, args.input));
+
+	let buf: Buffer;
+	try {
+		buf = readFileSync(resolved);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return text(`Could not read "${resolved}": ${msg}`, true);
+	}
+
+	let bundle: ReturnType<typeof decodeBundle>;
+	try {
+		bundle = decodeBundle(buf);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return text(msg, true);
+	}
+
+	const importedDocs: string[] = [];
+	const renamedDocs: string[] = [];
+	const all = documents.all();
+	for (const snap of bundle.documents) {
+		const finalName = uniqueName(snap.name, (n) => all.has(n));
+		// Always mint a fresh id — the exporter's id may collide with an existing
+		// local doc (unique column) and the identity only needs to be stable
+		// within *this* workspace.
+		const doc = createDocument({
+			name: finalName,
+			category: snap.category || "general",
+			canvas: snap.canvas,
+			meta: snap.meta || {},
+			pages: snap.pages?.length ? snap.pages : undefined,
+			activePage: snap.activePage ?? 0,
+			nextId: snap.nextId ?? 1,
+		});
+		all.set(finalName, doc);
+		documents.persist(finalName);
+		bus.emit("document:created", { docName: finalName });
+		importedDocs.push(finalName);
+		if (finalName !== snap.name)
+			renamedDocs.push(`${snap.name} → ${finalName}`);
+	}
+
+	const importedChartes: string[] = [];
+	const skippedChartes: string[] = [];
+	for (const c of bundle.chartes) {
+		try {
+			if (store.loadCharte(c.name)) {
+				skippedChartes.push(c.name);
+				continue;
+			}
+			store.saveCharte(c);
+			bus.emit("charte:updated", { name: c.name, css: c.css || "" });
+			importedChartes.push(c.name);
+		} catch {
+			/* skip charte on error — best-effort */
+		}
+	}
+
+	bus.emit("toast", {
+		text: `Imported ${importedDocs.length} document(s)${importedChartes.length ? ` + ${importedChartes.length} charte(s)` : ""}`,
+		level: "success",
+	});
+
+	const lines: string[] = [];
+	lines.push(
+		`Imported from ${resolved} (exported ${bundle.exportedAt || "unknown"})`,
+	);
+	lines.push(`Documents: ${importedDocs.join(", ") || "(none)"}`);
+	if (renamedDocs.length) lines.push(`  renamed: ${renamedDocs.join(", ")}`);
+	if (importedChartes.length)
+		lines.push(`Chartes added: ${importedChartes.join(", ")}`);
+	if (skippedChartes.length)
+		lines.push(`Chartes skipped (already exist): ${skippedChartes.join(", ")}`);
+	return text(lines.join("\n"));
+}
+
 export const documentsPack: ToolPack = {
 	id: "documents",
 	name: "Documents",
-	requires: ["documents", "bus"],
+	requires: ["documents", "bus", "store", "config"],
 	declaresTools: ["maket_doc"],
 	register(container) {
 		container.register({

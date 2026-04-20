@@ -28,7 +28,7 @@
   "tools": [
     {
       "name": "maket_doc",
-      "description": "Manage documents: new, focus, list, delete, duplicate, rename, meta, state."
+      "description": "Manage documents: new, focus, list, delete, duplicate, rename, meta, state, lock, export/import (.maket bundle)."
     },
     { "name": "maket_page", "description": "Manage pages within a document: add, remove, rename, reorder, list." },
     { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },

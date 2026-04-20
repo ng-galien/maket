@@ -2,6 +2,7 @@ import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
 import {
 	ChevronRight,
 	Copy,
+	Download,
 	Files,
 	FileText,
 	LayoutGrid,
@@ -11,6 +12,7 @@ import {
 	Pencil,
 	Trash2,
 	Unlock,
+	Upload,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -52,6 +54,47 @@ function catColor(cat: string): string {
 	let h = 0;
 	for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
 	return COLORS[Math.abs(h) % COLORS.length];
+}
+
+function exportMaketBundle(names: string[]): void {
+	const qs =
+		names.length === 1
+			? `name=${encodeURIComponent(names[0] ?? "")}`
+			: `names=${encodeURIComponent(names.join(","))}`;
+	// Content-Disposition on the server does the rest.
+	const a = document.createElement("a");
+	a.href = `/api/export-maket?${qs}`;
+	a.rel = "noopener";
+	document.body.appendChild(a);
+	a.click();
+	a.remove();
+}
+
+async function importMaketBundle(file: File): Promise<{
+	ok: boolean;
+	message: string;
+	count: number;
+}> {
+	try {
+		const res = await fetch("/api/import-maket", {
+			method: "POST",
+			headers: { "Content-Type": "application/gzip" },
+			body: file,
+		});
+		const json = (await res.json()) as {
+			error?: string;
+			documents?: string[];
+		};
+		if (!res.ok)
+			return {
+				ok: false,
+				message: json.error || `HTTP ${res.status}`,
+				count: 0,
+			};
+		return { ok: true, message: "", count: json.documents?.length ?? 0 };
+	} catch (e) {
+		return { ok: false, message: (e as Error).message, count: 0 };
+	}
 }
 
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -220,6 +263,9 @@ export function DocsTab() {
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [lastClicked, setLastClicked] = useState<string | null>(null);
 
+	const importInputRef = useRef<HTMLInputElement>(null);
+	const [importError, setImportError] = useState<string | null>(null);
+
 	// Escape clears the selection.
 	useEffect(() => {
 		if (selected.size === 0) return;
@@ -229,6 +275,13 @@ export function DocsTab() {
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [selected.size]);
+
+	const handleImportFile = async (file: File) => {
+		setImportError(null);
+		const res = await importMaketBundle(file);
+		if (!res.ok)
+			setImportError(t("import_maket_error", { message: res.message }));
+	};
 
 	const setViewAndPersist = (v: View) => {
 		setView(v);
@@ -395,6 +448,26 @@ export function DocsTab() {
 						placeholder={t("search_hint")}
 						className="flex-1 min-w-0 px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 					/>
+					<input
+						ref={importInputRef}
+						type="file"
+						accept=".maket"
+						className="hidden"
+						onChange={(e) => {
+							const file = e.target.files?.[0];
+							if (file) void handleImportFile(file);
+							e.target.value = "";
+						}}
+					/>
+					<button
+						type="button"
+						onClick={() => importInputRef.current?.click()}
+						aria-label={t("import_maket")}
+						title={t("import_maket")}
+						className="w-8 h-8 rounded-lg bg-input flex items-center justify-center text-text-3 hover:text-text-1 transition"
+					>
+						<Upload size={14} />
+					</button>
 					<div className="flex rounded-lg bg-input p-0.5">
 						<button
 							type="button"
@@ -424,6 +497,15 @@ export function DocsTab() {
 						</button>
 					</div>
 				</div>
+				{importError && (
+					<button
+						type="button"
+						onClick={() => setImportError(null)}
+						className="text-left text-2xs text-danger bg-danger-soft rounded-md px-2 py-1"
+					>
+						{importError} ×
+					</button>
+				)}
 				{chips.length > 0 && (
 					<div className="flex flex-wrap gap-1 px-1">
 						{chips.map((c) => (
@@ -581,6 +663,10 @@ export function DocsTab() {
 					onUnlock={() => bulkLock(false)}
 					onRecategorize={bulkRecategorize}
 					onDelete={bulkDelete}
+					onExport={() => {
+						exportMaketBundle([...selected]);
+						clearSelection();
+					}}
 				/>
 			)}
 		</div>
@@ -595,6 +681,7 @@ interface BulkActionBarProps {
 	onUnlock: () => void;
 	onRecategorize: (cat: string) => void;
 	onDelete: () => void;
+	onExport: () => void;
 }
 
 function BulkActionBar({
@@ -605,6 +692,7 @@ function BulkActionBar({
 	onUnlock,
 	onRecategorize,
 	onDelete,
+	onExport,
 }: BulkActionBarProps) {
 	const t = useT();
 	const [showCatPicker, setShowCatPicker] = useState(false);
@@ -708,6 +796,14 @@ function BulkActionBar({
 						</div>
 					)}
 				</div>
+				<button
+					type="button"
+					onClick={onExport}
+					className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition inline-flex items-center gap-1"
+				>
+					<Download size={12} />
+					{t("bulk_export_maket")}
+				</button>
 				{anyUnlocked && (
 					<button
 						type="button"
@@ -1409,6 +1505,15 @@ function DocMenu({
 			</MenuItem>
 			<MenuItem icon={<Files size={13} />} onClick={onDuplicate}>
 				{t("doc_duplicate")}
+			</MenuItem>
+			<MenuItem
+				icon={<Download size={13} />}
+				onClick={() => {
+					exportMaketBundle([doc.name]);
+					onClose();
+				}}
+			>
+				{t("doc_export_maket")}
 			</MenuItem>
 			<MenuItem
 				icon={locked ? <Unlock size={13} /> : <Lock size={13} />}
