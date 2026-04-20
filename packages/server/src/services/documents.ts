@@ -81,6 +81,25 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			cache.delete(name);
 		},
 		list() {
+			const timestamps = store.listTimestamps();
+			const charteCache = new Map<string, string | undefined>();
+			const resolveCharteColor = (name: string | undefined) => {
+				if (!name) return undefined;
+				if (charteCache.has(name)) return charteCache.get(name);
+				try {
+					const charte = store.loadCharte(name);
+					const colors = charte?.tokens?.color;
+					const color =
+						colors?.primary ??
+						(colors ? Object.values(colors)[0] : undefined) ??
+						undefined;
+					charteCache.set(name, color);
+					return color;
+				} catch {
+					charteCache.set(name, undefined);
+					return undefined;
+				}
+			};
 			return [...cache.values()].map((d) => ({
 				id: d.id,
 				name: d.name,
@@ -94,6 +113,8 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				),
 				charte: d.meta?.charte,
 				locked: d.meta?.locked === true,
+				updatedAt: timestamps.get(d.name),
+				charteColor: resolveCharteColor(d.meta?.charte),
 			}));
 		},
 		all() {

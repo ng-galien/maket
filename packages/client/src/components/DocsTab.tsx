@@ -150,6 +150,35 @@ function stripToken(raw: string, predicate: (tok: string) => boolean): string {
 		.join(" ");
 }
 
+/**
+ * SQLite emits timestamps as "YYYY-MM-DD HH:mm:ss" in UTC. Convert to a
+ * Date; fall back to a best-effort ISO replacement.
+ */
+function parseTimestamp(ts: string | undefined): Date | null {
+	if (!ts) return null;
+	const iso = ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`;
+	const d = new Date(iso);
+	return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function relativeTime(ts: string | undefined, lang: string): string {
+	const d = parseTimestamp(ts);
+	if (!d) return "";
+	const diffMs = Date.now() - d.getTime();
+	const m = Math.round(diffMs / 60000);
+	const fr = lang.startsWith("fr");
+	if (m < 1) return fr ? "à l'instant" : "just now";
+	if (m < 60) return fr ? `il y a ${m} min` : `${m}m ago`;
+	const h = Math.round(m / 60);
+	if (h < 24) return fr ? `il y a ${h} h` : `${h}h ago`;
+	const days = Math.round(h / 24);
+	if (days < 30) return fr ? `il y a ${days} j` : `${days}d ago`;
+	const months = Math.round(days / 30);
+	if (months < 12) return fr ? `il y a ${months} mois` : `${months}mo ago`;
+	const years = Math.round(months / 12);
+	return fr ? `il y a ${years} an${years > 1 ? "s" : ""}` : `${years}y ago`;
+}
+
 export function DocsTab() {
 	const t = useT();
 	const docList = useStore((s) => s.docList);
@@ -414,15 +443,35 @@ function DocRow({
 									aria-label={t("doc_locked")}
 								/>
 							)}
+							{doc.charteColor && (
+								<span
+									className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
+									style={{ background: doc.charteColor }}
+									title={doc.charte || ""}
+								/>
+							)}
 							<span className="truncate">{doc.name}</span>
 						</div>
-						<div className="flex items-center gap-1.5 mt-0.5">
-							<span className="text-2xs font-bold text-text-3">
-								{doc.format}
-							</span>
-							<span className="text-2xs text-text-3">
-								{doc.pageCount ?? 1}p
-							</span>
+						<div className="flex items-center gap-1.5 mt-0.5 text-2xs text-text-3">
+							<span className="font-bold">{doc.format}</span>
+							<span>{doc.pageCount ?? 1}p</span>
+							{(doc.rating ?? 0) > 0 && (
+								<span
+									className="flex items-center gap-0.5 text-amber-500"
+									title={`rating ${doc.rating}`}
+								>
+									<span className="leading-none">★</span>
+									<span className="tabular-nums">{doc.rating}</span>
+								</span>
+							)}
+							{doc.updatedAt && (
+								<span
+									className="ml-auto text-text-3/80 tabular-nums"
+									title={doc.updatedAt}
+								>
+									{relativeTime(doc.updatedAt, navigator.language)}
+								</span>
+							)}
 						</div>
 					</div>
 					{onWs && !menuOpen && mode.kind !== "confirm-delete" && (

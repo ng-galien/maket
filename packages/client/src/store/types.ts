@@ -43,4 +43,13 @@ export interface DocSummary {
 	elementCount: number;
 	rating?: number;
 	locked?: boolean;
+	/** Name of the associated charte, when the doc has one. Used as tooltip
+	 * on the colour dot. */
+	charte?: string;
+	/** ISO-ish timestamp ("YYYY-MM-DD HH:mm:ss") from the server, rendered
+	 * relatively ("2h ago") in the UI. */
+	updatedAt?: string;
+	/** Primary colour of the associated charte — renders as a tiny dot in
+	 * the doc row so you can scan the catalog by brand at a glance. */
+	charteColor?: string;
 }

@@ -50,6 +50,10 @@ export interface Store {
 	loadById(id: string): Document | null;
 	deleteDoc(name: string): void;
 	isEmpty(): boolean;
+	/** Name → updated_at ISO string for every stored document. Cheap: hits
+	 * only the documents table. Used by `Documents.list()` to surface
+	 * last-modified timestamps on DocSummary. */
+	listTimestamps(): Map<string, string>;
 	// Chartes
 	saveCharte(c: Charte): void;
 	loadAllChartes(): Charte[];
@@ -328,6 +332,16 @@ export class DocumentStore implements Store {
 			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 			.get() as any;
 		return (row?.cnt ?? 0) === 0;
+	}
+
+	listTimestamps(): Map<string, string> {
+		const rows = this.db
+			.prepare("SELECT name, updated_at FROM documents")
+			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
+			.all() as Array<{ name: string; updated_at: string }>;
+		const map = new Map<string, string>();
+		for (const row of rows) map.set(row.name, row.updated_at);
+		return map;
 	}
 
 	// ---- Chartes CRUD ----

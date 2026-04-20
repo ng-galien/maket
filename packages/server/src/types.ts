@@ -129,6 +129,13 @@ export interface DocSummary {
 	count: number;
 	charte?: string;
 	locked?: boolean;
+	/** ISO-ish timestamp ("2026-04-20 14:59:27") of the last save — used by the
+	 * client to render a relative "N min ago" label. */
+	updatedAt?: string;
+	/** Primary colour of the associated charte (first colour token if
+	 * `primary` is missing), returned so the UI can render a tiny dot without
+	 * a second round-trip. Omitted when the doc has no charte. */
+	charteColor?: string;
 }
 
 // ---- Charte graphique ----
