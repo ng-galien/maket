@@ -135,6 +135,44 @@ textarea:focus-visible {
   content-visibility: auto;
 }
 
+/* Isolate user canvas HTML from Tailwind v4 preflight. The server-rendered
+   /print route and the PDF export render with UA defaults (no Tailwind); the
+   workspace was inheriting Tailwind's resets, which made headings lighter,
+   bulleted lists lose their markers, etc. Revert the specific resets so what
+   you see in the workspace matches what you get in print. */
+.page-canvas h1,
+.page-canvas h2,
+.page-canvas h3,
+.page-canvas h4,
+.page-canvas h5,
+.page-canvas h6 {
+  font-size: revert;
+  font-weight: revert;
+  margin: revert;
+}
+.page-canvas p,
+.page-canvas blockquote,
+.page-canvas pre,
+.page-canvas figure,
+.page-canvas dl,
+.page-canvas dd {
+  margin: revert;
+}
+.page-canvas ul,
+.page-canvas ol,
+.page-canvas menu {
+  list-style: revert;
+  padding: revert;
+  margin: revert;
+}
+.page-canvas b,
+.page-canvas strong {
+  font-weight: revert;
+}
+.page-canvas small {
+  font-size: revert;
+}
+
 .page-canvas [data-id] {
   cursor: pointer;
   transition: outline var(--duration-base) var(--ease-out);

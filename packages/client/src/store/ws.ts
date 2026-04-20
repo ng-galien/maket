@@ -218,6 +218,30 @@ if (!document.getElementById("bubble-css")) {
 let pendingLoadDoc: string | null = null;
 let initialStateReceived = false;
 
+/**
+ * Inject `@import url(...)` lines from a charte's CSS as real <link> tags in
+ * document.head. The PageCanvas only reads --charte-* vars inline and drops
+ * the @import, so without this the workspace never loads the charte's web
+ * fonts — whereas the server-rendered /print route does, causing the two
+ * renders to diverge.
+ * Dedupes by URL so switching between docs with the same charte is a no-op.
+ */
+const loadedCharteFontUrls = new Set<string>();
+function ensureCharteFonts(charteCss: string): void {
+	if (!charteCss) return;
+	const imports = charteCss.matchAll(/@import\s+url\(['"]?([^'")]+)['"]?\)/g);
+	for (const m of imports) {
+		const url = m[1];
+		if (!url || loadedCharteFontUrls.has(url)) continue;
+		loadedCharteFontUrls.add(url);
+		const link = document.createElement("link");
+		link.rel = "stylesheet";
+		link.href = url;
+		link.setAttribute("data-charte-font", "1");
+		document.head.appendChild(link);
+	}
+}
+
 export function initWs(): void {
 	if (ws) return;
 	connect();
@@ -268,6 +292,7 @@ function connect(): void {
 			// domain shape here and let the rest of the store stay strict.
 			const doc = msg.doc as Document | null;
 			const docList = (msg.docList ?? []) as DocSummary[];
+			if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 			if (doc) {
 				if (!initialStateReceived) {
 					initialStateReceived = true;
@@ -307,6 +332,7 @@ function connect(): void {
 		}
 
 		if (msg.type === "charte_updated") {
+			ensureCharteFonts(msg.css);
 			const s = useStore.getState();
 			const chartesCss = new Map(s.chartesCss);
 			for (const [docName, doc] of s.docs) {
