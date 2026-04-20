@@ -194,6 +194,10 @@ for (const evt of MUTATION_EVENTS) {
 }
 bus.on("document:focused", ({ docName }) => broadcastDoc(docName, true, true));
 
+bus.on("workspace:fit-view", () => {
+	wsRegistry.broadcast({ type: "fit_view" });
+});
+
 bus.on("charte:updated", ({ name, css }) => {
 	wsRegistry.broadcast({ type: "charte_updated", name, css });
 });

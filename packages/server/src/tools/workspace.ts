@@ -31,6 +31,7 @@ const ActionSchema = z.enum([
 	"focus",
 	"state",
 	"lock",
+	"fit_view",
 	"list_messages",
 	"ack_messages",
 ]);
@@ -67,6 +68,7 @@ const DESCRIPTION = [
 	"  focus         — open `doc` at page `page` in the live preview (sets active doc + active page).",
 	"  state         — summarise `doc`'s current state: canvas, pages with element counts, charte, pending messages.",
 	"  lock          — lock or unlock `doc`. When locked, every doc-scoped mutation refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
+	"  fit_view      — zoom out the client to fit the whole workspace (same as the Maximize button).",
 	"  list_messages — return every pending user message across all docs and the workspace bucket as JSON. Each message carries its own `docName` (or none for workspace scope).",
 	"  ack_messages  — drop the given `ids` from whichever bucket they live in.",
 ].join("\n");
@@ -92,6 +94,8 @@ export function createMaketWorkspaceTool(deps: WorkspaceDeps): ToolHandler {
 					return runState(args, documents, pending);
 				case "lock":
 					return runLock(args, documents, bus);
+				case "fit_view":
+					return runFitView(bus);
 				case "list_messages":
 					return runListMessages(pending);
 				case "ack_messages":
@@ -170,6 +174,11 @@ function runLock(args: Args, documents: Documents, bus: Bus) {
 			? `🔒 Locked "${d.name}" — MCP tools will refuse to edit it until unlocked.`
 			: `🔓 Unlocked "${d.name}".`,
 	);
+}
+
+function runFitView(bus: Bus) {
+	bus.emit("workspace:fit-view", {});
+	return text("Workspace fit-to-view triggered.");
 }
 
 function runListMessages(pending: Pending) {

@@ -4,8 +4,29 @@ import fr from "./fr.json";
 
 const LANGS: Record<string, Record<string, string>> = { fr, en };
 
+const STORAGE_KEY = "maket-lang";
+
+function safeGet(key: string): string | null {
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function safeSet(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		/* noop — test envs, private mode, quota */
+	}
+}
+
 function detectLang(): string {
-	const nav = navigator.language.slice(0, 2);
+	const saved = safeGet(STORAGE_KEY);
+	if (saved && LANGS[saved]) return saved;
+	const nav =
+		typeof navigator !== "undefined" ? navigator.language.slice(0, 2) : "en";
 	return LANGS[nav] ? nav : "en";
 }
 
@@ -15,10 +36,15 @@ const listeners = new Set<() => void>();
 export function setLang(lang: string) {
 	if (LANGS[lang]) {
 		currentLang = lang;
+		safeSet(STORAGE_KEY, lang);
 		listeners.forEach((fn) => {
 			fn();
 		});
 	}
+}
+
+export function toggleLang(): void {
+	setLang(currentLang === "fr" ? "en" : "fr");
 }
 
 export function getLang(): string {

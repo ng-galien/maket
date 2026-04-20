@@ -12,7 +12,7 @@ import {
 	Printer,
 	Sun,
 } from "lucide-react";
-import { useT } from "../i18n/useT";
+import { getLang, toggleLang, useT } from "../i18n/useT";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { fitToView } from "../store/zoomBridge";
 
@@ -143,6 +143,19 @@ export function BottomBar() {
 						<Printer size={16} />
 					</a>
 				)}
+
+				{/* Language toggle */}
+				<button
+					type="button"
+					onClick={toggleLang}
+					title={
+						getLang() === "fr" ? "Switch to English" : "Passer en français"
+					}
+					aria-label="Language"
+					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors text-[10px] font-bold tracking-wide uppercase"
+				>
+					{getLang() === "fr" ? "FR" : "EN"}
+				</button>
 
 				{/* Dark mode toggle */}
 				<button

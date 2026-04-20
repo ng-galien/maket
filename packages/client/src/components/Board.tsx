@@ -40,16 +40,6 @@ function Watermark() {
 					color: "light-dark(rgba(0, 0, 0, 0.12), rgba(255, 255, 255, 0.08))",
 				}}
 			>
-				<div
-					style={{
-						fontFamily: "var(--font-mono)",
-						fontSize: 28,
-						fontWeight: 600,
-						letterSpacing: 3,
-					}}
-				>
-					{t("watermark_command")}
-				</div>
 				<div style={{ fontSize: "var(--text-xl)", fontWeight: 400 }}>
 					{t("watermark_pan")} · {t("watermark_zoom")}
 				</div>

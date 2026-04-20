@@ -163,13 +163,17 @@ export const useStore = create<AppState>((set, get) => ({
 					...s.workspaceDocNames.slice(pos),
 				];
 			}
-			// Steal focus only if explicitly requested, or if nothing is focused yet
-			const shouldFocus = focus || !s.focusedDocName;
-			const focusedDocName =
-				!inWorkspace && addToWorkspace && shouldFocus
-					? doc.name
-					: (s.focusedDocName ??
-						(workspaceDocNames.length > 0 ? doc.name : null));
+			// Explicit focus (server-initiated) always wins. Otherwise auto-focus
+			// only on the first doc added when nothing was focused yet.
+			let focusedDocName: string | null;
+			if (focus) {
+				focusedDocName = doc.name;
+			} else if (!inWorkspace && addToWorkspace && !s.focusedDocName) {
+				focusedDocName = doc.name;
+			} else {
+				focusedDocName =
+					s.focusedDocName ?? (workspaceDocNames.length > 0 ? doc.name : null);
+			}
 			const chartesCss = new Map(s.chartesCss);
 			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
 			saveWorkspace(workspaceDocNames);

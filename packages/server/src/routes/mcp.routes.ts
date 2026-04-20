@@ -46,9 +46,12 @@ export function createMcpRouter({
 	): void {
 		const icon = ACTIVITY_ICONS[name] || "zap";
 		const params: Record<string, string> = {};
+		// Prefer a user-visible identifier (filename for assets, name/doc for docs)
+		// over the tool identifier so the bubble never reads "maket_html" etc.
 		if (typeof args.filename === "string") params.name = args.filename;
 		else if (typeof args.name === "string") params.name = args.name;
-		else params.name = name;
+		else if (typeof args.doc === "string") params.name = args.doc;
+		else params.name = "";
 		if (
 			name === "maket_html" &&
 			args.action === "set" &&
@@ -56,9 +59,11 @@ export function createMcpRouter({
 		) {
 			params.count = String((args.html.match(/data-id=/g) || []).length);
 		}
+		const action = typeof args.action === "string" ? args.action : null;
+		const key = action ? `bubble_${name}_${action}` : `bubble_${name}`;
 		wsRegistry.broadcast({
 			type: "activity",
-			key: `bubble_${name}`,
+			key,
 			params,
 			icon,
 		});

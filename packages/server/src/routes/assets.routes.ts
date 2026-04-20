@@ -92,7 +92,9 @@ export function createAssetsRouter({
 		}
 	});
 
-	router.use("/assets", express.static(ASSETS_DIR, { maxAge: "1d" }));
+	// maxAge 0 keeps the browser's copy revalidated by ETag on every request,
+	// so `maket_image import --overwrite` takes effect without a hard-refresh.
+	router.use("/assets", express.static(ASSETS_DIR, { maxAge: 0, etag: true }));
 
 	router.get("/api/assets", (_req, res: Response<AssetsListResponse>) => {
 		const files = assets.listFilenames();

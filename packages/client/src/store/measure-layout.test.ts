@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLang } from "../i18n/useT";
 import { measurePageLayout, translateBubble } from "./ws";
 
 // jsdom returns all-zero DOMRects; we stub getBoundingClientRect on a per-node
@@ -127,31 +128,39 @@ describe("measurePageLayout", () => {
 });
 
 describe("translateBubble", () => {
-	it("falls back to english when language is not fr/en", () => {
-		vi.spyOn(navigator, "language", "get").mockReturnValue("de-DE");
-		expect(translateBubble("bubble_doc_save")).toBe("Document saved");
+	afterEach(() => setLang("fr"));
+
+	it("renders English bubbles when the language is set to en", () => {
+		setLang("en");
+		expect(translateBubble("bubble_maket_doc_new", { name: "hero" })).toBe(
+			"New document: hero",
+		);
 	});
 
 	it("interpolates {param} placeholders", () => {
-		vi.spyOn(navigator, "language", "get").mockReturnValue("en-US");
-		expect(translateBubble("bubble_image_import", { name: "hero.jpg" })).toBe(
-			"Image imported: hero.jpg",
-		);
+		setLang("en");
+		expect(
+			translateBubble("bubble_maket_image_import", { name: "hero.jpg" }),
+		).toBe("Image imported: hero.jpg");
 	});
 
-	it("uses the fr dictionary when browser lang is fr", () => {
-		vi.spyOn(navigator, "language", "get").mockReturnValue("fr-CA");
-		expect(translateBubble("bubble_image_import", { name: "hero.jpg" })).toBe(
-			"Image importée : hero.jpg",
-		);
+	it("uses the fr dictionary when the language is fr", () => {
+		setLang("fr");
+		expect(
+			translateBubble("bubble_maket_image_import", { name: "hero.jpg" }),
+		).toBe("Image importée : hero.jpg");
 	});
 
-	it("falls back to bubble_default when the key is unknown", () => {
-		vi.spyOn(navigator, "language", "get").mockReturnValue("en");
+	it("falls back to the tool-level key when the action is unknown", () => {
+		setLang("en");
+		expect(translateBubble("bubble_maket_pdf_foo")).toBe("PDF exported");
+	});
+
+	it("returns empty when neither action-specific nor tool-level key exists", () => {
+		setLang("en");
 		const result = translateBubble("does_not_exist");
-		// bubble_default must exist in en.json for this fallback to kick in
-		expect(result).toBeTruthy();
-		expect(result).not.toBe("does_not_exist");
+		// bubble_default is now empty — unknown keys render nothing.
+		expect(result).toBe("");
 	});
 
 	it("returns empty string when key is undefined", () => {

@@ -14,6 +14,7 @@ export interface BusEvents {
 	"document:saved": { docName: string };
 	"document:loaded": { docName: string };
 	"document:focused": { docName: string };
+	"workspace:fit-view": Record<string, never>;
 	"document:deleted": { docName: string };
 	"canvas:changed": { docName: string };
 	"element:added": { docName: string; id: string };

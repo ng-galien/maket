@@ -38,7 +38,7 @@
     },
     {
       "name": "maket_workspace",
-      "description": "Session-level workspace actions: focus a doc/page in the preview, inspect its state, toggle lock, read and acknowledge pending user messages. Actions: focus, state, lock, list_messages, ack_messages."
+      "description": "Session-level workspace actions: focus a doc/page in the preview, inspect its state, toggle lock, fit the whole workspace to view, read and acknowledge pending user messages. Actions: focus, state, lock, fit_view, list_messages, ack_messages."
     },
     {
       "name": "maket_charte",

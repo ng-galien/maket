@@ -6,9 +6,10 @@ import type {
 import en from "../i18n/en.json";
 
 import fr from "../i18n/fr.json";
+import { getLang } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import { useStore } from "./useStore";
-import { fitToDoc } from "./zoomBridge";
+import { fitToDoc, fitToView } from "./zoomBridge";
 
 const BUBBLE_LANGS: Record<string, Record<string, string>> = { fr, en };
 
@@ -17,9 +18,11 @@ export function translateBubble(
 	params?: Record<string, string>,
 ): string {
 	if (!key) return "";
-	const lang = navigator.language.slice(0, 2);
-	const dict = BUBBLE_LANGS[lang] ?? BUBBLE_LANGS.en;
-	let text = dict[key] ?? dict.bubble_default ?? key;
+	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
+	// Try the fully-qualified key (bubble_<tool>_<action>); if absent, fall back
+	// to the tool-level key (bubble_<tool>); then the empty default.
+	const toolKey = key.replace(/(bubble_[^_]+(?:_[^_]+)?)_.*/, "$1");
+	let text = dict[key] ?? dict[toolKey] ?? dict.bubble_default ?? "";
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
 			text = text.replace(`{${k}}`, v);
@@ -361,6 +364,10 @@ function connect(): void {
 
 		if (msg.type === "assets_changed") {
 			window.dispatchEvent(new Event("assets-changed"));
+		}
+
+		if (msg.type === "fit_view") {
+			requestAnimationFrame(() => fitToView());
 		}
 
 		if (msg.type === "activity") {

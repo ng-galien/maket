@@ -61,6 +61,11 @@ export interface WsAssetsChangedMessage {
 	type: "assets_changed";
 }
 
+/** Asks the client to fit the whole workspace to view (like the Maximize button). */
+export interface WsFitViewMessage {
+	type: "fit_view";
+}
+
 /** Server-initiated RPC awaited via `wsBridge.sendRequest`. */
 export interface WsCheckLayoutRequest {
 	type: "check_layout_request";
@@ -78,6 +83,7 @@ export type WsServerMessage =
 	| WsReloadMessage
 	| WsActivityMessage
 	| WsAssetsChangedMessage
+	| WsFitViewMessage
 	| WsCheckLayoutRequest;
 
 // ============================================================
