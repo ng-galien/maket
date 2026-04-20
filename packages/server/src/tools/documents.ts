@@ -1,13 +1,13 @@
 /**
  * documents pack — maket_doc (compound).
  *
- * A single tool dispatches every document-lifecycle verb: new, focus, list,
- * delete, duplicate, rename, meta (absorbed from the old chartes pack),
- * state (absorbed from the old canvas pack), export/import (.maket bundles).
+ * Persistent document-lifecycle verbs: new, list, delete, duplicate, rename,
+ * meta (absorbed from the old chartes pack), export/import (.maket bundles).
+ * Session-scoped operations (focus, state, lock) live in maket_workspace.
  *
  * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
  * `store` (charte read/write for bundle import/export), `config` (EXPORTS_DIR),
- * `pending` (pending-message counts for `state`).
+ * `pending` (pending-message cleanup on delete).
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -47,14 +47,11 @@ export interface DocumentsDeps {
 
 const ActionSchema = z.enum([
 	"new",
-	"focus",
 	"list",
 	"delete",
 	"duplicate",
 	"rename",
 	"meta",
-	"state",
-	"lock",
 	"export",
 	"import",
 ]);
@@ -80,7 +77,7 @@ const MaketDocSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"The doc in scope. Required for every action except list. For new: the new doc's name (must be unique). For delete/focus/meta/state: the doc to act on. For duplicate/rename: the source doc.",
+			"The doc in scope. Required for every action except list. For new: the new doc's name (must be unique). For delete/meta: the doc to act on. For duplicate/rename: the source doc.",
 		),
 	name: z
 		.string()
@@ -88,10 +85,6 @@ const MaketDocSchema = z.object({
 		.describe(
 			"The new name. Only used by duplicate (clone's name) and rename (new name).",
 		),
-	page: z
-		.number()
-		.optional()
-		.describe("For focus: 1-based page number to make active."),
 	format: FormatSchema.optional().describe(
 		"For new: paper/screen format. Default A3. Paper sizes are mm; DESKTOP/TABLET/MOBILE are screen aspect ratios scaled to mm.",
 	),
@@ -131,12 +124,6 @@ const MaketDocSchema = z.object({
 		.number()
 		.optional()
 		.describe("For meta: 0–5 star rating (clamped)."),
-	locked: z
-		.boolean()
-		.optional()
-		.describe(
-			"For lock: true to lock the document (refuses MCP edits), false to unlock. Omit to toggle.",
-		),
 	docs: z
 		.array(z.string())
 		.optional()
@@ -158,30 +145,27 @@ const MaketDocSchema = z.object({
 });
 
 const DESCRIPTION = [
-	"When to use: every document-lifecycle operation — create, open, clone, rename, delete, list, update metadata, or inspect state. Prefer maket_page for per-page edits and maket_html for content changes.",
+	"When to use: every persistent document-lifecycle operation — create, clone, rename, delete, list, update metadata, or move bundles in/out. For session-level actions (open a doc/page in the preview, inspect state, lock), use maket_workspace. For per-page edits use maket_page and for content use maket_html.",
 	"",
 	"`doc` is the doc in scope for every action except list. `name` only appears when you need a NEW name (duplicate, rename).",
 	"",
 	"Manage design documents (the workspace unit: canvas + pages + meta).",
 	"  new       — create a blank document at `doc`; sets it active. Previous unsaved work is lost.",
-	"  focus     — open `doc` at page `page` in the live preview.",
 	"  list      — enumerate saved documents grouped by category.",
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
-	"  state     — summarise `doc`'s state: canvas, pages with element counts, charte, pending messages.",
-	"  lock      — lock or unlock `doc`. When locked, every doc-scoped mutation (maket_html, maket_page, maket_canvas, maket_mermaid, maket_doc delete/rename/meta) refuses until it's unlocked. Global resources (maket_image, maket_charte) are unaffected — they aren't owned by a single doc. Pass locked=true/false, or omit to toggle.",
 	"  export    — write a `.maket` bundle (gzipped JSON) to EXPORTS_DIR. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes are embedded automatically. Override the filename with `output`.",
 	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes skip names that already exist so your current brand isn't overwritten.",
 ].join("\n");
 
-function pageElementCount(page: Page): number {
-	return page.html ? (page.html.match(/data-id="[^"]+"/g) || []).length : 0;
-}
-
 function totalElementCount(pages: Page[]): number {
-	return pages.reduce((n, p) => n + pageElementCount(p), 0);
+	return pages.reduce(
+		(n, p) =>
+			n + (p.html ? (p.html.match(/data-id="[^"]+"/g) || []).length : 0),
+		0,
+	);
 }
 
 export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
@@ -197,8 +181,6 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 			switch (args.action) {
 				case "new":
 					return runNew(args, documents, bus);
-				case "focus":
-					return runFocus(args, documents, bus);
 				case "list":
 					return runList(documents);
 				case "delete":
@@ -209,10 +191,6 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 					return runRename(args, documents, bus);
 				case "meta":
 					return runMeta(args, documents, bus);
-				case "state":
-					return runState(args, documents, pending);
-				case "lock":
-					return runLock(args, documents, bus);
 				case "export":
 					return runExport(args, documents, store, config);
 				case "import":
@@ -263,28 +241,6 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 	return text(
 		`New doc "${args.doc}" [${newDoc.category}] (${fmt} ${orient} ${w}x${h}mm)${charteMsg}`,
 		{ next },
-	);
-}
-
-function runFocus(args: Args, documents: Documents, bus: Bus) {
-	if (!args.doc) return text("doc is required for action=focus", true);
-	if (args.page == null) return text("page is required for action=focus", true);
-	const d = documents.resolveOrLoad(args.doc);
-	if (!d) return text(`Document "${args.doc}" not found`, true);
-	const pageIdx = args.page - 1;
-	if (pageIdx < 0 || pageIdx >= d.pages.length)
-		return text(`Page ${args.page} not found (${d.pages.length} pages)`, true);
-	d.activePage = pageIdx;
-	const p = d.pages[pageIdx];
-	if (!p) return text(`Page ${args.page} not found`, true);
-	const dc = d.canvas;
-	const charteName = d.meta?.charte;
-	const charteInfo = charteName
-		? `\nCharte: "${charteName}" — use maket_charte view to apply brand styles`
-		: "\n⚠ No charte associated — use maket_doc meta to set one";
-	bus.emit("document:loaded", { docName: d.name });
-	return text(
-		`Focused "${d.name}" page ${args.page}/${d.pages.length}: "${p.name || "Untitled"}" [${d.category || "general"}] (${dc.format} ${dc.orientation} ${dc.w}x${dc.h}mm, ${pageElementCount(p)} elements)${charteInfo}`,
 	);
 }
 
@@ -367,31 +323,6 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
-function runState(args: Args, documents: Documents, pending: Pending) {
-	if (!args.doc) return text("doc is required for action=state", true);
-	const d = documents.resolve(args.doc);
-	if (!d) return text(`Document "${args.doc}" not found`, true);
-	const pendingCount = pending.forDoc(d.name).length;
-	const displayed = d._displayed === true;
-	const pageLines = d.pages.map((p, i) => {
-		const count = p.html?.match(/data-id="[^"]+"/g)?.length ?? 0;
-		return `  ${i + 1}. ${p.name || `Page ${i + 1}`} (${count} el.)`;
-	});
-	const lines = [
-		`Document: "${d.name}" [${d.category}]  ${d.canvas.format} ${d.canvas.orientation} ${d.canvas.w}×${d.canvas.h}mm`,
-		displayed
-			? ""
-			: "⚠ Not displayed in front — use maket_doc focus to open it",
-		d.meta?.charte ? `Charte: ${d.meta.charte}` : "⚠ No charte",
-		`Pages (${d.pages.length}):`,
-		...pageLines,
-		pendingCount > 0
-			? `📌 ${pendingCount} pending message(s) — use maket_message list`
-			: "",
-	].filter(Boolean);
-	return text(lines.join("\n"));
-}
-
 function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=meta", true);
 	const d = documents.resolve(args.doc);
@@ -431,28 +362,6 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 		level: "success",
 	});
 	return text(`Renamed "${oldName}" → "${args.name}"`);
-}
-
-function runLock(args: Args, documents: Documents, bus: Bus) {
-	if (!args.doc) return text("doc is required for action=lock", true);
-	const d = documents.resolve(args.doc);
-	if (!d) return text(`Document "${args.doc}" not found`, true);
-	if (!d.meta) d.meta = {};
-	const next = args.locked ?? !(d.meta.locked === true);
-	d.meta.locked = next;
-	documents.persist(d.name);
-	bus.emit("meta:updated", { docName: d.name });
-	bus.emit("toast", {
-		text: next
-			? `Document "${d.name}" locked`
-			: `Document "${d.name}" unlocked`,
-		level: "info",
-	});
-	return text(
-		next
-			? `🔒 Locked "${d.name}" — MCP tools will refuse to edit it until unlocked.`
-			: `🔓 Unlocked "${d.name}".`,
-	);
 }
 
 function runExport(

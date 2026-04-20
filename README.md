@@ -42,7 +42,7 @@ Claude — maket_doc new doc="Jazz flyer" format=A5 orientation=portrait
 
 You    — (clicks the date on the preview) "rends-la plus grosse"
 
-Claude — maket_message list → sees your note
+Claude — maket_workspace list_messages → sees your note
          maket_html patch doc="Jazz flyer" ops=[...]
          → Date scales up, hierarchy re-balanced.
 
@@ -86,13 +86,13 @@ Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
 
 | Tool | What it does |
 |------|--------------|
-| `maket_doc` | Document lifecycle — new, focus, list, delete, duplicate, rename, meta, state |
+| `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
+| `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
 | `maket_page` | Page structure — add, remove, rename, reorder, list |
 | `maket_canvas` | Canvas setup — format, orientation, background, text margin |
 | `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow) |
 | `maket_charte` | Brand chartes — list, view, set, delete |
 | `maket_image` | Asset library — list, view, meta, import, delete |
-| `maket_message` | User annotations from the preview — list, ack |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
 | `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
 | `maket_pdf` | Export a document to PDF via headless Chromium |

@@ -129,7 +129,7 @@ describe("stdio-bridge ↔ live Maket server", () => {
 			"maket_page",
 			"maket_canvas",
 			"maket_html",
-			"maket_message",
+			"maket_workspace",
 			"maket_charte",
 			"maket_image",
 			"maket_preview",

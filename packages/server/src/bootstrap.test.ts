@@ -13,10 +13,10 @@ import { documentsPack } from "./tools/documents.js";
 import { gmailPack } from "./tools/gmail.js";
 import { htmlPack } from "./tools/html.js";
 import { mermaidPack } from "./tools/mermaid.js";
-import { messagesPack } from "./tools/messages.js";
 import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
+import { workspacePack } from "./tools/workspace.js";
 
 describe("createAppContainer", () => {
 	let tmp: string;
@@ -124,7 +124,7 @@ describe("registerToolPacks", () => {
 		documentsPack,
 		canvasPack,
 		htmlPack,
-		messagesPack,
+		workspacePack,
 		previewPack,
 		pdfPack,
 		gmailPack,
@@ -138,7 +138,7 @@ describe("registerToolPacks", () => {
 		documents: {},
 		canvas: {},
 		html: {},
-		messages: {},
+		workspace: {},
 		preview: {},
 		pdf: {},
 		gmail: {},

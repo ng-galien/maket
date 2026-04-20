@@ -53,8 +53,19 @@ Every visible element must have a `data-id` attribute. Use standard CSS layout �
 
 - `maket_doc new` — Create document (format: A2/A3/A4/A5/A6/A7/A8/DESKTOP/TABLET/MOBILE, orientation, charte, category)
 - `maket_doc list` — List all documents
-- `maket_doc focus(doc, page)` — Open a document at a page in the browser preview
 - `maket_doc delete` / `maket_doc duplicate(doc, name)` / `maket_doc rename(doc, name)` — Management
+- `maket_doc meta(doc)` — Set doc metadata (rating, notes)
+- `maket_doc export / import` — Move `.maket` bundles in and out
+
+### Workspace (session)
+
+- `maket_workspace focus(doc, page)` — Open a document at a page in the browser preview
+- `maket_workspace state(doc)` — Document state + preview URL
+- `maket_workspace lock(doc, locked)` — Lock / unlock a doc (refuses edits while locked)
+- `maket_workspace list_messages` — Read every user annotation across all docs and workspace alerts in one call (each message carries its own `docName`)
+- `maket_workspace ack_messages(ids)` — Acknowledge processed messages (clears badges)
+
+Users annotate elements directly in the preview. Check `maket_workspace list_messages` regularly and process their feedback.
 
 ### Pages
 
@@ -127,19 +138,10 @@ Chartes may also define project-specific tokens like `var(--charte-color-ocean)`
 ### Preview & export
 
 - `maket_preview open` — **Call this immediately after `maket_doc new`, before any composition.** This opens the live preview in the user's browser so they can watch the document build in real time. Without it, the user is blind to your work. If the user closes or loses the preview, call it again.
-- `maket_doc state(doc)` — Document state + preview URL
 - `maket_preview snapshot(doc, page)` — PNG screenshot for visual inspection
 - `maket_canvas(doc)` — Change format, orientation, background
 - `maket_pdf(doc)` — Export as PDF (Puppeteer render)
 - `maket_html check(doc, page)` — Validate layout (collisions, spacing)
-- `maket_doc meta(doc)` — Set doc metadata (rating, notes)
-
-### Messaging
-
-- `maket_message list` — Read every user annotation across all docs and workspace alerts in one call (each message carries its own `docName`)
-- `maket_message ack(ids)` — Acknowledge processed messages (clears badges)
-
-Users annotate elements directly in the preview. Check `maket_message list` regularly and process their feedback.
 
 ## Design principles
 
@@ -311,7 +313,7 @@ Every element gets a semantic `data-id` (`titre`, `filet`, `card`, `footer`).
 
 ```
 maket_html patch(doc, page, ops) → refine styles, content, add/remove elements
-maket_message list → process user annotations → maket_message ack(ids)
+maket_workspace list_messages → process user annotations → maket_workspace ack_messages(ids)
 maket_preview snapshot(doc, page) → visual check → maket_html patch again
 ```
 

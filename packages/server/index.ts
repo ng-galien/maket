@@ -30,10 +30,10 @@ import { documentsPack } from "./src/tools/documents.js";
 import { gmailPack } from "./src/tools/gmail.js";
 import { htmlPack } from "./src/tools/html.js";
 import { mermaidPack } from "./src/tools/mermaid.js";
-import { messagesPack } from "./src/tools/messages.js";
 import { pagesPack } from "./src/tools/pages.js";
 import { pdfPack } from "./src/tools/pdf.js";
 import { previewPack } from "./src/tools/preview.js";
+import { workspacePack } from "./src/tools/workspace.js";
 
 const _logFile = join(
 	process.env.MAKET_DATA_DIR || join(homedir(), ".maket"),
@@ -98,7 +98,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 			documents: {},
 			canvas: {},
 			html: {},
-			messages: {},
+			workspace: {},
 			preview: {},
 			pdf: {},
 			gmail: {},
@@ -112,7 +112,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		documentsPack,
 		canvasPack,
 		htmlPack,
-		messagesPack,
+		workspacePack,
 		previewPack,
 		pdfPack,
 		gmailPack,

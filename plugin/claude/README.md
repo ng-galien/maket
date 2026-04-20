@@ -45,7 +45,7 @@ Claude will automatically activate the maket skill and follow the structured wor
 2. Reads brand charte if one exists (`maket_charte view`)
 3. Creates the document and composes the layout with `maket_html set`
 4. Opens live preview (`maket_preview open`)
-5. Iterates with `maket_html patch` based on user feedback (`maket_message list`)
+5. Iterates with `maket_html patch` based on user feedback (`maket_workspace list_messages`)
 6. Exports as PDF or standalone HTML
 
 ## Plugin structure

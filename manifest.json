@@ -28,7 +28,7 @@
   "tools": [
     {
       "name": "maket_doc",
-      "description": "Manage documents: new, focus, list, delete, duplicate, rename, meta, state, lock, export/import (.maket bundle)."
+      "description": "Document lifecycle: new, list, delete, duplicate, rename, meta, export/import (.maket bundle)."
     },
     { "name": "maket_page", "description": "Manage pages within a document: add, remove, rename, reorder, list." },
     { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },
@@ -37,8 +37,8 @@
       "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (layout overflow)."
     },
     {
-      "name": "maket_message",
-      "description": "Read and acknowledge pending user messages. `list` returns the full queue across all docs and the workspace bucket — each message carries its own docName. Actions: list, ack."
+      "name": "maket_workspace",
+      "description": "Session-level workspace actions: focus a doc/page in the preview, inspect its state, toggle lock, read and acknowledge pending user messages. Actions: focus, state, lock, list_messages, ack_messages."
     },
     {
       "name": "maket_charte",

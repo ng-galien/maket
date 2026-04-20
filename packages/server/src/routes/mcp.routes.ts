@@ -25,7 +25,7 @@ const ACTIVITY_ICONS: Record<string, string> = {
 	maket_page: "file-plus-2",
 	maket_canvas: "ruler",
 	maket_html: "file-pen",
-	maket_message: "pin",
+	maket_workspace: "pin",
 	maket_charte: "palette",
 	maket_image: "images",
 	maket_preview: "eye",

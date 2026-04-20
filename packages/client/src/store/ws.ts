@@ -264,7 +264,7 @@ function connect(): void {
 		});
 		// Server holds `_pending` in memory only — on restart (or first
 		// connect after a reload) it has nothing. Re-push client-side
-		// pending so maket_message list sees them.
+		// pending so maket_workspace list_messages sees them.
 		wsSend({
 			type: "sync_pending",
 			pending: useStore.getState().pending,

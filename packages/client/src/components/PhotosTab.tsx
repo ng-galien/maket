@@ -126,8 +126,8 @@ export function PhotosTab() {
 			if (uploaded.length > 0) {
 				// Workspace-scoped message — explicit `docName: undefined`
 				// opts out of the focused-doc injection in addPending so the
-				// server lands it in the workspace bucket and `maket_message
-				// list` (no doc) picks it up.
+				// server lands it in the workspace bucket and
+				// `maket_workspace list_messages` (no doc) picks it up.
 				useStore.getState().addPending({
 					id: crypto.randomUUID(),
 					type: "classify-images",

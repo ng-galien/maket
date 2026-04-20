@@ -112,58 +112,6 @@ describe("maket_doc — action=new", () => {
 	});
 });
 
-describe("maket_doc — action=focus", () => {
-	it("sets the active page and emits document:loaded", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		store.saveDoc(makeDoc("d", 3));
-		documents.loadAll();
-		const loaded = vi.fn();
-		bus.on("document:loaded", loaded);
-
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler(
-			{ action: "focus", doc: "d", page: 2 },
-			NO_EXTRA,
-		);
-		expect(res.isError).toBeUndefined();
-		expect(documents.resolve("d")?.activePage).toBe(1);
-		expect(loaded).toHaveBeenCalledWith({ docName: "d" });
-		store.close();
-	});
-
-	it("errors when the document is missing", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler(
-			{ action: "focus", doc: "ghost", page: 1 },
-			NO_EXTRA,
-		);
-		expect(res.isError).toBe(true);
-		store.close();
-	});
-
-	it("errors when the page is out of range", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		store.saveDoc(makeDoc("d", 2));
-		documents.loadAll();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler(
-			{ action: "focus", doc: "d", page: 99 },
-			NO_EXTRA,
-		);
-		expect(res.isError).toBe(true);
-		store.close();
-	});
-
-	it("errors when required args are missing", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler({ action: "focus" }, NO_EXTRA);
-		expect(res.isError).toBe(true);
-		store.close();
-	});
-});
-
 describe("maket_doc — action=list", () => {
 	it("groups documents by category", async () => {
 		const { store, bus, documents, config, pending } = fixture();
@@ -297,34 +245,6 @@ describe("maket_doc — action=duplicate", () => {
 	});
 });
 
-describe("maket_doc — action=state", () => {
-	it("describes format, pages, charte", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		const d = makeDoc("d", 2);
-		d.meta.charte = "brand";
-		store.saveDoc(d);
-		documents.loadAll();
-
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler({ action: "state", doc: "d" }, NO_EXTRA);
-		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
-		const txt = (res.content[0] as any).text as string;
-		expect(txt).toMatch(/Document: "d"/);
-		expect(txt).toMatch(/Charte: brand/);
-		expect(txt).toMatch(/Pages \(2\)/);
-		store.close();
-	});
-
-	it("errors when the document is missing", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler({ action: "state", doc: "ghost" }, NO_EXTRA);
-		expect(res.isError).toBe(true);
-		store.close();
-	});
-});
-
 describe("maket_doc — action=meta", () => {
 	it("errors when the document does not exist", async () => {
 		const { store, bus, documents, config, pending } = fixture();
@@ -377,57 +297,7 @@ describe("maket_doc — action=meta", () => {
 	});
 });
 
-describe("maket_doc — action=lock", () => {
-	it("toggles meta.locked and persists", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		store.saveDoc(makeDoc("doc"));
-		documents.loadAll();
-		const metaUpdated = vi.fn();
-		bus.on("meta:updated", metaUpdated);
-
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const lockRes = await tool.handler(
-			{ action: "lock", doc: "doc", locked: true },
-			NO_EXTRA,
-		);
-		expect(lockRes.isError).toBeUndefined();
-		expect(documents.resolve("doc")?.meta.locked).toBe(true);
-		expect(store.loadOne("doc")?.meta.locked).toBe(true);
-		expect(metaUpdated).toHaveBeenCalledWith({ docName: "doc" });
-
-		const unlockRes = await tool.handler(
-			{ action: "lock", doc: "doc", locked: false },
-			NO_EXTRA,
-		);
-		expect(unlockRes.isError).toBeUndefined();
-		expect(documents.resolve("doc")?.meta.locked).toBe(false);
-		store.close();
-	});
-
-	it("toggles when locked is omitted", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		store.saveDoc(makeDoc("doc"));
-		documents.loadAll();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-
-		await tool.handler({ action: "lock", doc: "doc" }, NO_EXTRA);
-		expect(documents.resolve("doc")?.meta.locked).toBe(true);
-		await tool.handler({ action: "lock", doc: "doc" }, NO_EXTRA);
-		expect(documents.resolve("doc")?.meta.locked).toBe(false);
-		store.close();
-	});
-
-	it("errors when the document is missing", async () => {
-		const { store, bus, documents, config, pending } = fixture();
-		const tool = createMaketDocTool({ bus, documents, store, config, pending });
-		const res = await tool.handler(
-			{ action: "lock", doc: "ghost", locked: true },
-			NO_EXTRA,
-		);
-		expect(res.isError).toBe(true);
-		store.close();
-	});
-
+describe("maket_doc — lock enforcement", () => {
 	it("refuses delete/rename/meta on a locked doc", async () => {
 		const { store, bus, documents, config, pending } = fixture();
 		const d = makeDoc("locked");

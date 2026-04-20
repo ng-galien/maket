@@ -28,7 +28,7 @@ If they accept, load the pre-built tutorial pages from the plugin assets:
 4. `maket_page add(name: "Your images")` → Read `assets/onboarding/page2-images.html` → `maket_html set`
 5. `maket_page add(name: "Brand guides")` → Read `assets/onboarding/page3-chartes.html` → `maket_html set`
 6. `maket_page add(name: "Messages")` → Read `assets/onboarding/page4-messages.html` → `maket_html set`
-7. `maket_doc focus(doc, 1)` to go back to the welcome page
+7. `maket_workspace focus(doc, 1)` to go back to the welcome page
 
 The asset files are located at: `plugin/claude/skills/maket/assets/onboarding/`
 
@@ -36,7 +36,7 @@ Page 2 (Images) has a placeholder for the library section — after loading, use
 
 ### After the tutorial
 
-Tell the user their guide is ready and invite them to try the messaging loop on the tutorial itself. Wait for their first message via `maket_message list`.
+Tell the user their guide is ready and invite them to try the messaging loop on the tutorial itself. Wait for their first message via `maket_workspace list_messages`.
 
 When they're ready, ask what they'd like to design for real.
 
@@ -60,14 +60,14 @@ Show a short summary before proceeding.
 
 1. `maket_doc new` with format, orientation, category, and `charte`
 2. `maket_preview open`
-3. `maket_doc state` to confirm canvas dimensions
+3. `maket_workspace state` to confirm canvas dimensions
 
 Build the layout with `maket_html set`. Pass `context_token` if a charte is loaded. Every element gets a `data-id`.
 
 ### Step 4 — Iterate
 
 1. `maket_html patch` to refine
-2. `maket_message list` for user annotations → process and `maket_message ack`
+2. `maket_workspace list_messages` for user annotations → process and `maket_workspace ack_messages`
 3. Repeat until satisfied
 
 ### Step 5 — Visual review

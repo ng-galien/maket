@@ -47,7 +47,7 @@ export function text(t: string, opts?: boolean | TextOpts): ToolResult {
 export function lockGuard(d: Document): ToolResult | null {
 	if (d.meta?.locked !== true) return null;
 	return text(
-		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_doc action=lock doc=${d.name} locked=false`,
+		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_workspace action=lock doc=${d.name} locked=false`,
 		true,
 	);
 }

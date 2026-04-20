@@ -5,7 +5,7 @@
  * marker, image drop, review comment, library-wide alert). The client holds
  * the full workspace queue and pushes it to the server via a
  * `sync_pending` WS message; the server buckets entries here and the MCP
- * `maket_message` tool reads them so the agent can act and ack.
+ * `maket_workspace` tool (list_messages/ack_messages) reads them so the agent can act and ack.
  *
  * Two buckets:
  *  - per-doc (`byDoc: Map<docName, PendingMessage[]>`) — messages tied to a
