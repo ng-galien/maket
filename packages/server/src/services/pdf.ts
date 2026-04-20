@@ -15,12 +15,11 @@
  * overrides (puppeteer launcher, Jimp loader) live on `opts`.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { extname, join } from "node:path";
-import puppeteer, { type Browser } from "puppeteer";
 import { parseCharteVars } from "../lib/charte-css.js";
+import { inlineImages } from "../lib/image-inline.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
+import type { BrowserPool } from "./browser-pool.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
 
@@ -44,90 +43,32 @@ export interface PdfServiceDeps {
 	documents: Documents;
 	config: Config;
 	assets: AssetsService;
+	browserPool: BrowserPool;
 }
 
 export interface PdfServiceOptions {
-	/** Override for the puppeteer launcher (defaults to `puppeteer.launch`). */
-	browserLaunch?: () => Promise<Browser>;
+	/** Kept for backward-compat with existing tests that pass a puppeteer
+	 * launcher override — if provided, wraps it in a throwaway BrowserPool
+	 * so the test pipeline stays unchanged. Prefer injecting a mock
+	 * BrowserPool via `deps.browserPool` for new code. */
+	browserLaunch?: () => Promise<import("puppeteer").Browser>;
 }
 
 export function createPdfService(
 	deps: PdfServiceDeps,
 	opts: PdfServiceOptions = {},
 ): PdfService {
-	const { documents, config, assets } = deps;
-	const browserLaunch =
-		opts.browserLaunch ??
-		(() => puppeteer.launch({ headless: true, args: ["--no-sandbox"] }));
-
-	let browser: Browser | null = null;
-	async function getBrowser(): Promise<Browser> {
-		if (browser?.connected) return browser;
-		browser = await browserLaunch();
-		browser.on("disconnected", () => {
-			browser = null;
-		});
-		return browser;
-	}
-
-	async function inlineImages(
-		html: string,
-		pageDims: { w: number; h: number },
-		dpi: number,
-	): Promise<string> {
-		const maxW = Math.ceil((pageDims.w * dpi) / 25.4);
-		const maxH = Math.ceil((pageDims.h * dpi) / 25.4);
-		const srcRegex = /\/assets\/([^"')\s]+\.(?:jpg|jpeg|png|webp|svg|gif))/gi;
-		const matches = [...html.matchAll(srcRegex)];
-		if (!matches.length) return html;
-
-		const filenames = [
-			...new Set(matches.map((m) => m[1]).filter((f): f is string => !!f)),
-		];
-		const dataUris = new Map<string, string>();
-
-		const { Jimp } = await import("jimp");
-
-		await Promise.all(
-			filenames.map(async (filename) => {
-				const absPath = join(config.ASSETS_DIR, filename);
-				if (!existsSync(absPath)) return;
-				try {
-					const ext = extname(filename).toLowerCase();
-					if (ext === ".svg") {
-						const b64 = readFileSync(absPath).toString("base64");
-						dataUris.set(filename, `data:image/svg+xml;base64,${b64}`);
-						return;
-					}
-					const image = await Jimp.read(absPath);
-					if (image.width > maxW || image.height > maxH) {
-						image.scaleToFit({ w: maxW, h: maxH });
-					}
-					const isPng = ext === ".png";
-					const buf = isPng
-						? await image.getBuffer("image/png")
-						: await image.getBuffer("image/jpeg", { quality: 80 });
-					const mime = isPng ? "image/png" : "image/jpeg";
-					dataUris.set(
-						filename,
-						`data:${mime};base64,${buf.toString("base64")}`,
-					);
-				} catch {
-					const b64 = readFileSync(absPath).toString("base64");
-					dataUris.set(
-						filename,
-						`data:${assets.mimeFromExt(absPath)};base64,${b64}`,
-					);
-				}
-			}),
-		);
-
-		let result = html;
-		for (const [filename, dataUri] of dataUris) {
-			result = result.replaceAll(`/assets/${filename}`, dataUri);
-		}
-		return result;
-	}
+	const { documents, config, assets, browserPool } = deps;
+	// Test shim — some existing fixtures pass `browserLaunch` and expect it to
+	// throw in place of a real browser. We honour that by redirecting `get()`.
+	const pool: BrowserPool = opts.browserLaunch
+		? {
+				get: opts.browserLaunch,
+				async dispose() {
+					/* no-op — caller owns the launcher */
+				},
+			}
+		: browserPool;
 
 	return {
 		async render(doc, quality = "print") {
@@ -142,7 +83,12 @@ export function createPdfService(
 
 			const pageHtmls = await Promise.all(
 				rawHtmls.map(async (html) => {
-					const inlined = await inlineImages(html, doc.canvas, dpi);
+					const inlined = await inlineImages(html, {
+						assetsDir: config.ASSETS_DIR,
+						pageMm: { w: doc.canvas.w, h: doc.canvas.h },
+						dpi,
+						mimeFromExt: (p) => assets.mimeFromExt(p),
+					});
 					return boxShadowToDropShadow(inlined, shadowVars);
 				}),
 			);
@@ -150,7 +96,7 @@ export function createPdfService(
 			const { w, h } = doc.canvas;
 			const fullHtml = buildPrintHtml(doc, pageHtmls, charteCss);
 
-			const b = await getBrowser();
+			const b = await pool.get();
 			const p = await b.newPage();
 			try {
 				await p.setContent(fullHtml, { waitUntil: "networkidle0" });

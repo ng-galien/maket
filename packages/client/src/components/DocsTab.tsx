@@ -520,9 +520,13 @@ function DocCard({
 	const confirming = mode.kind === "confirm-delete";
 	const dragEnabled = mode.kind === "idle";
 	const aspect = docAspectRatio(doc);
-	// Preview URL — same /print route the server already exposes, with the
-	// auto-print script suppressed via ?thumb=1.
-	const previewUrl = `/print?name=${encodeURIComponent(doc.name)}&thumb=1`;
+	// Real page snapshot served by the server. `t=<updatedAt>` acts both as
+	// a cache-key on the ThumbnailService and as a cache-buster in the
+	// browser: when the doc changes, updatedAt changes, url changes, the
+	// browser refetches. Missing updatedAt falls back to Date.now() so a
+	// stale server-side snapshot never survives a hot-reload.
+	const cacheToken = doc.updatedAt ?? String(Date.now());
+	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
 
 	return (
 		<div
@@ -540,41 +544,38 @@ function DocCard({
 			<button
 				type="button"
 				onClick={onToggle}
-				className={`block w-full overflow-hidden rounded-xl border transition ${
+				className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${
 					onWs
-						? "border-accent/40 ring-2 ring-accent/20"
-						: "border-black/5 hover:border-black/10"
-				} bg-white`}
+						? "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
+						: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+				}`}
 				style={{ aspectRatio: `1 / ${aspect}` }}
 			>
-				{/* Scaled iframe — relies on CSS aspect-ratio to reserve space,
-				    `loading="lazy"` defers fetch until the card is close to view. */}
-				<div className="relative w-full h-full overflow-hidden bg-white">
-					<iframe
-						title={doc.name}
-						src={previewUrl}
-						loading="lazy"
-						tabIndex={-1}
-						className="absolute top-0 left-0 origin-top-left pointer-events-none"
-						style={{
-							width: "400%",
-							height: "400%",
-							transform: "scale(0.25)",
-							border: 0,
-							background: "white",
-						}}
-					/>
-					{locked && (
-						<div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center">
-							<Lock size={10} />
-						</div>
+				<img
+					src={thumbSrc}
+					alt={doc.name}
+					loading="lazy"
+					className="absolute inset-0 w-full h-full object-cover"
+					style={{ background: "#fff" }}
+					draggable={false}
+				/>
+				{locked && (
+					<span className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center">
+						<Lock size={10} />
+					</span>
+				)}
+				<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
+					{(doc.rating ?? 0) > 0 && (
+						<span className="px-1.5 py-0.5 rounded-md bg-amber-100/95 text-amber-600 text-2xs font-bold backdrop-blur">
+							★{doc.rating}
+						</span>
 					)}
 					{onWs && (
-						<div className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-accent text-white text-2xs font-bold">
+						<span className="w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
 							✓
-						</div>
+						</span>
 					)}
-				</div>
+				</span>
 			</button>
 
 			{/* Caption */}

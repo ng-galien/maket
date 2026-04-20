@@ -25,8 +25,16 @@ function fixture() {
 	const browserLaunch = vi.fn(async () => {
 		throw new Error("no browser in tests");
 	});
+	// Unused here — `browserLaunch` short-circuits inside createPdfService —
+	// but the signature requires it.
+	const browserPool = {
+		get: async () => {
+			throw new Error("pool not exercised in tests");
+		},
+		dispose: async () => {},
+	};
 	const service = createPdfService(
-		{ documents, config, assets },
+		{ documents, config, assets, browserPool },
 		{ browserLaunch },
 	);
 	return {

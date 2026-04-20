@@ -45,16 +45,10 @@ export function createExportRouter({
 		);
 
 		const printHtml = buildPrintHtml(d, pageHtmls, charteCssStr);
-		const thumb = req.query.thumb === "1" || req.query.thumb === "true";
-		// Thumbnails embed this page in an <iframe>, so the print-dialog
-		// auto-trigger must stay off — otherwise every visible thumb would
-		// try to print itself at page load.
-		const html = thumb
-			? printHtml
-			: printHtml.replace(
-					"</body>",
-					"<script>window.onafterprint=()=>window.close();window.onload=()=>setTimeout(()=>window.print(),400)</script></body>",
-				);
+		const html = printHtml.replace(
+			"</body>",
+			"<script>window.onafterprint=()=>window.close();window.onload=()=>setTimeout(()=>window.print(),400)</script></body>",
+		);
 
 		res.setHeader("Content-Type", "text/html");
 		res.send(html);

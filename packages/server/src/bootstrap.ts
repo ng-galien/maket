@@ -14,7 +14,9 @@ import { createChartesRouter } from "./routes/chartes.routes.js";
 import { createExportRouter } from "./routes/export.routes.js";
 import { createMcpRouter } from "./routes/mcp.routes.js";
 import { createOAuthRouter } from "./routes/oauth.routes.js";
+import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAssetsService } from "./services/assets.js";
+import { createBrowserPool } from "./services/browser-pool.js";
 import { createBus } from "./services/bus.js";
 import { type Config, createConfig, ensureDirs } from "./services/config.js";
 import { createDocuments, type Documents } from "./services/documents.js";
@@ -25,6 +27,7 @@ import {
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
+import { createThumbnailService } from "./services/thumbnail.js";
 import { createWsBridge } from "./services/ws-bridge.js";
 import { createWsHandler } from "./services/ws-handler.js";
 import { createWsRegistry } from "./services/ws-registry.js";
@@ -90,7 +93,13 @@ export function createAppContainer(
 
 		layout: asFunction(createLayoutService).singleton(),
 
+		browserPool: asFunction(createBrowserPool)
+			.singleton()
+			.disposer((p) => p.dispose()),
+
 		pdfService: asFunction(createPdfService).singleton(),
+
+		thumbnailService: asFunction(createThumbnailService).singleton(),
 	});
 
 	// Route factories — resolved by `mountRoutes` at server boot.
@@ -100,6 +109,7 @@ export function createAppContainer(
 		assetsRouter: asFunction(createAssetsRouter).singleton(),
 		chartesRouter: asFunction(createChartesRouter).singleton(),
 		exportRouter: asFunction(createExportRouter).singleton(),
+		thumbnailRouter: asFunction(createThumbnailRouter).singleton(),
 		oauthRouter: asFunction(createOAuthRouter).singleton(),
 		mcpRouter: asFunction(createMcpRouter).singleton(),
 	});
