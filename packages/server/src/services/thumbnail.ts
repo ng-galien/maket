@@ -68,6 +68,32 @@ const DEFAULT_CACHE_ENTRIES = 64;
 const DEVICE_SCALE_FACTOR = 2; // retina-quality thumbs
 const MM_TO_PX = 96 / 25.4; // CSS px per mm at 96 DPI
 
+/**
+ * Escape a user-controlled CSS property value so it can't break out of the
+ * declaration. `doc.canvas.bg` is settable via MCP/WS and would otherwise
+ * let a malicious value inject arbitrary rules into the thumbnail <style>
+ * block (and therefore trigger network fetches when puppeteer rasterises
+ * it). Only the chars that matter for CSS parser escape: ; } { < > " ' \.
+ */
+function escapeCssValue(v: string): string {
+	return v.replace(
+		/[;}{<>"'\\]/g,
+		(c) => `\\${c.codePointAt(0)?.toString(16)} `,
+	);
+}
+
+/**
+ * Neutralise any `</style` sequence in a CSS blob before injecting it
+ * inside a <style> element. HTML rawtext tokenisation closes the style at
+ * the first literal `</style` — a malicious charte token value could smuggle
+ * HTML past that point. We rewrite `/` as its CSS escape `\2f ` so CSS
+ * still parses the token (as garbage, which is fine — the input was
+ * malicious) but the HTML tokeniser no longer sees a close sequence.
+ */
+function stripStyleClose(css: string): string {
+	return css.replace(/<\/style/gi, "<\\2f style");
+}
+
 async function defaultSnapshot(
 	html: string,
 	viewport: { width: number; height: number; deviceScaleFactor: number },
@@ -152,15 +178,17 @@ export function createThumbnailService(
 			});
 			const resolved = boxShadowToDropShadow(inlined, shadowVars);
 
+			const safeBg = escapeCssValue(doc.canvas.bg || "#ffffff");
+			const safeCharteCss = stripStyleClose(charteCss);
 			const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
-  ${charteCss}
+  ${safeCharteCss}
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: ${doc.canvas.bg || "#ffffff"}; overflow: hidden; }
-  .page { width: ${doc.canvas.w}mm; height: ${doc.canvas.h}mm; background: ${doc.canvas.bg || "#ffffff"}; position: relative; overflow: hidden; transform-origin: top left; }
+  html, body { width: 100%; height: 100%; background: ${safeBg}; overflow: hidden; }
+  .page { width: ${doc.canvas.w}mm; height: ${doc.canvas.h}mm; background: ${safeBg}; position: relative; overflow: hidden; transform-origin: top left; }
 </style>
 </head>
 <body><div class="page">${resolved}</div></body>

