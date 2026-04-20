@@ -216,6 +216,18 @@ export function DocsTab() {
 		const stored = localStorage.getItem(VIEW_KEY);
 		return stored === "grid" ? "grid" : "list";
 	});
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [lastClicked, setLastClicked] = useState<string | null>(null);
+
+	// Escape clears the selection.
+	useEffect(() => {
+		if (selected.size === 0) return;
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setSelected(new Set());
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [selected.size]);
 
 	const setViewAndPersist = (v: View) => {
 		setView(v);
@@ -286,6 +298,82 @@ export function DocsTab() {
 		} else {
 			sendLoadDoc(name);
 		}
+	};
+
+	// Flat visible order across categories — drives shift-range selection.
+	const flatOrder = [...grouped.values()].flat().map((d) => d.name);
+
+	const handleRowClick = (name: string, e: React.MouseEvent) => {
+		if (e.metaKey || e.ctrlKey) {
+			e.preventDefault();
+			setSelected((prev) => {
+				const next = new Set(prev);
+				if (next.has(name)) next.delete(name);
+				else next.add(name);
+				return next;
+			});
+			setLastClicked(name);
+			return;
+		}
+		if (e.shiftKey && lastClicked) {
+			e.preventDefault();
+			const from = flatOrder.indexOf(lastClicked);
+			const to = flatOrder.indexOf(name);
+			if (from >= 0 && to >= 0) {
+				const [lo, hi] = from < to ? [from, to] : [to, from];
+				setSelected((prev) => {
+					const next = new Set(prev);
+					for (let i = lo; i <= hi; i++) {
+						const n = flatOrder[i];
+						if (n) next.add(n);
+					}
+					return next;
+				});
+			}
+			return;
+		}
+		// Plain click: clear any selection and do the default workspace toggle.
+		if (selected.size > 0) setSelected(new Set());
+		setLastClicked(name);
+		toggleDoc(name);
+	};
+
+	const clearSelection = () => setSelected(new Set());
+
+	const bulkLock = (locked: boolean) => {
+		for (const name of selected) {
+			const d = docList.find((x) => x.name === name);
+			if (!d) continue;
+			if ((d.locked === true) !== locked) sendLockDoc(name, locked);
+		}
+		clearSelection();
+	};
+
+	const bulkRecategorize = (cat: string) => {
+		const trimmed = cat.trim();
+		if (!trimmed) return;
+		for (const name of selected) {
+			const d = docList.find((x) => x.name === name);
+			if (!d || d.category === trimmed || d.locked === true) continue;
+			wsSend({ type: "update_meta", docName: name, category: trimmed });
+		}
+		clearSelection();
+	};
+
+	const bulkDelete = () => {
+		// Unselect the doc we're about to delete, one by one. Server refuses
+		// deleting the last doc, so we stop once only one would remain.
+		const remaining = docList.length - selected.size;
+		if (remaining < 1) {
+			// Would empty the workspace — bail and let the user narrow down.
+			return;
+		}
+		for (const name of selected) {
+			const d = docList.find((x) => x.name === name);
+			if (!d || d.locked === true) continue;
+			sendDeleteDoc(name);
+		}
+		clearSelection();
 	};
 
 	return (
@@ -435,7 +523,8 @@ export function DocsTab() {
 									const rowProps = {
 										doc: d,
 										onWs: isOnWorkspace(d.name),
-										onToggle: () => toggleDoc(d.name),
+										selected: selected.has(d.name),
+										onClick: (e: React.MouseEvent) => handleRowClick(d.name, e),
 										menuOpen: menuFor === d.name,
 										onMenuOpen: () => setMenuFor(d.name),
 										onMenuClose: () => setMenuFor(null),
@@ -476,6 +565,171 @@ export function DocsTab() {
 					{t("no_document")}
 				</div>
 			)}
+
+			{selected.size > 0 && (
+				<BulkActionBar
+					selected={selected}
+					docList={docList}
+					onClear={clearSelection}
+					onLock={() => bulkLock(true)}
+					onUnlock={() => bulkLock(false)}
+					onRecategorize={bulkRecategorize}
+					onDelete={bulkDelete}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface BulkActionBarProps {
+	selected: Set<string>;
+	docList: DocSummary[];
+	onClear: () => void;
+	onLock: () => void;
+	onUnlock: () => void;
+	onRecategorize: (cat: string) => void;
+	onDelete: () => void;
+}
+
+function BulkActionBar({
+	selected,
+	docList,
+	onClear,
+	onLock,
+	onUnlock,
+	onRecategorize,
+	onDelete,
+}: BulkActionBarProps) {
+	const t = useT();
+	const [showCatPicker, setShowCatPicker] = useState(false);
+	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+	const pickerRef = useRef<HTMLDivElement>(null);
+
+	// All known categories, deduped + sorted. A bulk "change to" picker is
+	// most useful when it lists what already exists plus a free-form input.
+	const categories = [
+		...new Set(docList.map((d) => d.category || "general")),
+	].sort();
+
+	const selectedDocs = docList.filter((d) => selected.has(d.name));
+	const anyUnlocked = selectedDocs.some((d) => d.locked !== true);
+	const anyLocked = selectedDocs.some((d) => d.locked === true);
+	const anyDeletable = selectedDocs.some((d) => d.locked !== true);
+	const wouldEmptyLibrary =
+		docList.length - selectedDocs.filter((d) => d.locked !== true).length < 1;
+
+	// Close the category picker on outside click.
+	useEffect(() => {
+		if (!showCatPicker) return;
+		const onDocClick = (e: MouseEvent) => {
+			if (!pickerRef.current?.contains(e.target as Node))
+				setShowCatPicker(false);
+		};
+		document.addEventListener("mousedown", onDocClick);
+		return () => document.removeEventListener("mousedown", onDocClick);
+	}, [showCatPicker]);
+
+	return (
+		<div className="sticky bottom-2 mx-1 mt-2 rounded-xl bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 p-2 flex items-center gap-1.5 z-40">
+			<span className="px-2 text-2xs font-bold text-text-3 tabular-nums">
+				{t("bulk_selected", { count: String(selected.size) })}
+			</span>
+			<div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
+				<div className="relative">
+					<button
+						type="button"
+						onClick={() => setShowCatPicker((s) => !s)}
+						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
+					>
+						{t("bulk_move_category")}
+					</button>
+					{showCatPicker && (
+						<div
+							ref={pickerRef}
+							className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
+						>
+							{categories.map((cat) => (
+								<button
+									key={cat}
+									type="button"
+									onClick={() => {
+										setShowCatPicker(false);
+										onRecategorize(cat);
+									}}
+									className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+								>
+									{cat}
+								</button>
+							))}
+							<div className="h-px bg-black/[0.06] my-1" />
+							<button
+								type="button"
+								onClick={() => {
+									setShowCatPicker(false);
+									const next = window.prompt(t("bulk_new_category"));
+									if (next) onRecategorize(next);
+								}}
+								className="w-full text-left px-3 py-1.5 text-sm text-accent hover:bg-accent/5 transition font-semibold"
+							>
+								+ {t("bulk_new_category_cta")}
+							</button>
+						</div>
+					)}
+				</div>
+				{anyUnlocked && (
+					<button
+						type="button"
+						onClick={onLock}
+						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
+					>
+						{t("doc_lock")}
+					</button>
+				)}
+				{anyLocked && (
+					<button
+						type="button"
+						onClick={onUnlock}
+						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
+					>
+						{t("doc_unlock")}
+					</button>
+				)}
+				{showConfirmDelete ? (
+					<button
+						type="button"
+						onClick={() => {
+							setShowConfirmDelete(false);
+							onDelete();
+						}}
+						className="px-2 py-1 rounded-md text-xs font-bold bg-danger text-white hover:brightness-110 transition"
+					>
+						{t("bulk_confirm_delete")}
+					</button>
+				) : (
+					<button
+						type="button"
+						disabled={!anyDeletable || wouldEmptyLibrary}
+						onClick={() => setShowConfirmDelete(true)}
+						className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
+							!anyDeletable || wouldEmptyLibrary
+								? "text-text-3 cursor-not-allowed"
+								: "text-danger hover:bg-danger-soft"
+						}`}
+					>
+						{t("doc_delete")}
+					</button>
+				)}
+			</div>
+			<button
+				type="button"
+				onClick={onClear}
+				aria-label={t("bulk_clear")}
+				className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.05] transition"
+			>
+				<span aria-hidden className="text-base leading-none">
+					×
+				</span>
+			</button>
 		</div>
 	);
 }
@@ -483,7 +737,8 @@ export function DocsTab() {
 interface DocRowProps {
 	doc: DocSummary;
 	onWs: boolean;
-	onToggle: () => void;
+	selected: boolean;
+	onClick: (e: React.MouseEvent) => void;
 	menuOpen: boolean;
 	onMenuOpen: () => void;
 	onMenuClose: () => void;
@@ -503,7 +758,8 @@ interface DocRowProps {
 function DocCard({
 	doc,
 	onWs,
-	onToggle,
+	selected,
+	onClick,
 	menuOpen,
 	onMenuOpen,
 	onMenuClose,
@@ -543,11 +799,13 @@ function DocCard({
 		>
 			<button
 				type="button"
-				onClick={onToggle}
+				onClick={onClick}
 				className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${
-					onWs
-						? "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
-						: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+					selected
+						? "border-accent ring-4 ring-accent/30 shadow-[0_8px_24px_rgba(16,185,129,0.18)]"
+						: onWs
+							? "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
+							: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
 				}`}
 				style={{ aspectRatio: `1 / ${aspect}` }}
 			>
@@ -559,6 +817,11 @@ function DocCard({
 					style={{ background: "#fff" }}
 					draggable={false}
 				/>
+				{selected && (
+					<span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
+						✓
+					</span>
+				)}
 				{locked && (
 					<span className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center">
 						<Lock size={10} />
@@ -682,7 +945,8 @@ function DocCard({
 function DocRow({
 	doc,
 	onWs,
-	onToggle,
+	selected,
+	onClick,
 	menuOpen,
 	onMenuOpen,
 	onMenuClose,
@@ -735,9 +999,13 @@ function DocRow({
 			) : (
 				<button
 					type="button"
-					onClick={onToggle}
+					onClick={onClick}
 					className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${
-						onWs ? "bg-accent/5" : "hover:bg-black/[0.03]"
+						selected
+							? "bg-accent/10 ring-2 ring-accent/30"
+							: onWs
+								? "bg-accent/5"
+								: "hover:bg-black/[0.03]"
 					}`}
 				>
 					<div
