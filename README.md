@@ -8,9 +8,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
 <p align="center">
-  <video src="docs/demo.mp4" controls width="800" muted playsinline>
-    Your browser can't embed the video — <a href="docs/demo.mp4">download it here</a>.
-  </video>
+  <img src="docs/demo.gif" alt="Maket demo walkthrough" width="800" />
 </p>
 
 <p align="center">
