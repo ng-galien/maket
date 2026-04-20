@@ -27,6 +27,7 @@ import {
 	sendRenameDoc,
 	wsSend,
 } from "../store/ws";
+import { HoldToDelete } from "./shared/HoldToDelete";
 
 const DRAG_MIME = "application/x-maket-doc";
 const VIEW_KEY = "maket-docs-view";
@@ -265,6 +266,7 @@ export function DocsTab() {
 
 	const importInputRef = useRef<HTMLInputElement>(null);
 	const [importError, setImportError] = useState<string | null>(null);
+	const [importDrag, setImportDrag] = useState(false);
 
 	// Escape clears the selection.
 	useEffect(() => {
@@ -462,9 +464,30 @@ export function DocsTab() {
 					<button
 						type="button"
 						onClick={() => importInputRef.current?.click()}
+						onDragOver={(e) => {
+							if (!e.dataTransfer.types.includes("Files")) return;
+							e.preventDefault();
+							e.dataTransfer.dropEffect = "copy";
+							if (!importDrag) setImportDrag(true);
+						}}
+						onDragLeave={() => setImportDrag(false)}
+						onDrop={(e) => {
+							e.preventDefault();
+							setImportDrag(false);
+							const file = Array.from(e.dataTransfer.files).find((f) =>
+								f.name.toLowerCase().endsWith(".maket"),
+							);
+							if (file) void handleImportFile(file);
+							else
+								setImportError(t("import_maket_error", { message: ".maket" }));
+						}}
 						aria-label={t("import_maket")}
 						title={t("import_maket")}
-						className="w-8 h-8 rounded-lg bg-input flex items-center justify-center text-text-3 hover:text-text-1 transition"
+						className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+							importDrag
+								? "bg-accent-soft text-accent ring-2 ring-accent/40"
+								: "bg-input text-text-3 hover:text-text-1"
+						}`}
 					>
 						<Upload size={14} />
 					</button>
@@ -1302,102 +1325,6 @@ function InlineNameEditor({
 				placeholder={placeholder}
 				className="flex-1 min-w-0 bg-transparent outline-none text-base font-medium text-text-1 placeholder:text-text-3"
 			/>
-		</div>
-	);
-}
-
-interface HoldToDeleteProps {
-	label: string;
-	onConfirm: () => void;
-	onCancel: () => void;
-}
-
-function HoldToDelete({ label, onConfirm, onCancel }: HoldToDeleteProps) {
-	const HOLD_MS = 650;
-	const [progress, setProgress] = useState(0);
-	const rafRef = useRef<number | null>(null);
-	const startRef = useRef<number | null>(null);
-	const firedRef = useRef(false);
-
-	const stop = () => {
-		if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
-		rafRef.current = null;
-		startRef.current = null;
-	};
-
-	const tick = (now: number) => {
-		if (startRef.current == null) startRef.current = now;
-		const p = Math.min(1, (now - startRef.current) / HOLD_MS);
-		setProgress(p);
-		if (p >= 1) {
-			if (!firedRef.current) {
-				firedRef.current = true;
-				stop();
-				onConfirm();
-			}
-			return;
-		}
-		rafRef.current = requestAnimationFrame(tick);
-	};
-
-	const begin = (e: React.PointerEvent) => {
-		if (firedRef.current) return;
-		e.preventDefault();
-		(e.target as HTMLElement).setPointerCapture(e.pointerId);
-		rafRef.current = requestAnimationFrame(tick);
-	};
-
-	const end = () => {
-		if (firedRef.current) return;
-		stop();
-		setProgress(0);
-	};
-
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onCancel();
-		};
-		document.addEventListener("keydown", onKey);
-		return () => {
-			document.removeEventListener("keydown", onKey);
-			stop();
-		};
-	}, [onCancel]);
-
-	return (
-		<div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-danger-soft text-danger">
-			<button
-				type="button"
-				onPointerDown={begin}
-				onPointerUp={end}
-				onPointerLeave={end}
-				onPointerCancel={end}
-				className="relative flex-1 min-w-0 flex items-center gap-2.5 py-1 select-none text-left focus:outline-none"
-			>
-				<div
-					className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-danger/15"
-					style={{ transform: `scale(${1 + progress * 0.08})` }}
-				>
-					<Trash2 size={13} />
-				</div>
-				<span className="relative flex-1 truncate text-sm font-semibold">
-					{label}
-				</span>
-				<div
-					className="absolute inset-x-0 bottom-0 h-0.5 bg-danger rounded-full origin-left"
-					style={{ transform: `scaleX(${progress})` }}
-				/>
-			</button>
-			<button
-				type="button"
-				onClick={onCancel}
-				aria-label="cancel"
-				className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-danger/15 text-danger"
-			>
-				<span aria-hidden className="text-base leading-none">
-					×
-				</span>
-			</button>
 		</div>
 	);
 }
