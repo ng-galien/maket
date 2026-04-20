@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light only" />
+  <title>Maket · A visual design tool for your AI assistant</title>
+  <meta name="description" content="Maket turns your AI assistant into a visual designer — compose HTML/CSS documents with brand chartes, an image library, and a live preview. Export to PDF or share as a .maket bundle." />
+
+  <!-- Social -->
+  <meta property="og:title" content="Maket — A visual design tool for your AI assistant" />
+  <meta property="og:description" content="Your brand, your images, your agents. One document model." />
+  <meta property="og:image" content="demo.gif" />
+  <meta property="og:type" content="website" />
+
+  <!-- Fonts: Newsreader (variable serif) + Inter (body) + JetBrains Mono (code). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..700;1,6..72,300..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230D1B2A'/%3E%3Ctext x='50%25' y='50%25' dy='.32em' text-anchor='middle' font-family='serif' font-size='70' fill='%23fff' font-weight='300'%3EM%3Ctspan fill='%2300A8B5'%3E.%3C/tspan%3E%3C/text%3E%3C/svg%3E" />
+
+  <style>
+    /* ─────────────────────────────────────────────────────────────
+       Maket blueprint — landing page
+       Editorial direction: architect's drafting paper. Deep ink on
+       pure white (no beige — anti-Anthropic). One signal colour,
+       cyan, used sparingly. Serif hero, sans body, mono numerals.
+       ───────────────────────────────────────────────────────────── */
+
+    :root {
+      /* Brand — mirrors the product charte 1:1 */
+      --primary:   #0D1B2A;
+      --accent:    #00A8B5;
+      --bg:        #FFFFFF;
+      --text:      #1B263B;
+      --muted:     #94A3B8;
+      --ink-soft:  #415A77;
+
+      /* Fluid type scale, clamped between phone and wide desktop */
+      --fs-kicker:  clamp(0.68rem, 0.64rem + 0.2vw, 0.78rem);
+      --fs-meta:    clamp(0.78rem, 0.74rem + 0.2vw, 0.88rem);
+      --fs-body:    clamp(0.95rem, 0.9rem + 0.3vw, 1.05rem);
+      --fs-lede:    clamp(1.1rem, 1rem + 0.6vw, 1.35rem);
+      --fs-title:   clamp(2.25rem, 1.6rem + 3vw, 3.25rem);
+      --fs-hero:    clamp(3.5rem, 2.2rem + 8vw, 9rem);
+
+      /* Geometry — 8pt baseline, but we steal the "mm" feel for section rhythm */
+      --rail:       clamp(1.25rem, 1rem + 2vw, 3rem);  /* outer side padding */
+      --gutter:     clamp(1rem, 0.75rem + 1vw, 1.5rem);
+    }
+
+    /* Reset / base */
+    *, *::before, *::after { box-sizing: border-box; }
+    html {
+      scroll-behavior: smooth;
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", system-ui, sans-serif;
+      font-size: var(--fs-body);
+      line-height: 1.55;
+      letter-spacing: -0.003em;
+
+      /* Blueprint drafting grid — 32px cells, cyan at 4% opacity.
+         Deliberately almost-invisible: it's texture, not decoration. */
+      background-image:
+        linear-gradient(to right,  rgba(0, 168, 181, 0.05) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 168, 181, 0.05) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+    img, svg { display: block; max-width: 100%; height: auto; }
+    a { color: inherit; text-decoration: none; }
+    a:focus-visible,
+    button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+    }
+    ::selection { background: var(--accent); color: #fff; }
+
+    /* Typography primitives */
+    .serif  { font-family: "Newsreader", Georgia, serif; font-weight: 300; }
+    .mono   { font-family: "JetBrains Mono", ui-monospace, monospace; }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-family: "Inter", sans-serif;
+      font-size: var(--fs-kicker);
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    /* The measurement-tick before every kicker — echoes architectural
+       dimension lines. One decorative detail, done well. */
+    .kicker::before {
+      content: "";
+      width: 1.6rem;
+      height: 1px;
+      background: var(--accent);
+      flex-shrink: 0;
+    }
+
+    /* Dot accent — the product signature. "Maket." with a cyan period. */
+    .dot { color: var(--accent); }
+
+    /* ─────────────────────────────────────────────────────────────
+       Layout rails
+       ───────────────────────────────────────────────────────────── */
+    .shell {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 var(--rail);
+    }
+
+    section {
+      position: relative;
+      padding-block: clamp(5rem, 3rem + 8vw, 10rem);
+      scroll-margin-top: 2rem;
+    }
+    section + section {
+      border-top: 1px solid rgba(11, 27, 42, 0.06);
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       Nav — slim, sticky, mostly invisible
+       ───────────────────────────────────────────────────────────── */
+    .nav {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(11, 27, 42, 0.06);
+    }
+    .nav__inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-block: 0.9rem;
+    }
+    .nav__brand {
+      font-family: "Newsreader", serif;
+      font-size: 1.4rem;
+      font-weight: 400;
+      color: var(--primary);
+      letter-spacing: -0.02em;
+    }
+    .nav__links {
+      display: flex;
+      gap: clamp(1rem, 0.5rem + 2vw, 2.5rem);
+      font-size: var(--fs-kicker);
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+    .nav__links a { transition: color 0.2s; }
+    .nav__links a:hover { color: var(--accent); }
+    @media (max-width: 640px) { .nav__links { display: none; } }
+
+    /* ─────────────────────────────────────────────────────────────
+       HERO
+       ───────────────────────────────────────────────────────────── */
+    .hero {
+      display: flex;
+      flex-direction: column;
+      padding-block: clamp(3rem, 2rem + 3vw, 5rem) clamp(3rem, 2rem + 3vw, 5rem);
+      overflow: hidden;
+    }
+    /* Generous air between the slug, the wordmark and the preview —
+       the 1fr grid was collapsing on short viewports. */
+    .hero__body { margin-top: clamp(4rem, 2.5rem + 5vw, 8rem); }
+    .hero__preview { margin-top: clamp(3.5rem, 2rem + 4vw, 6rem); }
+    /* Decorative fractal bleeding off the right margin. Subtle. */
+    .hero__deco {
+      position: absolute;
+      top: -10%;
+      right: -18%;
+      width: 70%;
+      max-width: 780px;
+      opacity: 0.12;
+      mix-blend-mode: multiply;
+      pointer-events: none;
+      user-select: none;
+    }
+    .hero__top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: var(--fs-meta);
+      color: var(--muted);
+      font-family: "JetBrains Mono", monospace;
+    }
+    .hero__slug { letter-spacing: 0.08em; }
+    .hero__body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: clamp(1.5rem, 1rem + 2vw, 2.75rem);
+      position: relative;
+      z-index: 1;
+    }
+    .hero__wordmark {
+      font-family: "Newsreader", serif;
+      font-weight: 200;
+      font-size: var(--fs-hero);
+      line-height: 0.88;
+      letter-spacing: -0.045em;
+      color: var(--primary);
+      margin: 0;
+    }
+    .hero__tagline {
+      font-family: "Newsreader", serif;
+      font-style: italic;
+      font-weight: 300;
+      font-size: var(--fs-lede);
+      line-height: 1.35;
+      color: var(--ink-soft);
+      max-width: 42ch;
+      margin: 0;
+    }
+    .hero__ctas {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.9rem;
+      margin-top: 0.5rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.85em 1.6em;
+      border: 1px solid currentColor;
+      font-family: "Inter", sans-serif;
+      font-size: var(--fs-meta);
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--primary);
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .btn:hover { background: var(--primary); color: var(--bg); }
+    .btn--primary {
+      background: var(--primary);
+      color: var(--bg);
+      border-color: var(--primary);
+    }
+    .btn--primary:hover { background: var(--accent); border-color: var(--accent); }
+
+    .hero__preview {
+      position: relative;
+    }
+    .hero__preview-frame {
+      position: relative;
+      border: 1px solid rgba(11, 27, 42, 0.12);
+      box-shadow: 0 30px 60px -20px rgba(11, 27, 42, 0.25),
+                  0 10px 20px -10px rgba(11, 27, 42, 0.1);
+      background: var(--bg);
+      overflow: hidden;
+    }
+    /* Corner ticks on the preview frame — drafting-paper crop marks */
+    .hero__preview-frame::before,
+    .hero__preview-frame::after {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border: 1.5px solid var(--accent);
+    }
+    .hero__preview-frame::before { top: -8px;    left: -8px;    border-right: none; border-bottom: none; }
+    .hero__preview-frame::after  { bottom: -8px; right: -8px;   border-left: none;  border-top: none; }
+    .hero__preview img,
+    .hero__preview video { width: 100%; display: block; }
+    .hero__preview-caption {
+      margin-top: 0.9rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-meta);
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       Section header — repeated pattern
+       ───────────────────────────────────────────────────────────── */
+    .shead {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      margin-bottom: clamp(3rem, 2rem + 3vw, 5rem);
+    }
+    @media (min-width: 768px) {
+      .shead { grid-template-columns: 1.1fr 1fr; gap: 3rem; align-items: start; }
+    }
+    .shead__title {
+      font-family: "Newsreader", serif;
+      font-weight: 300;
+      font-size: var(--fs-title);
+      line-height: 0.98;
+      letter-spacing: -0.025em;
+      color: var(--primary);
+      margin: 0.75rem 0 0 0;
+      max-width: 14ch;
+    }
+    .shead__lede {
+      font-size: var(--fs-lede);
+      line-height: 1.55;
+      color: var(--ink-soft);
+      max-width: 46ch;
+      margin: 0;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       DOC TYPES — 4×2 grid of CSS-drawn miniatures
+       ───────────────────────────────────────────────────────────── */
+    .docs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: clamp(1rem, 0.5rem + 1.5vw, 1.75rem);
+    }
+    .doc {
+      background: var(--bg);
+      padding: 1.25rem;
+      border: 1px solid rgba(11, 27, 42, 0.08);
+      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+    }
+    .doc:hover {
+      transform: translateY(-3px);
+      border-color: var(--accent);
+      box-shadow: 0 12px 24px -12px rgba(0, 168, 181, 0.25);
+    }
+    .doc__mini {
+      aspect-ratio: 4 / 3;
+      background: #F7F9FC;
+      border: 1px solid rgba(11, 27, 42, 0.08);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 0.85rem;
+    }
+    .doc__label {
+      font-family: "Newsreader", serif;
+      font-size: 1.05rem;
+      font-weight: 500;
+      color: var(--primary);
+      line-height: 1.2;
+    }
+    .doc__tag {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 0.35rem;
+    }
+
+    /* Each miniature: pure CSS, no images. Every silhouette different. */
+    /* 1. Pitch deck — accent bar, title bar, body line, bottom-aligned */
+    .m-deck {
+      display: flex; flex-direction: column; justify-content: flex-end; padding: 12%;
+      gap: 5%;
+    }
+    .m-deck i {
+      display: block; border-radius: 1px;
+    }
+    .m-deck .bar-a { width: 35%; height: 5%; background: var(--accent); }
+    .m-deck .bar-t { width: 78%; height: 14%; background: var(--primary); }
+    .m-deck .bar-b { width: 55%; height: 5%; background: rgba(65, 90, 119, 0.45); }
+
+    /* 2. Brochure — 3-panel tri-fold, middle panel dark */
+    .m-brochure {
+      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4%; padding: 10%;
+    }
+    .m-brochure i {
+      border-radius: 1px;
+    }
+    .m-brochure .p1 { background: rgba(0, 168, 181, 0.2); }
+    .m-brochure .p2 {
+      background: var(--primary);
+      display: flex; align-items: flex-end; padding: 12% 10%;
+    }
+    .m-brochure .p2::after {
+      content: ""; display: block; width: 80%; height: 8%; background: rgba(255,255,255,0.7);
+      border-radius: 1px;
+    }
+    .m-brochure .p3 { background: rgba(65, 90, 119, 0.2); }
+
+    /* 3. UX mockup — sidebar + content grid */
+    .m-ux {
+      display: flex; gap: 4%; padding: 10%;
+    }
+    .m-ux .side {
+      width: 22%; background: var(--primary); border-radius: 1px;
+      display: flex; flex-direction: column; justify-content: flex-start; gap: 12%; padding: 10% 8%;
+    }
+    .m-ux .side::before,
+    .m-ux .side::after {
+      content: ""; display: block; height: 10%; background: rgba(255,255,255,0.55); border-radius: 1px;
+    }
+    .m-ux .side::after { background: var(--accent); width: 70%; }
+    .m-ux .main {
+      flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6%;
+    }
+    .m-ux .main i {
+      background: rgba(148, 163, 184, 0.35); border-radius: 1px;
+    }
+    .m-ux .main i:last-child {
+      grid-column: span 2; background: rgba(0, 168, 181, 0.3);
+    }
+
+    /* 4. Résumé — header bar + avatar + two columns */
+    .m-cv {
+      display: flex; flex-direction: column; gap: 6%; padding: 10%;
+    }
+    .m-cv .head {
+      height: 15%; background: var(--primary); border-radius: 1px;
+      display: flex; align-items: center; gap: 6%; padding: 0 6%;
+    }
+    .m-cv .head::before {
+      content: ""; width: 9%; aspect-ratio: 1; background: var(--accent); border-radius: 50%;
+    }
+    .m-cv .head::after {
+      content: ""; flex: 1; max-width: 45%; height: 24%; background: rgba(255,255,255,0.6); border-radius: 1px;
+    }
+    .m-cv .cols {
+      flex: 1; display: grid; grid-template-columns: 1fr 2fr; gap: 6%;
+    }
+    .m-cv .cols > * {
+      display: flex; flex-direction: column; gap: 10%; justify-content: flex-start;
+    }
+    .m-cv .cols i {
+      height: 8%; background: rgba(65, 90, 119, 0.3); border-radius: 1px;
+    }
+    .m-cv .cols i:nth-child(2) { width: 75%; }
+    .m-cv .cols i:nth-child(4) { width: 60%; }
+
+    /* 5. Poster — dark bg, centered title, accent underline */
+    .m-poster {
+      background: var(--primary);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8%;
+      padding: 15%;
+    }
+    .m-poster i {
+      border-radius: 1px;
+    }
+    .m-poster .t { width: 75%; height: 18%; background: #fff; }
+    .m-poster .u { width: 35%; height: 5%; background: var(--accent); }
+
+    /* 6. Report — lines + chart block */
+    .m-report {
+      display: flex; flex-direction: column; gap: 5%; padding: 10%;
+    }
+    .m-report i {
+      background: rgba(65, 90, 119, 0.35); border-radius: 1px;
+    }
+    .m-report .h  { width: 60%; height: 8%; background: var(--primary); }
+    .m-report .l1 { width: 95%; height: 4%; }
+    .m-report .l2 { width: 90%; height: 4%; }
+    .m-report .l3 { width: 75%; height: 4%; }
+    .m-report .chart {
+      width: 100%; height: 28%; background: rgba(0, 168, 181, 0.15); border-radius: 1px;
+      display: flex; align-items: flex-end; gap: 4%; padding: 6%;
+    }
+    .m-report .chart::before,
+    .m-report .chart::after,
+    .m-report .chart { position: relative; }
+    .m-report .chart i {
+      flex: 1; background: var(--accent); border-radius: 1px 1px 0 0;
+    }
+    .m-report .chart i:nth-child(1) { height: 40%; }
+    .m-report .chart i:nth-child(2) { height: 75%; }
+    .m-report .chart i:nth-child(3) { height: 55%; }
+    .m-report .chart i:nth-child(4) { height: 90%; }
+
+    /* 7. Editorial — image left, text right */
+    .m-editorial {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 5%; padding: 10%;
+    }
+    .m-editorial .img {
+      background: rgba(65, 90, 119, 0.6); border-radius: 1px;
+    }
+    .m-editorial .txt {
+      display: flex; flex-direction: column; justify-content: center; gap: 8%;
+    }
+    .m-editorial .txt i {
+      background: rgba(65, 90, 119, 0.3); border-radius: 1px;
+    }
+    .m-editorial .txt i:nth-child(1) { height: 14%; background: var(--primary); }
+    .m-editorial .txt i:nth-child(2) { height: 5%; }
+    .m-editorial .txt i:nth-child(3) { height: 5%; width: 85%; }
+    .m-editorial .txt i:nth-child(4) { height: 5%; width: 70%; }
+
+    /* 8. Social card — square, accent bg, centered copy */
+    .m-social {
+      background: var(--accent);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 6%; padding: 15%;
+    }
+    .m-social i { border-radius: 1px; }
+    .m-social .t { width: 80%; height: 14%; background: #fff; }
+    .m-social .s { width: 45%; height: 4%; background: rgba(255,255,255,0.65); }
+
+    /* ─────────────────────────────────────────────────────────────
+       HOW IT WORKS — numbered steps, architectural drawing style
+       ───────────────────────────────────────────────────────────── */
+    .how {
+      position: relative;
+    }
+    .how__deco {
+      position: absolute;
+      bottom: -20%;
+      left: -15%;
+      width: 45%;
+      max-width: 500px;
+      opacity: 0.08;
+      pointer-events: none;
+      user-select: none;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: clamp(1.5rem, 1rem + 2vw, 3rem);
+      position: relative;
+      z-index: 1;
+    }
+    .step {
+      padding: 1.75rem 0;
+      border-top: 1px solid var(--primary);
+      position: relative;
+    }
+    .step__num {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+      margin-bottom: 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+    .step__num::after {
+      content: "→";
+      color: var(--muted);
+      font-size: 1rem;
+    }
+    .step:last-child .step__num::after { content: "·"; color: var(--accent); }
+    .step__title {
+      font-family: "Newsreader", serif;
+      font-weight: 400;
+      font-size: 1.65rem;
+      line-height: 1.15;
+      color: var(--primary);
+      margin: 0 0 0.85rem;
+      letter-spacing: -0.015em;
+    }
+    .step__body {
+      font-size: var(--fs-body);
+      line-height: 1.65;
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    /* ─────────────────────────────────────────────────────────────
+       FEATURES — 3×2 grid with CSS-drawn icons
+       ───────────────────────────────────────────────────────────── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: clamp(1.25rem, 0.75rem + 1.5vw, 2rem);
+    }
+    .feat {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 1.25rem;
+      padding: 1.5rem 0;
+      border-top: 1px solid rgba(11, 27, 42, 0.08);
+    }
+    .feat__icon {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      position: relative;
+    }
+    .feat__body h3 {
+      font-family: "Newsreader", serif;
+      font-weight: 500;
+      font-size: 1.2rem;
+      color: var(--primary);
+      margin: 0 0 0.45rem;
+      letter-spacing: -0.01em;
+    }
+    .feat__body p {
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: var(--ink-soft);
+      margin: 0;
+    }
+
+    /* Feature icons — each one different, monochrome navy/cyan */
+    .ico-live     { background: var(--accent); border-radius: 50%; display: grid; place-items: center; }
+    .ico-live::after {
+      content: ""; width: 12px; height: 12px; background: #fff; border-radius: 50%;
+    }
+    .ico-tokens   {
+      background: var(--primary); border-radius: 6px; overflow: hidden;
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+    }
+    .ico-tokens::before  { content:""; background: var(--accent); }
+    .ico-tokens::after   { content:""; background: rgba(255,255,255,0.2); grid-column: 2; grid-row: 2; }
+
+    .ico-library  {
+      background: var(--accent); border-radius: 6px; padding: 6px;
+      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px;
+    }
+    .ico-library::before,
+    .ico-library::after {
+      content: ""; background: rgba(255,255,255,0.9); border-radius: 1px;
+    }
+    .ico-library::before { grid-column: 1; grid-row: 1; }
+    .ico-library::after  { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.5); }
+    .ico-library { background: var(--accent); }
+
+    .ico-ai       {
+      background: var(--primary); border-radius: 6px;
+      display: grid; place-items: center;
+    }
+    .ico-ai::after {
+      content: ""; width: 18px; height: 18px; background: var(--accent);
+      transform: rotate(45deg); border-radius: 2px;
+    }
+
+    .ico-notes    {
+      background: #fff; border: 1.5px solid var(--primary); border-radius: 6px;
+      display: grid; place-items: center;
+    }
+    .ico-notes::after {
+      content:""; width: 14px; height: 14px; background: var(--accent); border-radius: 50%;
+    }
+
+    .ico-export   {
+      background: var(--accent); border-radius: 6px;
+      display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding: 0 7px 7px;
+    }
+    .ico-export::before,
+    .ico-export::after,
+    .ico-export i {
+      content:""; display: block; width: 4px; background: #fff; border-radius: 1px;
+    }
+    .ico-export::before { content:""; height: 40%; }
+    .ico-export::after  { content:""; height: 70%; }
+
+    /* ─────────────────────────────────────────────────────────────
+       INSTALL — terminal-style code block
+       ───────────────────────────────────────────────────────────── */
+    .install {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: clamp(2rem, 1rem + 3vw, 3.5rem);
+      align-items: start;
+    }
+    @media (min-width: 900px) {
+      .install { grid-template-columns: 1fr 1.2fr; }
+    }
+    .install__note {
+      font-size: var(--fs-body);
+      color: var(--ink-soft);
+      line-height: 1.7;
+    }
+    .install__note p { margin: 0 0 1rem; }
+    .install__note a {
+      color: var(--accent);
+      border-bottom: 1px solid currentColor;
+      padding-bottom: 1px;
+    }
+    .install__note a:hover { color: var(--primary); }
+
+    .terminal {
+      background: var(--primary);
+      color: #F7F9FC;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.9rem;
+      line-height: 1.85;
+      padding: 1.5rem 1.75rem;
+      border-radius: 2px;
+      position: relative;
+      overflow-x: auto;
+      box-shadow: 0 30px 60px -20px rgba(11, 27, 42, 0.4);
+    }
+    .terminal::before {
+      content: "$ SHELL";
+      position: absolute;
+      top: 0.85rem;
+      right: 1rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: rgba(255,255,255,0.4);
+    }
+    .terminal pre { margin: 0; }
+    .terminal .prompt { color: var(--accent); user-select: none; margin-right: 0.75rem; }
+    .terminal .cmd { color: #fff; }
+    .terminal .c   { color: var(--muted); }
+
+    /* ─────────────────────────────────────────────────────────────
+       FOOTER
+       ───────────────────────────────────────────────────────────── */
+    .foot {
+      padding: 3rem 0 4rem;
+      border-top: 1px solid var(--primary);
+      margin-top: 3rem;
+    }
+    .foot__inner {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 2rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: var(--fs-meta);
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+    .foot__mark { color: var(--primary); font-family: "Newsreader", serif; font-size: 1.1rem; letter-spacing: -0.02em; }
+    .foot__links { display: flex; flex-direction: column; gap: 0.4rem; text-align: right; }
+    .foot__links a:hover { color: var(--accent); }
+
+    /* ─────────────────────────────────────────────────────────────
+       Motion — single on-load cascade, respects reduced-motion
+       ───────────────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: no-preference) {
+      .reveal {
+        opacity: 0;
+        transform: translateY(18px);
+        animation: reveal 0.9s cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
+      }
+      .reveal[data-delay="1"] { animation-delay: 0.1s; }
+      .reveal[data-delay="2"] { animation-delay: 0.25s; }
+      .reveal[data-delay="3"] { animation-delay: 0.4s; }
+      .reveal[data-delay="4"] { animation-delay: 0.6s; }
+      .reveal[data-delay="5"] { animation-delay: 0.8s; }
+
+      /* Scroll-reveal helper, toggled by the IntersectionObserver below */
+      .in-view {
+        opacity: 0;
+        transform: translateY(24px);
+        transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.65, 0.3, 1);
+      }
+      .in-view.is-visible { opacity: 1; transform: none; }
+
+      @keyframes reveal {
+        to { opacity: 1; transform: none; }
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="shell nav__inner">
+      <a href="#" class="nav__brand">Maket<span class="dot">.</span></a>
+      <nav class="nav__links" aria-label="Sections">
+        <a href="#surface">Surface</a>
+        <a href="#loop">Loop</a>
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ══════════════════════════ HERO ══════════════════════════ -->
+    <section class="hero shell" id="top">
+      <img class="hero__deco" src="assets/fractal-branches.svg" alt="" aria-hidden="true" />
+
+      <div class="hero__top reveal">
+        <span class="hero__slug">MAKET · A VISUAL DESIGN TOOL FOR YOUR AI ASSISTANT</span>
+        <span>v1.0 · 2026</span>
+      </div>
+
+      <div class="hero__body">
+        <h1 class="hero__wordmark reveal" data-delay="1">Maket<span class="dot">.</span></h1>
+        <p class="hero__tagline reveal" data-delay="2">
+          Your brand, your images, your agents.<br />
+          One document model.
+        </p>
+        <div class="hero__ctas reveal" data-delay="3">
+          <a class="btn btn--primary" href="#install">Get started <span aria-hidden="true">↓</span></a>
+          <a class="btn" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+
+      <figure class="hero__preview reveal" data-delay="4">
+        <div class="hero__preview-frame">
+          <video
+            src="demo.mp4"
+            autoplay
+            loop
+            muted
+            playsinline
+            preload="metadata"
+            aria-label="Maket composing an A4 landscape deck — the viewport pans between pages as the AI assistant writes HTML."
+          ></video>
+        </div>
+        <figcaption class="hero__preview-caption">
+          <span>FIG. 01 — LIVE COMPOSITION, 60 s</span>
+          <span>297 × 210 MM · A4 LANDSCAPE</span>
+        </figcaption>
+      </figure>
+    </section>
+
+    <!-- ══════════════════════════ DOC TYPES ══════════════════════════ -->
+    <section id="surface" class="shell in-view">
+      <header class="shead">
+        <div>
+          <span class="kicker">Step 01 · The surface</span>
+          <h2 class="shead__title">Every kind<br />of doc<span class="dot">.</span></h2>
+        </div>
+        <p class="shead__lede">
+          Decks, brochures, UX mockups, résumés, posters, reports, editorial spreads, social cards.
+          If it fits on paper or screen, Maket composes it.
+        </p>
+      </header>
+
+      <div class="docs-grid">
+        <article class="doc">
+          <div class="doc__mini m-deck"><i class="bar-a"></i><i class="bar-t"></i><i class="bar-b"></i></div>
+          <div class="doc__label">Pitch deck</div>
+          <div class="doc__tag">A4 Landscape</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-brochure"><i class="p1"></i><i class="p2"></i><i class="p3"></i></div>
+          <div class="doc__label">Brochure</div>
+          <div class="doc__tag">Tri-fold</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-ux">
+            <div class="side"></div>
+            <div class="main"><i></i><i></i><i></i></div>
+          </div>
+          <div class="doc__label">UX mockup</div>
+          <div class="doc__tag">Desktop 16 / 9</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-cv">
+            <div class="head"></div>
+            <div class="cols">
+              <div><i></i><i></i><i></i></div>
+              <div><i></i><i></i><i></i></div>
+            </div>
+          </div>
+          <div class="doc__label">Résumé</div>
+          <div class="doc__tag">A4 Portrait</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-poster"><i class="t"></i><i class="u"></i></div>
+          <div class="doc__label">Poster</div>
+          <div class="doc__tag">A2 Portrait</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-report">
+            <i class="h"></i>
+            <i class="l1"></i><i class="l2"></i><i class="l3"></i>
+            <div class="chart"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="doc__label">Report</div>
+          <div class="doc__tag">Multi-page</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-editorial">
+            <div class="img"></div>
+            <div class="txt"><i></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="doc__label">Editorial</div>
+          <div class="doc__tag">Magazine spread</div>
+        </article>
+        <article class="doc">
+          <div class="doc__mini m-social"><i class="t"></i><i class="s"></i></div>
+          <div class="doc__label">Social card</div>
+          <div class="doc__tag">Square 1 : 1</div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════ HOW IT WORKS ══════════════════════════ -->
+    <section id="loop" class="shell how in-view">
+      <img class="how__deco" src="assets/fractal-circles.svg" alt="" aria-hidden="true" />
+
+      <header class="shead">
+        <div>
+          <span class="kicker">Step 02 · The loop</span>
+          <h2 class="shead__title">Brief in<span class="dot">,</span><br />HTML out.</h2>
+        </div>
+        <p class="shead__lede">
+          Describe the intent. The agent reads your charte, picks from your library, writes the HTML.
+          Every element carries a <code style="font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:0.9em;">data-id</code>
+          so each iteration stays surgical.
+        </p>
+      </header>
+
+      <ol class="steps" style="list-style:none;padding:0;margin:0;">
+        <li class="step">
+          <div class="step__num"><span>01 · Your charte</span></div>
+          <h3 class="step__title">Colours, fonts, spacing — one source.</h3>
+          <p class="step__body">
+            Declare your brand once. Maket injects every token as a CSS variable on every page.
+            The agent can't drift; you can't forget.
+          </p>
+        </li>
+        <li class="step">
+          <div class="step__num"><span>02 · Your library</span></div>
+          <h3 class="step__title">Tagged assets, searchable by intent.</h3>
+          <p class="step__body">
+            Import images with tags and categories. The agent picks by what fits the brief,
+            not by filename. Every doc pulls from the same shelf.
+          </p>
+        </li>
+        <li class="step">
+          <div class="step__num"><span>03 · AI composes</span></div>
+          <h3 class="step__title">You write the brief. The AI assistant writes the page.</h3>
+          <p class="step__body">
+            HTML arrives in the browser in real time. Click any element to leave a note —
+            the next iteration patches it surgically. No rewrites.
+          </p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- ══════════════════════════ FEATURES ══════════════════════════ -->
+    <section id="features" class="shell in-view">
+      <header class="shead">
+        <div>
+          <span class="kicker">Step 03 · What's in the box</span>
+          <h2 class="shead__title">Six capabilities<span class="dot">,</span><br />one tool.</h2>
+        </div>
+        <p class="shead__lede">
+          Composition, brand, assets, annotation, AI, export — wired around a single document model.
+        </p>
+      </header>
+
+      <div class="features">
+        <article class="feat">
+          <div class="feat__icon ico-live"></div>
+          <div class="feat__body">
+            <h3>Live preview</h3>
+            <p>The browser mirrors every edit in real time — no reload, no guessing.</p>
+          </div>
+        </article>
+        <article class="feat">
+          <div class="feat__icon ico-tokens"></div>
+          <div class="feat__body">
+            <h3>Design tokens</h3>
+            <p>One charte — colours, fonts, spacing — becomes CSS variables on every page.</p>
+          </div>
+        </article>
+        <article class="feat">
+          <div class="feat__icon ico-library"></div>
+          <div class="feat__body">
+            <h3>Asset library</h3>
+            <p>Tagged, categorised, reusable. The agent searches by intent, not filename.</p>
+          </div>
+        </article>
+        <article class="feat">
+          <div class="feat__icon ico-ai"></div>
+          <div class="feat__body">
+            <h3>AI composition</h3>
+            <p>Brief in, HTML out. Every element is surgically iterable via <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">data-id</code>.</p>
+          </div>
+        </article>
+        <article class="feat">
+          <div class="feat__icon ico-notes"></div>
+          <div class="feat__body">
+            <h3>Annotations</h3>
+            <p>Click any element, leave a note. The agent reads and acks your intent.</p>
+          </div>
+        </article>
+        <article class="feat">
+          <div class="feat__icon ico-export"></div>
+          <div class="feat__body">
+            <h3>Export</h3>
+            <p>PDF via headless Chromium, standalone HTML, or a <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">.maket</code> bundle to share.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════ INSTALL ══════════════════════════ -->
+    <section id="install" class="shell in-view">
+      <header class="shead">
+        <div>
+          <span class="kicker">Step 04 · Run it</span>
+          <h2 class="shead__title">Five minutes<span class="dot">.</span></h2>
+        </div>
+        <p class="shead__lede">
+          Clone, install, start. The preview opens automatically — any MCP-compatible AI assistant connects over the protocol.
+        </p>
+      </header>
+
+      <div class="install">
+        <div class="terminal" role="region" aria-label="Installation commands">
+<pre><span class="c"># Clone &amp; run locally</span>
+<span class="prompt">$</span><span class="cmd">git clone https://github.com/ng-galien/maket.git</span>
+<span class="prompt">$</span><span class="cmd">cd maket</span>
+<span class="prompt">$</span><span class="cmd">npm install</span>
+<span class="prompt">$</span><span class="cmd">npm run dev</span>
+
+<span class="c"># Preview → http://maket.127.0.0.1.nip.io:24843</span></pre>
+        </div>
+        <div class="install__note">
+          <p>Requires <strong>Node ≥ 22</strong>. The server binds <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">:24843</code> and serves the preview + the MCP endpoint at <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">POST /mcp</code>.</p>
+          <p>Point any MCP-compatible AI assistant at the endpoint. The preview opens in your default browser — edit once, see it everywhere.</p>
+          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Full documentation in the README →</a></p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="shell foot__inner">
+      <div>
+        <div class="foot__mark">Maket<span class="dot">.</span></div>
+        <div style="margin-top:0.3rem;">MIT · 2026 · <span style="color:var(--ink-soft);">Built with Maket itself.</span></div>
+      </div>
+      <nav class="foot__links" aria-label="External links">
+        <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">→ github.com/ng-galien/maket</a>
+        <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">→ modelcontextprotocol.io</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    // Tiny scroll-reveal — adds `is-visible` once a section enters the viewport.
+    // Gracefully skipped if IntersectionObserver isn't available.
+    if ('IntersectionObserver' in window) {
+      const io = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('is-visible');
+            io.unobserve(entry.target);
+          }
+        }
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
+      document.querySelectorAll('.in-view').forEach((el) => {
+        io.observe(el);
+      });
+    } else {
+      document.querySelectorAll('.in-view').forEach((el) => {
+        el.classList.add('is-visible');
+      });
+    }
+  </script>
+</body>
+</html>

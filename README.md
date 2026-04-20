@@ -1,6 +1,6 @@
 # Maket
 
-**Turn Claude into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and Claude composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or send via Gmail when you're done.
+**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or send via Gmail when you're done.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
@@ -19,25 +19,25 @@
 
 ## Why Maket
 
-Claude is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives Claude a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, and an **asset + brand library** so output stays consistent across documents. You stay in the conversation; Claude handles the craft.
+Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives the AI assistant a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, and an **asset + brand library** so output stays consistent across documents. You stay in the conversation; the AI assistant handles the craft.
 
 ## Features
 
-- **Live preview** — Changes appear in your browser the instant Claude writes them. Click any element to annotate it and send feedback back to the chat.
+- **Live preview** — Changes appear in your browser the instant the AI writes them. Click any element to annotate it and send feedback back to the chat.
 - **HTML/CSS canvas** — Pages are real HTML sized in mm. No lock-in to a proprietary format.
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
-- **Image library** — Drop images in, tag them, Claude picks the right one for the brief.
+- **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
 - **PDF export** — Print-ready output via headless Chromium.
 - **Gmail send** — Compose an email document and send it as a PDF attachment.
 - **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
-- **Claude Code skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach Claude how to design, brand, and review documents.
+- **Agent skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach the AI assistant how to design, brand, and review documents.
 
 ## What it looks like
 
 ```
 You    — fais-moi un flyer A5 pour un concert jazz dimanche soir, ambiance feutrée
 
-Claude — maket_doc new doc="Jazz flyer" format=A5 orientation=portrait
+AI     — maket_doc new doc="Jazz flyer" format=A5 orientation=portrait
          maket_charte view name="Smoky Club"
          maket_html set doc="Jazz flyer" page=1 context_token=...
          → Live preview opens. Warm amber on deep navy, serif display for
@@ -45,13 +45,13 @@ Claude — maket_doc new doc="Jazz flyer" format=A5 orientation=portrait
 
 You    — (clicks the date on the preview) "rends-la plus grosse"
 
-Claude — maket_workspace list_messages → sees your note
+AI     — maket_workspace list_messages → sees your note
          maket_html patch doc="Jazz flyer" ops=[...]
          → Date scales up, hierarchy re-balanced.
 
 You    — parfait, exporte
 
-Claude — maket_pdf doc="Jazz flyer"
+AI     — maket_pdf doc="Jazz flyer"
          → ~/.maket/exports/jazz-flyer.pdf
 ```
 
@@ -68,9 +68,9 @@ npm run dev
 
 This starts the MCP/preview server on `:3333` and the Vite dev server on `:5173`.
 
-Open Claude Code from the project directory (the included `.mcp.json` points it at `http://localhost:3333/mcp`), then open **http://localhost:5173** in your browser for the live preview.
+Open any MCP-compatible client (e.g. Claude Code) from the project directory — the included `.mcp.json` points it at `http://localhost:3333/mcp` — then open **http://localhost:5173** in your browser for the live preview.
 
-### Option B — Package as a Claude Desktop extension (.mcpb)
+### Option B — Package as an MCP desktop extension (.mcpb)
 
 ```bash
 npm install -g @anthropic-ai/mcpb
@@ -79,9 +79,9 @@ node scripts/pack-mcpb.ts
 # → dist/maket.mcpb
 ```
 
-Drag `dist/maket.mcpb` into Claude Desktop (Settings → Extensions) to install it as a local extension. Any MCP-compatible client that supports Streamable HTTP can also connect to `http://localhost:3333/mcp` directly.
+Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions) to install it as a local extension. Any MCP-compatible client that supports Streamable HTTP can also connect to `http://localhost:3333/mcp` directly.
 
-**Requirements:** Node.js ≥22, and either Claude Code or Claude Desktop ≥0.10.
+**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, or similar).
 
 ## Tools
 
@@ -103,13 +103,13 @@ Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
 
 ## Plugin & skills
 
-The `plugin/claude/` directory ships three Claude Code skills that give Claude the judgment layer on top of the tools:
+The `plugin/claude/` directory ships three agent skills that give your AI assistant the judgment layer on top of the tools:
 
 - **`maket`** — Design director. Plans layouts, applies typographic hierarchy, composes step-by-step. Triggers on creative briefs ("make me a poster", "design a flyer for…").
 - **`maket-charte`** — Brand-identity expert. Builds coherent design-token systems from a brief, an industry, or a reference URL.
 - **`maket-review`** — QA agent. Audits charte compliance, image paths, layout overflow; fixes issues via `maket_html patch`.
 
-These skills are auto-loaded when Claude Code is opened in a Maket-enabled workspace.
+These skills are auto-loaded by MCP-compatible agents (e.g. Claude Code) when opened in a Maket-enabled workspace.
 
 ## Configuration
 
@@ -132,7 +132,7 @@ Override with environment variables:
 1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Add redirect URI: `http://localhost:3333/auth/google/callback`.
 3. Copy `.env.example` → `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
-4. Run `maket_gmail connect` in Claude — follow the browser flow to grant access.
+4. Run `maket_gmail connect` in your AI assistant — follow the browser flow to grant access.
 
 ### Bootstrap a downstream workspace
 
@@ -151,11 +151,11 @@ Creates `.mcp.json`, `.claude/skills/`, and a minimal `package.json` in the targ
 
 ```
 ┌──────────┐   MCP Streamable HTTP   ┌────────────────────────┐
-│  Claude  │ ──────────────────────► │  Express @ :3333       │
-│  (Code   │                         │  ├─ /mcp  (MCP server) │
-│ /Desktop)│                         │  ├─ /assets, /export   │
-└──────────┘                         │  └─ WS /ws (preview)   │
-                                     └────────┬───────────────┘
+│ AI agent │ ──────────────────────► │  Express @ :3333       │
+│  (any    │                         │  ├─ /mcp  (MCP server) │
+│  MCP     │                         │  ├─ /assets, /export   │
+│  client) │                         │  └─ WS /ws (preview)   │
+└──────────┘                         └────────┬───────────────┘
                                               │
                                      ┌────────┴────────┐
                                      │  SQLite         │

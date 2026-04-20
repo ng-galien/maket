@@ -1,7 +1,7 @@
 {
   "name": "maket",
   "version": "1.0.0",
-  "description": "Visual design tool for Claude — compose posters, flyers, labels, social posts with PDF export",
+  "description": "Visual design tool for AI assistants — compose posters, flyers, labels, social posts with PDF export",
   "license": "MIT",
   "author": "Alexandre Boyer",
   "homepage": "https://github.com/ng-galien/maket#readme",
