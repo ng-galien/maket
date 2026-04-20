@@ -21,3 +21,9 @@ bun.lock
 .agents/
 .junie/
 .claude/settings.local.json
+
+# Playwright E2E
+/.e2e-maket
+/packages/client/playwright-report
+/packages/client/test-results
+/packages/client/blob-report

@@ -32,6 +32,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "npm run build:client && npm run test:e2e -w @maket/client",
+    "e2e:server": "rm -rf .e2e-maket && MAKET_PORT=3399 MAKET_DATA_DIR=\"$PWD/.e2e-maket\" npx tsx packages/server/index.ts",
     "quality": "npm run lint && npm run typecheck && npm run test",
     "prepare": "lefthook install"
   },
