@@ -7,9 +7,14 @@
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A2BE2.svg)](https://modelcontextprotocol.io/)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-<!-- TODO: replace with actual demo GIF (record once client is polished) -->
 <p align="center">
-  <em>📽️ Demo GIF coming soon — a 30s clip showing: brief → live preview → PDF export.</em>
+  <video src="docs/demo.mp4" controls width="800" muted playsinline>
+    Your browser can't embed the video — <a href="docs/demo.mp4">download it here</a>.
+  </video>
+</p>
+
+<p align="center">
+  <em>60 seconds · charte → library → AI composition → every kind of doc → export.</em>
 </p>
 
 ---
