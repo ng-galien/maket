@@ -1,4 +1,5 @@
 import {
+	ChevronRight,
 	Copy,
 	Files,
 	FileText,
@@ -66,6 +67,27 @@ type RowMode =
 	| { kind: "duplicate" }
 	| { kind: "confirm-delete" };
 
+const COLLAPSED_KEY = "maket-categories-collapsed";
+
+function loadCollapsed(): Set<string> {
+	try {
+		const raw = localStorage.getItem(COLLAPSED_KEY);
+		if (!raw) return new Set();
+		const arr = JSON.parse(raw);
+		return Array.isArray(arr) ? new Set(arr.map(String)) : new Set();
+	} catch {
+		return new Set();
+	}
+}
+
+function saveCollapsed(set: Set<string>): void {
+	try {
+		localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]));
+	} catch {
+		/* localStorage may be unavailable (private mode) */
+	}
+}
+
 export function DocsTab() {
 	const t = useT();
 	const docList = useStore((s) => s.docList);
@@ -78,6 +100,23 @@ export function DocsTab() {
 		name: string;
 		mode: RowMode;
 	} | null>(null);
+	const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+		loadCollapsed(),
+	);
+
+	const toggleCategory = (cat: string) => {
+		setCollapsed((prev) => {
+			const next = new Set(prev);
+			if (next.has(cat)) next.delete(cat);
+			else next.add(cat);
+			saveCollapsed(next);
+			return next;
+		});
+	};
+
+	// Auto-expand a category when the search narrows the list down to just
+	// that one — collapsed state is only meaningful when you're browsing.
+	const searching = search.trim().length > 0;
 
 	const filtered = docList.filter((d) =>
 		d.name.toLowerCase().includes(search.toLowerCase()),
@@ -116,50 +155,68 @@ export function DocsTab() {
 			</div>
 
 			{/* Categories */}
-			{[...grouped.entries()].map(([cat, docs]) => (
-				<div key={cat}>
-					{/* Category header */}
-					<div className="flex items-center gap-2 px-2 py-1.5">
-						<div
-							style={{
-								width: 8,
-								height: 8,
-								borderRadius: "50%",
-								background: catColor(cat),
-								flexShrink: 0,
-							}}
-						/>
-						<span className="text-xs font-bold text-text-3 uppercase tracking-wider flex-1">
-							{cat}
-						</span>
-						<span className="text-xs text-text-3">{docs.length}</span>
-					</div>
-
-					{/* Doc list */}
-					<div className="flex flex-col gap-0.5">
-						{docs.map((d) => (
-							<DocRow
-								key={d.name}
-								doc={d}
-								onWs={isOnWorkspace(d.name)}
-								onToggle={() => toggleDoc(d.name)}
-								menuOpen={menuFor === d.name}
-								onMenuOpen={() => setMenuFor(d.name)}
-								onMenuClose={() => setMenuFor(null)}
-								mode={
-									modeFor?.name === d.name ? modeFor.mode : { kind: "idle" }
-								}
-								onModeChange={(mode) =>
-									setModeFor(
-										mode.kind === "idle" ? null : { name: d.name, mode },
-									)
-								}
-								canDelete={docList.length > 1}
+			{[...grouped.entries()].map(([cat, docs]) => {
+				const isCollapsed = !searching && collapsed.has(cat);
+				return (
+					<div key={cat}>
+						{/* Category header — click anywhere toggles */}
+						<button
+							type="button"
+							onClick={() => toggleCategory(cat)}
+							className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-black/[0.03] transition group/cat"
+							aria-expanded={!isCollapsed}
+						>
+							<ChevronRight
+								size={11}
+								className={`text-text-3 flex-shrink-0 transition-transform duration-150 ${
+									isCollapsed ? "" : "rotate-90"
+								}`}
 							/>
-						))}
+							<div
+								style={{
+									width: 8,
+									height: 8,
+									borderRadius: "50%",
+									background: catColor(cat),
+									flexShrink: 0,
+								}}
+							/>
+							<span className="text-xs font-bold text-text-3 uppercase tracking-wider flex-1 text-left">
+								{cat}
+							</span>
+							<span className="text-xs text-text-3 tabular-nums">
+								{docs.length}
+							</span>
+						</button>
+
+						{/* Doc list */}
+						{!isCollapsed && (
+							<div className="flex flex-col gap-0.5 mt-0.5">
+								{docs.map((d) => (
+									<DocRow
+										key={d.name}
+										doc={d}
+										onWs={isOnWorkspace(d.name)}
+										onToggle={() => toggleDoc(d.name)}
+										menuOpen={menuFor === d.name}
+										onMenuOpen={() => setMenuFor(d.name)}
+										onMenuClose={() => setMenuFor(null)}
+										mode={
+											modeFor?.name === d.name ? modeFor.mode : { kind: "idle" }
+										}
+										onModeChange={(mode) =>
+											setModeFor(
+												mode.kind === "idle" ? null : { name: d.name, mode },
+											)
+										}
+										canDelete={docList.length > 1}
+									/>
+								))}
+							</div>
+						)}
 					</div>
-				</div>
-			))}
+				);
+			})}
 
 			{filtered.length === 0 && (
 				<div className="px-4 py-6 text-center text-base text-text-3">
