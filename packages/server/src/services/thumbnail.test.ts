@@ -69,10 +69,27 @@ function fixture() {
 }
 
 describe("createThumbnailService", () => {
-	it("rejects a page that has no HTML", async () => {
-		const { service, cleanup } = fixture();
+	it("renders an empty page as a blank canvas (no HTML, no throw)", async () => {
+		const { service, snapshot, cleanup } = fixture();
 		const doc = makeDoc({ pages: [{ name: "empty", elements: [] }] });
-		await expect(service.render(doc)).rejects.toThrow(/no HTML/);
+		const buf = await service.render(doc);
+		expect(Buffer.isBuffer(buf)).toBe(true);
+		expect(snapshot).toHaveBeenCalledOnce();
+		const html = snapshot.mock.calls[0]?.[0] ?? "";
+		// The canvas div is still composed with the doc background, just
+		// with no content inside — that's what the DocsTab thumbnail shows
+		// for docs the user just created but hasn't laid out yet.
+		expect(html).toContain('<div class="page"');
+		expect(html).toContain("</div></body>");
+		cleanup();
+	});
+
+	it("throws when the requested page index is out of range", async () => {
+		const { service, cleanup } = fixture();
+		const doc = makeDoc();
+		await expect(service.render(doc, { page: 5 })).rejects.toThrow(
+			/has no page/,
+		);
 		cleanup();
 	});
 

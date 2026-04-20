@@ -34,8 +34,8 @@ export interface ThumbnailRenderOptions {
 }
 
 export interface ThumbnailService {
-	/** Render page `page` of `doc` to a PNG Buffer. Throws if the page
-	 * has no HTML. */
+	/** Render page `page` of `doc` to a PNG Buffer. Empty pages render as a
+	 * blank canvas at the doc's background — only a missing page index throws. */
 	render(doc: Document, opts?: ThumbnailRenderOptions): Promise<Buffer>;
 	/** Drop every cached PNG for a given doc id. */
 	invalidate(docId: string): void;
@@ -163,14 +163,12 @@ export function createThumbnailService(
 			}
 
 			const pageObj = doc.pages[page];
-			if (!pageObj?.html)
-				throw new Error(
-					`Document "${doc.name}" page ${page + 1} has no HTML content`,
-				);
+			if (!pageObj)
+				throw new Error(`Document "${doc.name}" has no page ${page + 1}`);
 
 			const charteCss = documents.charteCss(doc);
 			const shadowVars = buildShadowVarMap(charteCss);
-			const inlined = await inlineImages(pageObj.html, {
+			const inlined = await inlineImages(pageObj.html ?? "", {
 				assetsDir: config.ASSETS_DIR,
 				pageMm: { w: doc.canvas.w, h: doc.canvas.h },
 				dpi: 96,
