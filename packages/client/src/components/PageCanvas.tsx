@@ -4,7 +4,7 @@ import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import { sendTextEdit } from "../store/ws";
 
-function parseCSSVars(css: string): Record<string, string> {
+export function parseCSSVars(css: string): Record<string, string> {
 	const vars: Record<string, string> = {};
 	for (const match of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+)/g)) {
 		vars[match[1]] = match[2].trim();
@@ -14,7 +14,7 @@ function parseCSSVars(css: string): Record<string, string> {
 
 const NON_EDITABLE_TAGS = new Set(["img", "video", "canvas", "svg", "iframe"]);
 
-function isTextEditable(el: HTMLElement): boolean {
+export function isTextEditable(el: HTMLElement): boolean {
 	if (NON_EDITABLE_TAGS.has(el.tagName.toLowerCase())) return false;
 	if (el.dataset.noedit !== undefined) return false;
 	const hasDirectText = [...el.childNodes].some(

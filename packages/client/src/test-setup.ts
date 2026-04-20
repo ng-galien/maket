@@ -1,5 +1,10 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, vi } from "vitest";
+import { setLang } from "./i18n/useT";
+
+// Force the UI language to French so component tests can assert on stable
+// strings regardless of the test runner's navigator.language default.
+setLang("fr");
 
 // Node 22+ ships an experimental `localStorage` global that vitest 4 surfaces
 // via --localstorage-file (no path → getItem is undefined). It shadows jsdom's
