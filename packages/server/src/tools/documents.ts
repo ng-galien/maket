@@ -128,7 +128,7 @@ const DESCRIPTION = [
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
 	"  state     — summarise `doc`'s state: canvas, pages with element counts, charte, pending messages.",
-	"  lock      — lock or unlock `doc`. When locked, every mutating tool (maket_html, maket_page, maket_canvas, maket_charte set, maket_image, maket_mermaid) refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
+	"  lock      — lock or unlock `doc`. When locked, every doc-scoped mutation (maket_html, maket_page, maket_canvas, maket_mermaid, maket_doc delete/rename/meta) refuses until it's unlocked. Global resources (maket_image, maket_charte) are unaffected — they aren't owned by a single doc. Pass locked=true/false, or omit to toggle.",
 ].join("\n");
 
 function pageElementCount(page: Page): number {
