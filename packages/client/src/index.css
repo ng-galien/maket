@@ -1,8 +1,11 @@
-@import "tailwindcss";
-
 /* Fonts — Raleway for brand moments (watermark, display), JetBrains Mono for
-   the technical voice. UI chrome stays on system-ui for perf + native feel. */
+   the technical voice. UI chrome stays on system-ui for perf + native feel.
+   MUST come before `@import "tailwindcss"` — Tailwind v4 inlines its import
+   in place, and any @import that follows ends up buried in the compiled
+   output (illegal per CSS spec, PostCSS warns). */
 @import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap");
+
+@import "tailwindcss";
 
 @theme {
   /* ---------- Fonts ---------- */
