@@ -119,7 +119,7 @@ function runFocus(args: Args, documents: Documents, bus: Bus) {
 	const charteInfo = charteName
 		? `\nCharte: "${charteName}" — use maket_charte view to apply brand styles`
 		: "\n⚠ No charte associated — use maket_doc meta to set one";
-	bus.emit("document:loaded", { docName: d.name });
+	bus.emit("document:focused", { docName: d.name });
 	return text(
 		`Focused "${d.name}" page ${args.page}/${d.pages.length}: "${p.name || "Untitled"}" [${d.category || "general"}] (${dc.format} ${dc.orientation} ${dc.w}x${dc.h}mm, ${pageElementCount(p)} elements)${charteInfo}`,
 	);

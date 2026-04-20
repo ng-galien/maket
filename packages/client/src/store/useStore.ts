@@ -38,6 +38,7 @@ interface AppState {
 	darkMode: boolean;
 	locked: boolean;
 	zoom: number;
+	autoFocusFit: boolean;
 
 	// Pending messages (user → Claude)
 	pending: PendingMessage[];
@@ -65,6 +66,7 @@ interface AppState {
 	toggleDarkMode: () => void;
 	setLocked: (v: boolean) => void;
 	setZoom: (v: number) => void;
+	toggleAutoFocusFit: () => void;
 	addPending: (msg: PendingMessage) => void;
 	removePending: (id: string) => void;
 
@@ -129,6 +131,7 @@ export const useStore = create<AppState>((set, get) => ({
 		window.matchMedia("(prefers-color-scheme: dark)").matches,
 	locked: false,
 	zoom: 100,
+	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
 	setConnected: (connected) => set({ connected }),
 
@@ -249,6 +252,11 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 	setLocked: (locked) => set({ locked }),
 	setZoom: (zoom) => set({ zoom }),
+	toggleAutoFocusFit: () => {
+		const next = !get().autoFocusFit;
+		localStorage.setItem("maket-auto-focus-fit", String(next));
+		set({ autoFocusFit: next });
+	},
 	addPending: (msg) => {
 		set((s) => {
 			// Only inject focusedDocName when the caller did NOT specify the

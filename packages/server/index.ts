@@ -165,7 +165,7 @@ function broadcastDoc(
 	if (!doc) return;
 	wsRegistry.broadcast({
 		type: "state",
-		doc: documents.lightView(doc),
+		doc: documents.lightView(doc, doc.activePage),
 		docList: documents.list(),
 		charteCss: documents.charteCss(doc),
 		addToWorkspace,
@@ -192,6 +192,7 @@ for (const evt of LOAD_EVENTS) {
 for (const evt of MUTATION_EVENTS) {
 	bus.on(evt, ({ docName }) => broadcastDoc(docName));
 }
+bus.on("document:focused", ({ docName }) => broadcastDoc(docName, true, true));
 
 bus.on("charte:updated", ({ name, css }) => {
 	wsRegistry.broadcast({ type: "charte_updated", name, css });

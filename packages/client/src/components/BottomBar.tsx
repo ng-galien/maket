@@ -3,6 +3,8 @@ import {
 	ChevronUp,
 	FileText,
 	Image,
+	Lock,
+	LockOpen,
 	Maximize,
 	MessageCircle,
 	Moon,
@@ -24,6 +26,8 @@ export function BottomBar() {
 	const position = useStore((s) => s.barPosition);
 	const setBarPosition = useStore((s) => s.setBarPosition);
 	const darkMode = useStore((s) => s.darkMode);
+	const autoFocusFit = useStore((s) => s.autoFocusFit);
+	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
 
 	const togglePosition = () => {
 		setBarPosition(position === "bottom" ? "top" : "bottom");
@@ -87,6 +91,26 @@ export function BottomBar() {
 					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
 				>
 					<Maximize size={16} />
+				</button>
+
+				{/* Auto-fit-on-focus toggle (MCP ↔ zoom coupling) */}
+				<button
+					type="button"
+					onClick={toggleAutoFocusFit}
+					title={
+						autoFocusFit ? t("auto_focus_fit_on") : t("auto_focus_fit_off")
+					}
+					aria-label={
+						autoFocusFit ? t("auto_focus_fit_on") : t("auto_focus_fit_off")
+					}
+					aria-pressed={!autoFocusFit}
+					className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+						autoFocusFit
+							? "text-text-3 hover:text-text-1 hover:bg-input"
+							: "text-accent hover:bg-input"
+					}`}
+				>
+					{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
 				</button>
 
 				{/* ● Doc name */}

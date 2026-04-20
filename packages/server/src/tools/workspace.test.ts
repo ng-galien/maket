@@ -47,12 +47,12 @@ describe("workspacePack — registration", () => {
 });
 
 describe("maket_workspace — action=focus", () => {
-	it("sets the active page and emits document:loaded", async () => {
+	it("sets the active page and emits document:focused", async () => {
 		const { store, bus, documents, pending } = fixture();
 		store.saveDoc(makeDoc("d", 3));
 		documents.loadAll();
-		const loaded = vi.fn();
-		bus.on("document:loaded", loaded);
+		const focused = vi.fn();
+		bus.on("document:focused", focused);
 
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
 		const res = await tool.handler(
@@ -61,7 +61,7 @@ describe("maket_workspace — action=focus", () => {
 		);
 		expect(res.isError).toBeUndefined();
 		expect(documents.resolve("d")?.activePage).toBe(1);
-		expect(loaded).toHaveBeenCalledWith({ docName: "d" });
+		expect(focused).toHaveBeenCalledWith({ docName: "d" });
 		store.close();
 	});
 

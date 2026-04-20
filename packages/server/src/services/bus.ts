@@ -13,6 +13,7 @@ export interface BusEvents {
 	"document:created": { docName: string };
 	"document:saved": { docName: string };
 	"document:loaded": { docName: string };
+	"document:focused": { docName: string };
 	"document:deleted": { docName: string };
 	"canvas:changed": { docName: string };
 	"element:added": { docName: string; id: string };

@@ -83,6 +83,8 @@
 	"voice_dont": "À ÉVITER",
 
 	"fit": "Recadrer",
+	"auto_focus_fit_on": "Recadrage auto activé — clic pour débrayer",
+	"auto_focus_fit_off": "Recadrage auto débrayé — clic pour réactiver",
 	"print": "Imprimer",
 	"lock": "Verrouiller",
 	"photos_chartes": "Photos & Chartes",

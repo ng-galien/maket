@@ -83,6 +83,8 @@
 	"voice_dont": "AVOID",
 
 	"fit": "Fit to view",
+	"auto_focus_fit_on": "Auto-fit on focus is ON — click to disengage",
+	"auto_focus_fit_off": "Auto-fit on focus is OFF — click to engage",
 	"print": "Print",
 	"lock": "Lock (pan only)",
 	"photos_chartes": "Photos & Brand",

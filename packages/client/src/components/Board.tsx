@@ -1,4 +1,5 @@
 import { select } from "d3-selection";
+import "d3-transition";
 import {
 	zoom as d3Zoom,
 	type ZoomBehavior,
@@ -8,7 +9,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
-import { registerFitToView, registerZoomTo } from "../store/zoomBridge";
+import {
+	registerFitToDoc,
+	registerFitToView,
+	registerZoomTo,
+} from "../store/zoomBridge";
 import { WorkspaceDoc } from "./WorkspaceDoc";
 
 const DOC_GAP = 80; // px gap between docs
@@ -160,6 +165,45 @@ export function Board({ locked }: { locked: boolean }) {
 		};
 		registerFitToView(fit);
 
+		const fitToDoc = (docName: string, pageIndex?: number) => {
+			if (!boardRef.current || !wrap) return;
+			const docSelector = `[data-doc="${CSS.escape(docName)}"]`;
+			const pageSel =
+				pageIndex != null ? `${docSelector} [data-page="${pageIndex}"]` : null;
+			// Prefer the targeted page's canvas — same selector as the whole-doc
+			// wrapper falls back if the page isn't rendered yet (e.g. single-page docs).
+			const target = pageSel
+				? boardRef.current.querySelector<HTMLElement>(pageSel)
+				: null;
+			const docEl =
+				target ?? boardRef.current.querySelector<HTMLElement>(docSelector);
+			if (!docEl) return;
+			const wrapRect = wrap.getBoundingClientRect();
+			const docRect = docEl.getBoundingClientRect();
+			const t = zoomTransform(wrap as unknown as Element);
+			const k = t.k || 1;
+			// Translate viewport-space doc bounds into board-space (pre-zoom).
+			const boardLeft = (docRect.left - wrapRect.left - t.x) / k;
+			const boardTop = (docRect.top - wrapRect.top - t.y) / k;
+			const cw = docRect.width / k;
+			const ch = docRect.height / k;
+			const scale = Math.min(
+				(wrapRect.width * 0.85) / cw,
+				(wrapRect.height * 0.85) / ch,
+				2,
+			);
+			const tx = wrapRect.width / 2 - (boardLeft + cw / 2) * scale;
+			const ty = wrapRect.height / 2 - (boardTop + ch / 2) * scale;
+			el.transition()
+				.duration(300)
+				.call(
+					// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
+					(zoomBehavior as any).transform,
+					zoomIdentity.translate(tx, ty).scale(scale),
+				);
+		};
+		registerFitToDoc(fitToDoc);
+
 		// Initial fit: when the first [data-doc] renders, the board's bounding box
 		// grows and this fires. Runs once per mount.
 		let initialFitDone = false;
@@ -228,6 +272,7 @@ export function Board({ locked }: { locked: boolean }) {
 			wrapRo.disconnect();
 			window.removeEventListener("orientationchange", onOrientation);
 			registerFitToView(() => {});
+			registerFitToDoc(() => {});
 			registerZoomTo(() => {});
 		};
 	}, []);

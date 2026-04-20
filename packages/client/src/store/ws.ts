@@ -8,6 +8,7 @@ import en from "../i18n/en.json";
 import fr from "../i18n/fr.json";
 import type { DocSummary, Document } from "./types";
 import { useStore } from "./useStore";
+import { fitToDoc } from "./zoomBridge";
 
 const BUBBLE_LANGS: Record<string, Record<string, string>> = { fr, en };
 
@@ -323,8 +324,13 @@ function connect(): void {
 				const mid = msg.measureId;
 				const dn = doc.name;
 				const pi = doc.activePage ?? 0;
+				const shouldFit =
+					msg.focus === true && useStore.getState().autoFocusFit;
 				requestAnimationFrame(() =>
-					requestAnimationFrame(() => reportLayout(mid, dn, pi)),
+					requestAnimationFrame(() => {
+						reportLayout(mid, dn, pi);
+						if (shouldFit) fitToDoc(dn, pi);
+					}),
 				);
 			} else {
 				useStore.setState({ docList });
