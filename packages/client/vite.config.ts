@@ -19,6 +19,11 @@ export default defineConfig({
 			"/api": "http://localhost:3333",
 			"/assets": "http://localhost:3333",
 			"/ws": { target: "ws://localhost:3333", ws: true },
+			// Server-rendered HTML routes — Vite falls back to the SPA shell if
+			// these aren't proxied, swallowing the real response.
+			"/print": "http://localhost:3333",
+			"/auth": "http://localhost:3333",
+			"/mcp": "http://localhost:3333",
 		},
 	},
 });
