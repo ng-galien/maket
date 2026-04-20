@@ -38,7 +38,7 @@
     },
     {
       "name": "maket_message",
-      "description": "Read and acknowledge pending user messages attached to a document: list, ack."
+      "description": "Read and acknowledge pending user messages. Scope doc-specific (pass doc=<name>) or workspace-level (omit doc). Actions: list, ack."
     },
     {
       "name": "maket_charte",

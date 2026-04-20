@@ -19,6 +19,7 @@ import { computeCanvasDims, createDocument, type Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
+import type { Pending } from "./pending.js";
 import type { Store } from "./store.js";
 import type { WsBridge } from "./ws-bridge.js";
 import type { WsRegistry } from "./ws-registry.js";
@@ -31,6 +32,7 @@ export interface WsHandlerDeps {
 	bus: Bus;
 	config: Config;
 	documents: Documents;
+	pending: Pending;
 	store: Store;
 	wsRegistry: WsRegistry;
 	wsBridge: WsBridge;
@@ -40,7 +42,7 @@ const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
 export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
-	const { bus, config, documents, store, wsRegistry, wsBridge } = deps;
+	const { bus, config, documents, pending, store, wsRegistry, wsBridge } = deps;
 	const assetsDir = config.ASSETS_DIR;
 
 	function wsDoc(msg: { docName?: string }): Document | null {
@@ -83,20 +85,11 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 			}
 
 			case "sync_pending": {
-				// Client holds pending at workspace level (each entry carries its
-				// own docName); server stores per-doc. Bucket by docName then
-				// replace on every loaded doc — docs absent from the client's
-				// list get their `_pending` cleared so the sync is authoritative.
-				const byDoc = new Map<string, NonNullable<Document["_pending"]>>();
-				for (const p of msg.pending || []) {
-					if (!p.docName) continue;
-					const arr = byDoc.get(p.docName) ?? [];
-					arr.push(p);
-					byDoc.set(p.docName, arr);
-				}
-				for (const doc of documents.all().values()) {
-					doc._pending = byDoc.get(doc.name) ?? [];
-				}
+				// Client is authoritative — it holds the whole queue and pushes
+				// the snapshot on every mutation (and on ws.onopen to survive a
+				// server restart). The service buckets by docName and routes
+				// entries without one to its workspace bucket.
+				pending.syncFromClient(msg.pending || []);
 				break;
 			}
 
@@ -228,6 +221,7 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					break;
 				}
 				documents.delete(name);
+				pending.dropDoc(name);
 				bus.emit("document:deleted", { docName: name });
 				break;
 			}

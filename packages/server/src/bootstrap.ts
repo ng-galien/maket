@@ -26,6 +26,7 @@ import {
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
+import { createPending } from "./services/pending.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
 import { createWsBridge } from "./services/ws-bridge.js";
@@ -74,6 +75,8 @@ export function createAppContainer(
 		documents: inputs.documents
 			? asValue(inputs.documents)
 			: asFunction(createDocuments).singleton(),
+
+		pending: asFunction(createPending).singleton(),
 
 		wsRegistry: asFunction(createWsRegistry).singleton(),
 

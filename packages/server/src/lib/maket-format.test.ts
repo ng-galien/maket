@@ -60,7 +60,6 @@ describe("maket-format", () => {
 
 	it("strips runtime fields from documents", () => {
 		const doc = makeDoc("with-runtime");
-		doc._pending = [{ id: "m1", text: "hi" } as never];
 		doc._layout = { overflow: false } as never;
 		doc._displayed = true;
 
@@ -68,7 +67,6 @@ describe("maket-format", () => {
 		const decoded = decodeBundle(buf);
 		const snap = decoded.documents[0] as unknown as Record<string, unknown>;
 		expect(snap).toBeDefined();
-		expect(snap._pending).toBeUndefined();
 		expect(snap._layout).toBeUndefined();
 		expect(snap._displayed).toBeUndefined();
 	});

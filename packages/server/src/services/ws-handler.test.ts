@@ -4,6 +4,7 @@ import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
 import type { Config } from "./config.js";
 import { createDocuments } from "./documents.js";
+import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
 import { createWsBridge } from "./ws-bridge.js";
 import { createWsHandler } from "./ws-handler.js";
@@ -26,6 +27,7 @@ function fixture() {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
+	const pending = createPending({ bus });
 	const wsRegistry = createWsRegistry();
 	const wsBridge = createWsBridge({ wsRegistry });
 	const config = { ASSETS_DIR: "/tmp/maket-test-assets" } as Config;
@@ -33,6 +35,7 @@ function fixture() {
 		bus,
 		config,
 		documents,
+		pending,
 		store,
 		wsRegistry,
 		wsBridge,
@@ -41,6 +44,7 @@ function fixture() {
 		store,
 		bus,
 		documents,
+		pending,
 		handler,
 		cleanup: () => store.close(),
 	};
@@ -50,79 +54,60 @@ function fixture() {
 const STUB_WS: any = { readyState: 1, send() {} };
 
 describe("ws-handler — sync_pending", () => {
-	it("buckets entries by docName and replaces _pending on every loaded doc", () => {
-		const { store, documents, handler, cleanup } = fixture();
-		store.saveDoc(makeDoc("a"));
-		store.saveDoc(makeDoc("b"));
-		store.saveDoc(makeDoc("c"));
-		documents.loadAll();
-
-		// Seed a stale _pending on doc "c" so we can prove it gets cleared.
-		documents.resolve("c")!._pending = [
-			{ id: "stale", docName: "c", type: "note" },
-		];
-
-		const pending: PendingMessage[] = [
-			{ id: "1", docName: "a", type: "note", text: "fix this" },
-			{ id: "2", docName: "a", type: "delete", elementId: "el-1" },
-			{ id: "3", docName: "b", type: "drop-image", file: "x.png" },
-		];
-
-		handler({ type: "sync_pending", pending }, STUB_WS);
-
-		expect(documents.resolve("a")?._pending).toEqual([
-			{ id: "1", docName: "a", type: "note", text: "fix this" },
-			{ id: "2", docName: "a", type: "delete", elementId: "el-1" },
-		]);
-		expect(documents.resolve("b")?._pending).toEqual([
-			{ id: "3", docName: "b", type: "drop-image", file: "x.png" },
-		]);
-		// Unmentioned doc's stale pending must be wiped — client is authoritative.
-		expect(documents.resolve("c")?._pending).toEqual([]);
-
-		cleanup();
-	});
-
-	it("ignores entries without a docName", () => {
-		const { store, documents, handler, cleanup } = fixture();
-		store.saveDoc(makeDoc("a"));
-		documents.loadAll();
-
-		handler(
-			{
-				type: "sync_pending",
-				pending: [
-					{ id: "1", docName: "a", type: "note" },
-					{ id: "2", type: "note" }, // no docName — must be dropped
-				],
-			},
-			STUB_WS,
-		);
-
-		expect(documents.resolve("a")?._pending).toEqual([
-			{ id: "1", docName: "a", type: "note" },
-		]);
-
-		cleanup();
-	});
-
-	it("empty pending clears every doc's _pending", () => {
-		const { store, documents, handler, cleanup } = fixture();
+	it("delegates to the pending service which buckets per-doc and workspace", () => {
+		const { store, documents, pending, handler, cleanup } = fixture();
 		store.saveDoc(makeDoc("a"));
 		store.saveDoc(makeDoc("b"));
 		documents.loadAll();
-		documents.resolve("a")!._pending = [
-			{ id: "x", docName: "a", type: "note" },
+
+		// Seed stale state to prove the client snapshot is authoritative.
+		pending.syncFromClient([
+			{ id: "stale", docName: "a", type: "note" },
+			{ id: "wstale", type: "classify-images" },
+		]);
+
+		const snapshot: PendingMessage[] = [
+			{ id: "1", docName: "a", type: "note", text: "fix this" },
+			{ id: "2", docName: "b", type: "drop-image", file: "x.png" },
+			{ id: "3", type: "classify-images", text: "new images" },
 		];
-		documents.resolve("b")!._pending = [
-			{ id: "y", docName: "b", type: "note" },
-		];
+
+		handler({ type: "sync_pending", pending: snapshot }, STUB_WS);
+
+		expect(pending.forDoc("a").map((m) => m.id)).toEqual(["1"]);
+		expect(pending.forDoc("b").map((m) => m.id)).toEqual(["2"]);
+		expect(pending.forWorkspace().map((m) => m.id)).toEqual(["3"]);
+		cleanup();
+	});
+
+	it("empty snapshot clears every bucket (workspace included)", () => {
+		const { pending, handler, cleanup } = fixture();
+		pending.syncFromClient([
+			{ id: "a", docName: "doc-a", type: "note" },
+			{ id: "w", type: "classify-images" },
+		]);
 
 		handler({ type: "sync_pending", pending: [] }, STUB_WS);
 
-		expect(documents.resolve("a")?._pending).toEqual([]);
-		expect(documents.resolve("b")?._pending).toEqual([]);
+		expect(pending.forDoc("doc-a")).toEqual([]);
+		expect(pending.forWorkspace()).toEqual([]);
+		cleanup();
+	});
 
+	it("delete_document drops the deleted doc's pending bucket", () => {
+		const { store, documents, pending, handler, cleanup } = fixture();
+		store.saveDoc(makeDoc("a"));
+		store.saveDoc(makeDoc("b"));
+		documents.loadAll();
+		pending.syncFromClient([
+			{ id: "1", docName: "a", type: "note" },
+			{ id: "2", docName: "b", type: "note" },
+		]);
+
+		handler({ type: "delete_document", name: "a" }, STUB_WS);
+
+		expect(pending.forDoc("a")).toEqual([]);
+		expect(pending.forDoc("b").map((m) => m.id)).toEqual(["2"]);
 		cleanup();
 	});
 });

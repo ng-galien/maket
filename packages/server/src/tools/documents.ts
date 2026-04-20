@@ -6,7 +6,8 @@
  * state (absorbed from the old canvas pack), export/import (.maket bundles).
  *
  * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
- * `store` (charte read/write for bundle import/export), `config` (EXPORTS_DIR).
+ * `store` (charte read/write for bundle import/export), `config` (EXPORTS_DIR),
+ * `pending` (pending-message counts for `state`).
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -25,6 +26,7 @@ import {
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
+import type { Pending } from "../services/pending.js";
 import type { Store } from "../services/store.js";
 import {
 	type Charte,
@@ -40,6 +42,7 @@ export interface DocumentsDeps {
 	bus: Bus;
 	store: Store;
 	config: Config;
+	pending: Pending;
 }
 
 const ActionSchema = z.enum([
@@ -182,7 +185,7 @@ function totalElementCount(pages: Page[]): number {
 }
 
 export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
-	const { documents, bus, store, config } = deps;
+	const { documents, bus, store, config, pending } = deps;
 	return {
 		metadata: {
 			name: "maket_doc",
@@ -199,7 +202,7 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 				case "list":
 					return runList(documents);
 				case "delete":
-					return runDelete(args, documents, bus);
+					return runDelete(args, documents, bus, pending);
 				case "duplicate":
 					return runDuplicate(args, documents, bus);
 				case "rename":
@@ -207,7 +210,7 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 				case "meta":
 					return runMeta(args, documents, bus);
 				case "state":
-					return runState(args, documents);
+					return runState(args, documents, pending);
 				case "lock":
 					return runLock(args, documents, bus);
 				case "export":
@@ -308,7 +311,12 @@ function runList(documents: Documents) {
 	return text(lines.join("\n"));
 }
 
-function runDelete(args: Args, documents: Documents, bus: Bus) {
+function runDelete(
+	args: Args,
+	documents: Documents,
+	bus: Bus,
+	pending: Pending,
+) {
 	if (!args.doc) return text("doc is required for action=delete", true);
 	const all = documents.all();
 	const d = all.get(args.doc);
@@ -317,6 +325,7 @@ function runDelete(args: Args, documents: Documents, bus: Bus) {
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	documents.delete(args.doc);
+	pending.dropDoc(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
 		text: `Document "${args.doc}" deleted`,
@@ -358,11 +367,11 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
-function runState(args: Args, documents: Documents) {
+function runState(args: Args, documents: Documents, pending: Pending) {
 	if (!args.doc) return text("doc is required for action=state", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	const pending = (d._pending || []).length;
+	const pendingCount = pending.forDoc(d.name).length;
 	const displayed = d._displayed === true;
 	const pageLines = d.pages.map((p, i) => {
 		const count = p.html?.match(/data-id="[^"]+"/g)?.length ?? 0;
@@ -376,8 +385,8 @@ function runState(args: Args, documents: Documents) {
 		d.meta?.charte ? `Charte: ${d.meta.charte}` : "⚠ No charte",
 		`Pages (${d.pages.length}):`,
 		...pageLines,
-		pending > 0
-			? `📌 ${pending} pending message(s) — use maket_message list`
+		pendingCount > 0
+			? `📌 ${pendingCount} pending message(s) — use maket_message list doc=${d.name}`
 			: "",
 	].filter(Boolean);
 	return text(lines.join("\n"));
@@ -600,7 +609,7 @@ function runImport(
 export const documentsPack: ToolPack = {
 	id: "documents",
 	name: "Documents",
-	requires: ["documents", "bus", "store", "config"],
+	requires: ["documents", "bus", "store", "config", "pending"],
 	declaresTools: ["maket_doc"],
 	register(container) {
 		container.register({

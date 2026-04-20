@@ -62,8 +62,8 @@ export interface Document {
 	pages: Page[];
 	activePage: number;
 	nextId: number;
-	// Runtime state (not persisted)
-	_pending?: PendingMessage[];
+	// Runtime state (not persisted). Pending messages live in the `pending`
+	// service — see packages/server/src/services/pending.ts.
 	_layout?: LayoutReport;
 	_displayed?: boolean;
 }

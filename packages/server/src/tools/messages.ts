@@ -1,24 +1,30 @@
 /**
  * messages pack — maket_message (compound).
  *
- * Pending messages are user-originated notes/flags attached to a document
- * (deletion markers, drops, review notes). They're surfaced from the client
- * and cleared once the agent has processed them.
+ * User-originated notes and flags captured in the browser, bucketed by the
+ * `pending` service. Two scopes:
+ *   - doc-scoped: call `list doc=<name>` — element flags, drops, review notes
+ *     attached to a specific document.
+ *   - workspace-scoped: call `list` with no `doc` — library-wide nudges such
+ *     as "classify these newly-imported images".
  *
- * Deps: `documents` (read _pending), `bus` (messages:acked).
+ * Ack is the same in both cases: `ack ids=[…]` walks both buckets and
+ * returns how many matched.
+ *
+ * Deps: `pending` (queue + ack), `documents` (doc existence check).
  */
 
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
+import type { Pending } from "../services/pending.js";
 import { text } from "./_helpers.js";
 
 export interface MessagesDeps {
 	documents: Documents;
-	bus: Bus;
+	pending: Pending;
 }
 
 const ActionSchema = z.enum(["list", "ack"]);
@@ -27,7 +33,12 @@ const MaketMessageSchema = z.object({
 	action: ActionSchema.describe(
 		"Operation to run. See the tool description for the action table.",
 	),
-	doc: z.string().describe("Document name (always required)."),
+	doc: z
+		.string()
+		.optional()
+		.describe(
+			"For list: document name to scope to. Omit to read workspace-level messages (upload alerts, library nudges). Ignored by ack — ids are globally unique.",
+		),
 	ids: z
 		.array(z.string())
 		.optional()
@@ -35,14 +46,14 @@ const MaketMessageSchema = z.object({
 });
 
 const DESCRIPTION = [
-	"When to use: read and clear pending user messages attached to a document (delete flags, drops, review notes). Call list to see what the user flagged, act on it, then ack by id.",
+	"When to use: read and clear pending user messages. Two scopes — pass `doc=<name>` for a document's notes (element flags, drops, review comments) or omit `doc` for workspace-level alerts (new image imports, library-wide nudges). Ack by id once you've acted on the flagged intent.",
 	"",
-	"  list — return pending messages as JSON (id, type, target, payload).",
-	"  ack  — mark the given ids processed; drops them from the pending queue.",
+	"  list — with doc: return that document's pending messages. Without doc: return workspace messages.",
+	"  ack  — drop the given ids from whichever bucket they live in.",
 ].join("\n");
 
 export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
-	const { documents, bus } = deps;
+	const { documents, pending } = deps;
 	return {
 		metadata: {
 			name: "maket_message",
@@ -51,28 +62,29 @@ export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
 		},
 		handler: async (rawArgs) => {
 			const args = MaketMessageSchema.parse(rawArgs);
-			const doc = documents.resolve(args.doc);
-			if (!doc) return text(`Document "${args.doc}" not found`, true);
 
 			if (args.action === "list") {
-				const pending = doc._pending || [];
-				if (pending.length === 0) return text("No pending messages");
-				return text(JSON.stringify(pending, null, 2));
+				if (args.doc) {
+					const doc = documents.resolve(args.doc);
+					if (!doc) return text(`Document "${args.doc}" not found`, true);
+					const list = pending.forDoc(doc.name);
+					if (list.length === 0) return text("No pending messages");
+					return text(JSON.stringify(list, null, 2));
+				}
+				const list = pending.forWorkspace();
+				if (list.length === 0) return text("No pending workspace messages");
+				return text(JSON.stringify(list, null, 2));
 			}
 
-			if (!args.ids) return text("ids is required for action=ack", true);
-			const pendingIds = new Set((doc._pending || []).map((m) => m.id));
-			const matched = args.ids.filter((id) => pendingIds.has(id));
-			const unknown = args.ids.filter((id) => !pendingIds.has(id));
+			if (!args.ids?.length)
+				return text("ids is required for action=ack", true);
+			const { matched, unknown } = pending.ack(args.ids);
 			if (matched.length === 0) {
 				return text(
-					`No matches: ${args.ids.length} id(s) did not correspond to any pending message. Use maket_message list to see current ids.`,
+					`No matches: ${args.ids.length} id(s) did not correspond to any pending message. Use maket_message list (optionally with doc=…) to see current ids.`,
 					true,
 				);
 			}
-			const acked = new Set(matched);
-			doc._pending = (doc._pending || []).filter((m) => !acked.has(m.id));
-			bus.emit("messages:acked", { ids: matched });
 			const suffix =
 				unknown.length > 0
 					? ` (${unknown.length} unknown id(s) ignored: ${unknown.join(", ")})`
@@ -87,7 +99,7 @@ export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
 export const messagesPack: ToolPack = {
 	id: "messages",
 	name: "Messages",
-	requires: ["documents", "bus"],
+	requires: ["documents", "pending"],
 	declaresTools: ["maket_message"],
 	register(container) {
 		container.register({

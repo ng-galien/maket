@@ -3,9 +3,10 @@
  * plus every charte they reference.
  *
  * Exported with `encodeBundle` → Buffer; consumed with `decodeBundle`.
- * Runtime-only document fields (`_pending`, `_layout`, `_displayed`) are
- * stripped on the way out. Chartes are auto-collected from `doc.meta.charte`
- * so an import on a clean install restores the same look without extra steps.
+ * Runtime-only document fields (`_layout`, `_displayed`) are stripped on the
+ * way out — we pick the fields we want instead of blindly serializing the
+ * whole doc. Chartes are auto-collected from `doc.meta.charte` so an import
+ * on a clean install restores the same look without extra steps.
  */
 
 import { gunzipSync, gzipSync } from "node:zlib";

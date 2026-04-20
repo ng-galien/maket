@@ -7,6 +7,9 @@ export default defineConfig({
 		include: ["src/**/*.test.ts", "*.test.ts"],
 		exclude: ["**/node_modules/**", "**/dist/**"],
 		environment: "node",
+		// Warm Jimp per worker so the first image-touching test doesn't eat the
+		// wasm cold-start (~2–3 s) on top of its own budget.
+		setupFiles: ["./tests/setup.ts"],
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
