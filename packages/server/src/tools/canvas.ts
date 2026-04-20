@@ -104,6 +104,7 @@ export const canvasPack: ToolPack = {
 	id: "canvas",
 	name: "Canvas",
 	requires: ["documents", "bus"],
+	declaresTools: ["maket_canvas"],
 	register(container) {
 		container.register({
 			maketCanvasTool: asFunction(createMaketCanvasTool).singleton(),

@@ -346,6 +346,7 @@ export const assetsPack: ToolPack = {
 	id: "assets",
 	name: "Assets (images)",
 	requires: ["store", "bus", "assets"],
+	declaresTools: ["maket_image"],
 	register(container) {
 		container.register({
 			maketImageTool: asFunction(createMaketImageTool).singleton(),

@@ -224,6 +224,7 @@ export const mermaidPack: ToolPack = {
 	id: "mermaid",
 	name: "Mermaid diagrams",
 	requires: ["documents", "bus"],
+	declaresTools: ["maket_mermaid"],
 	register(container) {
 		container.register({
 			maketMermaidTool: asFunction(createMaketMermaidTool).singleton(),

@@ -19,6 +19,8 @@ npm run start          # Start server only (no client build)
 
 Requires Node `>=22`.
 
+Packaging: `node scripts/pack-mcpb.ts` → `dist/maket.mcpb` (Claude Desktop extension). Requires `npm install -g @anthropic-ai/mcpb`.
+
 ## MCP
 
 The server exposes MCP via **Streamable HTTP** at `POST /mcp` on the same Express server as the preview.
@@ -73,11 +75,13 @@ public/                 Built client output (Vite → public/)
 - **Store → broadcast** — Every mutation emits a bus event → WS broadcast to connected browsers.
 - **Chartes** — Design tokens as CSS variables (`var(--charte-color-*)`). Fonts auto-injected via `@import`.
 - **Screen formats** — DESKTOP (288×205mm, 1440×1024px), TABLET (167×239mm, 834×1194px), MOBILE (79×170mm, 393×852px). Scale: 1px ≈ 0.2mm.
-- **Awilix is the single source of truth** — every service, tool pack, and HTTP route is a factory registered in `bootstrap.ts`. `index.ts` only wires boot + bus listeners + WS. See `docs/REFACTOR-PHASE-5.md` for structure rationale. Quality-gate levels L1→L6; currently L3 enforced.
-- **Tool packs** — each domain (`src/tools/*.ts`) exports a `ToolPack` with `id`, `requires`, `register()`. `registerToolPacks(container, { packs: {...} }, [pack, ...])` scans all `*Tool` registrations into a `toolRegistry` used by `mountTools()`.
+- **Awilix is the single source of truth** — every service, tool pack, and HTTP route is a factory registered in `bootstrap.ts`. `index.ts` only wires boot + bus listeners + WS.
+- **Factories over classes, everywhere** — services, tool packs, AND domain models (`createDocument`, `createBus`, `createDocuments`). No `class` keyword in domain code; `DocumentStore` is the last holdout (legitimate DB wrapper). Don't re-introduce `class Foo implements Bar` for domain objects.
+- **Document has no top-level `elements`** — elements live per-page. Access via `doc.pages[doc.activePage].elements` or iterate `doc.pages`. The legacy proxy getter (`doc.elements → currentPage.elements`) was removed with `DocumentModel`; `Page.elements: unknown[]` is the only elements field.
+- **Tool packs** — each domain (`src/tools/*.ts`) exports a `ToolPack` with `id`, `requires`, `declaresTools`, `register()`. `registerToolPacks(...)` scans `*Tool` registrations into a `toolRegistry` used by `mountTools()` **and** asserts every `declaresTools` entry appears in the registry (catches typos in Awilix keys that would otherwise skip the `endsWith("Tool")` scan). Boot additionally cross-checks the registry against `manifest.json.tools` — rename drift fails boot.
 - **Shared tool output** — `packages/server/src/tools/_helpers.ts` exports `text(t, boolean | { isError?, next? })`. The `next: string[]` option renders an esac-style `next:\n  - <hint>` block — use it on business-flow hinges (e.g. `maket_charte view` already suggests `maket_html set ... context_token=...`). Don't re-implement the ToolResult envelope inline.
 - **WS messages ≠ tool names** — `packages/server/src/services/ws-handler.ts` and `packages/shared/src/ws.ts` define a separate discriminated-union contract (client→server WS messages like `update_meta`, `canvas_setup`). These share names with former tools by coincidence; they're invoked by the browser UI, not by MCP. Don't rename them when renaming tools.
-- **Tool rename checklist** — renaming an MCP tool touches four places that must ship together: the tool file itself, the `ACTIVITY_ICONS` map in `packages/server/src/routes/mcp.routes.ts`, the `tools[]` array in `manifest.json`, and the skill/doc references under `plugin/**`.
+- **Tool rename checklist** — renaming an MCP tool touches four places: the tool file itself (incl. `declaresTools`), the `ACTIVITY_ICONS` map in `packages/server/src/routes/mcp.routes.ts`, the `tools[]` array in `manifest.json`, and the skill/doc references under `plugin/**`. The registry ↔ manifest assertion (`index.ts` boot) catches three of the four if you forget — `ACTIVITY_ICONS` and plugin docs are not asserted.
 - **Awilix PROXY destructure trap** — every destructured name on `deps` triggers a container lookup. Put optional test overrides on a separate `opts` arg (see `LayoutService`, `PdfService`).
 - **Container self-reference** — `bootstrap.ts` registers `container: asValue(container)` so factories needing the container itself (e.g. `createMcpRouter` calling `mountTools`) can resolve it via DI.
 - **SIGINT → `container.dispose()`** — closes SQLite via the store disposer; don't call `store.close()` directly.

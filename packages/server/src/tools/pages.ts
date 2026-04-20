@@ -199,6 +199,7 @@ export const pagesPack: ToolPack = {
 	id: "pages",
 	name: "Pages",
 	requires: ["documents", "bus"],
+	declaresTools: ["maket_page"],
 	register(container) {
 		container.register({
 			maketPageTool: asFunction(createMaketPageTool).singleton(),

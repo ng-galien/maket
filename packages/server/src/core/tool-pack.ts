@@ -23,10 +23,12 @@ export interface ToolPack {
 	readonly requires?: string[];
 
 	/**
-	 * Capability tokens this plugin provides.
-	 * Used for optional cross-plugin detection (e.g. pdf plugin checking for "gmail").
+	 * MCP tool names this pack must produce. Verified post-registration:
+	 * if any declared tool is missing from the resolved registry (e.g. a
+	 * typo like `maketDocTol` that skipped the `endsWith("Tool")` scan),
+	 * boot fails fast.
 	 */
-	readonly capabilities?: string[];
+	readonly declaresTools: string[];
 
 	/** Register services and tools into the DI container. */
 	register(container: AwilixContainer, config: ToolPackConfig): void;

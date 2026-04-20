@@ -78,6 +78,7 @@ export const pdfPack: ToolPack = {
 	id: "pdf",
 	name: "Pdf",
 	requires: ["documents", "pdfService", "config"],
+	declaresTools: ["maket_pdf"],
 	register(container) {
 		container.register({
 			maketPdfTool: asFunction(createMaketPdfTool).singleton(),

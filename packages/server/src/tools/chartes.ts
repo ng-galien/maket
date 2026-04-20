@@ -238,6 +238,7 @@ export const chartesPack: ToolPack = {
 	id: "chartes",
 	name: "Chartes (brand style guides)",
 	requires: ["store", "bus", "assets"],
+	declaresTools: ["maket_charte"],
 	register(container) {
 		container.register({
 			maketCharteTool: asFunction(createMaketCharteTool).singleton(),

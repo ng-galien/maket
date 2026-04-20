@@ -88,6 +88,7 @@ export const messagesPack: ToolPack = {
 	id: "messages",
 	name: "Messages",
 	requires: ["documents", "bus"],
+	declaresTools: ["maket_message"],
 	register(container) {
 		container.register({
 			maketMessageTool: asFunction(createMaketMessageTool).singleton(),

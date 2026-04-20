@@ -501,6 +501,7 @@ export const gmailPack: ToolPack = {
 		"config",
 		"assets",
 	],
+	declaresTools: ["maket_gmail"],
 	register(container) {
 		container.register({
 			maketGmailTool: asFunction(createMaketGmailTool).singleton(),

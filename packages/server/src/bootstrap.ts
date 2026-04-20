@@ -29,6 +29,13 @@ import { createWsBridge } from "./services/ws-bridge.js";
 import { createWsHandler } from "./services/ws-handler.js";
 import { createWsRegistry } from "./services/ws-registry.js";
 
+/**
+ * Test overrides for services whose concrete implementation is expensive or
+ * side-effecting (SQLite file I/O, Gmail OAuth, document cache hydration).
+ * Other services (`bus`, `layout`, `pdf`, `assets`, `wsRegistry`, `wsHandler`)
+ * have no override because their default factories are cheap and deterministic
+ * enough for integration tests — add one here if that stops being true.
+ */
 export interface BootstrapInputs {
 	/** Optional pre-built config (tests). Defaults to `createConfig()`. */
 	config?: Config;

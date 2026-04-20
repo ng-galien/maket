@@ -477,6 +477,7 @@ export const htmlPack: ToolPack = {
 	id: "html",
 	name: "Html",
 	requires: ["documents", "store", "layout", "assets"],
+	declaresTools: ["maket_html"],
 	register(container) {
 		container.register({
 			maketHtmlTool: asFunction(createMaketHtmlTool).singleton(),

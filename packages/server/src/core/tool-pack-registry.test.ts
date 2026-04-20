@@ -21,6 +21,7 @@ describe("buildToolPackContainer", () => {
 		const a: ToolPack = {
 			id: "a",
 			name: "A",
+			declaresTools: [],
 			register(c) {
 				c.register({ alpha: asValue("from-a") });
 			},
@@ -29,6 +30,7 @@ describe("buildToolPackContainer", () => {
 			id: "b",
 			name: "B",
 			requires: ["alpha"],
+			declaresTools: [],
 			register(c) {
 				c.register({ beta: asValue("from-b") });
 			},
@@ -49,6 +51,7 @@ describe("buildToolPackContainer", () => {
 			id: "needs-db",
 			name: "needs-db",
 			requires: ["store"],
+			declaresTools: [],
 			register() {},
 		};
 		expect(() =>
@@ -57,8 +60,18 @@ describe("buildToolPackContainer", () => {
 	});
 
 	it("throws on duplicate plugin id", () => {
-		const p1: ToolPack = { id: "dup", name: "1", register() {} };
-		const p2: ToolPack = { id: "dup", name: "2", register() {} };
+		const p1: ToolPack = {
+			id: "dup",
+			name: "1",
+			declaresTools: [],
+			register() {},
+		};
+		const p2: ToolPack = {
+			id: "dup",
+			name: "2",
+			declaresTools: [],
+			register() {},
+		};
 		expect(() =>
 			buildToolPackContainer({ packs: { dup: {} } }, [p1, p2]),
 		).toThrow(/Duplicate tool pack id/);
@@ -70,37 +83,29 @@ describe("buildToolPackContainer", () => {
 		);
 	});
 
-	it("tracks capabilities and exposes them to downstream plugins", () => {
-		const provider: ToolPack = {
-			id: "provider",
-			name: "provider",
-			capabilities: ["gmail", "pdf"],
-			register() {},
-		};
-		let seen: Set<string> | null = null;
-		const consumer: ToolPack = {
-			id: "consumer",
-			name: "consumer",
+	it("throws when a declared tool fails to register", () => {
+		// Typo in the Awilix key: "fooTol" does not end with "Tool" so it is
+		// skipped by the registry scan, but the pack declared "foo".
+		const p: ToolPack = {
+			id: "typo",
+			name: "typo",
+			declaresTools: ["foo"],
 			register(c) {
-				seen = c.resolve<Set<string>>("packCapabilities");
+				c.register({
+					fooTol: asFunction(() => makeTool("foo")).singleton(),
+				});
 			},
 		};
-
-		const { container } = buildToolPackContainer(
-			{ packs: { provider: {}, consumer: {} } },
-			[provider, consumer],
+		expect(() => buildToolPackContainer({ packs: { typo: {} } }, [p])).toThrow(
+			/did not register.*foo/,
 		);
-
-		const caps = container.resolve<Set<string>>("packCapabilities");
-		expect(caps.has("gmail")).toBe(true);
-		expect(caps.has("pdf")).toBe(true);
-		expect(seen).toBe(caps); // downstream saw the same set
 	});
 
 	it("scans *Tool registrations and builds the tool registry", () => {
 		const plugin: ToolPack = {
 			id: "tools",
 			name: "tools",
+			declaresTools: ["foo", "bar"],
 			register(c) {
 				c.register({
 					fooTool: asFunction(() => makeTool("foo")).singleton(),
@@ -126,6 +131,7 @@ describe("buildToolPackContainer", () => {
 		const p: ToolPack = {
 			id: "cfg",
 			name: "cfg",
+			declaresTools: [],
 			register(_c, cfg) {
 				received = cfg;
 			},

@@ -215,7 +215,6 @@ if (!document.getElementById("bubble-css")) {
   `;
 	document.head.appendChild(style);
 }
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingLoadDoc: string | null = null;
 let initialStateReceived = false;
 
@@ -251,7 +250,7 @@ function connect(): void {
 	ws.onclose = () => {
 		useStore.getState().setConnected(false);
 		ws = null;
-		reconnectTimer = setTimeout(connect, 2000);
+		setTimeout(connect, 2000);
 	};
 
 	ws.onerror = () => {};
@@ -380,10 +379,4 @@ export function wsSend(msg: WsClientMessage): void {
 export function sendLoadDoc(name: string): void {
 	pendingLoadDoc = name;
 	wsSend({ type: "load_document", name });
-}
-
-export function cleanupWs(): void {
-	if (reconnectTimer) clearTimeout(reconnectTimer);
-	ws?.close();
-	ws = null;
 }

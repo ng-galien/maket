@@ -1,9 +1,16 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, watch, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	watch,
+	writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { WsStateMessage } from "@maket/shared";
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -80,7 +87,7 @@ log("[boot] Loading documents...");
 documents.loadAll();
 log("[boot] Documents loaded");
 
-const { loadedPacks } = registerToolPacks(
+const { loadedPacks, toolRegistry } = registerToolPacks(
 	appContainer,
 	{
 		packs: {
@@ -112,6 +119,39 @@ const { loadedPacks } = registerToolPacks(
 	],
 );
 log(`[boot] Plugins loaded: ${loadedPacks.join(", ")}`);
+
+// Cross-check: manifest.json tool list must match the resolved registry.
+// Catches rename drift — renaming an MCP tool without updating manifest.json
+// (or vice versa) now fails boot instead of quietly serving a mismatched surface.
+try {
+	const manifestPath = join(
+		dirname(fileURLToPath(import.meta.url)),
+		"..",
+		"..",
+		"manifest.json",
+	);
+	if (existsSync(manifestPath)) {
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+			tools?: { name: string }[];
+		};
+		const manifestNames = new Set((manifest.tools || []).map((t) => t.name));
+		const registryNames = new Set<string>(toolRegistry.keys());
+		const onlyInManifest = [...manifestNames].filter(
+			(n) => !registryNames.has(n),
+		);
+		const onlyInRegistry = [...registryNames].filter(
+			(n) => !manifestNames.has(n),
+		);
+		if (onlyInManifest.length || onlyInRegistry.length) {
+			throw new Error(
+				`manifest.json ↔ toolRegistry drift — in manifest only: [${onlyInManifest.join(", ")}]; in registry only: [${onlyInRegistry.join(", ")}]`,
+			);
+		}
+	}
+} catch (e) {
+	log(`[boot] ${(e as Error).message}`);
+	throw e;
+}
 
 // ============================================================
 // BUS LISTENERS — broadcast state & toasts to WS clients

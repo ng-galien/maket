@@ -157,6 +157,7 @@ export const previewPack: ToolPack = {
 	id: "preview",
 	name: "Preview",
 	requires: ["documents", "config"],
+	declaresTools: ["maket_preview"],
 	register(container) {
 		container.register({
 			maketPreviewTool: asFunction(createMaketPreviewTool).singleton(),

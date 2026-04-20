@@ -1,9 +1,13 @@
 /**
  * tool-pack-registry.ts — Build an Awilix DI container from explicit tool packs.
  *
- * Each ToolPack declares `requires` and `capabilities`. After registration,
+ * Each ToolPack declares `requires` and `declaresTools`. After registration,
  * every Awilix registration whose name ends with `Tool` is scanned, validated
  * as a ToolHandler, and collected into a `toolRegistry` Map (used by mountTools).
+ *
+ * A pack's `declaresTools` is cross-checked against the resolved registry so
+ * a typo in an Awilix registration key (e.g. `maketDocTol` instead of
+ * `maketDocTool`) fails boot rather than silently dropping the tool.
  */
 
 import { type AwilixContainer, asValue, createContainer } from "awilix";
@@ -36,12 +40,6 @@ export function registerToolPacks(
 	available: ToolPack[],
 ): RegisterToolPacksResult {
 	const loadedPacks: string[] = [];
-	const capabilities = container.hasRegistration("packCapabilities")
-		? container.resolve<Set<string>>("packCapabilities")
-		: new Set<string>();
-	if (!container.hasRegistration("packCapabilities")) {
-		container.register({ packCapabilities: asValue(capabilities) });
-	}
 
 	const byId = new Map<string, ToolPack>();
 	for (const pack of available) {
@@ -49,6 +47,8 @@ export function registerToolPacks(
 			throw new Error(`Duplicate tool pack id: ${pack.id}`);
 		byId.set(pack.id, pack);
 	}
+
+	const declaredByAllPacks: string[] = [];
 
 	for (const [id, config] of Object.entries(manifest.packs)) {
 		const pack = byId.get(id);
@@ -64,11 +64,8 @@ export function registerToolPacks(
 			}
 		}
 
-		if (pack.capabilities) {
-			for (const cap of pack.capabilities) capabilities.add(cap);
-		}
-
 		pack.register(container, config);
+		declaredByAllPacks.push(...pack.declaresTools);
 		loadedPacks.push(id);
 	}
 
@@ -80,6 +77,15 @@ export function registerToolPacks(
 			toolRegistry.set(val.metadata.name, val);
 		}
 	}
+
+	// Cross-check: every declared tool must be in the resolved registry.
+	const missing = declaredByAllPacks.filter((t) => !toolRegistry.has(t));
+	if (missing.length > 0) {
+		throw new Error(
+			`Tool packs declared tools that did not register: ${missing.join(", ")}. Check for typos in Awilix keys (they must end with "Tool") or missing return values in create*Tool factories.`,
+		);
+	}
+
 	if (container.hasRegistration("toolRegistry")) {
 		// Replace in-place so existing resolutions pick up new tools.
 		const existing =

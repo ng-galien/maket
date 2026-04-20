@@ -364,6 +364,7 @@ export const documentsPack: ToolPack = {
 	id: "documents",
 	name: "Documents",
 	requires: ["documents", "bus"],
+	declaresTools: ["maket_doc"],
 	register(container) {
 		container.register({
 			maketDocTool: asFunction(createMaketDocTool).singleton(),

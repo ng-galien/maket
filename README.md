@@ -1,54 +1,137 @@
 # Maket
 
-Visual design tool for [Claude](https://claude.ai/code) — compose HTML/CSS documents with live preview, manage assets, apply brand chartes, export PDF, send via Gmail. Exposes an MCP server so Claude can drive the canvas directly.
+**Turn Claude into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and Claude composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or send via Gmail when you're done.
 
-## Requirements
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
-- Node.js `>=22`
-- Claude Code (or any MCP-compatible client over Streamable HTTP)
+<!-- TODO: replace with actual demo GIF (record once client is polished) -->
+<p align="center">
+  <em>📽️ Demo GIF coming soon — a 30s clip showing: brief → live preview → PDF export.</em>
+</p>
+
+---
+
+## Why Maket
+
+Claude is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives Claude a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, and an **asset + brand library** so output stays consistent across documents. You stay in the conversation; Claude handles the craft.
+
+## Features
+
+- **Live preview** — Changes appear in your browser the instant Claude writes them. Click any element to annotate it and send feedback back to the chat.
+- **HTML/CSS canvas** — Pages are real HTML sized in mm. No lock-in to a proprietary format.
+- **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
+- **Image library** — Drop images in, tag them, Claude picks the right one for the brief.
+- **PDF export** — Print-ready output via headless Chromium.
+- **Gmail send** — Compose an email document and send it as a PDF attachment.
+- **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
+- **Claude Code skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach Claude how to design, brand, and review documents.
+
+## What it looks like
+
+```
+You    — fais-moi un flyer A5 pour un concert jazz dimanche soir, ambiance feutrée
+
+Claude — maket_doc new doc="Jazz flyer" format=A5 orientation=portrait
+         maket_charte view name="Smoky Club"
+         maket_html set doc="Jazz flyer" page=1 context_token=...
+         → Live preview opens. Warm amber on deep navy, serif display for
+           the headline, fine sans for the venue details.
+
+You    — (clicks the date on the preview) "rends-la plus grosse"
+
+Claude — maket_message list → sees your note
+         maket_html patch doc="Jazz flyer" ops=[...]
+         → Date scales up, hierarchy re-balanced.
+
+You    — parfait, exporte
+
+Claude — maket_pdf doc="Jazz flyer"
+         → ~/.maket/exports/jazz-flyer.pdf
+```
 
 ## Install
+
+### Option A — Clone and run (recommended while Maket is early)
 
 ```bash
 git clone https://github.com/ng-galien/maket.git
 cd maket
 npm install
-```
-
-## Run
-
-```bash
 npm run dev
 ```
 
 This starts the MCP/preview server on `:3333` and the Vite dev server on `:5173`.
 
-Open Claude Code from the project directory — `.mcp.json` points it at `http://localhost:3333/mcp`. Then open `http://localhost:5173` in your browser for the live preview.
+Open Claude Code from the project directory (the included `.mcp.json` points it at `http://localhost:3333/mcp`), then open **http://localhost:5173** in your browser for the live preview.
 
-## Commands
+### Option B — Package as a Claude Desktop extension (.mcpb)
 
 ```bash
-npm run dev            # Server --watch + Vite dev server (HMR on :5173, API on :3333)
-npm run dev:watch      # Server --watch + client `vite build --watch` → public/
-npm run dev:server     # Server only, --watch
-npm run dev:client     # Vite dev server only
-npm run build:client   # Vite production build → public/
-npm run lint           # biome check
-npm run test           # vitest run
-npm run quality        # lint + typecheck + test
-npm run start          # Start server only (no client build)
+npm install -g @anthropic-ai/mcpb
+npm run build:client
+node scripts/pack-mcpb.ts
+# → dist/maket.mcpb
 ```
 
-## Project structure
+Drag `dist/maket.mcpb` into Claude Desktop (Settings → Extensions) to install it as a local extension. Any MCP-compatible client that supports Streamable HTTP can also connect to `http://localhost:3333/mcp` directly.
 
-Monorepo with npm workspaces:
+**Requirements:** Node.js ≥22, and either Claude Code or Claude Desktop ≥0.10.
 
-- `packages/server/` — MCP server (Streamable HTTP) + Express + WebSocket
-- `packages/client/` — React 19 + Vite + Tailwind CSS 4
-- `packages/shared/` — Shared TypeScript types
-- `plugin/skills/` — Claude Code skills (`maket`, `maket-charte`, `maket-review`)
+## Tools
 
-## Bootstrap a downstream workspace
+Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
+
+| Tool | What it does |
+|------|--------------|
+| `maket_doc` | Document lifecycle — new, focus, list, delete, duplicate, rename, meta, state |
+| `maket_page` | Page structure — add, remove, rename, reorder, list |
+| `maket_canvas` | Canvas setup — format, orientation, background, text margin |
+| `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow) |
+| `maket_charte` | Brand chartes — list, view, set, delete |
+| `maket_image` | Asset library — list, view, meta, import, delete |
+| `maket_message` | User annotations from the preview — list, ack |
+| `maket_preview` | Open the live preview URL or snapshot a page to PNG |
+| `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
+| `maket_pdf` | Export a document to PDF via headless Chromium |
+| `maket_gmail` | Gmail — connect, search, read, draft |
+
+## Plugin & skills
+
+The `plugin/` directory ships three Claude Code skills that give Claude the judgment layer on top of the tools:
+
+- **`maket`** — Design director. Plans layouts, applies typographic hierarchy, composes step-by-step. Triggers on creative briefs ("make me a poster", "design a flyer for…").
+- **`maket-charte`** — Brand-identity expert. Builds coherent design-token systems from a brief, an industry, or a reference URL.
+- **`maket-review`** — QA agent. Audits charte compliance, image paths, layout overflow; fixes issues via `maket_html patch`.
+
+These skills are auto-loaded when Claude Code is opened in a Maket-enabled workspace.
+
+## Configuration
+
+By default Maket stores data in `~/.maket/`:
+
+- `documents.db` — SQLite (documents, chartes, assets metadata)
+- `assets/`, `documents/`, `exports/` — user files
+
+Override with environment variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MAKET_PORT` | `24842` (or `3333` in dev) | HTTP server port |
+| `MAKET_DATA_DIR` | `~/.maket/` | User data directory |
+| `MAKET_DB` | `$MAKET_DATA_DIR/documents.db` | SQLite path |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Gmail OAuth credentials (optional) |
+
+### Gmail integration (optional)
+
+1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Add redirect URI: `http://localhost:3333/auth/google/callback`.
+3. Copy `.env.example` → `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+4. Run `maket_gmail connect` in Claude — follow the browser flow to grant access.
+
+### Bootstrap a downstream workspace
 
 If you run Maket as a long-lived server and want other projects to connect to it:
 
@@ -56,24 +139,65 @@ If you run Maket as a long-lived server and want other projects to connect to it
 make bootstrap DIR=/path/to/my-project PORT=3335
 ```
 
-Creates `.mcp.json`, `.claude/skills/`, and a `package.json` with `npm run dev` in the target directory. Never overwrites existing files.
+Creates `.mcp.json`, `.claude/skills/`, and a minimal `package.json` in the target directory. Never overwrites existing files.
 
-## Gmail integration (optional)
+## Architecture
 
-1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Add redirect URI: `http://localhost:3333/auth/google/callback`
-3. Copy `.env.example` to `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
-4. Use `maket_gmail connect` to authenticate
+<details>
+<summary>How the pieces fit together</summary>
 
-## Data locations
+```
+┌──────────┐   MCP Streamable HTTP   ┌────────────────────────┐
+│  Claude  │ ──────────────────────► │  Express @ :3333       │
+│  (Code   │                         │  ├─ /mcp  (MCP server) │
+│ /Desktop)│                         │  ├─ /assets, /export   │
+└──────────┘                         │  └─ WS /ws (preview)   │
+                                     └────────┬───────────────┘
+                                              │
+                                     ┌────────┴────────┐
+                                     │  SQLite         │
+                                     │  ~/.maket/*.db  │
+                                     └─────────────────┘
+                                              │
+                                              ▼ WS broadcast
+                                     ┌─────────────────┐
+                                     │ React preview   │
+                                     │  (Vite, :5173)  │
+                                     └─────────────────┘
+```
 
-By default Maket stores data in `~/.maket/`:
+- **MCP over Streamable HTTP** — stateless, one server per request.
+- **Awilix DI** — every service, tool pack, and HTTP route is registered in `packages/server/src/bootstrap.ts`.
+- **Store → bus → WebSocket** — every mutation emits a typed event; the preview reconciles.
+- **`packages/shared`** — wire-contract types only (WS messages, HTTP envelopes). Domain types stay per-side.
 
-- `documents.db` — SQLite (documents, chartes, assets metadata)
-- `assets/`, `documents/`, `exports/` — user files
+See [`CLAUDE.md`](CLAUDE.md) for the full architectural guide.
+</details>
 
-Override with `MAKET_DATA_DIR` or `MAKET_DB`.
+## Development
+
+```bash
+npm run dev         # Server + Vite HMR (most common)
+npm run quality     # Lint + typecheck + tests (must pass before commit)
+npm run test        # vitest
+```
+
+Pre-commit: `lefthook` runs `biome`, `tsc -b`, and `vitest` — all three must pass.
+
+More scripts: `dev:watch` (rebuilds client into `public/`), `dev:server`, `dev:client`, `build:client`, `lint:fix`, `test:coverage`. See [`package.json`](package.json) for the full list.
+
+## Contributing
+
+Contributions are welcome. To get started:
+
+1. Fork the repo and create a feature branch.
+2. Run `npm install && npm run dev` to set up your environment.
+3. Make your changes; keep them scoped (a bug fix doesn't need surrounding cleanup).
+4. Run `npm run quality` — it must pass.
+5. Open a PR with a clear description of the change and motivation.
+
+Found a bug, have an idea, or want to discuss something before building it? Open an [issue](https://github.com/ng-galien/maket/issues) or start a [discussion](https://github.com/ng-galien/maket/discussions).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) — © Alexandre Boyer

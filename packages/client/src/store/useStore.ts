@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import type { DocSummary, Document, Element } from "./types";
+import type { DocSummary, Document } from "./types";
 import { wsSend } from "./ws";
 
 export interface PendingMessage {
@@ -270,10 +270,6 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 }));
 
-// Stable empty arrays to avoid new-reference re-render loops
-const EMPTY_ELEMENTS: Element[] = [];
-const EMPTY_PAGES: { name: string; elements: Element[] }[] = [];
-
 // ---- Selectors ----
 
 /** The focused document (what BottomBar, Layers, Exchange operate on) */
@@ -292,36 +288,3 @@ export const useWorkspaceDocNames = () =>
 export function useDocByName(name: string) {
 	return useStore(useShallow((s) => s.docs.get(name) ?? null));
 }
-
-// Legacy selectors — read from focusedDoc
-export const useDoc = () => useFocusedDoc();
-export const useElements = () =>
-	useStore((s) => {
-		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		return doc?.pages[doc.activePage]?.elements ?? EMPTY_ELEMENTS;
-	});
-export const usePageHtml = () =>
-	useStore((s) => {
-		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		if (!doc) return "";
-		const page = doc.pages[doc.activePage];
-		return page?.html ?? "";
-	});
-export const usePages = () =>
-	useStore((s) => {
-		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		return doc?.pages ?? EMPTY_PAGES;
-	});
-export const useActivePage = () =>
-	useStore((s) => {
-		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		return doc?.activePage ?? 0;
-	});
-export const useSelectedIds = () => useStore((s) => s.selectedIds);
-export const useSelectedElement = (): Element | null =>
-	useStore((s) => {
-		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
-		if (!doc || s.selectedIds.length !== 1) return null;
-		const els = doc.pages[doc.activePage]?.elements ?? EMPTY_ELEMENTS;
-		return els.find((el) => el.id === s.selectedIds[0]) ?? null;
-	});
