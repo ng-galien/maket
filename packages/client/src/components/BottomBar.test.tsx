@@ -36,10 +36,10 @@ afterEach(() => {
 describe("BottomBar", () => {
 	it("shows 'no document' placeholder when nothing is focused", () => {
 		render(<BottomBar />);
-		expect(screen.queryByRole("link", { name: "PDF" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("link")).not.toBeInTheDocument();
 	});
 
-	it("renders the focused doc name and a PDF link pointing at /print?name=", () => {
+	it("renders the focused doc name and a Print link pointing at /print?name=", () => {
 		const doc = makeDoc("my-flyer");
 		useStore.setState({
 			docs: new Map([["my-flyer", doc]]),
@@ -47,20 +47,20 @@ describe("BottomBar", () => {
 		});
 		render(<BottomBar />);
 		expect(screen.getByText("my-flyer")).toBeInTheDocument();
-		const pdf = screen.getByRole("link", { name: "PDF" });
-		expect(pdf).toHaveAttribute("href", "/print?name=my-flyer");
-		expect(pdf).toHaveAttribute("target", "_blank");
+		const print = screen.getByRole("link");
+		expect(print).toHaveAttribute("href", "/print?name=my-flyer");
+		expect(print).toHaveAttribute("target", "_blank");
 	});
 
-	it("URL-encodes the doc name in the PDF href", () => {
+	it("URL-encodes the doc name in the Print href", () => {
 		const doc = makeDoc("flyer été 2026");
 		useStore.setState({
 			docs: new Map([["flyer été 2026", doc]]),
 			focusedDocName: "flyer été 2026",
 		});
 		render(<BottomBar />);
-		const pdf = screen.getByRole("link", { name: "PDF" });
-		expect(pdf.getAttribute("href")).toBe(
+		const print = screen.getByRole("link");
+		expect(print.getAttribute("href")).toBe(
 			"/print?name=flyer%20%C3%A9t%C3%A9%202026",
 		);
 	});
@@ -101,6 +101,18 @@ describe("BottomBar", () => {
 		await user.click(screen.getByRole("button", { name: /move to top/i }));
 		expect(useStore.getState().barPosition).toBe("top");
 		expect(localStorage.getItem("bar-position")).toBe("top");
+	});
+
+	it("triggers fit-to-view when the fit button is clicked", async () => {
+		const user = userEvent.setup();
+		const { registerFitToView } = await import("../store/zoomBridge");
+		let fitCalls = 0;
+		registerFitToView(() => {
+			fitCalls += 1;
+		});
+		render(<BottomBar />);
+		await user.click(screen.getByTitle(/recadrer|fit to view/i));
+		expect(fitCalls).toBe(1);
 	});
 
 	it("toggles dark mode via the sun/moon button", async () => {

@@ -3,13 +3,16 @@ import {
 	ChevronUp,
 	FileText,
 	Image,
+	Maximize,
 	MessageCircle,
 	Moon,
 	Palette,
+	Printer,
 	Sun,
 } from "lucide-react";
 import { useT } from "../i18n/useT";
 import { useFocusedDoc, useStore } from "../store/useStore";
+import { fitToView } from "../store/zoomBridge";
 
 export function BottomBar() {
 	const t = useT();
@@ -75,6 +78,17 @@ export function BottomBar() {
 				{iconBtn("photos", <Image size={16} />, t("photos"))}
 				{iconBtn("docs", <FileText size={16} />, t("documents"))}
 
+				{/* Fit workspace */}
+				<button
+					type="button"
+					onClick={fitToView}
+					title={t("fit")}
+					aria-label={t("fit")}
+					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
+				>
+					<Maximize size={16} />
+				</button>
+
 				{/* ● Doc name */}
 				<div className="flex items-center gap-1.5 px-2">
 					<div
@@ -92,15 +106,17 @@ export function BottomBar() {
 					pendingCount,
 				)}
 
-				{/* PDF */}
+				{/* Print */}
 				{hasDoc && (
 					<a
 						href={`/print?name=${encodeURIComponent(focusedDoc?.name || "")}`}
 						target="_blank"
 						rel="noopener"
-						className="text-xs font-semibold px-3 py-1.5 rounded-full text-text-3 hover:text-text-1 hover:bg-input transition-colors"
+						title={t("print")}
+						aria-label={t("print")}
+						className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors no-underline"
 					>
-						PDF
+						<Printer size={16} />
 					</a>
 				)}
 
