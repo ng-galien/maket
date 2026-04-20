@@ -30,7 +30,7 @@ If they accept, load the pre-built tutorial pages from the plugin assets:
 6. `maket_page add(name: "Messages")` → Read `assets/onboarding/page4-messages.html` → `maket_html set`
 7. `maket_doc focus(doc, 1)` to go back to the welcome page
 
-The asset files are located at: `plugin/skills/maket/assets/onboarding/`
+The asset files are located at: `plugin/claude/skills/maket/assets/onboarding/`
 
 Page 2 (Images) has a placeholder for the library section — after loading, use `maket_image list` to get the actual categories and update the `library` element via `maket_html patch` with the real data.
 

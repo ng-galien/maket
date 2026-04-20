@@ -19,8 +19,8 @@ Maket MCP server must be running — either via `.mcpb` in Claude Desktop or via
 
 ```bash
 # From Claude Code, use the /install-plugin command
-# or copy the plugin/ directory to your project's .claude/plugins/
-cp -r plugin/ .claude/plugins/maket/
+# or copy the plugin/claude/ directory to your project's .claude/plugins/
+cp -r plugin/claude/ .claude/plugins/maket/
 ```
 
 ## Usage
@@ -51,17 +51,12 @@ Claude will automatically activate the maket skill and follow the structured wor
 ## Plugin structure
 
 ```
-plugin/
-├── .claude-plugin/
-│   └── plugin.json
-├── .mcp.json
+plugin/claude/
 ├── commands/
 │   └── maket.md
 ├── skills/
-│   └── maket/
-│       ├── SKILL.md
-│       └── references/
-│           ├── layout-patterns.md
-│           └── typography.md
+│   ├── maket/
+│   ├── maket-charte/
+│   └── maket-review/
 └── README.md
 ```
