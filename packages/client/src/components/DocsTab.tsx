@@ -60,6 +60,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
 	}
 }
 
+type RowMode =
+	| { kind: "idle" }
+	| { kind: "rename" }
+	| { kind: "duplicate" }
+	| { kind: "confirm-delete" };
+
 export function DocsTab() {
 	const t = useT();
 	const docList = useStore((s) => s.docList);
@@ -68,6 +74,10 @@ export function DocsTab() {
 	const removeDoc = useStore((s) => s.removeDocFromWorkspace);
 	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
+	const [modeFor, setModeFor] = useState<{
+		name: string;
+		mode: RowMode;
+	} | null>(null);
 
 	const filtered = docList.filter((d) =>
 		d.name.toLowerCase().includes(search.toLowerCase()),
@@ -136,6 +146,14 @@ export function DocsTab() {
 								menuOpen={menuFor === d.name}
 								onMenuOpen={() => setMenuFor(d.name)}
 								onMenuClose={() => setMenuFor(null)}
+								mode={
+									modeFor?.name === d.name ? modeFor.mode : { kind: "idle" }
+								}
+								onModeChange={(mode) =>
+									setModeFor(
+										mode.kind === "idle" ? null : { name: d.name, mode },
+									)
+								}
 								canDelete={docList.length > 1}
 							/>
 						))}
@@ -159,6 +177,8 @@ interface DocRowProps {
 	menuOpen: boolean;
 	onMenuOpen: () => void;
 	onMenuClose: () => void;
+	mode: RowMode;
+	onModeChange: (mode: RowMode) => void;
 	canDelete: boolean;
 }
 
@@ -169,76 +189,281 @@ function DocRow({
 	menuOpen,
 	onMenuOpen,
 	onMenuClose,
+	mode,
+	onModeChange,
 	canDelete,
 }: DocRowProps) {
 	const t = useT();
 	const locked = doc.locked === true;
+	const editing = mode.kind === "rename" || mode.kind === "duplicate";
 
 	return (
 		<div className="relative group">
-			<button
-				type="button"
-				onClick={onToggle}
-				className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${
-					onWs ? "bg-accent/5" : "hover:bg-black/[0.03]"
-				}`}
-			>
-				<div
-					className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-						onWs ? "bg-accent/10" : "bg-input"
+			{editing ? (
+				<InlineNameEditor
+					initial={mode.kind === "rename" ? doc.name : `${doc.name} copy`}
+					placeholder={
+						mode.kind === "rename"
+							? t("doc_rename_prompt")
+							: t("doc_duplicate_prompt")
+					}
+					onCommit={(value) => {
+						const trimmed = value.trim();
+						onModeChange({ kind: "idle" });
+						if (!trimmed) return;
+						if (mode.kind === "rename") {
+							if (trimmed === doc.name) return;
+							sendRenameDoc(doc.name, trimmed);
+						} else {
+							sendDuplicateDoc(doc.name, trimmed);
+						}
+					}}
+					onCancel={() => onModeChange({ kind: "idle" })}
+				/>
+			) : (
+				<button
+					type="button"
+					onClick={onToggle}
+					className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${
+						onWs ? "bg-accent/5" : "hover:bg-black/[0.03]"
 					}`}
 				>
-					<FileText
-						size={14}
-						className={onWs ? "text-accent" : "text-text-3"}
-					/>
-				</div>
-				<div className="flex-1 min-w-0">
 					<div
-						className={`text-base truncate flex items-center gap-1.5 ${onWs ? "font-bold text-accent" : "font-medium text-text-1"}`}
+						className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+							onWs ? "bg-accent/10" : "bg-input"
+						}`}
 					>
-						{locked && (
-							<Lock
-								size={11}
-								className="text-text-3 flex-shrink-0"
-								aria-label={t("doc_locked")}
-							/>
-						)}
-						<span className="truncate">{doc.name}</span>
+						<FileText
+							size={14}
+							className={onWs ? "text-accent" : "text-text-3"}
+						/>
 					</div>
-					<div className="flex items-center gap-1.5 mt-0.5">
-						<span className="text-2xs font-bold text-text-3">{doc.format}</span>
-						<span className="text-2xs text-text-3">{doc.pageCount ?? 1}p</span>
+					<div className="flex-1 min-w-0">
+						<div
+							className={`text-base truncate flex items-center gap-1.5 ${onWs ? "font-bold text-accent" : "font-medium text-text-1"}`}
+						>
+							{locked && (
+								<Lock
+									size={11}
+									className="text-text-3 flex-shrink-0"
+									aria-label={t("doc_locked")}
+								/>
+							)}
+							<span className="truncate">{doc.name}</span>
+						</div>
+						<div className="flex items-center gap-1.5 mt-0.5">
+							<span className="text-2xs font-bold text-text-3">
+								{doc.format}
+							</span>
+							<span className="text-2xs text-text-3">
+								{doc.pageCount ?? 1}p
+							</span>
+						</div>
 					</div>
-				</div>
-				{onWs && !menuOpen && (
-					<span className="text-2xs font-bold text-accent mr-6">✓</span>
-				)}
-			</button>
-			<button
-				type="button"
-				aria-label={t("doc_menu")}
-				onClick={(e) => {
-					e.stopPropagation();
-					if (menuOpen) onMenuClose();
-					else onMenuOpen();
-				}}
-				className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
-					menuOpen
-						? "bg-black/[0.06]"
-						: "opacity-0 group-hover:opacity-100 focus:opacity-100"
-				}`}
-			>
-				<MoreVertical size={14} />
-			</button>
+					{onWs && !menuOpen && mode.kind !== "confirm-delete" && (
+						<span className="text-2xs font-bold text-accent mr-6">✓</span>
+					)}
+				</button>
+			)}
+
+			{mode.kind === "confirm-delete" && (
+				<HoldToDelete
+					label={t("doc_delete_hold", { name: doc.name })}
+					onConfirm={() => {
+						onModeChange({ kind: "idle" });
+						sendDeleteDoc(doc.name);
+					}}
+					onCancel={() => onModeChange({ kind: "idle" })}
+				/>
+			)}
+
+			{!editing && mode.kind !== "confirm-delete" && (
+				<button
+					type="button"
+					aria-label={t("doc_menu")}
+					onClick={(e) => {
+						e.stopPropagation();
+						if (menuOpen) onMenuClose();
+						else onMenuOpen();
+					}}
+					className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
+						menuOpen
+							? "bg-black/[0.06]"
+							: "opacity-0 group-hover:opacity-100 focus:opacity-100"
+					}`}
+				>
+					<MoreVertical size={14} />
+				</button>
+			)}
+
 			{menuOpen && (
 				<DocMenu
 					doc={doc}
 					onClose={onMenuClose}
 					canDelete={canDelete}
 					locked={locked}
+					onRename={() => {
+						onMenuClose();
+						onModeChange({ kind: "rename" });
+					}}
+					onDuplicate={() => {
+						onMenuClose();
+						onModeChange({ kind: "duplicate" });
+					}}
+					onDeleteRequest={() => {
+						onMenuClose();
+						onModeChange({ kind: "confirm-delete" });
+					}}
 				/>
 			)}
+		</div>
+	);
+}
+
+interface InlineNameEditorProps {
+	initial: string;
+	placeholder: string;
+	onCommit: (value: string) => void;
+	onCancel: () => void;
+}
+
+function InlineNameEditor({
+	initial,
+	placeholder,
+	onCommit,
+	onCancel,
+}: InlineNameEditorProps) {
+	const [value, setValue] = useState(initial);
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		const el = inputRef.current;
+		if (!el) return;
+		el.focus();
+		// Select the base name without the trailing " copy" so the user can
+		// type straight over the default while keeping the suffix visible.
+		const base = initial.replace(/ copy$/, "");
+		el.setSelectionRange(0, base.length);
+	}, [initial]);
+
+	return (
+		<div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-accent/5 ring-2 ring-accent/30">
+			<div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-accent/10">
+				<Pencil size={13} className="text-accent" />
+			</div>
+			<input
+				ref={inputRef}
+				value={value}
+				onChange={(e) => setValue(e.target.value)}
+				onKeyDown={(e) => {
+					if (e.key === "Enter") {
+						e.preventDefault();
+						onCommit(value);
+					} else if (e.key === "Escape") {
+						e.preventDefault();
+						onCancel();
+					}
+				}}
+				onBlur={() => onCancel()}
+				placeholder={placeholder}
+				className="flex-1 min-w-0 bg-transparent outline-none text-base font-medium text-text-1 placeholder:text-text-3"
+			/>
+		</div>
+	);
+}
+
+interface HoldToDeleteProps {
+	label: string;
+	onConfirm: () => void;
+	onCancel: () => void;
+}
+
+function HoldToDelete({ label, onConfirm, onCancel }: HoldToDeleteProps) {
+	const HOLD_MS = 650;
+	const [progress, setProgress] = useState(0);
+	const rafRef = useRef<number | null>(null);
+	const startRef = useRef<number | null>(null);
+	const firedRef = useRef(false);
+
+	const stop = () => {
+		if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+		rafRef.current = null;
+		startRef.current = null;
+	};
+
+	const tick = (now: number) => {
+		if (startRef.current == null) startRef.current = now;
+		const p = Math.min(1, (now - startRef.current) / HOLD_MS);
+		setProgress(p);
+		if (p >= 1) {
+			if (!firedRef.current) {
+				firedRef.current = true;
+				stop();
+				onConfirm();
+			}
+			return;
+		}
+		rafRef.current = requestAnimationFrame(tick);
+	};
+
+	const begin = (e: React.PointerEvent) => {
+		if (firedRef.current) return;
+		e.preventDefault();
+		(e.target as HTMLElement).setPointerCapture(e.pointerId);
+		rafRef.current = requestAnimationFrame(tick);
+	};
+
+	const end = () => {
+		if (firedRef.current) return;
+		stop();
+		setProgress(0);
+	};
+
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onCancel();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => {
+			document.removeEventListener("keydown", onKey);
+			stop();
+		};
+	}, [onCancel]);
+
+	return (
+		<div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-danger-soft text-danger">
+			<button
+				type="button"
+				onPointerDown={begin}
+				onPointerUp={end}
+				onPointerLeave={end}
+				onPointerCancel={end}
+				className="relative flex-1 min-w-0 flex items-center gap-2.5 py-1 select-none text-left focus:outline-none"
+			>
+				<div
+					className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-danger/15"
+					style={{ transform: `scale(${1 + progress * 0.08})` }}
+				>
+					<Trash2 size={13} />
+				</div>
+				<span className="relative flex-1 truncate text-sm font-semibold">
+					{label}
+				</span>
+				<div
+					className="absolute inset-x-0 bottom-0 h-0.5 bg-danger rounded-full origin-left"
+					style={{ transform: `scaleX(${progress})` }}
+				/>
+			</button>
+			<button
+				type="button"
+				onClick={onCancel}
+				aria-label="cancel"
+				className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-danger/15 text-danger"
+			>
+				<span aria-hidden className="text-base leading-none">
+					×
+				</span>
+			</button>
 		</div>
 	);
 }
@@ -248,9 +473,20 @@ interface DocMenuProps {
 	onClose: () => void;
 	canDelete: boolean;
 	locked: boolean;
+	onRename: () => void;
+	onDuplicate: () => void;
+	onDeleteRequest: () => void;
 }
 
-function DocMenu({ doc, onClose, canDelete, locked }: DocMenuProps) {
+function DocMenu({
+	doc,
+	onClose,
+	canDelete,
+	locked,
+	onRename,
+	onDuplicate,
+	onDeleteRequest,
+}: DocMenuProps) {
 	const t = useT();
 	const ref = useRef<HTMLDivElement>(null);
 
@@ -274,34 +510,9 @@ function DocMenu({ doc, onClose, canDelete, locked }: DocMenuProps) {
 		onClose();
 	};
 
-	const handleRename = () => {
-		const next = window.prompt(t("doc_rename_prompt"), doc.name);
-		onClose();
-		if (!next) return;
-		const trimmed = next.trim();
-		if (!trimmed || trimmed === doc.name) return;
-		sendRenameDoc(doc.name, trimmed);
-	};
-
-	const handleDuplicate = () => {
-		const next = window.prompt(t("doc_duplicate_prompt"), `${doc.name} copy`);
-		onClose();
-		if (!next) return;
-		const trimmed = next.trim();
-		if (!trimmed) return;
-		sendDuplicateDoc(doc.name, trimmed);
-	};
-
 	const handleLock = () => {
 		sendLockDoc(doc.name, !locked);
 		onClose();
-	};
-
-	const handleDelete = () => {
-		onClose();
-		if (!canDelete) return;
-		if (!window.confirm(t("doc_delete_confirm", { name: doc.name }))) return;
-		sendDeleteDoc(doc.name);
 	};
 
 	return (
@@ -314,12 +525,12 @@ function DocMenu({ doc, onClose, canDelete, locked }: DocMenuProps) {
 			</MenuItem>
 			<MenuItem
 				icon={<Pencil size={13} />}
-				onClick={handleRename}
+				onClick={onRename}
 				disabled={locked}
 			>
 				{t("doc_rename")}
 			</MenuItem>
-			<MenuItem icon={<Files size={13} />} onClick={handleDuplicate}>
+			<MenuItem icon={<Files size={13} />} onClick={onDuplicate}>
 				{t("doc_duplicate")}
 			</MenuItem>
 			<MenuItem
@@ -331,7 +542,7 @@ function DocMenu({ doc, onClose, canDelete, locked }: DocMenuProps) {
 			<div className="h-px bg-black/[0.06] my-1" />
 			<MenuItem
 				icon={<Trash2 size={13} />}
-				onClick={handleDelete}
+				onClick={onDeleteRequest}
 				disabled={locked || !canDelete}
 				danger
 			>

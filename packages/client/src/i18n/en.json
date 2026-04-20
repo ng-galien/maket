@@ -14,6 +14,7 @@
 	"doc_rename_prompt": "New name:",
 	"doc_duplicate_prompt": "Copy name:",
 	"doc_delete_confirm": "Delete \"{name}\"? This cannot be undone.",
+	"doc_delete_hold": "Hold to delete \"{name}\"",
 	"no_image": "No images",
 	"no_charte": "No brand guides",
 	"loading": "Loading...",
