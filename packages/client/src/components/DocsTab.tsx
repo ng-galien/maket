@@ -60,7 +60,7 @@ export function DocsTab() {
 					value={search}
 					onChange={(e) => setSearch(e.target.value)}
 					placeholder={t("search")}
-					className="w-full px-3 py-2 bg-input rounded-lg text-[13px] outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
+					className="w-full px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 				/>
 			</div>
 
@@ -78,10 +78,10 @@ export function DocsTab() {
 								flexShrink: 0,
 							}}
 						/>
-						<span className="text-[11px] font-bold text-text-3 uppercase tracking-wider flex-1">
+						<span className="text-xs font-bold text-text-3 uppercase tracking-wider flex-1">
 							{cat}
 						</span>
-						<span className="text-[11px] text-text-3">{docs.length}</span>
+						<span className="text-xs text-text-3">{docs.length}</span>
 					</div>
 
 					{/* Doc list */}
@@ -109,21 +109,21 @@ export function DocsTab() {
 									</div>
 									<div className="flex-1 min-w-0">
 										<div
-											className={`text-[13px] truncate ${onWs ? "font-bold text-accent" : "font-medium text-text-1"}`}
+											className={`text-base truncate ${onWs ? "font-bold text-accent" : "font-medium text-text-1"}`}
 										>
 											{d.name}
 										</div>
 										<div className="flex items-center gap-1.5 mt-0.5">
-											<span className="text-[10px] font-bold text-text-3">
+											<span className="text-2xs font-bold text-text-3">
 												{d.format}
 											</span>
-											<span className="text-[10px] text-text-3">
+											<span className="text-2xs text-text-3">
 												{d.pageCount ?? 1}p
 											</span>
 										</div>
 									</div>
 									{onWs && (
-										<span className="text-[10px] font-bold text-accent">✓</span>
+										<span className="text-2xs font-bold text-accent">✓</span>
 									)}
 								</button>
 							);
@@ -133,7 +133,7 @@ export function DocsTab() {
 			))}
 
 			{filtered.length === 0 && (
-				<div className="px-4 py-6 text-center text-[13px] text-text-3">
+				<div className="px-4 py-6 text-center text-base text-text-3">
 					{t("no_document")}
 				</div>
 			)}

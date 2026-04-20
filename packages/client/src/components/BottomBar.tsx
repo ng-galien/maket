@@ -80,7 +80,7 @@ export function BottomBar() {
 					<div
 						className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
 					/>
-					<span className="text-[13px] font-semibold text-text-1 max-w-[200px] truncate">
+					<span className="text-base font-semibold text-text-1 max-w-[200px] truncate">
 						{focusedDoc?.name ?? t("no_document")}
 					</span>
 				</div>

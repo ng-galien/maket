@@ -76,15 +76,15 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						<div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
 					)}
 					<span
-						className={`doc-label-name text-[13px] overflow-hidden ${isFocused ? "font-bold text-accent" : "font-medium text-text-2"}`}
+						className={`doc-label-name text-base overflow-hidden ${isFocused ? "font-bold text-accent" : "font-medium text-text-2"}`}
 					>
 						{doc.name}
 					</span>
-					<span className="text-[10px] text-text-3 shrink-0">
+					<span className="text-2xs text-text-3 shrink-0">
 						{doc.canvas.format} · {doc.pages.length}p
 					</span>
 					{pendingCount > 0 && (
-						<span className="text-[10px] font-bold text-white bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
+						<span className="text-2xs font-bold text-white bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
 							{pendingCount}
 						</span>
 					)}
@@ -100,8 +100,8 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					</button>
 				</div>
 				<div className="doc-tooltip">
-					<div className="font-semibold text-[12px]">{doc.name}</div>
-					<div className="text-[10px] text-text-3 mt-0.5">
+					<div className="font-semibold text-sm">{doc.name}</div>
+					<div className="text-2xs text-text-3 mt-0.5">
 						{doc.canvas.format} {doc.canvas.orientation} · {doc.canvas.w}×
 						{doc.canvas.h}mm · {doc.pages.length} page
 						{doc.pages.length > 1 ? "s" : ""}

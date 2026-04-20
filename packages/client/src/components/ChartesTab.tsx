@@ -119,11 +119,9 @@ export function ChartesTab() {
 								<Check size={14} className="text-accent flex-shrink-0" />
 							)}
 							<div className="flex-1 min-w-0">
-								<div className="text-[13px] font-semibold truncate">
-									{c.name}
-								</div>
+								<div className="text-base font-semibold truncate">{c.name}</div>
 								{c.description && (
-									<div className="text-[11px] text-text-3 truncate">
+									<div className="text-xs text-text-3 truncate">
 										{c.description}
 									</div>
 								)}
@@ -148,7 +146,7 @@ export function ChartesTab() {
 								<button
 									type="button"
 									onClick={() => applyCharte(c.name)}
-									className="w-full py-2 rounded-lg text-[12px] font-semibold bg-accent text-white hover:brightness-110 transition"
+									className="w-full py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:brightness-110 transition"
 								>
 									{t("apply")}
 								</button>
@@ -195,9 +193,9 @@ function ChartePreviewInline({
 					<ArrowLeft size={16} />
 				</button>
 				<div className="flex-1 min-w-0">
-					<div className="text-[15px] font-bold truncate">{charte.name}</div>
+					<div className="text-md font-bold truncate">{charte.name}</div>
 					{charte.description && (
-						<div className="text-[11px] text-text-3 truncate">
+						<div className="text-xs text-text-3 truncate">
 							{charte.description}
 						</div>
 					)}
@@ -207,7 +205,7 @@ function ChartePreviewInline({
 			{/* Colors */}
 			{colors.length > 0 && (
 				<section>
-					<h3 className="text-[11px] font-bold text-text-3 uppercase tracking-wider mb-2">
+					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
 						Couleurs
 					</h3>
 					<div className="flex flex-wrap gap-2">
@@ -221,10 +219,8 @@ function ChartePreviewInline({
 									style={{ background: value }}
 								/>
 								<div>
-									<div className="text-[11px] font-semibold">{name}</div>
-									<div className="text-[10px] text-text-3 font-mono">
-										{value}
-									</div>
+									<div className="text-xs font-semibold">{name}</div>
+									<div className="text-2xs text-text-3 font-mono">{value}</div>
 								</div>
 							</div>
 						))}
@@ -235,17 +231,15 @@ function ChartePreviewInline({
 			{/* Fonts */}
 			{fonts.length > 0 && (
 				<section>
-					<h3 className="text-[11px] font-bold text-text-3 uppercase tracking-wider mb-2">
+					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
 						{t("fonts")}
 					</h3>
 					<div className="flex flex-col gap-1">
 						{fonts.map(([role, family]) => (
 							<div key={role} className="flex items-baseline gap-2">
-								<span className="text-[11px] text-text-3 min-w-[60px]">
-									{role}
-								</span>
+								<span className="text-xs text-text-3 min-w-[60px]">{role}</span>
 								<span
-									className="text-[13px] font-medium"
+									className="text-base font-medium"
 									style={{ fontFamily: family }}
 								>
 									{family.split(",")[0].replace(/'/g, "")}
@@ -259,14 +253,14 @@ function ChartePreviewInline({
 			{/* Spacing */}
 			{spacing.length > 0 && (
 				<section>
-					<h3 className="text-[11px] font-bold text-text-3 uppercase tracking-wider mb-2">
+					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
 						Espacements
 					</h3>
 					<div className="flex flex-wrap gap-2">
 						{spacing.map(([name, value]) => (
 							<span
 								key={name}
-								className="text-[11px] font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
+								className="text-xs font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
 							>
 								{name}: {value}
 							</span>
@@ -278,7 +272,7 @@ function ChartePreviewInline({
 			{/* Voice */}
 			{voice && (
 				<section>
-					<h3 className="text-[11px] font-bold text-text-3 uppercase tracking-wider mb-2">
+					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
 						{t("voice_tone")}
 					</h3>
 					{voice.personality && (
@@ -286,7 +280,7 @@ function ChartePreviewInline({
 							{voice.personality.map((p: string) => (
 								<span
 									key={p}
-									className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
+									className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
 								>
 									{p}
 								</span>
@@ -294,17 +288,17 @@ function ChartePreviewInline({
 						</div>
 					)}
 					{voice.formality && (
-						<div className="text-[12px] text-text-2 mb-2">
+						<div className="text-sm text-text-2 mb-2">
 							{t("voice_formality")} : {voice.formality}
 						</div>
 					)}
 					{voice.do && (
 						<div className="mb-2">
-							<div className="text-[10px] font-bold text-green-600 mb-1">
+							<div className="text-2xs font-bold text-green-600 mb-1">
 								{t("voice_do")}
 							</div>
 							{voice.do.map((d: string) => (
-								<div key={d} className="text-[11px] text-text-2 pl-3">
+								<div key={d} className="text-xs text-text-2 pl-3">
 									• {d}
 								</div>
 							))}
@@ -312,11 +306,11 @@ function ChartePreviewInline({
 					)}
 					{voice.dont && (
 						<div className="mb-2">
-							<div className="text-[10px] font-bold text-danger mb-1">
+							<div className="text-2xs font-bold text-danger mb-1">
 								{t("voice_dont")}
 							</div>
 							{voice.dont.map((d: string) => (
-								<div key={d} className="text-[11px] text-text-2 pl-3">
+								<div key={d} className="text-xs text-text-2 pl-3">
 									• {d}
 								</div>
 							))}
@@ -328,15 +322,15 @@ function ChartePreviewInline({
 			{/* Rules */}
 			{Object.keys(rules).length > 0 && (
 				<section>
-					<h3 className="text-[11px] font-bold text-text-3 uppercase tracking-wider mb-2">
+					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
 						{t("rules")}
 					</h3>
 					{Object.entries(rules).map(([key, val]) => (
 						<div key={key} className="mb-2">
-							<div className="text-[11px] font-bold text-text-2 capitalize">
+							<div className="text-xs font-bold text-text-2 capitalize">
 								{key}
 							</div>
-							<div className="text-[11px] text-text-3">{val}</div>
+							<div className="text-xs text-text-3">{val}</div>
 						</div>
 					))}
 				</section>

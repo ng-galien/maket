@@ -60,7 +60,7 @@ export function MessagesPanel() {
 				className={`flex-1 overflow-y-auto px-3 py-2 flex gap-2 scrollbar-thin ${isTop ? "flex-col-reverse" : "flex-col"}`}
 			>
 				{pending.length === 0 ? (
-					<div className="flex-1 flex items-center justify-center text-text-3 text-[12px] text-center px-4 whitespace-pre-line">
+					<div className="flex-1 flex items-center justify-center text-text-3 text-sm text-center px-4 whitespace-pre-line">
 						{t("pending_empty")}
 					</div>
 				) : (
@@ -72,7 +72,7 @@ export function MessagesPanel() {
 								if (e.key === "Enter") scrollToElement(msg.elementId);
 							}}
 							key={msg.id}
-							className={`rounded-lg p-3 text-[12px] cursor-pointer transition-all ${
+							className={`rounded-lg p-3 text-sm cursor-pointer transition-all ${
 								msg.type === "delete"
 									? "bg-danger-soft border border-danger-border"
 									: "bg-input hover:bg-border/50"
@@ -92,7 +92,7 @@ export function MessagesPanel() {
 								</span>
 								<div className="flex-1 min-w-0">
 									{msg.elementId && (
-										<span className="text-[10px] font-bold text-text-3 uppercase">
+										<span className="text-2xs font-bold text-text-3 uppercase">
 											{document
 												.querySelector(`[data-id="${msg.elementId}"]`)
 												?.getAttribute("data-name") || msg.elementId}
@@ -114,7 +114,7 @@ export function MessagesPanel() {
 											📝 {t("pending_insert_text")}
 										</p>
 									)}
-									<span className="text-[10px] text-text-3">
+									<span className="text-2xs text-text-3">
 										{formatTime(msg.ts)}
 									</span>
 								</div>
@@ -155,7 +155,7 @@ export function MessagesPanel() {
 					}}
 					rows={3}
 					placeholder={t("note_global_placeholder")}
-					className="flex-1 px-2.5 py-2 bg-input rounded-lg text-[12px] outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
+					className="flex-1 px-2.5 py-2 bg-input rounded-lg text-sm outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
 				/>
 				{globalNote && (
 					<button
@@ -169,7 +169,7 @@ export function MessagesPanel() {
 							});
 							setGlobalNote("");
 						}}
-						className="px-3 py-2 bg-accent text-white text-[11px] font-semibold rounded-lg hover:brightness-110 transition"
+						className="px-3 py-2 bg-accent text-white text-xs font-semibold rounded-lg hover:brightness-110 transition"
 					>
 						📌
 					</button>

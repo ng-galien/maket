@@ -257,7 +257,7 @@ export function PhotosTab() {
 								draggable={false}
 							/>
 							<div className="absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-								<span className="text-[10px] font-semibold text-white">
+								<span className="text-2xs font-semibold text-white">
 									{img.title || img.file}
 								</span>
 							</div>
@@ -293,10 +293,10 @@ function ImageDetail({
 					<ArrowLeft size={16} />
 				</button>
 				<div className="flex-1 min-w-0">
-					<div className="text-[14px] font-bold truncate">
+					<div className="text-md font-bold truncate">
 						{img.title || img.file}
 					</div>
-					<div className="text-[11px] text-text-3">{img.file}</div>
+					<div className="text-xs text-text-3">{img.file}</div>
 				</div>
 			</div>
 
@@ -311,24 +311,22 @@ function ImageDetail({
 
 			{/* Info */}
 			{img.description && (
-				<p className="text-[12px] text-text-2 leading-relaxed">
-					{img.description}
-				</p>
+				<p className="text-sm text-text-2 leading-relaxed">{img.description}</p>
 			)}
 
 			<div className="flex flex-wrap gap-2">
 				{img.width && img.height && (
-					<span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-input text-text-2">
+					<span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-input text-text-2">
 						{img.width} × {img.height}
 					</span>
 				)}
 				{img.orientation && (
-					<span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-input text-text-2">
+					<span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-input text-text-2">
 						{img.orientation}
 					</span>
 				)}
 				{img.category && (
-					<span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent">
+					<span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent">
 						{img.category}
 					</span>
 				)}
@@ -339,7 +337,7 @@ function ImageDetail({
 					{img.tags.map((tag: string) => (
 						<span
 							key={tag}
-							className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-input text-text-3"
+							className="text-2xs font-medium px-2 py-0.5 rounded-full bg-input text-text-3"
 						>
 							{tag}
 						</span>
@@ -353,7 +351,7 @@ function ImageDetail({
 					<button
 						type="button"
 						onClick={() => onInsert(img.file)}
-						className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold bg-accent text-white hover:brightness-110 transition flex items-center justify-center gap-2"
+						className="flex-1 py-2.5 rounded-xl text-base font-semibold bg-accent text-white hover:brightness-110 transition flex items-center justify-center gap-2"
 					>
 						<ImagePlus size={16} />
 						{t("insert_in_doc")}
@@ -362,7 +360,7 @@ function ImageDetail({
 				<button
 					type="button"
 					onClick={() => onDelete(img.file)}
-					className="py-2.5 px-3 rounded-xl text-[13px] font-semibold border border-danger-border text-danger hover:bg-danger-soft transition flex items-center justify-center"
+					className="py-2.5 px-3 rounded-xl text-base font-semibold border border-danger-border text-danger hover:bg-danger-soft transition flex items-center justify-center"
 				>
 					<Trash2 size={16} />
 				</button>

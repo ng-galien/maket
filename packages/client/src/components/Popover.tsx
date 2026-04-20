@@ -137,7 +137,7 @@ export function Popover() {
 		>
 			{/* Header — doc context + element name + delete icon */}
 			{focusedDocName && (
-				<div className="px-3 pt-2 text-[10px] text-text-3 truncate">
+				<div className="px-3 pt-2 text-2xs text-text-3 truncate">
 					{focusedDocName}
 					{focusedDoc && focusedDoc.pages.length > 1
 						? ` · ${pageName || `p.${pageIndex + 1}`}`
@@ -145,7 +145,7 @@ export function Popover() {
 				</div>
 			)}
 			<div className="px-3 pt-1 pb-2 flex items-center gap-2">
-				<span className="text-[13px] font-bold flex-1 truncate">{elName}</span>
+				<span className="text-base font-bold flex-1 truncate">{elName}</span>
 				<button
 					type="button"
 					onClick={toggleDelete}
@@ -164,7 +164,7 @@ export function Popover() {
 			<div className="px-3 pb-3 flex flex-col gap-2">
 				{/* Existing note indicator */}
 				{existingNote && (
-					<div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-[11px] text-amber-700">
+					<div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-xs text-amber-700">
 						<svg
 							aria-hidden="true"
 							width="10"
@@ -197,13 +197,13 @@ export function Popover() {
 						}}
 						placeholder={t("note_placeholder")}
 						rows={2}
-						className="flex-1 px-2.5 py-1.5 bg-input rounded-lg text-[12px] outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
+						className="flex-1 px-2.5 py-1.5 bg-input rounded-lg text-sm outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
 					/>
 					{note && (
 						<button
 							type="button"
 							onClick={submitNote}
-							className="px-2.5 self-end py-1.5 bg-accent text-white text-[11px] font-semibold rounded-lg hover:brightness-110 transition"
+							className="px-2.5 self-end py-1.5 bg-accent text-white text-xs font-semibold rounded-lg hover:brightness-110 transition"
 						>
 							<svg
 								aria-hidden="true"
