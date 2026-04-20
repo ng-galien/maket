@@ -370,6 +370,108 @@ describe("maket_doc — action=meta", () => {
 	});
 });
 
+describe("maket_doc — action=lock", () => {
+	it("toggles meta.locked and persists", async () => {
+		const { store, bus, documents } = fixture();
+		store.saveDoc(makeDoc("doc"));
+		documents.loadAll();
+		const metaUpdated = vi.fn();
+		bus.on("meta:updated", metaUpdated);
+
+		const tool = createMaketDocTool({ bus, documents });
+		const lockRes = await tool.handler(
+			{ action: "lock", doc: "doc", locked: true },
+			NO_EXTRA,
+		);
+		expect(lockRes.isError).toBeUndefined();
+		expect(documents.resolve("doc")?.meta.locked).toBe(true);
+		expect(store.loadOne("doc")?.meta.locked).toBe(true);
+		expect(metaUpdated).toHaveBeenCalledWith({ docName: "doc" });
+
+		const unlockRes = await tool.handler(
+			{ action: "lock", doc: "doc", locked: false },
+			NO_EXTRA,
+		);
+		expect(unlockRes.isError).toBeUndefined();
+		expect(documents.resolve("doc")?.meta.locked).toBe(false);
+		store.close();
+	});
+
+	it("toggles when locked is omitted", async () => {
+		const { store, bus, documents } = fixture();
+		store.saveDoc(makeDoc("doc"));
+		documents.loadAll();
+		const tool = createMaketDocTool({ bus, documents });
+
+		await tool.handler({ action: "lock", doc: "doc" }, NO_EXTRA);
+		expect(documents.resolve("doc")?.meta.locked).toBe(true);
+		await tool.handler({ action: "lock", doc: "doc" }, NO_EXTRA);
+		expect(documents.resolve("doc")?.meta.locked).toBe(false);
+		store.close();
+	});
+
+	it("errors when the document is missing", async () => {
+		const { store, bus, documents } = fixture();
+		const tool = createMaketDocTool({ bus, documents });
+		const res = await tool.handler(
+			{ action: "lock", doc: "ghost", locked: true },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		store.close();
+	});
+
+	it("refuses delete/rename/meta on a locked doc", async () => {
+		const { store, bus, documents } = fixture();
+		const d = makeDoc("locked");
+		d.meta.locked = true;
+		store.saveDoc(d);
+		store.saveDoc(makeDoc("other"));
+		documents.loadAll();
+		const tool = createMaketDocTool({ bus, documents });
+
+		expect(
+			(await tool.handler({ action: "delete", doc: "locked" }, NO_EXTRA))
+				.isError,
+		).toBe(true);
+		expect(
+			(
+				await tool.handler(
+					{ action: "rename", doc: "locked", name: "x" },
+					NO_EXTRA,
+				)
+			).isError,
+		).toBe(true);
+		expect(
+			(
+				await tool.handler(
+					{ action: "meta", doc: "locked", designNotes: "ignored" },
+					NO_EXTRA,
+				)
+			).isError,
+		).toBe(true);
+		expect(documents.resolve("locked")?.meta.designNotes).toBeUndefined();
+		store.close();
+	});
+
+	it("clears locked on duplicate so the clone is editable", async () => {
+		const { store, bus, documents } = fixture();
+		const d = makeDoc("src");
+		d.meta.locked = true;
+		store.saveDoc(d);
+		documents.loadAll();
+		const tool = createMaketDocTool({ bus, documents });
+
+		const res = await tool.handler(
+			{ action: "duplicate", doc: "src", name: "copy" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		expect(documents.resolve("copy")?.meta.locked).toBe(false);
+		store.close();
+	});
+});
+
 describe("maket_doc — action=rename", () => {
 	it("renames a document in memory and store", async () => {
 		const { store, bus, documents } = fixture();

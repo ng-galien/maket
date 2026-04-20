@@ -99,6 +99,24 @@ export interface WsDeleteDocumentMessage {
 	name: string;
 }
 
+export interface WsRenameDocumentMessage {
+	type: "rename_document";
+	name: string;
+	newName: string;
+}
+
+export interface WsDuplicateDocumentMessage {
+	type: "duplicate_document";
+	name: string;
+	newName: string;
+}
+
+export interface WsLockDocumentMessage {
+	type: "lock_document";
+	name: string;
+	locked: boolean;
+}
+
 export interface WsUpdateCanvasMessage {
 	type: "update_canvas";
 	docName: string;
@@ -213,6 +231,9 @@ export type WsClientMessage =
 	| WsLoadDocumentMessage
 	| WsSaveDocumentMessage
 	| WsDeleteDocumentMessage
+	| WsRenameDocumentMessage
+	| WsDuplicateDocumentMessage
+	| WsLockDocumentMessage
 	| WsUpdateCanvasMessage
 	| WsUpdateMetaMessage
 	| WsDeleteAssetMessage

@@ -16,7 +16,7 @@ import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import { computeCanvasDims } from "../types.js";
-import { text } from "./_helpers.js";
+import { lockGuard, text } from "./_helpers.js";
 
 export interface CanvasDeps {
 	documents: Documents;
@@ -78,6 +78,8 @@ export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 			const args = MaketCanvasSchema.parse(rawArgs);
 			const d = documents.resolve(args.doc);
 			if (!d) return text(`Document "${args.doc}" not found`, true);
+			const locked = lockGuard(d);
+			if (locked) return locked;
 			const fmt = args.format || d.canvas.format;
 			const orient = args.orientation || d.canvas.orientation || "portrait";
 			const { w, h } = computeCanvasDims(fmt, orient);

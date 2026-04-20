@@ -15,7 +15,7 @@ import { join, resolve, sep } from "node:path";
 import type { WsClientMessage, WsStateMessage } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
-import { computeCanvasDims, type Document } from "../types.js";
+import { computeCanvasDims, createDocument, type Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
@@ -212,6 +212,84 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				if (documents.all().size <= 1) break;
 				documents.delete(name);
 				bus.emit("document:deleted", { docName: name });
+				break;
+			}
+
+			case "rename_document": {
+				const { name, newName } = msg;
+				if (!name || !newName || name === newName) break;
+				const d = documents.resolve(name);
+				if (!d) break;
+				if (documents.all().has(newName)) {
+					bus.emit("toast", {
+						text: `Name "${newName}" already exists`,
+						level: "error",
+					});
+					break;
+				}
+				// Rename path: the cache key moves, so we delete the old record from
+				// the store + cache, mutate d.name, and re-insert. A subsequent
+				// `document:loaded` broadcasts the new state; `remove_doc` for the
+				// old name clears it from every connected client.
+				documents.delete(name);
+				d.name = newName;
+				documents.all().set(newName, d);
+				documents.persist(newName);
+				wsRegistry.broadcast({ type: "remove_doc", name });
+				bus.emit("document:loaded", { docName: newName });
+				bus.emit("toast", {
+					text: `"${name}" → "${newName}"`,
+					level: "success",
+				});
+				break;
+			}
+
+			case "duplicate_document": {
+				const { name, newName } = msg;
+				if (!name || !newName) break;
+				const src = documents.resolve(name);
+				if (!src) break;
+				if (documents.all().has(newName)) {
+					bus.emit("toast", {
+						text: `Name "${newName}" already exists`,
+						level: "error",
+					});
+					break;
+				}
+				const cloneData = structuredClone({
+					name: newName,
+					category: src.category,
+					canvas: src.canvas,
+					meta: src.meta,
+					pages: src.pages,
+					activePage: src.activePage,
+					nextId: src.nextId,
+				});
+				if (cloneData.meta) cloneData.meta.locked = false;
+				const clone = createDocument(cloneData);
+				documents.all().set(clone.name, clone);
+				documents.persist(clone.name);
+				bus.emit("document:created", { docName: clone.name });
+				bus.emit("toast", {
+					text: `"${name}" cloned → "${clone.name}"`,
+					level: "success",
+				});
+				break;
+			}
+
+			case "lock_document": {
+				const { name, locked } = msg;
+				if (!name) break;
+				const d = documents.resolve(name);
+				if (!d) break;
+				if (!d.meta) d.meta = {};
+				d.meta.locked = locked === true;
+				documents.persist(d.name);
+				bus.emit("meta:updated", { docName: d.name });
+				bus.emit("toast", {
+					text: locked ? `"${d.name}" locked` : `"${d.name}" unlocked`,
+					level: "info",
+				});
 				break;
 			}
 

@@ -48,6 +48,8 @@ export interface DocMeta {
 	rating?: number;
 	charte?: string;
 	session?: string;
+	/** When true, MCP mutation tools refuse to edit the document. */
+	locked?: boolean;
 	// Email fields — present when category === "email"
 	emailTo?: string;
 	emailCc?: string;
@@ -126,6 +128,7 @@ export interface DocSummary {
 	rating: number;
 	count: number;
 	charte?: string;
+	locked?: boolean;
 }
 
 // ---- Charte graphique ----

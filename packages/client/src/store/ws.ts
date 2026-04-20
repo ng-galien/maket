@@ -406,3 +406,19 @@ export function sendLoadDoc(name: string): void {
 	pendingLoadDoc = name;
 	wsSend({ type: "load_document", name });
 }
+
+export function sendDeleteDoc(name: string): void {
+	wsSend({ type: "delete_document", name });
+}
+
+export function sendRenameDoc(name: string, newName: string): void {
+	wsSend({ type: "rename_document", name, newName });
+}
+
+export function sendDuplicateDoc(name: string, newName: string): void {
+	wsSend({ type: "duplicate_document", name, newName });
+}
+
+export function sendLockDoc(name: string, locked: boolean): void {
+	wsSend({ type: "lock_document", name, locked });
+}

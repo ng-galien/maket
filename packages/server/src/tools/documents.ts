@@ -15,7 +15,7 @@ import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import { computeCanvasDims, createDocument, type Page } from "../types.js";
-import { text } from "./_helpers.js";
+import { lockGuard, text } from "./_helpers.js";
 
 export interface DocumentsDeps {
 	documents: Documents;
@@ -31,6 +31,7 @@ const ActionSchema = z.enum([
 	"rename",
 	"meta",
 	"state",
+	"lock",
 ]);
 
 const FormatSchema = z.enum([
@@ -105,6 +106,12 @@ const MaketDocSchema = z.object({
 		.number()
 		.optional()
 		.describe("For meta: 0–5 star rating (clamped)."),
+	locked: z
+		.boolean()
+		.optional()
+		.describe(
+			"For lock: true to lock the document (refuses MCP edits), false to unlock. Omit to toggle.",
+		),
 });
 
 const DESCRIPTION = [
@@ -121,6 +128,7 @@ const DESCRIPTION = [
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
 	"  state     — summarise `doc`'s state: canvas, pages with element counts, charte, pending messages.",
+	"  lock      — lock or unlock `doc`. When locked, every mutating tool (maket_html, maket_page, maket_canvas, maket_charte set, maket_image, maket_mermaid) refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
 ].join("\n");
 
 function pageElementCount(page: Page): number {
@@ -158,6 +166,8 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 					return runMeta(args, documents, bus);
 				case "state":
 					return runState(args, documents);
+				case "lock":
+					return runLock(args, documents, bus);
 			}
 		},
 	};
@@ -255,8 +265,11 @@ function runList(documents: Documents) {
 function runDelete(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=delete", true);
 	const all = documents.all();
-	if (!all.has(args.doc)) return text(`Document "${args.doc}" not found`, true);
+	const d = all.get(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (all.size <= 1) return text("Cannot delete the only document", true);
+	const locked = lockGuard(d);
+	if (locked) return locked;
 	documents.delete(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
@@ -282,6 +295,7 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		activePage: sourceDoc.activePage,
 		nextId: sourceDoc.nextId,
 	});
+	if (cloneData.meta) cloneData.meta.locked = false;
 	const clone = createDocument(cloneData);
 	documents.all().set(clone.name, clone);
 	documents.persist(clone.name);
@@ -327,6 +341,8 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=meta", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	const locked = lockGuard(d);
+	if (locked) return locked;
 	if (!d.meta) d.meta = {};
 	if (args.designNotes != null) d.meta.designNotes = args.designNotes;
 	if (args.teamNotes != null) d.meta.teamNotes = args.teamNotes;
@@ -345,6 +361,8 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=rename", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	const locked = lockGuard(d);
+	if (locked) return locked;
 	if (documents.all().has(args.name))
 		return text(`Document "${args.name}" already exists`, true);
 	const oldName = d.name;
@@ -358,6 +376,28 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 		level: "success",
 	});
 	return text(`Renamed "${oldName}" → "${args.name}"`);
+}
+
+function runLock(args: Args, documents: Documents, bus: Bus) {
+	if (!args.doc) return text("doc is required for action=lock", true);
+	const d = documents.resolve(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (!d.meta) d.meta = {};
+	const next = args.locked ?? !(d.meta.locked === true);
+	d.meta.locked = next;
+	documents.persist(d.name);
+	bus.emit("meta:updated", { docName: d.name });
+	bus.emit("toast", {
+		text: next
+			? `Document "${d.name}" locked`
+			: `Document "${d.name}" unlocked`,
+		level: "info",
+	});
+	return text(
+		next
+			? `🔒 Locked "${d.name}" — MCP tools will refuse to edit it until unlocked.`
+			: `🔓 Unlocked "${d.name}".`,
+	);
 }
 
 export const documentsPack: ToolPack = {

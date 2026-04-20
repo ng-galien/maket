@@ -13,7 +13,7 @@ import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
-import { text } from "./_helpers.js";
+import { lockGuard, text } from "./_helpers.js";
 
 export interface MermaidDeps {
 	documents: Documents;
@@ -125,6 +125,8 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 
 			const doc = documents.resolve(args.doc);
 			if (!doc) return text(`Document "${args.doc}" not found`, true);
+			const locked = lockGuard(doc);
+			if (locked) return locked;
 
 			const pageIdx = args.page - 1;
 			const page = doc.pages[pageIdx];

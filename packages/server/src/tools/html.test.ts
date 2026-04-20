@@ -285,3 +285,75 @@ describe("maket_html — action=check", () => {
 		store.close();
 	});
 });
+
+describe("maket_html — lock guard", () => {
+	it("refuses set on a locked document", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const d = makeDoc("d");
+		d.meta.locked = true;
+		store.saveDoc(d);
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a">x</div>`,
+			},
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		// biome-ignore lint/suspicious/noExplicitAny: content shape
+		expect((res.content[0] as any).text).toMatch(/locked/i);
+		expect(documents.resolve("d")?.pages[0]?.html).toBeFalsy();
+		expect(layout.measure).not.toHaveBeenCalled();
+		store.close();
+	});
+
+	it("refuses patch on a locked document", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const d = makeDoc("d", `<div data-id="a">x</div>`);
+		d.meta.locked = true;
+		store.saveDoc(d);
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "a", content: "y" }],
+			},
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect(documents.resolve("d")?.pages[0]?.html).toBe(
+			`<div data-id="a">x</div>`,
+		);
+		store.close();
+	});
+
+	it("still allows read-only actions (get, check) on a locked document", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const d = makeDoc("d", `<div data-id="a">x</div>`);
+		d.meta.locked = true;
+		store.saveDoc(d);
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const getRes = await tool.handler(
+			{ action: "get", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		expect(getRes.isError).toBeUndefined();
+		const checkRes = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		expect(checkRes.isError).toBeUndefined();
+		store.close();
+	});
+});

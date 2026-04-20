@@ -24,7 +24,7 @@ import type { Documents } from "../services/documents.js";
 import type { LayoutService } from "../services/layout.js";
 import type { Store } from "../services/store.js";
 import type { Charte, Document, Page } from "../types.js";
-import { text } from "./_helpers.js";
+import { lockGuard, text } from "./_helpers.js";
 
 export interface HtmlDeps {
 	documents: Documents;
@@ -330,7 +330,9 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 			const { doc, page, pageIdx } = resolved;
 
 			switch (args.action) {
-				case "set":
+				case "set": {
+					const locked = lockGuard(doc);
+					if (locked) return locked;
 					return runSet(
 						args,
 						doc,
@@ -341,8 +343,12 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 						layout,
 						assets,
 					);
-				case "patch":
+				}
+				case "patch": {
+					const locked = lockGuard(doc);
+					if (locked) return locked;
 					return runPatch(args, doc, page, pageIdx, documents, store, layout);
+				}
 				case "get":
 					return runGet(args, page);
 				case "check":

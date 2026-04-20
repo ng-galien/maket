@@ -29,7 +29,6 @@ describe("zoomBridge", () => {
 	});
 
 	it("ignores zoomTo when no handler has been registered yet", () => {
-		// @ts-expect-error reset by re-registering to an undefined path
 		registerZoomTo(null as unknown as (pct: number) => void);
 		// If we had simply not registered, the bridge would still be holding
 		// the beforeEach stub. Set it back to null by calling with null and

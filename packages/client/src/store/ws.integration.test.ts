@@ -1,4 +1,8 @@
-import type { WsClientMessage, WsServerMessage } from "@maket/shared";
+import type {
+	WsCheckLayoutResponse,
+	WsClientMessage,
+	WsServerMessage,
+} from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -170,6 +174,7 @@ describe("state message", () => {
 			type: "state",
 			doc: doc("alpha"),
 			docList: [summary("alpha")],
+			charteCss: "",
 		});
 
 		const s = useStore.getState();
@@ -189,6 +194,7 @@ describe("state message", () => {
 			type: "state",
 			doc: doc("alpha"),
 			docList: [summary("alpha"), summary("beta"), summary("gamma")],
+			charteCss: "",
 		});
 
 		const loads = MockWebSocket.last()
@@ -208,6 +214,7 @@ describe("state message", () => {
 			type: "state",
 			doc: doc("alpha"),
 			docList: [summary("alpha")],
+			charteCss: "",
 		});
 		// Second state — don't add to workspace, don't steal focus.
 		MockWebSocket.last().emit({
@@ -216,6 +223,7 @@ describe("state message", () => {
 			docList: [summary("alpha"), summary("beta")],
 			addToWorkspace: false,
 			focus: false,
+			charteCss: "",
 		});
 		const s = useStore.getState();
 		expect(s.docs.has("beta")).toBe(true);
@@ -231,6 +239,7 @@ describe("state message", () => {
 			type: "state",
 			doc: null,
 			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
 		});
 		const s = useStore.getState();
 		expect(s.docList).toHaveLength(2);
@@ -349,12 +358,11 @@ describe("check_layout_request", () => {
 		MockWebSocket.last().emit({
 			type: "check_layout_request",
 			_reqId: "r-42",
+			docName: "alpha",
+			pageIdx: 0,
 		});
 
-		const payload = MockWebSocket.last().lastSent<{
-			type: string;
-			_reqId?: string;
-		}>();
+		const payload = MockWebSocket.last().lastSent<WsCheckLayoutResponse>();
 		expect(payload.type).toBe("check_layout_response");
 		expect(payload._reqId).toBe("r-42");
 

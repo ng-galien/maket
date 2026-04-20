@@ -7,6 +7,7 @@
  */
 
 import type { ToolResult } from "../core/container.js";
+import type { Document } from "../types.js";
 
 export interface TextOpts {
 	/** Tag the result as an error (MCP `isError: true`). */
@@ -36,4 +37,17 @@ export function text(t: string, opts?: boolean | TextOpts): ToolResult {
 		: t;
 	const base: ToolResult = { content: [{ type: "text", text: body }] };
 	return isError ? { ...base, isError: true } : base;
+}
+
+/**
+ * If the document is locked, return an MCP error result explaining how to
+ * unlock it; otherwise return null. Mutation tools call this right after
+ * resolving the doc and short-circuit on a non-null return value.
+ */
+export function lockGuard(d: Document): ToolResult | null {
+	if (d.meta?.locked !== true) return null;
+	return text(
+		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_doc action=lock doc=${d.name} locked=false`,
+		true,
+	);
 }

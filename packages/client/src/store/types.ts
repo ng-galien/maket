@@ -42,4 +42,5 @@ export interface DocSummary {
 	pageCount: number;
 	elementCount: number;
 	rating?: number;
+	locked?: boolean;
 }

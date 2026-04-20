@@ -93,6 +93,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 					0,
 				),
 				charte: d.meta?.charte,
+				locked: d.meta?.locked === true,
 			}));
 		},
 		all() {

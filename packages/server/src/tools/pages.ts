@@ -15,7 +15,7 @@ import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import type { Document, Page } from "../types.js";
-import { text } from "./_helpers.js";
+import { lockGuard, text } from "./_helpers.js";
 import { normalizeImageSrc } from "./html.js";
 
 export interface PagesDeps {
@@ -89,6 +89,10 @@ export function createMaketPageTool(deps: PagesDeps): ToolHandler {
 			const args = MaketPageSchema.parse(rawArgs);
 			const d = documents.resolve(args.doc);
 			if (!d) return text(`Document "${args.doc}" not found`, true);
+			if (args.action !== "list") {
+				const locked = lockGuard(d);
+				if (locked) return locked;
+			}
 			switch (args.action) {
 				case "add":
 					return runAdd(args, d, documents, bus);
