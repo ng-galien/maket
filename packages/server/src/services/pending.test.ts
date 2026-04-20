@@ -59,6 +59,24 @@ describe("pending — syncFromClient", () => {
 	});
 });
 
+describe("pending — all", () => {
+	it("returns workspace messages first, then every doc's bucket flattened", () => {
+		const { pending } = fixture();
+		pending.syncFromClient([
+			msg({ id: "a1", docName: "doc-a" }),
+			msg({ id: "w1" }),
+			msg({ id: "b1", docName: "doc-b" }),
+		]);
+		const ids = pending.all().map((m) => m.id);
+		expect(ids.sort()).toEqual(["a1", "b1", "w1"]);
+	});
+
+	it("returns an empty array when nothing is queued", () => {
+		const { pending } = fixture();
+		expect(pending.all()).toEqual([]);
+	});
+});
+
 describe("pending — ack", () => {
 	it("removes matching ids from either bucket and returns unknowns", () => {
 		const { bus, pending } = fixture();

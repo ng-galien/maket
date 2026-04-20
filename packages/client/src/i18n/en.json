@@ -71,6 +71,8 @@
 	"pending_delete": "To delete",
 	"pending_insert_image": "Insert {file}",
 	"pending_insert_text": "Insert text",
+	"pending_send_note": "Send note",
+	"scope_workspace": "Workspace",
 
 	"fonts": "Fonts",
 	"personality": "Personality",

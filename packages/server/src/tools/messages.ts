@@ -2,28 +2,22 @@
  * messages pack — maket_message (compound).
  *
  * User-originated notes and flags captured in the browser, bucketed by the
- * `pending` service. Two scopes:
- *   - doc-scoped: call `list doc=<name>` — element flags, drops, review notes
- *     attached to a specific document.
- *   - workspace-scoped: call `list` with no `doc` — library-wide nudges such
- *     as "classify these newly-imported images".
+ * `pending` service. `list` returns the full queue across both buckets in
+ * one call — each message carries its own `docName` (or none for workspace
+ * scope), so the agent can filter client-side without round-trips. `ack`
+ * walks both buckets and drops the given ids.
  *
- * Ack is the same in both cases: `ack ids=[…]` walks both buckets and
- * returns how many matched.
- *
- * Deps: `pending` (queue + ack), `documents` (doc existence check).
+ * Deps: `pending` (queue + ack).
  */
 
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import type { Documents } from "../services/documents.js";
 import type { Pending } from "../services/pending.js";
 import { text } from "./_helpers.js";
 
 export interface MessagesDeps {
-	documents: Documents;
 	pending: Pending;
 }
 
@@ -33,12 +27,6 @@ const MaketMessageSchema = z.object({
 	action: ActionSchema.describe(
 		"Operation to run. See the tool description for the action table.",
 	),
-	doc: z
-		.string()
-		.optional()
-		.describe(
-			"For list: document name to scope to. Omit to read workspace-level messages (upload alerts, library nudges). Ignored by ack — ids are globally unique.",
-		),
 	ids: z
 		.array(z.string())
 		.optional()
@@ -46,14 +34,14 @@ const MaketMessageSchema = z.object({
 });
 
 const DESCRIPTION = [
-	"When to use: read and clear pending user messages. Two scopes — pass `doc=<name>` for a document's notes (element flags, drops, review comments) or omit `doc` for workspace-level alerts (new image imports, library-wide nudges). Ack by id once you've acted on the flagged intent.",
+	"When to use: read and clear pending user messages. Each message carries its own `docName` (or none for workspace scope) so a single `list` call returns everything — element flags, drops, review notes, and library-wide alerts (new image imports, classify nudges). Ack by id once you've acted on the flagged intent.",
 	"",
-	"  list — with doc: return that document's pending messages. Without doc: return workspace messages.",
+	"  list — return every pending message across all docs and the workspace bucket as JSON.",
 	"  ack  — drop the given ids from whichever bucket they live in.",
 ].join("\n");
 
 export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
-	const { documents, pending } = deps;
+	const { pending } = deps;
 	return {
 		metadata: {
 			name: "maket_message",
@@ -64,15 +52,8 @@ export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
 			const args = MaketMessageSchema.parse(rawArgs);
 
 			if (args.action === "list") {
-				if (args.doc) {
-					const doc = documents.resolve(args.doc);
-					if (!doc) return text(`Document "${args.doc}" not found`, true);
-					const list = pending.forDoc(doc.name);
-					if (list.length === 0) return text("No pending messages");
-					return text(JSON.stringify(list, null, 2));
-				}
-				const list = pending.forWorkspace();
-				if (list.length === 0) return text("No pending workspace messages");
+				const list = pending.all();
+				if (list.length === 0) return text("No pending messages");
 				return text(JSON.stringify(list, null, 2));
 			}
 
@@ -81,7 +62,7 @@ export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
 			const { matched, unknown } = pending.ack(args.ids);
 			if (matched.length === 0) {
 				return text(
-					`No matches: ${args.ids.length} id(s) did not correspond to any pending message. Use maket_message list (optionally with doc=…) to see current ids.`,
+					`No matches: ${args.ids.length} id(s) did not correspond to any pending message. Use maket_message list to see current ids.`,
 					true,
 				);
 			}
@@ -99,7 +80,7 @@ export function createMaketMessageTool(deps: MessagesDeps): ToolHandler {
 export const messagesPack: ToolPack = {
 	id: "messages",
 	name: "Messages",
-	requires: ["documents", "pending"],
+	requires: ["pending"],
 	declaresTools: ["maket_message"],
 	register(container) {
 		container.register({

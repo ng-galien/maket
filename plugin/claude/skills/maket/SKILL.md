@@ -136,8 +136,8 @@ Chartes may also define project-specific tokens like `var(--charte-color-ocean)`
 
 ### Messaging
 
-- `maket_message list(doc)` — Read user annotations left on elements in the preview
-- `maket_message ack(doc, ids)` — Acknowledge processed messages (clears badges)
+- `maket_message list` — Read every user annotation across all docs and workspace alerts in one call (each message carries its own `docName`)
+- `maket_message ack(ids)` — Acknowledge processed messages (clears badges)
 
 Users annotate elements directly in the preview. Check `maket_message list` regularly and process their feedback.
 
@@ -311,7 +311,7 @@ Every element gets a semantic `data-id` (`titre`, `filet`, `card`, `footer`).
 
 ```
 maket_html patch(doc, page, ops) → refine styles, content, add/remove elements
-maket_message list(doc) → process user annotations → maket_message ack(doc, ids)
+maket_message list → process user annotations → maket_message ack(ids)
 maket_preview snapshot(doc, page) → visual check → maket_html patch again
 ```
 

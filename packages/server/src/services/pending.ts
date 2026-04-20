@@ -33,6 +33,12 @@ export interface Pending {
 	/** Pending messages not attached to any document (library-wide). */
 	forWorkspace(): PendingMessage[];
 	/**
+	 * Every pending message across both buckets, in a single flat list.
+	 * Each message carries its own `docName` (or none for workspace scope),
+	 * so the agent can filter client-side without round-trips.
+	 */
+	all(): PendingMessage[];
+	/**
 	 * Remove messages from either bucket by id. Returns which ids matched and
 	 * which were unknown. Emits `messages:acked` with the matched ids when
 	 * anything was removed, so other WS clients can drop them locally.
@@ -72,6 +78,11 @@ export function createPending({ bus }: PendingDeps): Pending {
 		},
 		forWorkspace() {
 			return workspace;
+		},
+		all() {
+			const out: PendingMessage[] = [...workspace];
+			for (const list of byDoc.values()) out.push(...list);
+			return out;
 		},
 		ack(ids) {
 			if (ids.length === 0) return { matched: [], unknown: [] };

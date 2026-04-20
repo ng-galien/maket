@@ -37,7 +37,35 @@ describe("MessagesPanel", () => {
 		expect(screen.getByText("fix me")).toBeInTheDocument();
 		expect(screen.getByText(/à supprimer/i)).toBeInTheDocument();
 		expect(screen.getByText(/hero\.jpg/)).toBeInTheDocument();
-		expect(screen.getByText(/📝/)).toBeInTheDocument();
+		expect(screen.getByText(/insérer texte/i)).toBeInTheDocument();
+	});
+
+	it("shows scope chips (doc + page + element) on messages", () => {
+		useStore.setState({
+			pending: [
+				{
+					id: "m1",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "a",
+					text: "fix me",
+					ts: 0,
+				},
+				{
+					id: "m2",
+					type: "classify-images",
+					text: "3 new images",
+					ts: 0,
+				},
+			],
+		});
+		render(<MessagesPanel />);
+		// "alpha" shows both on the m1 scope chip and on the input-area scope
+		expect(screen.getAllByText("alpha").length).toBeGreaterThan(0);
+		expect(screen.getByText(/p1/i)).toBeInTheDocument();
+		// workspace-scoped message has a workspace chip
+		expect(screen.getAllByText(/workspace/i).length).toBeGreaterThan(0);
 	});
 
 	it("removes a pending entry when its X button is clicked", async () => {

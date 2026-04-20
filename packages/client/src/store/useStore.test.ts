@@ -150,6 +150,20 @@ describe("pending messages", () => {
 		expect(useStore.getState().pending[0].docName).toBe("other");
 	});
 
+	it("addPending honors an explicit `docName: undefined` as workspace scope", () => {
+		// PhotosTab uploads create classify-images alerts that should land in
+		// the workspace bucket regardless of which doc is focused.
+		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+		useStore.getState().addPending({
+			id: "m1",
+			type: "classify-images",
+			docName: undefined,
+			text: "3 new images",
+			ts: 0,
+		});
+		expect(useStore.getState().pending[0].docName).toBeUndefined();
+	});
+
 	it("removePending drops by id and leaves the rest", () => {
 		useStore.setState({
 			pending: [

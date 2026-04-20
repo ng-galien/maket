@@ -386,7 +386,7 @@ function runState(args: Args, documents: Documents, pending: Pending) {
 		`Pages (${d.pages.length}):`,
 		...pageLines,
 		pendingCount > 0
-			? `📌 ${pendingCount} pending message(s) — use maket_message list doc=${d.name}`
+			? `📌 ${pendingCount} pending message(s) — use maket_message list`
 			: "",
 	].filter(Boolean);
 	return text(lines.join("\n"));

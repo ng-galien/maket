@@ -250,12 +250,15 @@ export const useStore = create<AppState>((set, get) => ({
 	setLocked: (locked) => set({ locked }),
 	setZoom: (zoom) => set({ zoom }),
 	addPending: (msg) => {
-		set((s) => ({
-			pending: [
-				...s.pending,
-				{ ...msg, docName: msg.docName ?? s.focusedDocName ?? undefined },
-			],
-		}));
+		set((s) => {
+			// Only inject focusedDocName when the caller did NOT specify the
+			// docName key. An explicit `docName: undefined` means the caller
+			// wants a workspace-scoped message (e.g. classify-images alerts
+			// that should appear in the workspace bucket regardless of focus).
+			const docName =
+				"docName" in msg ? msg.docName : (s.focusedDocName ?? undefined);
+			return { pending: [...s.pending, { ...msg, docName }] };
+		});
 		syncPending();
 	},
 	removePending: (id) => {

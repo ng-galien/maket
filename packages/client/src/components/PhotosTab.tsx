@@ -124,11 +124,14 @@ export function PhotosTab() {
 				.map((f) => f.name)
 				.filter((n) => !state.errors.includes(n));
 			if (uploaded.length > 0) {
-				// Workspace-scoped message — no docName. Server routes it to a
-				// workspace bucket so maket_message list (no doc) picks it up.
+				// Workspace-scoped message — explicit `docName: undefined`
+				// opts out of the focused-doc injection in addPending so the
+				// server lands it in the workspace bucket and `maket_message
+				// list` (no doc) picks it up.
 				useStore.getState().addPending({
 					id: crypto.randomUUID(),
 					type: "classify-images",
+					docName: undefined,
 					text: t("pending_classify_images", {
 						files: uploaded.join(", "),
 						count: String(uploaded.length),

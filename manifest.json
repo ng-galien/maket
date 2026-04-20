@@ -38,7 +38,7 @@
     },
     {
       "name": "maket_message",
-      "description": "Read and acknowledge pending user messages. Scope doc-specific (pass doc=<name>) or workspace-level (omit doc). Actions: list, ack."
+      "description": "Read and acknowledge pending user messages. `list` returns the full queue across all docs and the workspace bucket — each message carries its own docName. Actions: list, ack."
     },
     {
       "name": "maket_charte",
