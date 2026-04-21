@@ -92,15 +92,21 @@ const MaketGmailSchema = z.object({
 		.describe(
 			"For draft: PDF quality preset for attachments. Default screen (smaller).",
 		),
+	with_read: z
+		.boolean()
+		.optional()
+		.describe(
+			"For connect: also request read access (inbox search + message read). Default false — Maket only creates drafts.",
+		),
 });
 
 const DESCRIPTION = [
 	"When to use: connect Gmail, search/read mail, or create a draft from a Maket document. All actions except connect require an active OAuth session — call connect first.",
 	"",
-	"  connect — restore the refresh token if present, otherwise open the browser for OAuth consent.",
-	"  search  — list subject/from/date for messages matching a Gmail query. Capped at 50.",
-	"  read    — fetch one message by id: headers, body (3000-char truncated), attachments listing.",
-	"  draft   — compose a Gmail draft from a document page. Charte tokens resolve to literals, assets inline as base64, listed docs attach as PDFs. The draft is opened in Gmail for review — we never send automatically.",
+	"  connect — restore the refresh token if present, otherwise open the browser for OAuth consent. Pass with_read=true to also request inbox access (drafts are always granted).",
+	"  search  — list subject/from/date for messages matching a Gmail query. Capped at 50. Requires with_read=true at connect time.",
+	"  read    — fetch one message by id: headers, body (3000-char truncated), attachments listing. Requires with_read=true at connect time.",
+	"  draft   — compose a Gmail draft from a document page. Charte tokens resolve to literals, assets inline as base64, listed docs attach as PDFs. Maket never sends — the user reviews and sends from Gmail.",
 ].join("\n");
 
 export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
@@ -114,7 +120,7 @@ export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
 			const args = MaketGmailSchema.parse(rawArgs);
 			switch (args.action) {
 				case "connect":
-					return runConnect(deps);
+					return runConnect(args, deps);
 				case "search":
 					return runSearch(args, deps);
 				case "read":
@@ -128,17 +134,26 @@ export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketGmailSchema>;
 
-async function runConnect(deps: GmailDeps): Promise<ToolResult> {
+async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient, config } = deps;
+	const withRead = args.with_read === true;
 	try {
 		const restored = await gmailClient.tryRestore();
 		if (restored) {
+			const grants = gmailClient.grants();
 			const gmail = await gmailClient.getGmail();
 			const profile = await gmail.users.getProfile({ userId: "me" });
-			return text(`Gmail already connected: ${profile.data.emailAddress}`);
+			// If the caller asked for read but the existing grant doesn't cover it,
+			// fall through to a fresh OAuth round so the user can consent to it.
+			if (!withRead || grants.read) {
+				const features = grants.read ? "draft + read" : "draft only";
+				return text(
+					`Gmail already connected: ${profile.data.emailAddress} (${features})`,
+				);
+			}
 		}
 		const redirectUri = `http://localhost:${config.PORT}/auth/google/callback`;
-		const authUrl = await gmailClient.getAuthUrl(redirectUri);
+		const authUrl = await gmailClient.getAuthUrl(redirectUri, { withRead });
 
 		const { execFile } = await import("node:child_process");
 		const { platform } = await import("node:os");
@@ -151,13 +166,26 @@ async function runConnect(deps: GmailDeps): Promise<ToolResult> {
 		execFile(cmd, [authUrl]);
 
 		await gmailClient.startAuth();
+		const grants = gmailClient.grants();
 		const gmail = await gmailClient.getGmail();
 		const profile = await gmail.users.getProfile({ userId: "me" });
-		return text(`Gmail connected: ${profile.data.emailAddress}`);
+		const features = grants.read ? "draft + read" : "draft only";
+		return text(`Gmail connected: ${profile.data.emailAddress} (${features})`);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
 		return text(`Gmail connection failed: ${message}`, true);
 	}
+}
+
+function requireRead(deps: GmailDeps): ToolResult | null {
+	if (deps.gmailClient.grants().read) return null;
+	return text(
+		"Gmail is connected in draft-only mode — reading is not authorized. Ask the user whether to enable inbox reading; if yes, call maket_gmail action=connect with_read=true.",
+		{
+			isError: true,
+			next: ["maket_gmail action=connect with_read=true"],
+		},
+	);
 }
 
 async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
@@ -165,6 +193,8 @@ async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	if (!args.query) return text("query is required for action=search", true);
 	if (!gmailClient.isConnected())
 		return text("Gmail not connected — call maket_gmail connect first", true);
+	const readGate = requireRead(deps);
+	if (readGate) return readGate;
 	const maxResults = Math.min(args.maxResults || 10, 50);
 	const gmail = await gmailClient.getGmail();
 	const listRes = await gmail.users.messages.list({
@@ -255,6 +285,8 @@ async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	if (!args.id) return text("id is required for action=read", true);
 	if (!gmailClient.isConnected())
 		return text("Gmail not connected — call maket_gmail connect first", true);
+	const readGate = requireRead(deps);
+	if (readGate) return readGate;
 	const gmail = await gmailClient.getGmail();
 	const detail = await gmail.users.messages.get({
 		userId: "me",
@@ -472,12 +504,32 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		requestBody: { message: { raw } },
 	});
 	const draftId = draft.data.id || "";
+	// Gmail's draft deep link uses the underlying message id, not the draft id.
+	// Falling back to the Drafts folder if the message id is missing keeps the
+	// link useful even when the API response shape drifts.
+	const messageId = draft.data.message?.id || "";
+	const draftUrl = messageId
+		? `https://mail.google.com/mail/u/0/#drafts/${messageId}`
+		: "https://mail.google.com/mail/u/0/#drafts";
 
 	if (doc.meta) {
 		doc.meta.emailDraftId = draftId;
+		doc.meta.emailDraftUrl = draftUrl;
+		doc.meta.emailDraftRole = "body";
 		doc.meta.emailTo = to;
 		doc.meta.emailSubject = subject;
 		documents.persist(doc.name);
+	}
+
+	// Mirror the draft URL onto each attached doc so it surfaces alongside every
+	// artefact that ended up in the email, not just the body.
+	for (const name of attachmentNames) {
+		const attDoc = documents.resolveOrLoad(name);
+		if (!attDoc?.meta) continue;
+		attDoc.meta.emailDraftId = draftId;
+		attDoc.meta.emailDraftUrl = draftUrl;
+		attDoc.meta.emailDraftRole = "attachment";
+		documents.persist(attDoc.name);
 	}
 
 	const attInfo =
@@ -485,7 +537,7 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 			? ` with ${pdfAttachments.length} PDF attachment(s)`
 			: "";
 	return text(
-		`Draft created${attInfo}: ${draftId}\nTo: ${to}\nSubject: ${subject}\n\nOpen Gmail to review and send.`,
+		`Draft created${attInfo}: ${draftId}\nTo: ${to}\nSubject: ${subject}\n\nReview & send in Gmail: ${draftUrl}`,
 	);
 }
 

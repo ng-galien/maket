@@ -27,7 +27,12 @@ type GmailApiMock = {
 };
 
 function fakeGmailClient(
-	opts: { connected?: boolean; api?: GmailApiMock } = {},
+	opts: {
+		connected?: boolean;
+		api?: GmailApiMock;
+		/** When omitted, defaults to whatever `connected` is. */
+		read?: boolean;
+	} = {},
 ): GmailClient & { api: GmailApiMock } {
 	const api: GmailApiMock = opts.api ?? {
 		users: {
@@ -50,11 +55,17 @@ function fakeGmailClient(
 		getAuthUrl: vi.fn(async () => "https://auth.example/u"),
 		startAuth: vi.fn(async () => undefined),
 		handleCallback: vi.fn(async () => "me@example.com"),
+		grants: vi.fn(() => ({
+			draft: opts.connected ?? false,
+			read: opts.read ?? opts.connected ?? false,
+		})),
 		api,
 	} as GmailClient & { api: GmailApiMock };
 }
 
-function fixture(gmailOpts: { connected?: boolean; api?: GmailApiMock } = {}) {
+function fixture(
+	gmailOpts: { connected?: boolean; api?: GmailApiMock; read?: boolean } = {},
+) {
 	const tmp = mkdtempSync(join(tmpdir(), "maket-gmail-"));
 	const store = createSQLiteStore(":memory:");
 	const documents = createDocuments({ store });
@@ -193,6 +204,32 @@ describe("maket_gmail — action=search", () => {
 	});
 });
 
+describe("maket_gmail — read scope gating", () => {
+	it("search returns next: connect with_read=true when read is not granted", async () => {
+		const { cleanup, ...deps } = fixture({ connected: true, read: false });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "search", query: "is:unread" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		const txt = (res.content[0] as any).text as string;
+		expect(txt).toMatch(/draft-only mode/);
+		expect(txt).toMatch(/maket_gmail action=connect with_read=true/);
+		cleanup();
+	});
+
+	it("read returns next: connect with_read=true when read is not granted", async () => {
+		const { cleanup, ...deps } = fixture({ connected: true, read: false });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler({ action: "read", id: "MID" }, NO_EXTRA);
+		expect(res.isError).toBe(true);
+		const txt = (res.content[0] as any).text as string;
+		expect(txt).toMatch(/maket_gmail action=connect with_read=true/);
+		cleanup();
+	});
+});
+
 describe("maket_gmail — action=read", () => {
 	it("errors when not connected", async () => {
 		const { cleanup, ...deps } = fixture({ connected: false });
@@ -319,6 +356,104 @@ describe("maket_gmail — action=draft", () => {
 		expect((res.content[0] as any).text).toMatch(/DRAFT_123/);
 		expect(gmailClient.api.users.drafts.create).toHaveBeenCalled();
 		expect(documents.resolve("mail")?.meta.emailDraftId).toBe("DRAFT_123");
+		cleanup();
+	});
+
+	it("persists a reviewable Gmail URL and role=body on the email doc", async () => {
+		const api: GmailApiMock = {
+			users: {
+				getProfile: vi.fn(async () => ({
+					data: { emailAddress: "me@example.com" },
+				})),
+				messages: {
+					list: vi.fn(),
+					get: vi.fn(),
+				},
+				drafts: {
+					create: vi.fn(async () => ({
+						data: { id: "DRAFT_9", message: { id: "MSG_X" } },
+					})),
+				},
+			},
+		};
+		const { store, documents, gmailClient, cleanup, ...deps } = fixture({
+			connected: true,
+			api,
+		});
+		store.saveDoc(makeEmailDoc("mail"));
+		documents.loadAll();
+		const tool = createMaketGmailTool({
+			store,
+			documents,
+			gmailClient,
+			...deps,
+		});
+		const res = await tool.handler(
+			{ action: "draft", doc: "mail", page: 1 },
+			NO_EXTRA,
+		);
+		const txt = (res.content[0] as any).text as string;
+		expect(txt).toMatch(/mail\.google\.com\/mail\/u\/0\/#drafts\/MSG_X/);
+		const meta = documents.resolve("mail")?.meta;
+		expect(meta?.emailDraftUrl).toBe(
+			"https://mail.google.com/mail/u/0/#drafts/MSG_X",
+		);
+		expect(meta?.emailDraftRole).toBe("body");
+		cleanup();
+	});
+
+	it("mirrors the draft URL onto attached docs with role=attachment", async () => {
+		const api: GmailApiMock = {
+			users: {
+				getProfile: vi.fn(async () => ({
+					data: { emailAddress: "me@example.com" },
+				})),
+				messages: { list: vi.fn(), get: vi.fn() },
+				drafts: {
+					create: vi.fn(async () => ({
+						data: { id: "DRAFT_42", message: { id: "MSG_42" } },
+					})),
+				},
+			},
+		};
+		const { store, documents, gmailClient, pdfService, cleanup, ...deps } =
+			fixture({ connected: true, api });
+		store.saveDoc(makeEmailDoc("mail"));
+		store.saveDoc(
+			createDocument({
+				name: "brochure",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: [{ name: "P1", elements: [], html: `<p>att</p>` }],
+			}),
+		);
+		documents.loadAll();
+		const tool = createMaketGmailTool({
+			store,
+			documents,
+			gmailClient,
+			pdfService,
+			...deps,
+		});
+		await tool.handler(
+			{
+				action: "draft",
+				doc: "mail",
+				page: 1,
+				attachments: ["brochure"],
+			},
+			NO_EXTRA,
+		);
+		const brochureMeta = documents.resolve("brochure")?.meta;
+		expect(brochureMeta?.emailDraftUrl).toBe(
+			"https://mail.google.com/mail/u/0/#drafts/MSG_42",
+		);
+		expect(brochureMeta?.emailDraftRole).toBe("attachment");
 		cleanup();
 	});
 

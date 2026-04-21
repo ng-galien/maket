@@ -32,6 +32,8 @@ export interface DocMeta {
 	emailSubject?: string;
 	emailAttachments?: string[]; // doc IDs to attach as PDFs
 	emailDraftId?: string; // Gmail draft ID after gmail_draft
+	emailDraftUrl?: string; // Deep link to review & send the draft in Gmail
+	emailDraftRole?: "body" | "attachment"; // How this doc was included in the last draft
 }
 
 export interface Page {
