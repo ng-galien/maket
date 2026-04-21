@@ -1,37 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light only" />
-  <title>Maket · A visual design tool for your AI assistant</title>
-  <meta name="description" content="Maket turns your AI assistant into a visual designer — compose HTML/CSS documents with brand chartes, an image library, and a live preview. Export to PDF or share as a .maket bundle." />
+  <title>Maket · Un outil de design visuel pour votre IA</title>
+  <meta name="description" content="Maket transforme votre assistant IA en designer visuel — composez des documents HTML/CSS avec votre charte de marque, une bibliothèque d'images et un aperçu en direct. Exportez en PDF ou partagez via un bundle .maket." />
 
   <!-- Social -->
-  <meta property="og:title" content="Maket — A visual design tool for your AI assistant" />
-  <meta property="og:description" content="Your brand, your images, your agents. One document model." />
+  <meta property="og:title" content="Maket — Un outil de design visuel pour votre IA" />
+  <meta property="og:description" content="Votre marque, vos images, vos agents. Un seul modèle de document." />
   <meta property="og:image" content="https://ng-galien.github.io/maket/demo.gif" />
   <meta property="og:type" content="website" />
-  <meta property="og:locale" content="en_US" />
-  <meta property="og:locale:alternate" content="fr_FR" />
+  <meta property="og:locale" content="fr_FR" />
+  <meta property="og:locale:alternate" content="en_US" />
   <link rel="alternate" hreflang="en" href="https://ng-galien.github.io/maket/" />
   <link rel="alternate" hreflang="fr" href="https://ng-galien.github.io/maket/fr/" />
   <link rel="alternate" hreflang="x-default" href="https://ng-galien.github.io/maket/" />
 
-  <!-- One-shot redirect for FR browsers (opt-out via localStorage). Runs before
-       any paint to avoid a flash. Honors ?lang=en query for explicit overrides. -->
+  <!-- Pin language preference when arrived via ?lang=fr; no auto-redirect here
+       (we're already on the FR variant). -->
   <script>
     (function () {
       try {
         var qs = new URLSearchParams(location.search);
         var override = qs.get('lang');
         if (override) { localStorage.setItem('maket-lang', override); }
-        var pinned = localStorage.getItem('maket-lang');
-        if (pinned === 'en') return;
-        var pref = (navigator.language || 'en').toLowerCase();
-        if (pinned === 'fr' || pref.startsWith('fr')) {
-          location.replace('fr/' + location.search + location.hash);
-        }
       } catch (e) { /* no-op */ }
     })();
   </script>
@@ -794,11 +788,11 @@
       <a href="#" class="nav__brand">Maket<span class="dot">.</span></a>
       <nav class="nav__links" aria-label="Sections">
         <a href="#surface">Surface</a>
-        <a href="#loop">Loop</a>
-        <a href="#features">Features</a>
-        <a href="#install">Install</a>
+        <a href="#loop">Boucle</a>
+        <a href="#features">Capacités</a>
+        <a href="#install">Installer</a>
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
-        <a href="fr/?lang=fr" aria-label="Version française" title="Version française">FR</a>
+        <a href="../?lang=en" aria-label="English version" title="English version">EN</a>
       </nav>
     </div>
   </header>
@@ -807,21 +801,21 @@
 
     <!-- ══════════════════════════ HERO ══════════════════════════ -->
     <section class="hero shell" id="top">
-      <img class="hero__deco" src="assets/fractal-branches.svg" alt="" aria-hidden="true" />
+      <img class="hero__deco" src="../assets/fractal-branches.svg" alt="" aria-hidden="true" />
 
       <div class="hero__top reveal">
-        <span class="hero__slug">MAKET · A VISUAL DESIGN TOOL FOR YOUR AI ASSISTANT</span>
+        <span class="hero__slug">MAKET · UN OUTIL DE DESIGN VISUEL POUR VOTRE IA</span>
         <span>v1.0 · 2026</span>
       </div>
 
       <div class="hero__body">
         <h1 class="hero__wordmark reveal" data-delay="1">Maket<span class="dot">.</span></h1>
         <p class="hero__tagline reveal" data-delay="2">
-          Your brand, your images, your agents.<br />
-          One document model.
+          Votre marque, vos images, vos agents.<br />
+          Un seul modèle de document.
         </p>
         <div class="hero__ctas reveal" data-delay="3">
-          <a class="btn btn--primary" href="#install">Get started <span aria-hidden="true">↓</span></a>
+          <a class="btn btn--primary" href="#install">Commencer <span aria-hidden="true">↓</span></a>
           <a class="btn" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
         </div>
       </div>
@@ -829,18 +823,18 @@
       <figure class="hero__preview reveal" data-delay="4">
         <div class="hero__preview-frame">
           <video
-            src="demo.mp4"
+            src="../demo.mp4"
             autoplay
             loop
             muted
             playsinline
             preload="metadata"
-            aria-label="Maket composing an A4 landscape deck — the viewport pans between pages as the AI assistant writes HTML."
+            aria-label="Maket compose un deck A4 paysage — la vue défile entre les pages pendant que l'IA écrit le HTML."
           ></video>
         </div>
         <figcaption class="hero__preview-caption">
-          <span>FIG. 01 — LIVE COMPOSITION, 60 s</span>
-          <span>297 × 210 MM · A4 LANDSCAPE</span>
+          <span>FIG. 01 — COMPOSITION EN DIRECT, 60 s</span>
+          <span>297 × 210 MM · A4 PAYSAGE</span>
         </figcaption>
       </figure>
     </section>
@@ -849,12 +843,12 @@
     <section id="surface" class="shell in-view">
       <header class="shead">
         <div>
-          <span class="kicker">Step 01 · The surface</span>
-          <h2 class="shead__title">Every kind<br />of doc<span class="dot">.</span></h2>
+          <span class="kicker">Étape 01 · La surface</span>
+          <h2 class="shead__title">Tous les<br />types de docs<span class="dot">.</span></h2>
         </div>
         <p class="shead__lede">
-          Decks, brochures, UX mockups, résumés, posters, reports, editorial spreads, social cards.
-          If it fits on paper or screen, Maket composes it.
+          Decks, brochures, maquettes UX, CV, affiches, rapports, doubles pages éditoriales, posts sociaux.
+          Si ça tient sur papier ou écran, Maket le compose.
         </p>
       </header>
 
@@ -862,19 +856,19 @@
         <article class="doc">
           <div class="doc__mini m-deck"><i class="bar-a"></i><i class="bar-t"></i><i class="bar-b"></i></div>
           <div class="doc__label">Pitch deck</div>
-          <div class="doc__tag">A4 Landscape</div>
+          <div class="doc__tag">A4 Paysage</div>
         </article>
         <article class="doc">
           <div class="doc__mini m-brochure"><i class="p1"></i><i class="p2"></i><i class="p3"></i></div>
           <div class="doc__label">Brochure</div>
-          <div class="doc__tag">Tri-fold</div>
+          <div class="doc__tag">Tri-volet</div>
         </article>
         <article class="doc">
           <div class="doc__mini m-ux">
             <div class="side"></div>
             <div class="main"><i></i><i></i><i></i></div>
           </div>
-          <div class="doc__label">UX mockup</div>
+          <div class="doc__label">Maquette UX</div>
           <div class="doc__tag">Desktop 16 / 9</div>
         </article>
         <article class="doc">
@@ -885,12 +879,12 @@
               <div><i></i><i></i><i></i></div>
             </div>
           </div>
-          <div class="doc__label">Résumé</div>
+          <div class="doc__label">CV</div>
           <div class="doc__tag">A4 Portrait</div>
         </article>
         <article class="doc">
           <div class="doc__mini m-poster"><i class="t"></i><i class="u"></i></div>
-          <div class="doc__label">Poster</div>
+          <div class="doc__label">Affiche</div>
           <div class="doc__tag">A2 Portrait</div>
         </article>
         <article class="doc">
@@ -899,64 +893,64 @@
             <i class="l1"></i><i class="l2"></i><i class="l3"></i>
             <div class="chart"><i></i><i></i><i></i><i></i></div>
           </div>
-          <div class="doc__label">Report</div>
-          <div class="doc__tag">Multi-page</div>
+          <div class="doc__label">Rapport</div>
+          <div class="doc__tag">Multi-pages</div>
         </article>
         <article class="doc">
           <div class="doc__mini m-editorial">
             <div class="img"></div>
             <div class="txt"><i></i><i></i><i></i><i></i></div>
           </div>
-          <div class="doc__label">Editorial</div>
-          <div class="doc__tag">Magazine spread</div>
+          <div class="doc__label">Éditorial</div>
+          <div class="doc__tag">Double page</div>
         </article>
         <article class="doc">
           <div class="doc__mini m-social"><i class="t"></i><i class="s"></i></div>
-          <div class="doc__label">Social card</div>
-          <div class="doc__tag">Square 1 : 1</div>
+          <div class="doc__label">Post social</div>
+          <div class="doc__tag">Carré 1 : 1</div>
         </article>
       </div>
     </section>
 
     <!-- ══════════════════════════ HOW IT WORKS ══════════════════════════ -->
     <section id="loop" class="shell how in-view">
-      <img class="how__deco" src="assets/fractal-circles.svg" alt="" aria-hidden="true" />
+      <img class="how__deco" src="../assets/fractal-circles.svg" alt="" aria-hidden="true" />
 
       <header class="shead">
         <div>
-          <span class="kicker">Step 02 · The loop</span>
-          <h2 class="shead__title">Brief in<span class="dot">,</span><br />HTML out.</h2>
+          <span class="kicker">Étape 02 · La boucle</span>
+          <h2 class="shead__title">Brief en entrée<span class="dot">,</span><br />HTML en sortie.</h2>
         </div>
         <p class="shead__lede">
-          Describe the intent. The agent reads your charte, picks from your library, writes the HTML.
-          Every element carries a <code style="font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:0.9em;">data-id</code>
-          so each iteration stays surgical.
+          Décrivez l'intention. L'agent lit votre charte, puise dans votre bibliothèque, écrit le HTML.
+          Chaque élément porte un <code style="font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:0.9em;">data-id</code>
+          pour que chaque itération reste chirurgicale.
         </p>
       </header>
 
       <ol class="steps" style="list-style:none;padding:0;margin:0;">
         <li class="step">
-          <div class="step__num"><span>01 · Your charte</span></div>
-          <h3 class="step__title">Colours, fonts, spacing — one source.</h3>
+          <div class="step__num"><span>01 · Votre charte</span></div>
+          <h3 class="step__title">Couleurs, polices, espacement — une seule source.</h3>
           <p class="step__body">
-            Declare your brand once. Maket injects every token as a CSS variable on every page.
-            The agent can't drift; you can't forget.
+            Déclarez votre marque une fois. Maket injecte chaque token en variable CSS sur chaque page.
+            L'agent ne peut pas dériver ; vous ne pouvez pas oublier.
           </p>
         </li>
         <li class="step">
-          <div class="step__num"><span>02 · Your library</span></div>
-          <h3 class="step__title">Tagged assets, searchable by intent.</h3>
+          <div class="step__num"><span>02 · Votre bibliothèque</span></div>
+          <h3 class="step__title">Assets taggés, cherchables par intention.</h3>
           <p class="step__body">
-            Import images with tags and categories. The agent picks by what fits the brief,
-            not by filename. Every doc pulls from the same shelf.
+            Importez vos images avec tags et catégories. L'agent choisit selon le brief,
+            pas selon le nom de fichier. Tous les documents puisent à la même étagère.
           </p>
         </li>
         <li class="step">
-          <div class="step__num"><span>03 · AI composes</span></div>
-          <h3 class="step__title">You write the brief. The AI assistant writes the page.</h3>
+          <div class="step__num"><span>03 · L'IA compose</span></div>
+          <h3 class="step__title">Vous écrivez le brief. L'IA écrit la page.</h3>
           <p class="step__body">
-            HTML arrives in the browser in real time. Click any element to leave a note —
-            the next iteration patches it surgically. No rewrites.
+            Le HTML arrive dans le navigateur en temps réel. Cliquez sur n'importe quel élément
+            pour laisser une note — l'itération suivante patche au scalpel. Pas de réécriture.
           </p>
         </li>
       </ol>
@@ -966,11 +960,11 @@
     <section id="features" class="shell in-view">
       <header class="shead">
         <div>
-          <span class="kicker">Step 03 · What's in the box</span>
-          <h2 class="shead__title">Six capabilities<span class="dot">,</span><br />one tool.</h2>
+          <span class="kicker">Étape 03 · Ce qu'il y a dans la boîte</span>
+          <h2 class="shead__title">Six capacités<span class="dot">,</span><br />un seul outil.</h2>
         </div>
         <p class="shead__lede">
-          Composition, brand, assets, annotation, AI, export — wired around a single document model.
+          Composition, marque, assets, annotation, IA, export — assemblés autour d'un seul modèle de document.
         </p>
       </header>
 
@@ -978,43 +972,43 @@
         <article class="feat">
           <div class="feat__icon ico-live"></div>
           <div class="feat__body">
-            <h3>Live preview</h3>
-            <p>The browser mirrors every edit in real time — no reload, no guessing.</p>
+            <h3>Aperçu en direct</h3>
+            <p>Le navigateur reflète chaque édition en temps réel — pas de reload, pas de devinettes.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-tokens"></div>
           <div class="feat__body">
             <h3>Design tokens</h3>
-            <p>One charte — colours, fonts, spacing — becomes CSS variables on every page.</p>
+            <p>Une seule charte — couleurs, polices, espacement — devient des variables CSS sur chaque page.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-library"></div>
           <div class="feat__body">
-            <h3>Asset library</h3>
-            <p>Tagged, categorised, reusable. The agent searches by intent, not filename.</p>
+            <h3>Bibliothèque d'assets</h3>
+            <p>Taggués, catégorisés, réutilisables. L'agent cherche par intention, pas par nom de fichier.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-ai"></div>
           <div class="feat__body">
-            <h3>AI composition</h3>
-            <p>Brief in, HTML out. Every element is surgically iterable via <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">data-id</code>.</p>
+            <h3>Composition par IA</h3>
+            <p>Brief en entrée, HTML en sortie. Chaque élément est itérable au scalpel via <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">data-id</code>.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-notes"></div>
           <div class="feat__body">
             <h3>Annotations</h3>
-            <p>Click any element, leave a note. The agent reads and acks your intent.</p>
+            <p>Cliquez sur un élément, laissez une note. L'agent la lit et accuse réception de votre intention.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-export"></div>
           <div class="feat__body">
             <h3>Export</h3>
-            <p>PDF via headless Chromium, standalone HTML, or a <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">.maket</code> bundle to share.</p>
+            <p>PDF via Chromium headless, HTML autonome, ou un bundle <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">.maket</code> à partager.</p>
           </div>
         </article>
       </div>
@@ -1024,30 +1018,30 @@
     <section id="install" class="shell in-view">
       <header class="shead">
         <div>
-          <span class="kicker">Step 04 · Run it</span>
-          <h2 class="shead__title">Five minutes<span class="dot">.</span></h2>
+          <span class="kicker">Étape 04 · Lancer</span>
+          <h2 class="shead__title">Cinq minutes<span class="dot">.</span></h2>
         </div>
         <p class="shead__lede">
-          Clone, install, start. The preview opens automatically — any MCP-compatible AI assistant connects over the protocol.
+          Installez, démarrez, ouvrez. L'aperçu s'ouvre automatiquement — n'importe quel assistant IA compatible MCP se connecte via le protocole.
         </p>
       </header>
 
       <div class="install">
-        <div class="terminal" role="region" aria-label="Installation commands">
-<pre><span class="c"># Wire Maket into your AI client (one-shot)</span>
+        <div class="terminal" role="region" aria-label="Commandes d'installation">
+<pre><span class="c"># Brancher Maket sur votre client IA (one-shot)</span>
 <span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket install claude --apply</span>
 <span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket install codex  --apply</span>
 
-<span class="c"># Run the server &amp; open the preview</span>
+<span class="c"># Lancer le serveur et ouvrir l'aperçu</span>
 <span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket start</span>
 <span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket open</span>
 
-<span class="c"># Preview → http://127.0.0.1:24842</span></pre>
+<span class="c"># Aperçu → http://127.0.0.1:24842</span></pre>
         </div>
         <div class="install__note">
-          <p>Requires <strong>Node ≥ 22</strong>. The CLI registers Maket as an MCP server in Claude Code or Codex, then starts the local HTTP server on <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">:24842</code>. Drop <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code> for a dry-run preview of what gets written.</p>
-          <p>Manage the daemon with <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code>. Without arguments, the binary runs as a stdio MCP bridge — the form your AI client invokes automatically.</p>
-          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Full documentation in the README →</a></p>
+          <p>Nécessite <strong>Node ≥ 22</strong>. Le CLI enregistre Maket comme serveur MCP dans Claude Code ou Codex, puis démarre le serveur HTTP local sur <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">:24842</code>. Sans <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code>, vous avez un aperçu de ce qui sera écrit.</p>
+          <p>Pilotez le daemon avec <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code>. Sans argument, le binaire fonctionne en bridge MCP stdio — la forme que votre client IA invoque automatiquement.</p>
+          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Documentation complète dans le README →</a></p>
         </div>
       </div>
     </section>
@@ -1058,9 +1052,9 @@
     <div class="shell foot__inner">
       <div>
         <div class="foot__mark">Maket<span class="dot">.</span></div>
-        <div style="margin-top:0.3rem;">MIT · 2026 · <span style="color:var(--ink-soft);">Built with Maket itself.</span></div>
+        <div style="margin-top:0.3rem;">MIT · 2026 · <span style="color:var(--ink-soft);">Construit avec Maket lui-même.</span></div>
       </div>
-      <nav class="foot__links" aria-label="External links">
+      <nav class="foot__links" aria-label="Liens externes">
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">→ github.com/ng-galien/maket</a>
         <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">→ modelcontextprotocol.io</a>
       </nav>

@@ -57,7 +57,23 @@ AI     — maket_pdf doc="Jazz flyer"
 
 ## Install
 
-### Option A — Clone and run (recommended while Maket is early)
+### Option A — npm (recommended)
+
+```bash
+# Wire Maket into your AI client (one-shot — drop --apply for a dry run)
+npx -y @ng-galien/maket install claude --apply
+npx -y @ng-galien/maket install codex  --apply
+
+# Start the local server and open the preview
+npx -y @ng-galien/maket start
+npx -y @ng-galien/maket open
+```
+
+The CLI registers an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed) and a `[mcp_servers.maket]` section in `~/.codex/config.toml`. Without arguments, the binary runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, and other MCP clients invoke automatically.
+
+Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file.
+
+### Option B — Clone and hack on it
 
 ```bash
 git clone https://github.com/ng-galien/maket.git
@@ -66,11 +82,9 @@ npm install
 npm run dev
 ```
 
-This starts the MCP/preview server on `:3333` and the Vite dev server on `:5173`.
+Starts the server on `:24843` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24843/mcp`.
 
-Open any MCP-compatible client (e.g. Claude Code) from the project directory — the included `.mcp.json` points it at `http://localhost:3333/mcp` — then open **http://localhost:5173** in your browser for the live preview.
-
-### Option B — Package as an MCP desktop extension (.mcpb)
+### Option C — Package as a desktop extension (.mcpb)
 
 ```bash
 npm install -g @anthropic-ai/mcpb
@@ -79,9 +93,26 @@ node scripts/pack-mcpb.ts
 # → dist/maket.mcpb
 ```
 
-Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions) to install it as a local extension. Any MCP-compatible client that supports Streamable HTTP can also connect to `http://localhost:3333/mcp` directly.
+Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions).
 
-**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, or similar).
+**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, Codex, or similar).
+
+### CLI reference
+
+```text
+maket [command]
+
+  bridge              Run stdio ↔ HTTP MCP proxy (default for MCP clients)
+  start               Start the Maket HTTP server in the background
+  stop                Stop a server started by 'maket start'
+  status              Show whether the server is reachable
+  open                Open the Maket UI in your browser
+  logs [--bridge]     Tail server (or bridge) logs
+  install <client>    Install Maket as an MCP server in a client
+                        clients: claude | codex
+                        flags:   --apply, --scope=user|project
+  help, version
+```
 
 ## Tools
 
