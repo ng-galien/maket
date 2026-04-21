@@ -16,6 +16,15 @@
  * sanitizer. Charte CSS, layout, images, links, and headings are untouched.
  *
  * Returns the cleaned HTML string. Pure function — no side effects.
+ *
+ * **Invariant:** every code path that assigns to `page.html` MUST call
+ * this helper. Today's call sites (keep this list in sync if you add
+ * another write):
+ *   - `tools/html.ts`             (maket_html set / patch)
+ *   - `tools/pages.ts`            (maket_page add)
+ *   - `tools/mermaid.ts`          (diagram injection)
+ *   - `services/ws-handler.ts`    (text_edit WS message)
+ *   - `routes/export.routes.ts`   (.maket bundle import)
  */
 
 import { parseHTML } from "linkedom";

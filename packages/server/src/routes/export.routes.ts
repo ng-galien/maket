@@ -19,6 +19,7 @@ import {
 	encodeBundle,
 	uniqueName,
 } from "../lib/maket-format.js";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 
 // Cap on `.maket` bundle imports. Bundles are gzipped JSON; 64 MB compressed
 // is generous (a typical doc snapshot is < 100 KB). After decompression the
@@ -214,12 +215,21 @@ export function createExportRouter({
 			const all = documents.all();
 			for (const snap of bundle.documents) {
 				const finalName = uniqueName(snap.name, (n) => all.has(n));
+				// A `.maket` bundle can come from anywhere — treat its pages as
+				// untrusted input and run the same active-html scrub we apply
+				// to every other write into page.html.
+				const sanitisedPages = snap.pages?.length
+					? snap.pages.map((p) => ({
+							...p,
+							html: p.html ? stripActiveHtml(p.html) : p.html,
+						}))
+					: undefined;
 				const doc = createDocument({
 					name: finalName,
 					category: snap.category || "general",
 					canvas: snap.canvas,
 					meta: snap.meta || {},
-					pages: snap.pages?.length ? snap.pages : undefined,
+					pages: sanitisedPages,
 					activePage: snap.activePage ?? 0,
 					nextId: snap.nextId ?? 1,
 				});

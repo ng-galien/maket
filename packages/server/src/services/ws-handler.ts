@@ -15,6 +15,7 @@ import { join, resolve, sep } from "node:path";
 import type { WsClientMessage, WsStateMessage } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 import { computeCanvasDims, createDocument, type Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Config } from "./config.js";
@@ -341,10 +342,16 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				log(
 					`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
 				);
-				el.innerHTML = (msg.html as string)
-					.replace(/<script[\s\S]*?<\/script>/gi, "")
-					.replace(/<style[\s\S]*?<\/style>/gi, "");
-				page.html = dom.body.innerHTML;
+				// Strip <style> first (stripActiveHtml doesn't touch styles —
+				// they are not executable), then run the centralised active-html
+				// scrub on the result. The two-step keeps the existing UX of
+				// rejecting <style> in inline edits while sharing the
+				// script/iframe/on*/javascript: filter with every other write.
+				el.innerHTML = (msg.html as string).replace(
+					/<style[\s\S]*?<\/style>/gi,
+					"",
+				);
+				page.html = stripActiveHtml(dom.body.innerHTML);
 				log(`[text_edit] updated page.html length: ${page.html.length}`);
 				documents.persist(d.name);
 				broadcastState(d);

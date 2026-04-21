@@ -11,6 +11,7 @@ import { parseHTML } from "linkedom";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import { lockGuard, text } from "./_helpers.js";
@@ -201,7 +202,10 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 				root.insertAdjacentHTML("beforeend", wrapper);
 			}
 
-			page.html = root.innerHTML;
+			// stripActiveHtml on the way out — beautiful-mermaid is trusted but
+			// the surrounding page may already contain agent content; keep one
+			// pass on every persistence path.
+			page.html = stripActiveHtml(root.innerHTML);
 			documents.persist(doc.name);
 
 			// Surface every page-level data-id that an agent can target with

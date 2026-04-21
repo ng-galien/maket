@@ -12,6 +12,7 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import type { Document, Page } from "../types.js";
@@ -117,7 +118,7 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 	const page: Page = {
 		name: args.name,
 		elements: [],
-		html: normalizeImageSrc(args.html),
+		html: stripActiveHtml(normalizeImageSrc(args.html)),
 	};
 	d.pages.push(page);
 	d.activePage = d.pages.length - 1;
