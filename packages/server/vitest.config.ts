@@ -12,7 +12,7 @@ export default defineConfig({
 		setupFiles: ["./tests/setup.ts"],
 		coverage: {
 			provider: "v8",
-			reporter: ["text", "html"],
+			reporter: ["text", "html", "json-summary"],
 			include: ["src/**/*.ts"],
 			exclude: [
 				"**/*.test.ts",

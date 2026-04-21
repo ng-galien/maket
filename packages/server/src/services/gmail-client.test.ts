@@ -13,7 +13,6 @@ describe("createGmailClient", () => {
 	it("instances are isolated (no shared module state)", () => {
 		const a = createGmailClient({ dataDir: "/tmp/a", env: {} });
 		const b = createGmailClient({ dataDir: "/tmp/b", env: {} });
-		// biome-ignore lint/suspicious/noExplicitAny: internal state probe
 		(a as any)._testForceConnected();
 		expect(a.isConnected()).toBe(true);
 		expect(b.isConnected()).toBe(false);

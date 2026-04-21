@@ -12,7 +12,6 @@ function fixture() {
 	return { store, bus, documents };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string) {

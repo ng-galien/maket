@@ -21,7 +21,6 @@ function fixture() {
 	return { dir, store, bus, assets };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 describe("assetsPack — registration", () => {
@@ -38,7 +37,6 @@ describe("maket_image — action=list", () => {
 		const { store, bus, assets } = fixture();
 		const tool = createMaketImageTool({ store, bus, assets });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toBe("No images");
 		store.close();
 	});
@@ -50,7 +48,6 @@ describe("maket_image — action=list", () => {
 		store.saveAsset({ filename: "a.png", title: "Alpha", category: "hero" });
 		const tool = createMaketImageTool({ store, bus, assets });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/Alpha/);
 		expect(text).toMatch(/no metadata/);
@@ -67,7 +64,6 @@ describe("maket_image — action=list", () => {
 			{ action: "list", category: "other" },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/No assets in category/);
 		store.close();
 	});
@@ -88,9 +84,7 @@ describe("maket_image — action=view", () => {
 			NO_EXTRA,
 		);
 		expect(res.content).toHaveLength(2);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const textPart = res.content[0] as any;
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const imgPart = res.content[1] as any;
 		expect(textPart.text).toMatch(/Picture/);
 		expect(imgPart.type).toBe("image");
@@ -106,7 +100,6 @@ describe("maket_image — action=view", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/not found/i);
 		store.close();
 	});
@@ -128,7 +121,6 @@ describe("maket_image — action=view", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/Cannot view/);
 		// No inline image — otherwise the Anthropic API would 400 and kill the session.
 		expect(res.content).toHaveLength(1);
@@ -146,7 +138,6 @@ describe("maket_image — action=meta (context_token invariant)", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/Token required/);
 		store.close();
 	});
@@ -266,7 +257,6 @@ describe("maket_image — action=import", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/Import rejected/);
 		expect(assets.exists("fake.png")).toBe(false);
 		expect(store.loadAsset("fake.png")).toBeNull();
@@ -284,7 +274,6 @@ describe("maket_image — action=import", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/left in place/);
 		expect(assets.exists("corrupt.png")).toBe(true);
 		expect(store.loadAsset("corrupt.png")).toBeNull();

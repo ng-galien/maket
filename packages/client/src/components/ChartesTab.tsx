@@ -29,7 +29,6 @@ interface Charte extends ChartesListItem {
 	rules?: Record<string, string> | string;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: persisted rules shape is opaque
 function parseRules(rules: any): Record<string, string> {
 	if (!rules) return {};
 	if (typeof rules === "string") {
@@ -42,7 +41,6 @@ function parseRules(rules: any): Record<string, string> {
 	return rules;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: persisted voice shape is opaque
 function parseVoice(voice: any): any {
 	if (!voice) return null;
 	if (typeof voice === "string") {

@@ -99,7 +99,6 @@ export function createMcpRouter({
 		try {
 			await server.connect(transport);
 			await transport.handleRequest(req, res, req.body);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			if (!res.headersSent) {
 				res.status(500).json({

@@ -148,7 +148,6 @@ const PatchOpSchema = z
 
 type PatchOp = z.infer<typeof PatchOpSchema>;
 
-// biome-ignore lint/suspicious/noExplicitAny: linkedom element typing is loose
 type DomEl = any;
 
 function charteCheckEl(

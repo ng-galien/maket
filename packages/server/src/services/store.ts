@@ -301,13 +301,11 @@ export class DocumentStore implements Store {
 	}
 
 	loadAll(): Document[] {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		const rows = this.stmtDocSelectAll.all() as any[];
 		return rows.map((row) => this.rowToDoc(row));
 	}
 
 	loadOne(name: string): Document | null {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		const row = this.stmtDocSelectOne.get({ name }) as any;
 		if (!row) return null;
 		return this.rowToDoc(row);
@@ -316,7 +314,6 @@ export class DocumentStore implements Store {
 	loadById(id: string): Document | null {
 		const row = this.db
 			.prepare("SELECT * FROM documents WHERE id = ?")
-			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 			.get(id) as any;
 		if (!row) return null;
 		return this.rowToDoc(row);
@@ -329,7 +326,6 @@ export class DocumentStore implements Store {
 	isEmpty(): boolean {
 		const row = this.db
 			.prepare("SELECT COUNT(*) as cnt FROM documents")
-			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 			.get() as any;
 		return (row?.cnt ?? 0) === 0;
 	}
@@ -337,7 +333,6 @@ export class DocumentStore implements Store {
 	listTimestamps(): Map<string, string> {
 		const rows = this.db
 			.prepare("SELECT name, updated_at FROM documents")
-			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 			.all() as Array<{ name: string; updated_at: string }>;
 		const map = new Map<string, string>();
 		for (const row of rows) map.set(row.name, row.updated_at);
@@ -352,13 +347,11 @@ export class DocumentStore implements Store {
 	}
 
 	loadAllChartes(): Charte[] {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		const rows = this.stmtCharteSelectAll.all() as any[];
 		return rows.map((row) => ({ name: row.name, ...JSON.parse(row.data) }));
 	}
 
 	loadCharte(name: string): Charte | null {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		const row = this.stmtCharteSelectOne.get(name) as any;
 		if (!row) return null;
 		return { name: row.name, ...JSON.parse(row.data) };
@@ -386,7 +379,6 @@ export class DocumentStore implements Store {
 	}
 
 	loadAllAssets(): AssetRow[] {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		return (this.stmtAssetSelectAll.all() as any[]).map((row) => ({
 			...row,
 			tags: JSON.parse(row.tags || "[]"),
@@ -394,7 +386,6 @@ export class DocumentStore implements Store {
 	}
 
 	loadAsset(filename: string): AssetRow | null {
-		// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		const row = this.stmtAssetSelectOne.get({ filename }) as any;
 		if (!row) return null;
 		return { ...row, tags: JSON.parse(row.tags || "[]") };
@@ -413,11 +404,9 @@ export class DocumentStore implements Store {
 
 	// ---- Private helpers ----
 
-	// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 	private rowToDoc(row: any): Document {
 		const pageRows = this.stmtPageSelectByDoc.all({
 			doc_name: row.name,
-			// biome-ignore lint/suspicious/noExplicitAny: sqlite row shape is loose
 		}) as any[];
 		const pages: Page[] = pageRows.map((pr) => ({
 			name: pr.name,

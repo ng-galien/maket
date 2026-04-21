@@ -31,10 +31,9 @@ function fixture() {
 	};
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
-function makeDoc(name: string, html = "") {
+function makeDoc(name: string, html = "", meta: Record<string, unknown> = {}) {
 	return createDocument({
 		name,
 		canvas: {
@@ -44,6 +43,7 @@ function makeDoc(name: string, html = "") {
 			h: 297,
 			bg: "#fff",
 		},
+		meta,
 		pages: [{ name: "P1", elements: [], html }],
 	});
 }
@@ -116,6 +116,83 @@ describe("maket_html — action=set", () => {
 		expect(res.isError).toBe(true);
 		store.close();
 	});
+
+	it("rejects writes on locked documents", async () => {
+		const { store, documents, layout, assets, cleanupAssets } = fixture();
+		store.saveDoc(makeDoc("d", "", { locked: true }));
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a">x</div>`,
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect(layout.measure).not.toHaveBeenCalled();
+		cleanupAssets();
+		store.close();
+	});
+
+	it("requires a current charte context token when the document has a charte", async () => {
+		const { store, documents, layout, assets, cleanupAssets } = fixture();
+		store.saveCharte({
+			name: "brand",
+			tokens: { color: { primary: "#2563EB" } },
+		});
+		store.saveDoc(makeDoc("d", "", { charte: "brand" }));
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a" style="color:#111111">x</div>`,
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/token/i);
+		cleanupAssets();
+		store.close();
+	});
+
+	it("rejects charte violations even with a valid context token", async () => {
+		const { store, documents, layout, assets, cleanupAssets } = fixture();
+		store.saveCharte({
+			name: "brand",
+			tokens: { color: { primary: "#2563EB" } },
+		});
+		store.saveDoc(makeDoc("d", "", { charte: "brand" }));
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a" style="color:#2563EB">x</div>`,
+				context_token: assets.charteToken(store.loadCharte("brand")),
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/Charte violation/);
+		expect(documents.resolve("d")?.pages[0]?.html).toBeUndefined();
+		expect(layout.measure).not.toHaveBeenCalled();
+		cleanupAssets();
+		store.close();
+	});
 });
 
 describe("maket_html — action=get", () => {
@@ -128,7 +205,6 @@ describe("maket_html — action=get", () => {
 			{ action: "get", doc: "d", page: 1 },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/<div data-id="x">body<\/div>/);
 		store.close();
@@ -145,7 +221,6 @@ describe("maket_html — action=get", () => {
 			{ action: "get", doc: "d", page: 1, id: "b" },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toBe(`<div data-id="b">B</div>`);
 		store.close();
 	});
@@ -174,7 +249,6 @@ describe("maket_html — action=get", () => {
 			{ action: "get", doc: "d", page: 1, format: "text" },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toBe("Hello world");
 		store.close();
 	});
@@ -236,7 +310,6 @@ describe("maket_html — action=patch", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/ghost not found/);
 		store.close();
 	});
@@ -253,6 +326,74 @@ describe("maket_html — action=patch", () => {
 		expect(res.isError).toBe(true);
 		store.close();
 	});
+
+	it("rolls back only the violating op when a charte check fails", async () => {
+		const { store, documents, layout, assets, cleanupAssets } = fixture();
+		store.saveCharte({
+			name: "brand",
+			tokens: { color: { primary: "#2563EB" } },
+		});
+		store.saveDoc(
+			makeDoc("d", `<div data-id="a">a</div><div data-id="b">b</div>`, {
+				charte: "brand",
+			}),
+		);
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{ id: "a", style: { color: "#2563EB" } },
+					{ id: "b", style: { color: "#00ff00" } },
+				],
+			},
+			NO_EXTRA,
+		);
+
+		const html = documents.resolve("d")?.pages[0]?.html ?? "";
+		expect(res.isError).toBeUndefined();
+		expect((res.content[0] as any).text).toMatch(/a rejected/);
+		expect(html).toContain(`data-id="a">a</div>`);
+		expect(html).toContain(`data-id="b"`);
+		expect(html).toContain(`style="color:#00ff00"`);
+		cleanupAssets();
+		store.close();
+	});
+
+	it("sanitizes inserted active HTML and normalizes relative image sources", async () => {
+		const { store, documents, layout, assets, cleanupAssets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="a">a</div>`));
+		documents.loadAll();
+
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "a",
+						position: "afterend",
+						insert:
+							'<img data-id="img" src="logo.png" onerror="alert(1)"><script>alert(1)</script>',
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		const html = documents.resolve("d")?.pages[0]?.html ?? "";
+		expect(html).toContain('src="/assets/logo.png"');
+		expect(html).not.toContain("onerror=");
+		expect(html).not.toContain("<script");
+		cleanupAssets();
+		store.close();
+	});
 });
 
 describe("maket_html — action=check", () => {
@@ -266,7 +407,6 @@ describe("maket_html — action=check", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/Layout OK/);
 		expect(layout.check).toHaveBeenCalled();
 		store.close();
@@ -305,7 +445,6 @@ describe("maket_html — lock guard", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/locked/i);
 		expect(documents.resolve("d")?.pages[0]?.html).toBeFalsy();
 		expect(layout.measure).not.toHaveBeenCalled();

@@ -11,7 +11,6 @@ import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketGmailTool, gmailPack } from "./gmail.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 type GmailApiMock = {
@@ -120,7 +119,6 @@ describe("maket_gmail — action=connect", () => {
 		const tool = createMaketGmailTool(deps);
 		const res = await tool.handler({ action: "connect" }, NO_EXTRA);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/already connected/);
 		cleanup();
 	});
@@ -153,7 +151,6 @@ describe("maket_gmail — action=search", () => {
 			{ action: "search", query: "nothing" },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/No messages found/);
 		cleanup();
 	});
@@ -188,7 +185,6 @@ describe("maket_gmail — action=search", () => {
 			{ action: "search", query: "inbox" },
 			NO_EXTRA,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const txt = (res.content[0] as any).text as string;
 		expect(txt).toMatch(/Hello m1/);
 		expect(txt).toMatch(/Hello m2/);
@@ -244,7 +240,6 @@ describe("maket_gmail — action=read", () => {
 		const { cleanup, ...deps } = fixture({ connected: true, api });
 		const tool = createMaketGmailTool(deps);
 		const res = await tool.handler({ action: "read", id: "MID" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const txt = (res.content[0] as any).text as string;
 		expect(txt).toMatch(/from: alice@example\.com/);
 		expect(txt).toMatch(/subject: Hello/);
@@ -299,7 +294,6 @@ describe("maket_gmail — action=draft", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/Missing recipient/);
 		cleanup();
 	});
@@ -322,7 +316,6 @@ describe("maket_gmail — action=draft", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/DRAFT_123/);
 		expect(gmailClient.api.users.drafts.create).toHaveBeenCalled();
 		expect(documents.resolve("mail")?.meta.emailDraftId).toBe("DRAFT_123");

@@ -1,6 +1,7 @@
-import type { AddressInfo } from "node:net";
 import express from "express";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startTestApp } from "../../tests/helpers.js";
+import { encodeBundle } from "../lib/maket-format.js";
 import { createBus } from "../services/bus.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
@@ -13,29 +14,30 @@ describe("export routes — .maket bundle", () => {
 	let documents: Documents;
 	let baseUrl: string;
 	let close: () => Promise<void>;
+	let bus: ReturnType<typeof createBus>;
+	let pdfService: { render: ReturnType<typeof vi.fn> };
 
 	beforeEach(async () => {
 		store = createSQLiteStore(":memory:");
-		const bus = createBus();
+		bus = createBus();
 		documents = createDocuments({ store });
-		// PDF service is unused by the new routes, but the factory wants it.
-		const pdfService = {
-			render: async () => ({ buffer: Buffer.alloc(0), pageCount: 0 }),
-		} as unknown as PdfService;
+		pdfService = {
+			render: vi.fn(async () => ({
+				buffer: Buffer.from("%PDF-test"),
+				pageCount: 1,
+			})),
+		};
 
 		const app = express();
-		app.use(createExportRouter({ documents, pdfService, store, bus }));
-		const server = await new Promise<ReturnType<typeof app.listen>>(
-			(resolve) => {
-				const s = app.listen(0, () => resolve(s));
-			},
+		app.use(
+			createExportRouter({
+				documents,
+				pdfService: pdfService as unknown as PdfService,
+				store,
+				bus,
+			}),
 		);
-		const port = (server.address() as AddressInfo).port;
-		baseUrl = `http://127.0.0.1:${port}`;
-		close = () =>
-			new Promise((resolve, reject) =>
-				server.close((err) => (err ? reject(err) : resolve())),
-			);
+		({ baseUrl, close } = await startTestApp(app));
 	});
 
 	afterEach(async () => {
@@ -79,7 +81,7 @@ describe("export routes — .maket bundle", () => {
 		const importRes = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
 			headers: { "Content-Type": "application/gzip" },
-			body: buf,
+			body: new Uint8Array(buf),
 		});
 		expect(importRes.status).toBe(200);
 		const json = (await importRes.json()) as {
@@ -96,7 +98,7 @@ describe("export routes — .maket bundle", () => {
 		const res = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
 			headers: { "Content-Type": "application/gzip" },
-			body: Buffer.from("not a gzip"),
+			body: new Uint8Array(Buffer.from("not a gzip")),
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()) as { error: string }).toHaveProperty("error");
@@ -133,20 +135,12 @@ describe("export routes — .maket bundle", () => {
 				bus: bus2,
 			}),
 		);
-		const server2 = await new Promise<ReturnType<typeof app2.listen>>(
-			(resolve) => {
-				const s = app2.listen(0, () => resolve(s));
-			},
-		);
-		const port2 = (server2.address() as AddressInfo).port;
-		const importRes = await fetch(
-			`http://127.0.0.1:${port2}/api/import-maket`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/gzip" },
-				body: buf,
-			},
-		);
+		const { baseUrl: baseUrl2, close: close2 } = await startTestApp(app2);
+		const importRes = await fetch(`${baseUrl2}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/gzip" },
+			body: new Uint8Array(buf),
+		});
 		expect(importRes.status).toBe(200);
 		const json = (await importRes.json()) as {
 			documents: string[];
@@ -154,9 +148,95 @@ describe("export routes — .maket bundle", () => {
 		};
 		expect(json.documents.sort()).toEqual(["a", "b"]);
 		expect(json.chartesAdded).toEqual(["brand"]);
-		await new Promise<void>((resolve, reject) =>
-			server2.close((err) => (err ? reject(err) : resolve())),
-		);
+		await close2();
 		store2.close();
+	});
+
+	it("rejects browser requests with a non-loopback Referer", async () => {
+		store.saveDoc(makeDoc("poster"));
+		documents.loadAll();
+
+		const res = await fetch(`${baseUrl}/api/export-maket?name=poster`, {
+			headers: { Referer: "https://evil.example/" },
+		});
+
+		expect(res.status).toBe(403);
+	});
+
+	it("GET /print renders HTML with the auto-print script", async () => {
+		store.saveDoc(makeDoc("poster"));
+		documents.loadAll();
+
+		const res = await fetch(`${baseUrl}/print?name=poster`);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toContain("text/html");
+		const html = await res.text();
+		expect(html).toContain("window.print()");
+		expect(html).toContain('data-id="e0"');
+		expect(html).toContain("poster");
+	});
+
+	it("GET /api/export-pdf streams the rendered PDF with the default quality", async () => {
+		store.saveDoc(makeDoc("poster"));
+		documents.loadAll();
+
+		const res = await fetch(`${baseUrl}/api/export-pdf?name=poster`);
+
+		expect(res.status).toBe(200);
+		expect(res.headers.get("content-type")).toBe("application/pdf");
+		expect(res.headers.get("content-disposition")).toContain("poster.pdf");
+		expect(pdfService.render).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "poster" }),
+			"print",
+		);
+		expect(Buffer.from(await res.arrayBuffer()).toString("utf-8")).toBe(
+			"%PDF-test",
+		);
+	});
+
+	it("GET /api/export-pdf returns 500 when rendering fails", async () => {
+		store.saveDoc(makeDoc("poster"));
+		documents.loadAll();
+		pdfService.render.mockRejectedValueOnce(new Error("pdf failed"));
+
+		const res = await fetch(`${baseUrl}/api/export-pdf?name=poster`);
+
+		expect(res.status).toBe(500);
+		expect(await res.json()).toEqual({ error: "pdf failed" });
+	});
+
+	it("POST /api/import-maket strips active HTML from imported pages", async () => {
+		const unsafe = createDocument({
+			name: "unsafe",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					name: "P1",
+					elements: [],
+					html: `<div data-id="safe">ok</div><img data-id="img" src="javascript:alert(1)" onerror="alert(1)"><script>alert(1)</script>`,
+				},
+			],
+		});
+		const buf = encodeBundle([unsafe], []);
+
+		const res = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/gzip" },
+			body: new Uint8Array(buf),
+		});
+
+		expect(res.status).toBe(200);
+		const saved = documents.resolveOrLoad("unsafe");
+		expect(saved?.pages[0]?.html).toContain(`data-id="safe">ok</div>`);
+		expect(saved?.pages[0]?.html).not.toContain("<script");
+		expect(saved?.pages[0]?.html).not.toContain("onerror=");
+		expect(saved?.pages[0]?.html).not.toContain("javascript:");
 	});
 });

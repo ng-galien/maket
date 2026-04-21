@@ -57,7 +57,6 @@ export function createAssetsRouter({
 	const { ASSETS_DIR } = config;
 
 	// Image variants — thumb/preview served at reduced resolution.
-	// biome-ignore lint/suspicious/noExplicitAny: express req/res are loose
 	router.get("/assets/:variant(thumb|preview)/:file", async (req: any, res) => {
 		const { variant, file } = req.params as { variant: string; file: string };
 		const original = resolve(join(ASSETS_DIR, file));
@@ -90,7 +89,6 @@ export function createAssetsRouter({
 			res.setHeader("Content-Type", "image/jpeg");
 			res.setHeader("Cache-Control", "public, max-age=86400");
 			res.sendFile(cached);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (err: any) {
 			log(`[variant] ${variant}/${file} failed: ${err.message}`);
 			res.sendFile(original);
@@ -170,7 +168,6 @@ export function createAssetsRouter({
 					}
 					throw e;
 				}
-				// biome-ignore lint/suspicious/noExplicitAny: JSON payload is loose
 				let jsonBody: any;
 				try {
 					jsonBody = JSON.parse(bodyBuf.toString("utf-8"));
@@ -198,7 +195,6 @@ export function createAssetsRouter({
 			const metaPath = join(ASSETS_DIR, "metadata.json");
 			if (existsSync(metaPath)) {
 				const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-				// biome-ignore lint/suspicious/noExplicitAny: metadata.json shape is loose
 				if (!meta.images.find((i: any) => i.file === cleanName)) {
 					meta.images.push({
 						file: cleanName,
@@ -217,7 +213,6 @@ export function createAssetsRouter({
 				`${replaced ? "Replaced" : "Uploaded"}: ${cleanName} (${buf.length} bytes)`,
 			);
 			res.json({ ok: true, file: cleanName, replaced });
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			res.status(500).json({ error: e.message });
 		}

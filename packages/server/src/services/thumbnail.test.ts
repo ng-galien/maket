@@ -99,7 +99,8 @@ describe("createThumbnailService", () => {
 		const buf = await service.render(doc, { widthPx: 400 });
 		expect(Buffer.isBuffer(buf)).toBe(true);
 		expect(snapshot).toHaveBeenCalledOnce();
-		const viewport = snapshot.mock.calls[0]![1];
+		const viewport = snapshot.mock.calls[0]?.[1];
+		if (!viewport) throw new Error("snapshot viewport missing");
 		expect(viewport.width).toBe(400);
 		// A4 portrait: 297/210 ≈ 1.414 → 400 × 1.414 ≈ 566
 		expect(viewport.height).toBeGreaterThan(560);
@@ -127,9 +128,13 @@ describe("createThumbnailService", () => {
 		const { service, snapshot, cleanup } = fixture();
 		const doc = makeDoc();
 		await service.render(doc, { widthPx: 10 });
-		expect(snapshot.mock.calls[0]![1].width).toBe(60);
+		const smallViewport = snapshot.mock.calls[0]?.[1];
+		if (!smallViewport) throw new Error("small viewport missing");
+		expect(smallViewport.width).toBe(60);
 		await service.render(doc, { widthPx: 9999 });
-		expect(snapshot.mock.calls[1]![1].width).toBe(2000);
+		const largeViewport = snapshot.mock.calls[1]?.[1];
+		if (!largeViewport) throw new Error("large viewport missing");
+		expect(largeViewport.width).toBe(2000);
 		cleanup();
 	});
 
@@ -173,7 +178,8 @@ describe("createThumbnailService", () => {
 			},
 		});
 		await service.render(doc);
-		const html = snapshot.mock.calls[0]![0];
+		const html = snapshot.mock.calls[0]?.[0];
+		if (!html) throw new Error("snapshot html missing");
 		// The breakout chars must be CSS-escaped; the `body::after` pseudo
 		// cannot reach the parser as a standalone selector.
 		expect(html).not.toContain("body::after {");
@@ -193,7 +199,8 @@ describe("createThumbnailService", () => {
 		documents.loadAll();
 		const doc = makeDoc({ meta: { charte: "sneaky" } });
 		await service.render(doc);
-		const html = snapshot.mock.calls[0]![0];
+		const html = snapshot.mock.calls[0]?.[0];
+		if (!html) throw new Error("snapshot html missing");
 		// Exactly one </style> allowed — the one that closes our own block.
 		const closes = html.match(/<\/style>/gi) ?? [];
 		expect(closes.length).toBe(1);
@@ -216,7 +223,8 @@ describe("createThumbnailService", () => {
 		documents.loadAll();
 		const doc = makeDoc({ meta: { charte: "brand" } });
 		await service.render(doc);
-		const html = snapshot.mock.calls[0]![0];
+		const html = snapshot.mock.calls[0]?.[0];
+		if (!html) throw new Error("snapshot html missing");
 		expect(html).toContain("--charte-color-primary");
 		expect(html).toContain("#ff00ff");
 		cleanup();

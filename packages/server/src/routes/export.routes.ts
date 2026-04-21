@@ -128,7 +128,6 @@ export function createExportRouter({
 				`attachment; filename="${safeName(d.name)}.pdf"`,
 			);
 			return res.send(buffer);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			res.status(500).json({ error: e.message });
 		}
@@ -180,7 +179,6 @@ export function createExportRouter({
 				`attachment; filename="${bundleFilename(baseName)}"`,
 			);
 			return res.send(buf);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			res.status(500).json({ error: e.message });
 		}
@@ -270,7 +268,6 @@ export function createExportRouter({
 				chartesSkipped,
 				exportedAt: bundle.exportedAt,
 			});
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			res.status(500).json({ error: e.message });
 		}

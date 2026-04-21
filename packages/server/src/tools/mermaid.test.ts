@@ -45,7 +45,6 @@ describe("createMaketMermaidTool — happy path", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		const res = await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  A-->B" },
 			{} as any,
@@ -53,7 +52,6 @@ describe("createMaketMermaidTool — happy path", () => {
 
 		expect(res.isError).toBeUndefined();
 		expect(documents.resolve("test")?.pages[0]?.html ?? "").toMatch(/<svg/);
-		// biome-ignore lint/suspicious/noExplicitAny: runtime payload shape
 		const firstItem = (res.content as any[])[0];
 		expect(firstItem?.text).toMatch(/Mermaid diagram injected/);
 	});
@@ -62,12 +60,10 @@ describe("createMaketMermaidTool — happy path", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  A-->B" },
 			{} as any,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  C-->D" },
 			{} as any,
@@ -82,12 +78,10 @@ describe("createMaketMermaidTool — happy path", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  A-->B", dataId: "diag" },
 			{} as any,
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  X-->Y", dataId: "diag" },
 			{} as any,
@@ -102,7 +96,6 @@ describe("createMaketMermaidTool — happy path", () => {
 		const { documents, bus, store } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  A-->B" },
 			{} as any,
@@ -116,7 +109,6 @@ describe("createMaketMermaidTool — happy path", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		const res = await tool.handler(
 			{
 				doc: "test",
@@ -127,7 +119,6 @@ describe("createMaketMermaidTool — happy path", () => {
 			{} as any,
 		);
 
-		// biome-ignore lint/suspicious/noExplicitAny: runtime payload shape
 		const out = (res.content as any[])[0]?.text as string;
 		expect(out).toMatch(/page data-ids/);
 		// Only the top-level wrapper id should appear — not "Alpha", "Beta" etc
@@ -143,7 +134,6 @@ describe("createMaketMermaidTool — happy path", () => {
 		bus.on("element:updated", listener);
 
 		const tool = createMaketMermaidTool({ documents, bus });
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		await tool.handler(
 			{ doc: "test", page: 1, code: "graph TD\n  A-->B" },
 			{} as any,
@@ -161,14 +151,12 @@ describe("createMaketMermaidTool — error paths", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		const res = await tool.handler(
 			{ doc: "ghost", page: 1, code: "graph TD\n  A-->B" },
 			{} as any,
 		);
 
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: runtime payload shape
 		const firstItem = (res.content as any[])[0];
 		expect(firstItem?.text).toMatch(/not found/i);
 	});
@@ -177,14 +165,12 @@ describe("createMaketMermaidTool — error paths", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		const res = await tool.handler(
 			{ doc: "test", page: 99, code: "graph TD\n  A-->B" },
 			{} as any,
 		);
 
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: runtime payload shape
 		const firstItem = (res.content as any[])[0];
 		expect(firstItem?.text).toMatch(/Page 99 not found/);
 	});
@@ -193,14 +179,12 @@ describe("createMaketMermaidTool — error paths", () => {
 		const { documents, bus } = fixture();
 		const tool = createMaketMermaidTool({ documents, bus });
 
-		// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 		const res = await tool.handler(
 			{ doc: "test", page: 1, code: "this is not mermaid syntax at all" },
 			{} as any,
 		);
 
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: runtime payload shape
 		const firstItem = (res.content as any[])[0];
 		expect(firstItem?.text).toMatch(/Mermaid render failed/);
 	});

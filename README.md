@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![CI](https://github.com/ng-galien/maket/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ng-galien/maket/main/.github/badges/coverage.json)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
 
 <p align="center">
@@ -231,6 +233,10 @@ Contributions are welcome. To get started:
 5. Open a PR with a clear description of the change and motivation.
 
 Found a bug, have an idea, or want to discuss something before building it? Open an [issue](https://github.com/ng-galien/maket/issues) or start a [discussion](https://github.com/ng-galien/maket/discussions).
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for user-visible changes per release. Draft the next `[Unreleased]` section with `npm run changelog:draft` (groups commits since the last tag by conventional-commit type).
 
 ## License
 

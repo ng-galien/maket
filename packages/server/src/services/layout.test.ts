@@ -107,12 +107,64 @@ describe("LayoutService — measure", () => {
 		cleanup();
 	});
 
+	it("does not launch puppeteer when the server-side mm checks already found overflow", async () => {
+		const { service, browserLaunch, cleanup } = fixture();
+		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
+		await service.measure(doc(html), html, 0);
+		expect(browserLaunch).not.toHaveBeenCalled();
+		cleanup();
+	});
+
 	it("returns OK on a conforming layout", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
 		const report = await service.measure(doc(html), html, 0);
 		expect(report).toMatch(/Layout OK/);
 		cleanup();
+	});
+
+	it("uses the headless browser for content-driven overflow and rewrites asset URLs", async () => {
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const wsRegistry = createWsRegistry();
+		const page = {
+			setOfflineMode: vi.fn(async () => {}),
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent: vi.fn(async () => {}),
+			evaluate: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
+				overflow: true,
+				containerHeight: 100,
+				contentHeight: 140,
+				overflowBy: 40,
+			}),
+			close: vi.fn(async () => {}),
+		};
+		const browser = {
+			connected: true,
+			on: vi.fn(),
+			newPage: vi.fn(async () => page),
+		};
+		const browserLaunch = vi.fn(async () => browser as any);
+		const service = createLayoutService(
+			{ documents, wsRegistry },
+			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
+		);
+		const html = `<div data-id="root"><img data-id="img" src="/assets/hero.png"></div>`;
+
+		const report = await service.measure(doc(html), html, 0);
+
+		expect(report).toMatch(
+			/Vertical: content 140px > container 100px \(\+40px\)/,
+		);
+		expect(browserLaunch).toHaveBeenCalledOnce();
+		expect(page.setContent).toHaveBeenCalledWith(
+			expect.stringContaining("http://test/assets/hero.png"),
+			{ waitUntil: "networkidle0" },
+		);
+		expect(page.close).toHaveBeenCalledOnce();
+		store.close();
 	});
 
 	it("broadcasts a state payload so connected previews refresh", async () => {

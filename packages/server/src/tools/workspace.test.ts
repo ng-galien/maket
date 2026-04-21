@@ -14,7 +14,6 @@ function fixture() {
 	return { store, bus, documents, pending };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string, pageCount = 1) {
@@ -109,7 +108,6 @@ describe("maket_workspace — action=state", () => {
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
 		const res = await tool.handler({ action: "state", doc: "d" }, NO_EXTRA);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const txt = (res.content[0] as any).text as string;
 		expect(txt).toMatch(/Document: "d"/);
 		expect(txt).toMatch(/Charte: brand/);
@@ -183,7 +181,6 @@ describe("maket_workspace — action=list_messages", () => {
 		const { store, bus, documents, pending } = fixture();
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/No pending messages/);
 		store.close();
 	});
@@ -197,7 +194,6 @@ describe("maket_workspace — action=list_messages", () => {
 		]);
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const out = (res.content[0] as any).text as string;
 		expect(out).toMatch(/w1/);
 		expect(out).toMatch(/d1/);
@@ -272,7 +268,6 @@ describe("maket_workspace — action=ack_messages", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/No matches/);
 		expect(pending.forDoc("d").length).toBe(1);
 		expect(listener).not.toHaveBeenCalled();
@@ -294,7 +289,6 @@ describe("maket_workspace — action=ack_messages", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const out = (res.content[0] as any).text as string;
 		expect(out).toMatch(/Acknowledged 1 of 2/);
 		expect(out).toMatch(/unknown id\(s\) ignored: ghost/);

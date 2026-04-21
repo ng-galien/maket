@@ -33,7 +33,6 @@ function fixture() {
 	};
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string) {
@@ -113,7 +112,6 @@ describe("maket_pdf", () => {
 		});
 		const res = await tool.handler({ doc: "d" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/PDF export failed: boom/);
 		cleanup();
 	});

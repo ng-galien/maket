@@ -1,10 +1,5 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, vi } from "vitest";
-import { setLang } from "./i18n/useT";
-
-// Force the UI language to French so component tests can assert on stable
-// strings regardless of the test runner's navigator.language default.
-setLang("fr");
 
 // Node 22+ ships an experimental `localStorage` global that vitest 4 surfaces
 // via --localstorage-file (no path → getItem is undefined). It shadows jsdom's
@@ -38,6 +33,14 @@ function installLocalStorageShim() {
 	});
 }
 installLocalStorageShim();
+
+// Import i18n only after the localStorage shim is in place so Node's
+// experimental webstorage stub never gets touched during module init.
+const { setLang } = await import("./i18n/useT");
+
+// Force the UI language to French so component tests can assert on stable
+// strings regardless of the test runner's navigator.language default.
+setLang("fr");
 
 // jsdom doesn't implement matchMedia; useStore reads it at module init for the
 // dark-mode default, so stub it before any import pulls the store in.

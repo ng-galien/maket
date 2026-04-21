@@ -41,7 +41,6 @@ export function createOAuthRouter({
 			res.send(`<html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5">
       <div style="text-align:center"><h2 style="color:#2C1810">Gmail connected</h2><p>${escapeHtml(email)}</p><p style="color:#888">You can close this tab.</p></div>
     </body></html>`);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			const msg = escapeHtml(String(e?.message ?? "Unknown error"));
 			res
