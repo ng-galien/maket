@@ -9,6 +9,7 @@
  * does not pay the googleapis parse cost when gmail is unused.
  */
 
+import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -18,6 +19,7 @@ const SCOPES = [
 ];
 
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const STATE_TTL_MS = OAUTH_TIMEOUT_MS;
 
 export interface Credentials {
 	client_id: string;
@@ -56,7 +58,11 @@ export interface GmailClient {
 	tryRestore(): Promise<boolean>;
 	getAuthUrl(redirectUri: string): Promise<string>;
 	startAuth(): Promise<void>;
-	handleCallback(code: string, redirectUri: string): Promise<string>;
+	handleCallback(
+		code: string,
+		state: string,
+		redirectUri: string,
+	): Promise<string>;
 	// biome-ignore lint/suspicious/noExplicitAny: googleapis type resolved lazily
 	getGmail(): Promise<any>;
 	isConnected(): boolean;
@@ -86,17 +92,36 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			credentialsPath,
 		});
 
-	function saveToken(
-		clientId: string,
-		clientSecret: string,
-		refreshToken: string,
-	): void {
-		const payload = JSON.stringify({
-			type: "authorized_user",
-			client_id: clientId,
-			client_secret: clientSecret,
-			refresh_token: refreshToken,
-		});
+	// Pending OAuth state nonces — used to bind a browser session to its callback.
+	// Without this, anyone who can reach `/auth/google/callback` (e.g. via DNS
+	// rebinding or a top-level navigation from a hostile site) could swap in a
+	// different account's authorization code.
+	const pendingStates = new Map<string, number>();
+	function newState(): string {
+		const s = randomBytes(32).toString("base64url");
+		pendingStates.set(s, Date.now() + STATE_TTL_MS);
+		// Lazy GC of expired entries.
+		const now = Date.now();
+		for (const [k, t] of pendingStates) {
+			if (t < now) pendingStates.delete(k);
+		}
+		return s;
+	}
+	function consumeState(s: string): boolean {
+		const t = pendingStates.get(s);
+		if (!t || t < Date.now()) {
+			pendingStates.delete(s);
+			return false;
+		}
+		pendingStates.delete(s);
+		return true;
+	}
+
+	function saveToken(refreshToken: string): void {
+		// Only the refresh token is persisted; client_id/client_secret stay in
+		// env or the credentials file. This keeps `google-token.json` from
+		// being a one-stop credential dump if the data dir leaks.
+		const payload = JSON.stringify({ refresh_token: refreshToken });
 		const tmpPath = `${tokenPath}.tmp`;
 		writeFileSync(tmpPath, payload, { mode: 0o600 });
 		renameSync(tmpPath, tokenPath);
@@ -106,9 +131,27 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		async tryRestore() {
 			if (connected) return true;
 			if (!existsSync(tokenPath)) return false;
+			let data: unknown;
+			try {
+				data = JSON.parse(readFileSync(tokenPath, "utf-8"));
+			} catch {
+				return false;
+			}
+			const refreshToken =
+				data &&
+				typeof data === "object" &&
+				typeof (data as { refresh_token?: unknown }).refresh_token === "string"
+					? (data as { refresh_token: string }).refresh_token
+					: null;
+			if (!refreshToken) return false;
 			const { google } = await import("googleapis");
-			const data = JSON.parse(readFileSync(tokenPath, "utf-8"));
-			auth = google.auth.fromJSON(data);
+			const creds = resolveCreds();
+			const oauth2 = new google.auth.OAuth2(
+				creds.client_id,
+				creds.client_secret,
+			);
+			oauth2.setCredentials({ refresh_token: refreshToken });
+			auth = oauth2;
 			connected = true;
 			return true;
 		},
@@ -125,6 +168,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 				access_type: "offline",
 				scope: SCOPES,
 				prompt: "consent",
+				state: newState(),
 			});
 		},
 
@@ -146,7 +190,12 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			});
 		},
 
-		async handleCallback(code: string, redirectUri: string) {
+		async handleCallback(code: string, state: string, redirectUri: string) {
+			if (!consumeState(state)) {
+				throw new Error(
+					"Invalid or expired OAuth state — restart the connect flow",
+				);
+			}
 			const { google } = await import("googleapis");
 			const creds = resolveCreds();
 			const oauth2 = new google.auth.OAuth2(
@@ -157,7 +206,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			const { tokens } = await oauth2.getToken(code);
 			oauth2.setCredentials(tokens);
 			if (tokens.refresh_token) {
-				saveToken(creds.client_id, creds.client_secret, tokens.refresh_token);
+				saveToken(tokens.refresh_token);
 			}
 			auth = oauth2;
 			connected = true;

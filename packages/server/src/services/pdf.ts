@@ -16,7 +16,9 @@
  */
 
 import { parseCharteVars } from "../lib/charte-css.js";
+import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
+import { installNetworkGuard } from "../lib/page-network-guard.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
@@ -99,6 +101,7 @@ export function createPdfService(
 			const b = await pool.get();
 			const p = await b.newPage();
 			try {
+				await installNetworkGuard(p, "offline");
 				await p.setContent(fullHtml, { waitUntil: "networkidle0" });
 				await p.evaluate(() => document.fonts.ready);
 				const pdfBuffer = await p.pdf({
@@ -170,16 +173,18 @@ export function buildPrintHtml(
 		)
 		.join("\n");
 
+	const safeBg = escapeCssValue(bg || "#ffffff");
+	const safeCharteCss = stripStyleClose(charteCss);
 	return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
-  ${charteCss}
+  ${safeCharteCss}
   @page { size: ${w}mm ${h}mm; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   body { margin: 0; padding: 0; }
-  .page { width: ${w}mm; height: ${h}mm; background: ${bg || "#ffffff"}; position: relative; overflow: hidden; }
+  .page { width: ${w}mm; height: ${h}mm; background: ${safeBg}; position: relative; overflow: hidden; }
 </style>
 </head>
 <body>${pagesHtml}</body>

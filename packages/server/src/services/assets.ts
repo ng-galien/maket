@@ -20,6 +20,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
+import { assertSafeUrl, boundedFetch } from "../lib/safe-fetch.js";
 
 const MIME_MAP: Record<string, string> = {
 	".png": "image/png",
@@ -148,12 +149,8 @@ export function createAssetsService(
 					`Asset "${dest}" already exists. Use overwrite to replace.`,
 				);
 			}
-			const response = await fetch(url);
-			if (!response.ok)
-				throw new Error(
-					`Download failed: ${response.status} ${response.statusText}`,
-				);
-			const buffer = Buffer.from(await response.arrayBuffer());
+			await assertSafeUrl(url);
+			const buffer = await boundedFetch(url);
 			writeFileSync(absDest, buffer);
 		},
 
@@ -262,6 +259,24 @@ export function createAssetsService(
 						return {
 							valid: false,
 							reason: "Not a valid SVG (missing <?xml or <svg)",
+						};
+					}
+					// SVG can carry executable content (script tags, on* handlers,
+					// javascript: hrefs). When the SVG is later inlined via
+					// dangerouslySetInnerHTML or rendered by puppeteer with
+					// network access, that content runs. Reject anything that
+					// smells executable rather than try to sanitise.
+					const body = readFileSync(abs, "utf8");
+					const dangerous =
+						/<script[\s>]/i.test(body) ||
+						/\son[a-z]+\s*=/i.test(body) ||
+						/javascript:/i.test(body) ||
+						/<foreignobject[\s>]/i.test(body);
+					if (dangerous) {
+						return {
+							valid: false,
+							reason:
+								"SVG contains active content (<script>, on* handler, javascript: URL, or <foreignObject>) — refused.",
 						};
 					}
 					return { valid: true };

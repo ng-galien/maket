@@ -4,7 +4,14 @@
  * (gzipped JSON bundle with documents + referenced chartes).
  */
 
-import { Router as createRouter, type Router } from "express";
+import {
+	Router as createRouter,
+	type NextFunction,
+	type Request,
+	type Response,
+	type Router,
+} from "express";
+import { isLoopbackReferer } from "../lib/local-origin.js";
 import {
 	bundleFilename,
 	decodeBundle,
@@ -33,6 +40,27 @@ function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
 }
 
+/**
+ * Reject browser-initiated requests whose Referer points outside loopback.
+ * The global Origin/Host middleware already blocks XHR/fetch from any other
+ * origin, but a top-level navigation (`window.open`, `location.href`) carries
+ * no Origin header — only Referer. This guard catches that vector.
+ *
+ * Native HTTP clients (curl, the MCP bridge) send neither header and pass.
+ */
+function requireBrowserContextLoopback(
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): void {
+	const referer = req.headers.referer;
+	if (referer && !isLoopbackReferer(referer)) {
+		res.status(403).end();
+		return;
+	}
+	next();
+}
+
 export function createExportRouter({
 	documents,
 	pdfService,
@@ -40,6 +68,10 @@ export function createExportRouter({
 	bus,
 }: ExportRouterDeps): Router {
 	const router = createRouter();
+
+	// All export endpoints leak document data — gate them behind the Referer
+	// check so a hostile site can't drive a top-level navigation.
+	router.use(requireBrowserContextLoopback);
 
 	// Print-ready HTML — opens in the user's browser, auto-triggers print dialog.
 	router.get("/print", async (req, res) => {

@@ -32,6 +32,9 @@ export interface Config {
 	DB_PATH: string;
 	/** HTTP/WS port. */
 	PORT: number;
+	/** HTTP/WS bind address. Defaults to 127.0.0.1; set MAKET_BIND_HOST=0.0.0.0
+	 *  only if you intentionally want to expose Maket on the LAN. */
+	HOST: string;
 	/** Application name shown in UI. */
 	APP_TITLE: string;
 	/** Application subtitle shown in UI (may be empty). */
@@ -71,6 +74,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 
 	const portRaw = env.MAKET_PORT;
 	const PORT = portRaw ? Number(portRaw) : DEFAULT_PORT;
+	const HOST = env.MAKET_BIND_HOST || "127.0.0.1";
 
 	const APP_TITLE = env.MAKET_TITLE || "Maket";
 	const APP_SUBTITLE = env.MAKET_SUBTITLE || "";
@@ -86,6 +90,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 		EXPORTS_DIR,
 		DB_PATH,
 		PORT,
+		HOST,
 		APP_TITLE,
 		APP_SUBTITLE,
 	};

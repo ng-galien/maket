@@ -16,6 +16,7 @@ import express from "express";
 import { WebSocketServer } from "ws";
 import { createAppContainer } from "./src/bootstrap.js";
 import { registerToolPacks } from "./src/core/tool-pack-registry.js";
+import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
 import type { Bus } from "./src/services/bus.js";
 import type { Config } from "./src/services/config.js";
@@ -240,9 +241,27 @@ process.on("exit", (code) => {
 // ============================================================
 // WEB + WS SERVER
 // ============================================================
-const { COMPILED, PACKAGED, PACKAGE_DIR, PUBLIC_DIR, PORT } = config;
+const { COMPILED, PACKAGED, PACKAGE_DIR, PUBLIC_DIR, PORT, HOST } = config;
 const app = express();
+app.disable("x-powered-by");
 app.use(express.json());
+
+// Origin / Host guard — first line of defence against CSRF from any visited
+// site and against DNS-rebinding attacks. The whole product is local-only;
+// any request whose Host header isn't loopback, or whose Origin (when present)
+// isn't loopback, is hostile by definition.
+app.use((req, res, next) => {
+	if (!isLoopbackHost(req.headers.host)) {
+		res.status(403).end();
+		return;
+	}
+	const origin = req.headers.origin;
+	if (origin && !isLoopbackOrigin(origin)) {
+		res.status(403).end();
+		return;
+	}
+	next();
+});
 
 // CSP: block inline scripts to mitigate XSS in dangerouslySetInnerHTML canvas
 app.use((_req, res, next) => {
@@ -262,7 +281,23 @@ mountRoutes(app, appContainer);
 app.use(express.static(PUBLIC_DIR, { maxAge: "1d" }));
 
 const http = createServer(app);
-const wss = new WebSocketServer({ server: http });
+const wss = new WebSocketServer({
+	server: http,
+	verifyClient: ({ req }, cb) => {
+		// Same loopback gate as the HTTP middleware — browsers do not enforce
+		// same-origin on WebSocket handshakes, so we have to.
+		if (!isLoopbackHost(req.headers.host)) {
+			cb(false, 403, "Forbidden");
+			return;
+		}
+		const origin = req.headers.origin;
+		if (origin && !isLoopbackOrigin(origin)) {
+			cb(false, 403, "Forbidden");
+			return;
+		}
+		cb(true);
+	},
+});
 
 wss.on("connection", (ws) => {
 	wsRegistry.add(ws as unknown as WsLike);
@@ -290,19 +325,19 @@ wss.on("connection", (ws) => {
 function onListening() {
 	const addr = http.address();
 	const actualPort = typeof addr === "object" && addr ? addr.port : PORT;
-	log(`[boot] HTTP listening on port ${actualPort}`);
-	log(`Maket: http://maket.127.0.0.1.nip.io:${actualPort}`);
+	log(`[boot] HTTP listening on ${HOST}:${actualPort}`);
+	log(`Maket: http://localhost:${actualPort}`);
 }
 // biome-ignore lint/suspicious/noExplicitAny: error shape varies
 http.on("error", (err: any) => {
 	if (err.code === "EADDRINUSE") {
 		log(`Port ${PORT} in use, using random port...`);
-		http.listen(0, onListening);
+		http.listen(0, HOST, onListening);
 	} else {
 		log(`[boot] HTTP error: ${err.code || err.message}`);
 	}
 });
-http.listen(PORT, onListening);
+http.listen(PORT, HOST, onListening);
 
 // Dev-only: watch public/ → live reload browsers when client build completes
 if (!COMPILED && !PACKAGED && existsSync(join(PACKAGE_DIR, "public"))) {

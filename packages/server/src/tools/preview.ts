@@ -15,6 +15,8 @@ import puppeteer from "puppeteer";
 import { z } from "zod";
 import type { ToolHandler, ToolResult } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
+import { installNetworkGuard } from "../lib/page-network-guard.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import { text } from "./_helpers.js";
@@ -112,10 +114,12 @@ async function runSnapshot(
 
 	const { w, h } = d.canvas;
 	const charteCss = documents.charteCss(d);
+	const safeCharteCss = stripStyleClose(charteCss);
+	const safeBg = escapeCssValue(d.canvas.bg || "#ffffff");
 	const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-  ${charteCss}
+  ${safeCharteCss}
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; }
+  body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
   </style></head><body>${resolvedHtml}</body></html>`;
 
 	const scale = 3.78;
@@ -125,6 +129,7 @@ async function runSnapshot(
 	});
 	try {
 		const p = await browser.newPage();
+		await installNetworkGuard(p, "localhost-only");
 		await p.setViewport({
 			width: Math.ceil(w * scale),
 			height: Math.ceil(h * scale),

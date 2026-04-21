@@ -24,6 +24,8 @@
 import { parseHTML } from "linkedom";
 import puppeteer, { type Browser } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
+import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
+import { installNetworkGuard } from "../lib/page-network-guard.js";
 import type { Document } from "../types.js";
 import type { Documents } from "./documents.js";
 import type { WsRegistry } from "./ws-registry.js";
@@ -100,19 +102,22 @@ export function createLayoutService(
 				"/assets/",
 				`${getAssetBaseUrl()}/assets/`,
 			);
+			const safeBg = escapeCssValue(bg || "#ffffff");
+			const safeCharteCss = stripStyleClose(charteCss);
 			const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
-${charteCss}
+${safeCharteCss}
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${bg || "#ffffff"}; }
+body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
 </style>
 </head>
 <body>${html}</body>
 </html>`;
 			const scale = 96 / 25.4;
+			await installNetworkGuard(page, "localhost-only");
 			await page.setViewport({
 				width: Math.ceil(w * scale),
 				height: Math.ceil(h * scale),
