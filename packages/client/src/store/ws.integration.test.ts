@@ -88,6 +88,16 @@ async function freshWsModule() {
 	return { ...ws, useStore: store.useStore };
 }
 
+async function freshWsModuleWithZoomSpies() {
+	vi.resetModules();
+	const fitToDoc = vi.fn();
+	const fitToView = vi.fn();
+	vi.doMock("./zoomBridge", () => ({ fitToDoc, fitToView }));
+	const store = await import("./useStore");
+	const ws = await import("./ws");
+	return { ...ws, useStore: store.useStore, fitToDoc, fitToView };
+}
+
 beforeEach(() => {
 	MockWebSocket.instances.length = 0;
 	vi.stubGlobal("WebSocket", MockWebSocket);
@@ -381,5 +391,45 @@ describe("assets_changed", () => {
 		MockWebSocket.last().emit({ type: "assets_changed" });
 		window.removeEventListener("assets-changed", listener);
 		expect(listener).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("activity", () => {
+	it("renders a translated activity bubble in the DOM", async () => {
+		localStorage.setItem("maket-lang", "fr");
+		const { initWs } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "activity",
+			key: "bubble_maket_html_set",
+			params: { count: "2" },
+			icon: "file-pen",
+		});
+
+		expect(document.body.textContent).toContain("Page composée");
+		expect(document.body.textContent).toContain("2 éléments");
+		expect(document.querySelector("svg")).not.toBeNull();
+
+		document.body.innerHTML = "";
+	});
+});
+
+describe("fit_view", () => {
+	it("delegates to fitToView on the next animation frame", async () => {
+		const raf = vi.fn((cb: FrameRequestCallback) => {
+			cb(0);
+			return 1;
+		});
+		vi.stubGlobal("requestAnimationFrame", raf);
+		const { initWs, fitToView } = await freshWsModuleWithZoomSpies();
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({ type: "fit_view" });
+
+		expect(raf).toHaveBeenCalled();
+		expect(fitToView).toHaveBeenCalledOnce();
 	});
 });

@@ -1,22 +1,113 @@
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
+import * as ws from "../store/ws";
 import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 
 // Silence PageCanvas's verbose console.log during tests.
 beforeEach(() => {
+	vi.useFakeTimers();
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
+	vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
+		setTimeout(() => cb(0), 0);
+		return 1;
+	});
 });
 
 afterEach(() => {
 	cleanup();
+	vi.runOnlyPendingTimers();
+	vi.useRealTimers();
 	useStore.setState({
 		pending: [],
 		editingElementId: null,
 		selectedIds: [],
 		showPopover: false,
+	});
+});
+
+describe("PageCanvas toolbar interactions", () => {
+	it("selects an element and shows the toolbar", async () => {
+		render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">Editable</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		const target = document.querySelector('[data-id="a"]') as HTMLElement;
+		await act(async () => {
+			fireEvent.click(target);
+		});
+		expect(useStore.getState().selectedIds).toEqual(["a"]);
+		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+		expect(target.classList.contains("selected")).toBe(true);
+	});
+
+	it("shows comment-only toolbar for non-editable elements", async () => {
+		render(
+			<PageCanvas
+				doc={makeDoc('<img data-id="hero" src="/assets/photo.jpg" />')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(
+				document.querySelector('[data-id="hero"]') as HTMLElement,
+			);
+		});
+
+		expect(document.querySelector(".tb-comment")).not.toBeNull();
+		expect(document.querySelector(".tb-edit")).toBeNull();
+	});
+
+	it("dismisses the toolbar when clicking outside the canvas", async () => {
+		render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">Editable</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+
+		await act(async () => {
+			fireEvent.click(document.body);
+		});
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+	});
+
+	it("comment action opens the popover state for the selected element", async () => {
+		render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">Editable</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		await act(async () => {
+			fireEvent.click(document.querySelector(".tb-comment") as HTMLElement);
+		});
+
+		expect(useStore.getState().showPopover).toBe(true);
+		expect(useStore.getState().selectedIds).toEqual(["a"]);
 	});
 });
 
@@ -235,6 +326,130 @@ describe("PageCanvas pending flags", () => {
 });
 
 describe("PageCanvas edit mode", () => {
+	it("starts inline editing from the toolbar for editable elements", async () => {
+		render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">original</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		await act(async () => {
+			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+		});
+		await act(async () => {
+			vi.runAllTimers();
+		});
+
+		expect(useStore.getState().editingElementId).toBe("a");
+		expect(
+			document.querySelector(".page-canvas")?.classList.contains("is-editing"),
+		).toBe(true);
+	});
+
+	it("Escape cancels editing and restores the original html", async () => {
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">original</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		await act(async () => {
+			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+		});
+		await act(async () => {
+			vi.runAllTimers();
+		});
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+		target.innerHTML = "<strong>mutated</strong>";
+
+		await act(async () => {
+			fireEvent.keyDown(target, { key: "Escape" });
+		});
+
+		expect(target.innerHTML).toBe("original");
+		expect(useStore.getState().editingElementId).toBeNull();
+	});
+
+	it("blur with unchanged html exits edit mode without sending a patch", async () => {
+		const sendTextEdit = vi.spyOn(ws, "sendTextEdit");
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">original</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		await act(async () => {
+			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+		});
+		await act(async () => {
+			vi.runAllTimers();
+		});
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+
+		await act(async () => {
+			fireEvent.blur(target);
+		});
+
+		expect(sendTextEdit).not.toHaveBeenCalled();
+		expect(useStore.getState().editingElementId).toBeNull();
+	});
+
+	it("blur with changed html sends a text edit for the current doc/page/id", async () => {
+		const sendTextEdit = vi
+			.spyOn(ws, "sendTextEdit")
+			.mockImplementation(() => {});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc('<p data-id="a">original</p>')}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
+		});
+		await act(async () => {
+			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+		});
+		await act(async () => {
+			vi.runAllTimers();
+		});
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+		target.innerHTML = "<em>changed</em>";
+
+		await act(async () => {
+			fireEvent.blur(target);
+		});
+
+		expect(sendTextEdit).toHaveBeenCalledWith(
+			"alpha",
+			0,
+			"a",
+			"<em>changed</em>",
+		);
+		expect(useStore.getState().editingElementId).toBe("a");
+	});
+
 	it("clears editingElementId when a server broadcast replaces the html", async () => {
 		const doc1 = makeDoc('<p data-id="a">original</p>');
 		const { rerender } = render(

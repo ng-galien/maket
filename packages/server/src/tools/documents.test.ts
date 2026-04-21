@@ -19,7 +19,6 @@ function fixture() {
 	return { store, bus, documents, config, pending };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string, pageCount = 1) {
@@ -128,7 +127,6 @@ describe("maket_doc — action=list", () => {
 
 		const tool = createMaketDocTool({ bus, documents, store, config, pending });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const txt = (res.content[0] as any).text as string;
 		expect(txt).toMatch(/affiches \(2\)/);
 		expect(txt).toMatch(/tracts \(1\)/);
@@ -139,7 +137,6 @@ describe("maket_doc — action=list", () => {
 		const { store, bus, documents, config, pending } = fixture();
 		const tool = createMaketDocTool({ bus, documents, store, config, pending });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toBe("No documents.");
 		store.close();
 	});
@@ -212,7 +209,7 @@ describe("maket_doc — action=duplicate", () => {
 		const clone = documents.resolve("copy");
 		expect(clone?.pages).toHaveLength(2);
 		expect(clone?.meta.charte).toBe("brand");
-		if (clone) clone.pages[0]!.name = "mutated";
+		if (clone?.pages[0]) clone.pages[0].name = "mutated";
 		expect(documents.resolve("orig")?.pages[0]?.name).toBe("P1");
 		expect(created).toHaveBeenCalledWith({ docName: "copy" });
 		expect(store.loadOne("copy")?.name).toBe("copy");
@@ -434,7 +431,6 @@ describe("maket_doc — action=export / import", () => {
 				NO_EXTRA,
 			);
 			expect(exportRes.isError).toBeUndefined();
-			// biome-ignore lint/suspicious/noExplicitAny: content shape
 			const txt = (exportRes.content[0] as any).text as string;
 			const bundlePath = txt.match(/→ (\S+\.maket)/)?.[1];
 			expect(bundlePath).toBeDefined();
@@ -481,7 +477,6 @@ describe("maket_doc — action=export / import", () => {
 				{ action: "export", doc: "flyer" },
 				NO_EXTRA,
 			);
-			// biome-ignore lint/suspicious/noExplicitAny: content shape
 			const bundlePath = ((exportRes.content[0] as any).text as string).match(
 				/→ (\S+\.maket)/,
 			)?.[1];
@@ -515,7 +510,6 @@ describe("maket_doc — action=export / import", () => {
 			});
 			const exportRes = await tool.handler({ action: "export" }, NO_EXTRA);
 			expect(exportRes.isError).toBeUndefined();
-			// biome-ignore lint/suspicious/noExplicitAny: content shape
 			const txt = (exportRes.content[0] as any).text as string;
 			expect(txt).toMatch(/Exported 2 document/);
 			store.close();

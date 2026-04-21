@@ -61,6 +61,14 @@ Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpe
 - Co-located: `foo.ts` + `foo.test.ts`. DB tests use `createSQLiteStore(":memory:")` — never touch the filesystem.
 - Coverage thresholds in `vitest.config.ts` (core 90 %, services 80 %).
 
+## Git flow & changelog
+
+- Feature branches only; `main` takes release commits directly (`chore(release): vX.Y.Z`).
+- No push or PR without explicit user go-ahead.
+- Conventional Commits. `npm run changelog:draft` groups commits since the last tag into an `[Unreleased]` draft — paste into `CHANGELOG.md`, cut the noise.
+- `CHANGELOG.md` follows Keep a Changelog 1.1.0 + a non-standard `Internal` bucket for CI/tests/cleanup.
+- Internal-only branches merge without a version bump. Release = runtime change: roll `[Unreleased]` → `[X.Y.Z]`, bump `package.json`, tag `vX.Y.Z`.
+
 ## Dev flow gotchas
 
 - **Pre-commit hooks** — lefthook runs biome + typecheck + vitest. All three must pass before a commit lands.

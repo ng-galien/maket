@@ -24,7 +24,6 @@ export type ToolResult = CallToolResult;
 export interface ToolMetadata {
 	name: string;
 	description: string;
-	// biome-ignore lint/suspicious/noExplicitAny: Zod shape is structural
 	schema: z.ZodObject<any>;
 }
 

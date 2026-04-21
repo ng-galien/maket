@@ -53,7 +53,6 @@ const URL_ATTRS = new Set([
 ]);
 
 /** Scrub every `on*` event-handler attribute and `javascript:` URL on a node. */
-// biome-ignore lint/suspicious/noExplicitAny: linkedom Element type is structural
 function scrubAttributes(el: any): void {
 	if (!el || !el.attributes) return;
 	const attrs = Array.from(el.attributes) as { name: string; value: string }[];

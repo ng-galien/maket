@@ -150,7 +150,6 @@ describe("registerToolPacks", () => {
 			id: "broken",
 			name: "Broken",
 			declaresTools: ["maket_doc_typo"],
-			// biome-ignore lint/suspicious/noEmptyBlockStatements: intentional no-op
 			register() {},
 		};
 		expect(() =>

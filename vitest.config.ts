@@ -3,5 +3,15 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: ["packages/server", "packages/client", "packages/stdio-bridge"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "clover", "json-summary"],
+      thresholds: {
+        statements: 78,
+        branches: 63,
+        functions: 80,
+        lines: 80,
+      },
+    },
   },
 });

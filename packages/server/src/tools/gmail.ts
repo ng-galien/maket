@@ -32,7 +32,6 @@ export interface GmailDeps {
 	assets: AssetsService;
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: googleapis payload shapes are loose
 type GmailPayload = any;
 
 const ActionSchema = z.enum(["connect", "search", "read", "draft"]);

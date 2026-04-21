@@ -63,7 +63,6 @@ export interface GmailClient {
 		state: string,
 		redirectUri: string,
 	): Promise<string>;
-	// biome-ignore lint/suspicious/noExplicitAny: googleapis type resolved lazily
 	getGmail(): Promise<any>;
 	isConnected(): boolean;
 }
@@ -78,7 +77,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 	const credentialsPath = join(inputs.dataDir, "google-credentials.json");
 	const tokenPath = join(inputs.dataDir, "google-token.json");
 
-	// biome-ignore lint/suspicious/noExplicitAny: OAuth2 client typed lazily
 	let auth: any = null;
 	let connected = false;
 	let pendingResolve: (() => void) | null = null;
@@ -238,7 +236,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 	};
 
 	// Testing hatch — exposed as `any` for unit tests, never used in production.
-	// biome-ignore lint/suspicious/noExplicitAny: test-only probe
 	(client as any)._testForceConnected = () => {
 		connected = true;
 	};

@@ -12,7 +12,6 @@ function fixture() {
 	return { store, bus, documents };
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 function makeDoc(name: string, pageCount = 1) {
@@ -228,7 +227,6 @@ describe("maket_page — action=list", () => {
 
 		const tool = createMaketPageTool({ bus, documents });
 		const res = await tool.handler({ action: "list", doc: "d" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/3 pages:/);
 		expect(text).toMatch(/2\. P2 \(0 elements\) ●/);

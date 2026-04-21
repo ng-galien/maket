@@ -37,7 +37,6 @@ describe("mountTools", () => {
 		});
 		const server = makeServer();
 
-		// biome-ignore lint/suspicious/noExplicitAny: stub doesn't need full SDK typing
 		mountTools(server as any, container);
 
 		expect(server.tool).toHaveBeenCalledTimes(2);
@@ -53,7 +52,6 @@ describe("mountTools", () => {
 		});
 		const server = makeServer();
 
-		// biome-ignore lint/suspicious/noExplicitAny: stub doesn't need full SDK typing
 		mountTools(server as any, container);
 
 		const [name, desc, shape, cb] = server.tool.mock.calls[0] ?? [];
@@ -71,7 +69,6 @@ describe("mountTools", () => {
 		});
 		const server = makeServer();
 
-		// biome-ignore lint/suspicious/noExplicitAny: stub doesn't need full SDK typing
 		mountTools(server as any, container);
 		const cb = server.tool.mock.calls[0]?.[3] as (
 			args: Record<string, unknown>,
@@ -90,7 +87,6 @@ describe("mountTools", () => {
 		});
 		const server = makeServer();
 
-		// biome-ignore lint/suspicious/noExplicitAny: stub doesn't need full SDK typing
 		mountTools(server as any, container);
 		expect(server.tool).not.toHaveBeenCalled(); // empty registry → no mounts
 	});

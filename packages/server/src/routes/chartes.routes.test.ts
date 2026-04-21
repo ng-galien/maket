@@ -1,6 +1,6 @@
-import type { AddressInfo } from "node:net";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { startTestApp } from "../../tests/helpers.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import { createChartesRouter } from "./chartes.routes.js";
 
@@ -13,17 +13,7 @@ describe("chartes routes", () => {
 		store = createSQLiteStore(":memory:");
 		const app = express();
 		app.use(createChartesRouter({ store }));
-		const server = await new Promise<ReturnType<typeof app.listen>>(
-			(resolve) => {
-				const s = app.listen(0, () => resolve(s));
-			},
-		);
-		const port = (server.address() as AddressInfo).port;
-		baseUrl = `http://127.0.0.1:${port}`;
-		close = () =>
-			new Promise((resolve, reject) =>
-				server.close((err) => (err ? reject(err) : resolve())),
-			);
+		({ baseUrl, close } = await startTestApp(app));
 	});
 
 	afterEach(async () => {

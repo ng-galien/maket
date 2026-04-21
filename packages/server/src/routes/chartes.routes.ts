@@ -23,7 +23,6 @@ export function createChartesRouter({ store }: ChartesRouterDeps): Router {
 		(_req, res: Response<ChartesListResponse | HttpErrorResponse>) => {
 			try {
 				res.json(store.loadAllChartes());
-				// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 			} catch (e: any) {
 				res.status(500).json({ error: e.message });
 			}
@@ -35,7 +34,6 @@ export function createChartesRouter({ store }: ChartesRouterDeps): Router {
 			const charte = store.loadCharte(req.params.name);
 			if (!charte) return res.status(404).json({ error: "Charte not found" });
 			res.json(charte);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			res.status(500).json({ error: e.message });
 		}

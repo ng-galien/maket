@@ -9,5 +9,4 @@
  * other global state — keep this file cheap.
  */
 
-// biome-ignore lint/correctness/noNodejsModules: setup runs in node env
 await import("jimp");

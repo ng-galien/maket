@@ -23,7 +23,6 @@ function fixture() {
 	};
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: ToolExtra is opaque for tests
 const NO_EXTRA = {} as any;
 
 describe("chartesPack — registration", () => {
@@ -40,7 +39,6 @@ describe("maket_charte — action=list", () => {
 		const { store, bus, assets, cleanup } = fixture();
 		const tool = createMaketCharteTool({ store, bus, assets });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		expect((res.content[0] as any).text).toMatch(/No chartes/);
 		cleanup();
 	});
@@ -54,7 +52,6 @@ describe("maket_charte — action=list", () => {
 		});
 		const tool = createMaketCharteTool({ store, bus, assets });
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/brand/);
 		expect(text).toMatch(/primary:#ff0/);
@@ -89,7 +86,6 @@ describe("maket_charte — action=view", () => {
 		});
 		const tool = createMaketCharteTool({ store, bus, assets });
 		const res = await tool.handler({ action: "view", name: "full" }, NO_EXTRA);
-		// biome-ignore lint/suspicious/noExplicitAny: content shape
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/COLOR/);
 		expect(text).toMatch(/SPACING/);
@@ -120,7 +116,6 @@ describe("maket_charte — action=set", () => {
 		expect(listener).toHaveBeenCalledWith(
 			expect.objectContaining({ name: "primary" }),
 		);
-		// biome-ignore lint/suspicious/noExplicitAny: event payload shape
 		const css = listener.mock.calls[0]?.[0] as any;
 		expect(css.css).toMatch(/--charte-color-brand: #112233/);
 		cleanup();
