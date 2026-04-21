@@ -113,6 +113,10 @@ export interface DocSummary {
 	 * `primary` is missing), returned so the UI can render a tiny dot without
 	 * a second round-trip. Omitted when the doc has no charte. */
 	charteColor?: string;
+	/** Gmail deep link to the draft this doc is part of — surfaced in the
+	 * sidebar + workspace label when present. */
+	emailDraftUrl?: string;
+	emailDraftRole?: "body" | "attachment";
 }
 
 // ---- Charte graphique ----

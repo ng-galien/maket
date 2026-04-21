@@ -27,6 +27,7 @@ import {
 	sendRenameDoc,
 	wsSend,
 } from "../store/ws";
+import { DraftPill } from "./shared/DraftPill";
 import { HoldToDelete } from "./shared/HoldToDelete";
 
 const DRAG_MIME = "application/x-maket-doc";
@@ -1049,6 +1050,14 @@ function DocCard({
 							{(doc.rating ?? 0) > 0 && (
 								<span className="text-amber-500">★{doc.rating}</span>
 							)}
+							{doc.emailDraftUrl && (
+								<span className="ml-auto">
+									<DraftPill
+										kind={doc.emailDraftRole ?? "body"}
+										url={doc.emailDraftUrl}
+									/>
+								</span>
+							)}
 						</div>
 					</div>
 					<button
@@ -1205,9 +1214,17 @@ function DocRow({
 									<span className="tabular-nums">{doc.rating}</span>
 								</span>
 							)}
+							{doc.emailDraftUrl && (
+								<span className="ml-auto">
+									<DraftPill
+										kind={doc.emailDraftRole ?? "body"}
+										url={doc.emailDraftUrl}
+									/>
+								</span>
+							)}
 							{doc.updatedAt && (
 								<span
-									className="ml-auto text-text-3/80 tabular-nums"
+									className={`${doc.emailDraftUrl ? "" : "ml-auto"} text-text-3/80 tabular-nums`}
 									title={doc.updatedAt}
 								>
 									{relativeTime(doc.updatedAt, navigator.language)}
