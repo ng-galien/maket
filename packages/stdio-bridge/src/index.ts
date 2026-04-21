@@ -1,90 +1,114 @@
 #!/usr/bin/env node
 
 /**
- * @maket/stdio-bridge — launches/reuses a Maket HTTP server and proxies
- * Claude Desktop's stdio JSON-RPC to it.
+ * @ng-galien/maket — bin entry.
  *
- * Behavior:
- *  1. Probe TCP on MAKET_PORT (default 24842). If reachable, proxy.
- *  2. If not, spawn a detached server with MAKET_PORT + MAKET_DATA_DIR env,
- *     wait for it to listen, then proxy.
- *  3. Exits with stdin close; does not kill the server on exit.
+ * Two roles in one binary:
  *
- * Env contract:
- *  - MAKET_PORT (default 24842)
- *  - MAKET_HOST (default 127.0.0.1)
- *  - MAKET_DATA_DIR (default ~/.maket)
- *  - MAKET_SERVER_ENTRY (preferred): absolute path to the server JS — spawned
- *    as `[process.execPath, entry]`. Space-safe.
- *  - MAKET_SERVER_CMD (legacy): shell-split on space — avoid when paths may
- *    contain spaces (e.g. Claude Desktop extension dir).
+ *  1. **stdio MCP bridge** — when invoked with no args (the way an MCP client
+ *     spawns us), proxy stdio JSON-RPC to a local Maket HTTP server, spawning
+ *     one if needed. This is the historical contract used by Claude Desktop,
+ *     Codex, and friends.
+ *  2. **CLI** — when invoked with a known subcommand (start, stop, status,
+ *     install, …), dispatch and exit. Lets users manage the server and wire
+ *     it into MCP clients without leaving the terminal.
+ *
+ * The router treats unknown args as "probably bridge mode misuse" and prints
+ * help — but a stdin pipe always wins (some clients pass extra argv).
+ *
+ * Env contract (bridge mode):
+ *   MAKET_PORT (default 24842) · MAKET_HOST (default 127.0.0.1)
+ *   MAKET_DATA_DIR (default ~/.maket)
+ *   MAKET_SERVER_ENTRY: absolute path to compiled server JS (preferred)
+ *   MAKET_SERVER_CMD: legacy space-split spawn command
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { createJsonRpcProxy } from "./proxy.ts";
-import { ensureServer } from "./spawn.ts";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { runBridge } from "./commands/bridge.ts";
+import { runHelp } from "./commands/help.ts";
+import { runInstall } from "./commands/install.ts";
+import { runLogs } from "./commands/logs.ts";
+import { runOpen } from "./commands/open.ts";
+import { runStart } from "./commands/start.ts";
+import { runStatus } from "./commands/status.ts";
+import { runStop } from "./commands/stop.ts";
 
-function resolveServerCmd(): string[] | undefined {
-	if (process.env.MAKET_SERVER_ENTRY) {
-		return [process.execPath, process.env.MAKET_SERVER_ENTRY];
-	}
-	if (process.env.MAKET_SERVER_CMD) {
-		return process.env.MAKET_SERVER_CMD.split(" ").filter(Boolean);
-	}
-	return undefined;
-}
-
-async function main(): Promise<void> {
-	const port = Number(process.env.MAKET_PORT ?? 24842);
-	const host = process.env.MAKET_HOST ?? "127.0.0.1";
-	const dataDir = process.env.MAKET_DATA_DIR ?? join(homedir(), ".maket");
-	const cmd = resolveServerCmd();
-
-	const logPath = join(dataDir, "bridge.log");
-	const log = (msg: string) => {
-		const line = `${new Date().toISOString()} ${msg}\n`;
-		process.stderr.write(line);
+function readVersion(): string {
+	const here = dirname(fileURLToPath(import.meta.url));
+	// Bundle: package.json sibling. Dev: one level up from src/.
+	for (const candidate of [
+		join(here, "package.json"),
+		join(here, "..", "package.json"),
+	]) {
 		try {
-			mkdirSync(dataDir, { recursive: true });
-			appendFileSync(logPath, line);
+			const pkg = JSON.parse(readFileSync(candidate, "utf-8"));
+			if (pkg?.version) return pkg.version as string;
 		} catch {}
-	};
-
-	log(
-		`boot pid=${process.pid} port=${port} host=${host} dataDir=${dataDir} cmd=${cmd ? JSON.stringify(cmd) : "(default)"}`,
-	);
-
-	try {
-		const { started, alreadyRunning } = await ensureServer({
-			port,
-			host,
-			dataDir,
-			cmd,
-		});
-		log(`ensureServer ok started=${started} alreadyRunning=${alreadyRunning}`);
-	} catch (e) {
-		log(`fatal ensureServer: ${(e as Error).stack ?? (e as Error).message}`);
-		process.exit(1);
 	}
-
-	const proxy = createJsonRpcProxy({
-		url: `http://${host}:${port}/mcp`,
-		stdin: process.stdin,
-		stdout: process.stdout,
-		stderr: process.stderr,
-	});
-
-	process.on("SIGINT", () => proxy.stop());
-	process.on("SIGTERM", () => proxy.stop());
-	process.stdin.on("close", () => proxy.stop());
-
-	await proxy.done;
-	log("proxy.done (stdin closed); exiting");
+	return "unknown";
 }
 
-main().catch((e) => {
-	process.stderr.write(`[stdio-bridge] unhandled: ${(e as Error).stack}\n`);
+function printVersion(): void {
+	process.stdout.write(`${readVersion()}\n`);
+}
+
+async function dispatch(argv: string[]): Promise<void> {
+	const [cmd, ...rest] = argv;
+
+	// No args + non-TTY stdin = an MCP client just spawned us. Bridge mode.
+	if (!cmd) {
+		if (process.stdin.isTTY) {
+			runHelp();
+			return;
+		}
+		await runBridge();
+		return;
+	}
+
+	switch (cmd) {
+		case "bridge":
+			await runBridge();
+			return;
+		case "start":
+			await runStart();
+			return;
+		case "stop":
+			await runStop();
+			return;
+		case "status":
+			await runStatus();
+			return;
+		case "open":
+			runOpen();
+			return;
+		case "logs":
+			runLogs(rest);
+			return;
+		case "install":
+			runInstall(rest);
+			return;
+		case "version":
+		case "--version":
+		case "-v":
+			printVersion();
+			return;
+		case "help":
+		case "--help":
+		case "-h":
+			runHelp();
+			return;
+		default:
+			process.stderr.write(`maket: unknown command "${cmd}"\n\n`);
+			runHelp();
+			process.exitCode = 1;
+	}
+}
+
+dispatch(process.argv.slice(2)).catch((e) => {
+	process.stderr.write(
+		`maket: ${(e as Error).stack ?? (e as Error).message}\n`,
+	);
 	process.exit(1);
 });

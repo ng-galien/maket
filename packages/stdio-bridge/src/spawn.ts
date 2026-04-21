@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,8 @@ export interface EnsureServerOpts {
 	cmd?: string[];
 	/** Max total wait for readiness after spawn. */
 	readyTimeoutMs?: number;
+	/** Write the spawned PID to this file so `maket stop` can find it later. */
+	pidFile?: string;
 }
 
 /**
@@ -63,22 +65,31 @@ function isNonNodeHost(): boolean {
 /**
  * Resolve the default server spawn command.
  *
- * Walks up from this file to the monorepo root and targets
- * `packages/server/index.ts` via `npx tsx`. In a published `.mcpb` the entry
- * will be compiled JS — callers should then pass `cmd: [node, bundledJs]`.
+ * Three modes, in priority order:
+ *  1. **Packaged** — `server.js` sits next to the bin entry (the npm tarball
+ *     ships both). Run it directly with the host node — no tsx, no npx fetch.
+ *  2. **Workspace** — `@maket/server` resolves via Node's module algorithm
+ *     (works in the monorepo where workspaces symlink the package).
+ *  3. **Last-resort fallback** — climb two levels and look for
+ *     `server/index.ts`. Useful when called from oddly-nested layouts.
+ *
+ * Modes 2 and 3 use `npx tsx` because the source is TypeScript; mode 1 ships
+ * compiled JS so we save the cold-start cost.
  */
 export function defaultServerCmd(
 	fromFile = fileURLToPath(import.meta.url),
 ): string[] {
+	const sibling = resolve(dirname(fromFile), "server.js");
+	if (existsSync(sibling)) {
+		return [process.execPath, sibling];
+	}
+
 	const require = createRequire(fromFile);
-	// Resolve @maket/server's package.json to find its directory. Workspaces
-	// symlink it into node_modules; this works from any sibling package.
 	let serverEntry: string;
 	try {
 		const pkgJson = require.resolve("@maket/server/package.json");
 		serverEntry = resolve(dirname(pkgJson), "index.ts");
 	} catch {
-		// Fallback: climb to monorepo root from this file.
 		serverEntry = resolve(dirname(fromFile), "..", "..", "server", "index.ts");
 	}
 	return ["npx", "-y", "tsx", serverEntry];
@@ -87,6 +98,7 @@ export function defaultServerCmd(
 export async function ensureServer(opts: EnsureServerOpts): Promise<{
 	started: boolean;
 	alreadyRunning: boolean;
+	pid?: number;
 }> {
 	const { port, host = "127.0.0.1", dataDir } = opts;
 
@@ -143,5 +155,12 @@ export async function ensureServer(opts: EnsureServerOpts): Promise<{
 			`stdio-bridge: server did not become ready on ${host}:${port}`,
 		);
 	}
-	return { started: true, alreadyRunning: false };
+	if (opts.pidFile && child.pid) {
+		try {
+			writeFileSync(opts.pidFile, `${child.pid}\n`, "utf-8");
+		} catch {
+			// PID file is best-effort — failing to write it shouldn't break boot.
+		}
+	}
+	return { started: true, alreadyRunning: false, pid: child.pid };
 }
