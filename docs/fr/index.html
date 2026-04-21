@@ -58,7 +58,7 @@
       --ink-soft:  #415A77;
 
       /* Fluid type scale, clamped between phone and wide desktop */
-      --fs-kicker:  clamp(0.68rem, 0.64rem + 0.2vw, 0.78rem);
+      --fs-kicker:  clamp(0.85rem, 0.75rem + 0.4vw, 1.05rem);
       --fs-meta:    clamp(0.78rem, 0.74rem + 0.2vw, 0.88rem);
       --fs-body:    clamp(0.95rem, 0.9rem + 0.3vw, 1.05rem);
       --fs-lede:    clamp(1.1rem, 1rem + 0.6vw, 1.35rem);
@@ -108,11 +108,11 @@
     .kicker {
       display: inline-flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.8rem;
       font-family: "Inter", sans-serif;
       font-size: var(--fs-kicker);
       font-weight: 600;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
       color: var(--accent);
     }
@@ -120,7 +120,7 @@
        dimension lines. One decorative detail, done well. */
     .kicker::before {
       content: "";
-      width: 1.6rem;
+      width: 2rem;
       height: 1px;
       background: var(--accent);
       flex-shrink: 0;
@@ -135,12 +135,15 @@
     .shell {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 0 var(--rail);
+      /* `padding-inline` (not the `padding` shorthand) so this doesn't
+         clobber `section { padding-block }`. Sections also carry the
+         shell class — using `padding: 0 X` zeroed their vertical air. */
+      padding-inline: var(--rail);
     }
 
     section {
       position: relative;
-      padding-block: clamp(5rem, 3rem + 8vw, 10rem);
+      padding-block: clamp(4rem, 2.5rem + 5vw, 8rem);
       scroll-margin-top: 2rem;
     }
     section + section {
@@ -174,16 +177,19 @@
     }
     .nav__links {
       display: flex;
-      gap: clamp(1rem, 0.5rem + 2vw, 2.5rem);
+      gap: clamp(0.9rem, 0.5rem + 1.6vw, 2.5rem);
       font-size: var(--fs-kicker);
       font-weight: 500;
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--ink-soft);
+      align-items: baseline;
     }
     .nav__links a { transition: color 0.2s; }
     .nav__links a:hover { color: var(--accent); }
-    @media (max-width: 640px) { .nav__links { display: none; } }
+    /* Section anchors are nice on desktop but redundant on mobile —
+       you can scroll. Keep GitHub + language switcher always reachable. */
+    @media (max-width: 720px) { .nav__link--section { display: none; } }
 
     /* ─────────────────────────────────────────────────────────────
        HERO
@@ -316,8 +322,8 @@
     .shead {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 1.5rem;
-      margin-bottom: clamp(3rem, 2rem + 3vw, 5rem);
+      gap: 1.75rem;
+      margin-bottom: clamp(4rem, 2.5rem + 4vw, 6.5rem);
     }
     @media (min-width: 768px) {
       .shead { grid-template-columns: 1.1fr 1fr; gap: 3rem; align-items: start; }
@@ -345,12 +351,12 @@
        ───────────────────────────────────────────────────────────── */
     .docs-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: clamp(1rem, 0.5rem + 1.5vw, 1.75rem);
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: clamp(1.5rem, 0.75rem + 2vw, 2.5rem);
     }
     .doc {
       background: var(--bg);
-      padding: 1.25rem;
+      padding: 1.5rem;
       border: 1px solid rgba(11, 27, 42, 0.08);
       transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
     }
@@ -547,13 +553,13 @@
     }
     .steps {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: clamp(1.5rem, 1rem + 2vw, 3rem);
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: clamp(2rem, 1.25rem + 2.5vw, 3.5rem);
       position: relative;
       z-index: 1;
     }
     .step {
-      padding: 1.75rem 0;
+      padding: 2.25rem 0 0.5rem;
       border-top: 1px solid var(--primary);
       position: relative;
     }
@@ -563,7 +569,7 @@
       font-weight: 500;
       letter-spacing: 0.15em;
       color: var(--accent);
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: baseline;
@@ -578,14 +584,14 @@
       font-family: "Newsreader", serif;
       font-weight: 400;
       font-size: 1.65rem;
-      line-height: 1.15;
+      line-height: 1.2;
       color: var(--primary);
-      margin: 0 0 0.85rem;
+      margin: 0 0 1.1rem;
       letter-spacing: -0.015em;
     }
     .step__body {
       font-size: var(--fs-body);
-      line-height: 1.65;
+      line-height: 1.75;
       color: var(--ink-soft);
       margin: 0;
     }
@@ -595,14 +601,14 @@
        ───────────────────────────────────────────────────────────── */
     .features {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: clamp(1.25rem, 0.75rem + 1.5vw, 2rem);
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: clamp(1.75rem, 1rem + 2vw, 3rem);
     }
     .feat {
       display: grid;
       grid-template-columns: auto 1fr;
-      gap: 1.25rem;
-      padding: 1.5rem 0;
+      gap: 1.5rem;
+      padding: 2rem 0;
       border-top: 1px solid rgba(11, 27, 42, 0.08);
     }
     .feat__icon {
@@ -614,14 +620,14 @@
     .feat__body h3 {
       font-family: "Newsreader", serif;
       font-weight: 500;
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       color: var(--primary);
-      margin: 0 0 0.45rem;
+      margin: 0 0 0.65rem;
       letter-spacing: -0.01em;
     }
     .feat__body p {
       font-size: 0.95rem;
-      line-height: 1.55;
+      line-height: 1.7;
       color: var(--ink-soft);
       margin: 0;
     }
@@ -685,7 +691,7 @@
     .install {
       display: grid;
       grid-template-columns: 1fr;
-      gap: clamp(2rem, 1rem + 3vw, 3.5rem);
+      gap: clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
       align-items: start;
     }
     @media (min-width: 900px) {
@@ -694,9 +700,9 @@
     .install__note {
       font-size: var(--fs-body);
       color: var(--ink-soft);
-      line-height: 1.7;
+      line-height: 1.8;
     }
-    .install__note p { margin: 0 0 1rem; }
+    .install__note p { margin: 0 0 1.4rem; }
     .install__note a {
       color: var(--accent);
       border-bottom: 1px solid currentColor;
@@ -709,8 +715,8 @@
       color: #F7F9FC;
       font-family: "JetBrains Mono", monospace;
       font-size: 0.9rem;
-      line-height: 1.85;
-      padding: 1.5rem 1.75rem;
+      line-height: 2;
+      padding: 2rem 2.25rem;
       border-radius: 2px;
       position: relative;
       overflow-x: auto;
@@ -734,9 +740,9 @@
        FOOTER
        ───────────────────────────────────────────────────────────── */
     .foot {
-      padding: 3rem 0 4rem;
+      padding: 4.5rem 0 5rem;
       border-top: 1px solid var(--primary);
-      margin-top: 3rem;
+      margin-top: 4rem;
     }
     .foot__inner {
       display: flex;
@@ -787,10 +793,10 @@
     <div class="shell nav__inner">
       <a href="#" class="nav__brand">Maket<span class="dot">.</span></a>
       <nav class="nav__links" aria-label="Sections">
-        <a href="#surface">Surface</a>
-        <a href="#loop">Boucle</a>
-        <a href="#features">Capacités</a>
-        <a href="#install">Installer</a>
+        <a class="nav__link--section" href="#surface">Surface</a>
+        <a class="nav__link--section" href="#loop">Boucle</a>
+        <a class="nav__link--section" href="#features">Capacités</a>
+        <a class="nav__link--section" href="#install">Installer</a>
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
         <a href="../?lang=en" aria-label="English version" title="English version">EN</a>
       </nav>
@@ -805,7 +811,6 @@
 
       <div class="hero__top reveal">
         <span class="hero__slug">MAKET · UN OUTIL DE DESIGN VISUEL POUR VOTRE IA</span>
-        <span>v1.0 · 2026</span>
       </div>
 
       <div class="hero__body">
@@ -847,15 +852,15 @@
           <h2 class="shead__title">Tous les<br />types de docs<span class="dot">.</span></h2>
         </div>
         <p class="shead__lede">
-          Decks, brochures, maquettes UX, CV, affiches, rapports, doubles pages éditoriales, posts sociaux.
-          Si ça tient sur papier ou écran, Maket le compose.
+          Présentations, brochures, maquettes, CV, affiches, rapports, doubles pages
+          éditoriales, posts pour les réseaux sociaux. Tout ce qui tient sur papier ou sur écran.
         </p>
       </header>
 
       <div class="docs-grid">
         <article class="doc">
           <div class="doc__mini m-deck"><i class="bar-a"></i><i class="bar-t"></i><i class="bar-b"></i></div>
-          <div class="doc__label">Pitch deck</div>
+          <div class="doc__label">Présentation</div>
           <div class="doc__tag">A4 Paysage</div>
         </article>
         <article class="doc">
@@ -906,7 +911,7 @@
         </article>
         <article class="doc">
           <div class="doc__mini m-social"><i class="t"></i><i class="s"></i></div>
-          <div class="doc__label">Post social</div>
+          <div class="doc__label">Réseaux sociaux</div>
           <div class="doc__tag">Carré 1 : 1</div>
         </article>
       </div>
@@ -919,38 +924,40 @@
       <header class="shead">
         <div>
           <span class="kicker">Étape 02 · La boucle</span>
-          <h2 class="shead__title">Brief en entrée<span class="dot">,</span><br />HTML en sortie.</h2>
+          <h2 class="shead__title">Vous décrivez<span class="dot">,</span><br />Maket compose.</h2>
         </div>
         <p class="shead__lede">
-          Décrivez l'intention. L'agent lit votre charte, puise dans votre bibliothèque, écrit le HTML.
-          Chaque élément porte un <code style="font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:0.9em;">data-id</code>
-          pour que chaque itération reste chirurgicale.
+          Vous décrivez votre intention. L'IA lit la charte attachée au document, choisit
+          dans votre bibliothèque d'images, et compose la page. Vous corrigez ensuite ce
+          qui doit l'être.
         </p>
       </header>
 
       <ol class="steps" style="list-style:none;padding:0;margin:0;">
         <li class="step">
-          <div class="step__num"><span>01 · Votre charte</span></div>
-          <h3 class="step__title">Couleurs, polices, espacement — une seule source.</h3>
+          <div class="step__num"><span>01 · Vos chartes</span></div>
+          <h3 class="step__title">Une charte graphique par marque ou par projet.</h3>
           <p class="step__body">
-            Déclarez votre marque une fois. Maket injecte chaque token en variable CSS sur chaque page.
-            L'agent ne peut pas dériver ; vous ne pouvez pas oublier.
+            Une charte graphique réunit des couleurs, des polices, des espacements et
+            des ombres. Vous en créez autant que nécessaire — une par marque, par client
+            ou par campagne. Chaque document s'attache à une charte, et l'IA la respecte
+            à chaque itération.
           </p>
         </li>
         <li class="step">
-          <div class="step__num"><span>02 · Votre bibliothèque</span></div>
-          <h3 class="step__title">Assets taggés, cherchables par intention.</h3>
+          <div class="step__num"><span>02 · Vos images</span></div>
+          <h3 class="step__title">Une bibliothèque indexée par mots-clés.</h3>
           <p class="step__body">
-            Importez vos images avec tags et catégories. L'agent choisit selon le brief,
-            pas selon le nom de fichier. Tous les documents puisent à la même étagère.
+            Vous déposez vos images avec quelques mots-clés. L'IA choisit celle qui correspond
+            au brief plutôt qu'au nom de fichier.
           </p>
         </li>
         <li class="step">
           <div class="step__num"><span>03 · L'IA compose</span></div>
-          <h3 class="step__title">Vous écrivez le brief. L'IA écrit la page.</h3>
+          <h3 class="step__title">Vous décrivez, l'IA dessine.</h3>
           <p class="step__body">
-            Le HTML arrive dans le navigateur en temps réel. Cliquez sur n'importe quel élément
-            pour laisser une note — l'itération suivante patche au scalpel. Pas de réécriture.
+            La page s'affiche dans votre navigateur. Pour la corriger, cliquez sur l'élément
+            à modifier et indiquez ce qui doit changer.
           </p>
         </li>
       </ol>
@@ -964,7 +971,9 @@
           <h2 class="shead__title">Six capacités<span class="dot">,</span><br />un seul outil.</h2>
         </div>
         <p class="shead__lede">
-          Composition, marque, assets, annotation, IA, export — assemblés autour d'un seul modèle de document.
+          Composition, marque, images, annotations, IA, export. Six fonctions structurées
+          autour de la même idée : un document est attaché à une charte graphique,
+          et l'IA s'y tient.
         </p>
       </header>
 
@@ -973,42 +982,42 @@
           <div class="feat__icon ico-live"></div>
           <div class="feat__body">
             <h3>Aperçu en direct</h3>
-            <p>Le navigateur reflète chaque édition en temps réel — pas de reload, pas de devinettes.</p>
+            <p>Chaque modification s'affiche dans votre navigateur au fur et à mesure.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-tokens"></div>
           <div class="feat__body">
-            <h3>Design tokens</h3>
-            <p>Une seule charte — couleurs, polices, espacement — devient des variables CSS sur chaque page.</p>
+            <h3>Vos chartes</h3>
+            <p>Couleurs, polices et espacements définis par charte, appliqués à chaque document qui s'y rattache.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-library"></div>
           <div class="feat__body">
-            <h3>Bibliothèque d'assets</h3>
-            <p>Taggués, catégorisés, réutilisables. L'agent cherche par intention, pas par nom de fichier.</p>
+            <h3>Bibliothèque d'images</h3>
+            <p>Vos images sont classées par mots-clés. L'IA choisit celle qui convient au brief.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-ai"></div>
           <div class="feat__body">
             <h3>Composition par IA</h3>
-            <p>Brief en entrée, HTML en sortie. Chaque élément est itérable au scalpel via <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">data-id</code>.</p>
+            <p>Vous décrivez ce que vous voulez. L'IA compose la page et chaque détail reste modifiable séparément.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-notes"></div>
           <div class="feat__body">
             <h3>Annotations</h3>
-            <p>Cliquez sur un élément, laissez une note. L'agent la lit et accuse réception de votre intention.</p>
+            <p>Cliquez sur un élément et laissez une note. L'IA la prend en compte à l'itération suivante.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-export"></div>
           <div class="feat__body">
             <h3>Export</h3>
-            <p>PDF via Chromium headless, HTML autonome, ou un bundle <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">.maket</code> à partager.</p>
+            <p>PDF prêt à imprimer, page autonome à publier, ou archive à partager.</p>
           </div>
         </article>
       </div>
@@ -1039,9 +1048,9 @@
 <span class="c"># Aperçu → http://127.0.0.1:24842</span></pre>
         </div>
         <div class="install__note">
-          <p>Nécessite <strong>Node ≥ 22</strong>. Le CLI enregistre Maket comme serveur MCP dans Claude Code ou Codex, puis démarre le serveur HTTP local sur <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">:24842</code>. Sans <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code>, vous avez un aperçu de ce qui sera écrit.</p>
-          <p>Pilotez le daemon avec <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code>. Sans argument, le binaire fonctionne en bridge MCP stdio — la forme que votre client IA invoque automatiquement.</p>
-          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Documentation complète dans le README →</a></p>
+          <p>Maket fonctionne avec <strong>Node 22</strong> ou plus récent. Sans l'option <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code>, les commandes d'installation affichent un aperçu sans rien modifier sur votre machine.</p>
+          <p>Le serveur reste pilotable depuis le terminal : <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code> pour vérifier qu'il tourne, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code> pour suivre son activité, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code> pour l'arrêter.</p>
+          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Toutes les options sont décrites dans le README →</a></p>
         </div>
       </div>
     </section>
@@ -1052,7 +1061,7 @@
     <div class="shell foot__inner">
       <div>
         <div class="foot__mark">Maket<span class="dot">.</span></div>
-        <div style="margin-top:0.3rem;">MIT · 2026 · <span style="color:var(--ink-soft);">Construit avec Maket lui-même.</span></div>
+        <div style="margin-top:0.3rem;">MIT · 2026</div>
       </div>
       <nav class="foot__links" aria-label="Liens externes">
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">→ github.com/ng-galien/maket</a>

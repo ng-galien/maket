@@ -64,7 +64,7 @@
       --ink-soft:  #415A77;
 
       /* Fluid type scale, clamped between phone and wide desktop */
-      --fs-kicker:  clamp(0.68rem, 0.64rem + 0.2vw, 0.78rem);
+      --fs-kicker:  clamp(0.85rem, 0.75rem + 0.4vw, 1.05rem);
       --fs-meta:    clamp(0.78rem, 0.74rem + 0.2vw, 0.88rem);
       --fs-body:    clamp(0.95rem, 0.9rem + 0.3vw, 1.05rem);
       --fs-lede:    clamp(1.1rem, 1rem + 0.6vw, 1.35rem);
@@ -114,11 +114,11 @@
     .kicker {
       display: inline-flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.8rem;
       font-family: "Inter", sans-serif;
       font-size: var(--fs-kicker);
       font-weight: 600;
-      letter-spacing: 0.22em;
+      letter-spacing: 0.2em;
       text-transform: uppercase;
       color: var(--accent);
     }
@@ -126,7 +126,7 @@
        dimension lines. One decorative detail, done well. */
     .kicker::before {
       content: "";
-      width: 1.6rem;
+      width: 2rem;
       height: 1px;
       background: var(--accent);
       flex-shrink: 0;
@@ -141,12 +141,15 @@
     .shell {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 0 var(--rail);
+      /* `padding-inline` (not the `padding` shorthand) so this doesn't
+         clobber `section { padding-block }`. Sections also carry the
+         shell class — using `padding: 0 X` zeroed their vertical air. */
+      padding-inline: var(--rail);
     }
 
     section {
       position: relative;
-      padding-block: clamp(5rem, 3rem + 8vw, 10rem);
+      padding-block: clamp(4rem, 2.5rem + 5vw, 8rem);
       scroll-margin-top: 2rem;
     }
     section + section {
@@ -180,16 +183,19 @@
     }
     .nav__links {
       display: flex;
-      gap: clamp(1rem, 0.5rem + 2vw, 2.5rem);
+      gap: clamp(0.9rem, 0.5rem + 1.6vw, 2.5rem);
       font-size: var(--fs-kicker);
       font-weight: 500;
       letter-spacing: 0.12em;
       text-transform: uppercase;
       color: var(--ink-soft);
+      align-items: baseline;
     }
     .nav__links a { transition: color 0.2s; }
     .nav__links a:hover { color: var(--accent); }
-    @media (max-width: 640px) { .nav__links { display: none; } }
+    /* Section anchors are nice on desktop but redundant on mobile —
+       you can scroll. Keep GitHub + language switcher always reachable. */
+    @media (max-width: 720px) { .nav__link--section { display: none; } }
 
     /* ─────────────────────────────────────────────────────────────
        HERO
@@ -322,8 +328,8 @@
     .shead {
       display: grid;
       grid-template-columns: 1fr;
-      gap: 1.5rem;
-      margin-bottom: clamp(3rem, 2rem + 3vw, 5rem);
+      gap: 1.75rem;
+      margin-bottom: clamp(4rem, 2.5rem + 4vw, 6.5rem);
     }
     @media (min-width: 768px) {
       .shead { grid-template-columns: 1.1fr 1fr; gap: 3rem; align-items: start; }
@@ -351,12 +357,12 @@
        ───────────────────────────────────────────────────────────── */
     .docs-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: clamp(1rem, 0.5rem + 1.5vw, 1.75rem);
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: clamp(1.5rem, 0.75rem + 2vw, 2.5rem);
     }
     .doc {
       background: var(--bg);
-      padding: 1.25rem;
+      padding: 1.5rem;
       border: 1px solid rgba(11, 27, 42, 0.08);
       transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
     }
@@ -553,13 +559,13 @@
     }
     .steps {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: clamp(1.5rem, 1rem + 2vw, 3rem);
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: clamp(2rem, 1.25rem + 2.5vw, 3.5rem);
       position: relative;
       z-index: 1;
     }
     .step {
-      padding: 1.75rem 0;
+      padding: 2.25rem 0 0.5rem;
       border-top: 1px solid var(--primary);
       position: relative;
     }
@@ -569,7 +575,7 @@
       font-weight: 500;
       letter-spacing: 0.15em;
       color: var(--accent);
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: baseline;
@@ -584,14 +590,14 @@
       font-family: "Newsreader", serif;
       font-weight: 400;
       font-size: 1.65rem;
-      line-height: 1.15;
+      line-height: 1.2;
       color: var(--primary);
-      margin: 0 0 0.85rem;
+      margin: 0 0 1.1rem;
       letter-spacing: -0.015em;
     }
     .step__body {
       font-size: var(--fs-body);
-      line-height: 1.65;
+      line-height: 1.75;
       color: var(--ink-soft);
       margin: 0;
     }
@@ -601,14 +607,14 @@
        ───────────────────────────────────────────────────────────── */
     .features {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: clamp(1.25rem, 0.75rem + 1.5vw, 2rem);
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: clamp(1.75rem, 1rem + 2vw, 3rem);
     }
     .feat {
       display: grid;
       grid-template-columns: auto 1fr;
-      gap: 1.25rem;
-      padding: 1.5rem 0;
+      gap: 1.5rem;
+      padding: 2rem 0;
       border-top: 1px solid rgba(11, 27, 42, 0.08);
     }
     .feat__icon {
@@ -620,14 +626,14 @@
     .feat__body h3 {
       font-family: "Newsreader", serif;
       font-weight: 500;
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       color: var(--primary);
-      margin: 0 0 0.45rem;
+      margin: 0 0 0.65rem;
       letter-spacing: -0.01em;
     }
     .feat__body p {
       font-size: 0.95rem;
-      line-height: 1.55;
+      line-height: 1.7;
       color: var(--ink-soft);
       margin: 0;
     }
@@ -691,7 +697,7 @@
     .install {
       display: grid;
       grid-template-columns: 1fr;
-      gap: clamp(2rem, 1rem + 3vw, 3.5rem);
+      gap: clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
       align-items: start;
     }
     @media (min-width: 900px) {
@@ -700,9 +706,9 @@
     .install__note {
       font-size: var(--fs-body);
       color: var(--ink-soft);
-      line-height: 1.7;
+      line-height: 1.8;
     }
-    .install__note p { margin: 0 0 1rem; }
+    .install__note p { margin: 0 0 1.4rem; }
     .install__note a {
       color: var(--accent);
       border-bottom: 1px solid currentColor;
@@ -715,8 +721,8 @@
       color: #F7F9FC;
       font-family: "JetBrains Mono", monospace;
       font-size: 0.9rem;
-      line-height: 1.85;
-      padding: 1.5rem 1.75rem;
+      line-height: 2;
+      padding: 2rem 2.25rem;
       border-radius: 2px;
       position: relative;
       overflow-x: auto;
@@ -740,9 +746,9 @@
        FOOTER
        ───────────────────────────────────────────────────────────── */
     .foot {
-      padding: 3rem 0 4rem;
+      padding: 4.5rem 0 5rem;
       border-top: 1px solid var(--primary);
-      margin-top: 3rem;
+      margin-top: 4rem;
     }
     .foot__inner {
       display: flex;
@@ -793,10 +799,10 @@
     <div class="shell nav__inner">
       <a href="#" class="nav__brand">Maket<span class="dot">.</span></a>
       <nav class="nav__links" aria-label="Sections">
-        <a href="#surface">Surface</a>
-        <a href="#loop">Loop</a>
-        <a href="#features">Features</a>
-        <a href="#install">Install</a>
+        <a class="nav__link--section" href="#surface">Surface</a>
+        <a class="nav__link--section" href="#loop">Loop</a>
+        <a class="nav__link--section" href="#features">Features</a>
+        <a class="nav__link--section" href="#install">Install</a>
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
         <a href="fr/?lang=fr" aria-label="Version française" title="Version française">FR</a>
       </nav>
@@ -811,7 +817,6 @@
 
       <div class="hero__top reveal">
         <span class="hero__slug">MAKET · A VISUAL DESIGN TOOL FOR YOUR AI ASSISTANT</span>
-        <span>v1.0 · 2026</span>
       </div>
 
       <div class="hero__body">
@@ -853,8 +858,8 @@
           <h2 class="shead__title">Every kind<br />of doc<span class="dot">.</span></h2>
         </div>
         <p class="shead__lede">
-          Decks, brochures, UX mockups, résumés, posters, reports, editorial spreads, social cards.
-          If it fits on paper or screen, Maket composes it.
+          Decks, brochures, mockups, résumés, posters, reports, editorial spreads,
+          social posts. Anything that fits on paper or on screen.
         </p>
       </header>
 
@@ -874,7 +879,7 @@
             <div class="side"></div>
             <div class="main"><i></i><i></i><i></i></div>
           </div>
-          <div class="doc__label">UX mockup</div>
+          <div class="doc__label">Mockup</div>
           <div class="doc__tag">Desktop 16 / 9</div>
         </article>
         <article class="doc">
@@ -912,7 +917,7 @@
         </article>
         <article class="doc">
           <div class="doc__mini m-social"><i class="t"></i><i class="s"></i></div>
-          <div class="doc__label">Social card</div>
+          <div class="doc__label">Social posts</div>
           <div class="doc__tag">Square 1 : 1</div>
         </article>
       </div>
@@ -925,38 +930,39 @@
       <header class="shead">
         <div>
           <span class="kicker">Step 02 · The loop</span>
-          <h2 class="shead__title">Brief in<span class="dot">,</span><br />HTML out.</h2>
+          <h2 class="shead__title">You describe<span class="dot">,</span><br />Maket composes.</h2>
         </div>
         <p class="shead__lede">
-          Describe the intent. The agent reads your charte, picks from your library, writes the HTML.
-          Every element carries a <code style="font-family:'JetBrains Mono',monospace;color:var(--accent);font-size:0.9em;">data-id</code>
-          so each iteration stays surgical.
+          You describe what you want. The AI reads the charte attached to the document,
+          picks from your image library, and composes the page. You then correct what
+          needs correcting.
         </p>
       </header>
 
       <ol class="steps" style="list-style:none;padding:0;margin:0;">
         <li class="step">
-          <div class="step__num"><span>01 · Your charte</span></div>
-          <h3 class="step__title">Colours, fonts, spacing — one source.</h3>
+          <div class="step__num"><span>01 · Your chartes</span></div>
+          <h3 class="step__title">One charte per brand or project.</h3>
           <p class="step__body">
-            Declare your brand once. Maket injects every token as a CSS variable on every page.
-            The agent can't drift; you can't forget.
+            A charte gathers your colours, fonts, spacings, and shadows. You create as
+            many as you need — one per brand, per client, or per campaign. Each document
+            is bound to a charte, and the AI respects it at every iteration.
           </p>
         </li>
         <li class="step">
-          <div class="step__num"><span>02 · Your library</span></div>
-          <h3 class="step__title">Tagged assets, searchable by intent.</h3>
+          <div class="step__num"><span>02 · Your images</span></div>
+          <h3 class="step__title">A library indexed by keywords.</h3>
           <p class="step__body">
-            Import images with tags and categories. The agent picks by what fits the brief,
-            not by filename. Every doc pulls from the same shelf.
+            You drop your images with a few keywords. The AI picks the one that fits the
+            brief rather than the filename.
           </p>
         </li>
         <li class="step">
-          <div class="step__num"><span>03 · AI composes</span></div>
-          <h3 class="step__title">You write the brief. The AI assistant writes the page.</h3>
+          <div class="step__num"><span>03 · The AI composes</span></div>
+          <h3 class="step__title">You describe, the AI draws.</h3>
           <p class="step__body">
-            HTML arrives in the browser in real time. Click any element to leave a note —
-            the next iteration patches it surgically. No rewrites.
+            The page appears in your browser. To correct it, click the element you want
+            to change and indicate what should change.
           </p>
         </li>
       </ol>
@@ -970,7 +976,8 @@
           <h2 class="shead__title">Six capabilities<span class="dot">,</span><br />one tool.</h2>
         </div>
         <p class="shead__lede">
-          Composition, brand, assets, annotation, AI, export — wired around a single document model.
+          Composition, brand, images, annotations, AI, export. Six functions built around
+          the same idea: a document is bound to a charte, and the AI sticks to it.
         </p>
       </header>
 
@@ -979,42 +986,42 @@
           <div class="feat__icon ico-live"></div>
           <div class="feat__body">
             <h3>Live preview</h3>
-            <p>The browser mirrors every edit in real time — no reload, no guessing.</p>
+            <p>Every edit appears in your browser as you go.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-tokens"></div>
           <div class="feat__body">
-            <h3>Design tokens</h3>
-            <p>One charte — colours, fonts, spacing — becomes CSS variables on every page.</p>
+            <h3>Your chartes</h3>
+            <p>Colours, fonts, and spacings defined per charte, applied to every document bound to it.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-library"></div>
           <div class="feat__body">
-            <h3>Asset library</h3>
-            <p>Tagged, categorised, reusable. The agent searches by intent, not filename.</p>
+            <h3>Image library</h3>
+            <p>Your images are filed by keywords. The AI picks the one that fits the brief.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-ai"></div>
           <div class="feat__body">
             <h3>AI composition</h3>
-            <p>Brief in, HTML out. Every element is surgically iterable via <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">data-id</code>.</p>
+            <p>You describe what you want. The AI composes the page, and every detail stays editable separately.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-notes"></div>
           <div class="feat__body">
             <h3>Annotations</h3>
-            <p>Click any element, leave a note. The agent reads and acks your intent.</p>
+            <p>Click an element and leave a note. The AI takes it into account on the next iteration.</p>
           </div>
         </article>
         <article class="feat">
           <div class="feat__icon ico-export"></div>
           <div class="feat__body">
             <h3>Export</h3>
-            <p>PDF via headless Chromium, standalone HTML, or a <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">.maket</code> bundle to share.</p>
+            <p>Print-ready PDF, standalone page to publish, or an archive to share.</p>
           </div>
         </article>
       </div>
@@ -1028,7 +1035,8 @@
           <h2 class="shead__title">Five minutes<span class="dot">.</span></h2>
         </div>
         <p class="shead__lede">
-          Clone, install, start. The preview opens automatically — any MCP-compatible AI assistant connects over the protocol.
+          Install, start, open. The preview opens in your browser. Any MCP-compatible
+          AI assistant connects to it.
         </p>
       </header>
 
@@ -1045,9 +1053,9 @@
 <span class="c"># Preview → http://127.0.0.1:24842</span></pre>
         </div>
         <div class="install__note">
-          <p>Requires <strong>Node ≥ 22</strong>. The CLI registers Maket as an MCP server in Claude Code or Codex, then starts the local HTTP server on <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">:24842</code>. Drop <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code> for a dry-run preview of what gets written.</p>
-          <p>Manage the daemon with <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code>, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code>. Without arguments, the binary runs as a stdio MCP bridge — the form your AI client invokes automatically.</p>
-          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Full documentation in the README →</a></p>
+          <p>Maket runs on <strong>Node 22</strong> or newer. Without the <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code> flag, the install commands show a preview without changing anything on your machine.</p>
+          <p>The local server stays controllable from the terminal: <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code> to check it's running, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code> to follow its activity, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code> to stop it.</p>
+          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">All options are described in the README →</a></p>
         </div>
       </div>
     </section>
@@ -1058,7 +1066,7 @@
     <div class="shell foot__inner">
       <div>
         <div class="foot__mark">Maket<span class="dot">.</span></div>
-        <div style="margin-top:0.3rem;">MIT · 2026 · <span style="color:var(--ink-soft);">Built with Maket itself.</span></div>
+        <div style="margin-top:0.3rem;">MIT · 2026</div>
       </div>
       <nav class="foot__links" aria-label="External links">
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">→ github.com/ng-galien/maket</a>
