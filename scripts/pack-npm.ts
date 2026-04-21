@@ -16,7 +16,7 @@
 // ============================================================
 
 import { execSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -104,8 +104,12 @@ function stage(): void {
   };
   writeFileSync(join(DIST, "package.json"), `${JSON.stringify(npmPkg, null, 2)}\n`);
 
-  // chmod +x the bin so `npx` runs it directly on UNIX-like systems.
-  execSync(`chmod +x "${join(DIST, "index.js")}"`, { stdio: "ignore" });
+  // chmod +x the bin so `npx` runs it directly on UNIX-like systems. Skip on
+  // Windows — its filesystem has no executable bit, and npm sets the bin entry
+  // up via cmd shims regardless.
+  if (process.platform !== "win32") {
+    chmodSync(join(DIST, "index.js"), 0o755);
+  }
 
   const indexSize = (statSync(join(DIST, "index.js")).size / 1024).toFixed(1);
   const serverSize = (statSync(join(DIST, "server.js")).size / 1024).toFixed(1);

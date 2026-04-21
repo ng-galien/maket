@@ -36,11 +36,13 @@ export async function runStop(): Promise<void> {
 
 	if (!existsSync(env.pidFile)) {
 		if (await probeServer(env.port, env.host, 300)) {
+			const hint =
+				process.platform === "win32"
+					? `for /f "tokens=5" %a in ('netstat -aon ^| findstr :${env.port}') do taskkill /PID %a /F`
+					: `lsof -ti:${env.port} | xargs kill`;
 			process.stderr.write(
 				`maket: server is running on ${env.url} but no PID file at ${env.pidFile}.\n` +
-					"       Stop it manually (lsof -ti:" +
-					env.port +
-					" | xargs kill).\n",
+					`       Stop it manually: ${hint}\n`,
 			);
 			process.exitCode = 1;
 			return;
