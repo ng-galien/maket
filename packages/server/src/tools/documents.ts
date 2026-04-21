@@ -23,6 +23,7 @@ import {
 	MAKET_BUNDLE_EXT,
 	uniqueName,
 } from "../lib/maket-format.js";
+import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
@@ -412,9 +413,12 @@ function runExport(
 			? args.output
 			: `${args.output}${MAKET_BUNDLE_EXT}`
 		: bundleFilename(defaultName);
-	const outPath = isAbsolute(filename)
-		? filename
-		: join(config.EXPORTS_DIR, filename);
+	let outPath: string;
+	try {
+		outPath = resolveSafeOutputPath(filename, config.EXPORTS_DIR);
+	} catch (e) {
+		return text((e as Error).message, true);
+	}
 	writeFileSync(outPath, buf);
 
 	const docLabel =

@@ -9,14 +9,17 @@
  */
 
 import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { asFunction } from "awilix";
 import puppeteer from "puppeteer";
 import { z } from "zod";
 import type { ToolHandler, ToolResult } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
+import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
+import type { AssetsService } from "../services/assets.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import { text } from "./_helpers.js";
@@ -24,6 +27,7 @@ import { text } from "./_helpers.js";
 export interface PreviewDeps {
 	documents: Documents;
 	config: Config;
+	assets: AssetsService;
 }
 
 function safeFilename(name: string): string {
@@ -57,7 +61,7 @@ const DESCRIPTION = [
 ].join("\n");
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
-	const { documents, config } = deps;
+	const { documents, config, assets } = deps;
 	return {
 		metadata: {
 			name: "maket_preview",
@@ -67,7 +71,7 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 		handler: async (rawArgs) => {
 			const args = MaketPreviewSchema.parse(rawArgs);
 			if (args.action === "open") return runOpen(config);
-			return runSnapshot(args, documents, config);
+			return runSnapshot(args, documents, config, assets);
 		},
 	};
 }
@@ -92,6 +96,7 @@ async function runSnapshot(
 	args: Args,
 	documents: Documents,
 	config: Config,
+	assets: AssetsService,
 ): Promise<ToolResult> {
 	if (!args.doc) return text("doc is required for action=snapshot", true);
 	if (args.page == null)
@@ -109,10 +114,19 @@ async function runSnapshot(
 			true,
 		);
 
-	const baseUrl = `http://localhost:${config.PORT}`;
-	const resolvedHtml = html.replaceAll("/assets/", `${baseUrl}/assets/`);
-
 	const { w, h } = d.canvas;
+	// Pre-inline every /assets/ image as a data: URI so the page renders with
+	// zero outbound requests. This lets us run the snapshot in offline mode —
+	// the only foolproof defence against a poisoned document calling
+	// `fetch('http://127.0.0.1:5432/...')` and exfiltrating the result via the
+	// returned PNG.
+	const inlinedHtml = await inlineImages(html, {
+		assetsDir: config.ASSETS_DIR,
+		pageMm: { w, h },
+		dpi: 96,
+		mimeFromExt: (p) => assets.mimeFromExt(p),
+	});
+
 	const charteCss = documents.charteCss(d);
 	const safeCharteCss = stripStyleClose(charteCss);
 	const safeBg = escapeCssValue(d.canvas.bg || "#ffffff");
@@ -120,16 +134,16 @@ async function runSnapshot(
   ${safeCharteCss}
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
-  </style></head><body>${resolvedHtml}</body></html>`;
+  </style></head><body>${inlinedHtml}</body></html>`;
 
 	const scale = 3.78;
 	const browser = await puppeteer.launch({
 		headless: true,
-		args: ["--no-sandbox"],
+		args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
 	});
 	try {
 		const p = await browser.newPage();
-		await installNetworkGuard(p, "localhost-only");
+		await installNetworkGuard(p, "offline");
 		await p.setViewport({
 			width: Math.ceil(w * scale),
 			height: Math.ceil(h * scale),
@@ -141,8 +155,13 @@ async function runSnapshot(
 			fullPage: false,
 		})) as Buffer;
 		const b64 = Buffer.from(png).toString("base64");
-		const outPath =
-			args.path || join(config.EXPORTS_DIR, `${safeFilename(d.name)}.png`);
+		const requested = args.path ?? `${safeFilename(d.name)}.png`;
+		let outPath: string;
+		try {
+			outPath = resolveSafeOutputPath(requested, config.EXPORTS_DIR);
+		} catch (e) {
+			return text((e as Error).message, true);
+		}
 		writeFileSync(outPath, png);
 		return {
 			content: [
@@ -161,7 +180,7 @@ async function runSnapshot(
 export const previewPack: ToolPack = {
 	id: "preview",
 	name: "Preview",
-	requires: ["documents", "config"],
+	requires: ["documents", "config", "assets"],
 	declaresTools: ["maket_preview"],
 	register(container) {
 		container.register({

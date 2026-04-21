@@ -8,10 +8,15 @@ import { extname, join, resolve, sep } from "node:path";
 import type { AssetsListResponse, UploadResponse } from "@maket/shared";
 import type { Response } from "express";
 import express, { Router as createRouter, type Router } from "express";
+import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Store } from "../services/store.js";
+
+// Single image cap. ~32 MB lets a high-res photo through; well below "fill
+// the disk" or "fill the heap" territory.
+const MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
 
 export interface AssetsRouterDeps {
 	config: Config;
@@ -114,9 +119,15 @@ export function createAssetsRouter({
 			let buf: Buffer;
 
 			if (contentType.includes("multipart/form-data")) {
-				const chunks: Buffer[] = [];
-				for await (const chunk of req) chunks.push(chunk as Buffer);
-				const body = Buffer.concat(chunks);
+				let body: Buffer;
+				try {
+					body = await readBoundedBody(req, MAX_UPLOAD_BYTES);
+				} catch (e) {
+					if (e instanceof BodyTooLargeError) {
+						return res.status(413).json({ error: e.message });
+					}
+					throw e;
+				}
 				const boundary = contentType.split("boundary=")[1];
 				if (!boundary)
 					return res.status(400).json({ error: "Missing boundary" });
@@ -150,18 +161,22 @@ export function createAssetsRouter({
 				);
 				buf = body.subarray(bodyOffset, nextBoundary);
 			} else {
+				let bodyBuf: Buffer;
+				try {
+					bodyBuf = await readBoundedBody(req, MAX_UPLOAD_BYTES);
+				} catch (e) {
+					if (e instanceof BodyTooLargeError) {
+						return res.status(413).json({ error: e.message });
+					}
+					throw e;
+				}
 				// biome-ignore lint/suspicious/noExplicitAny: JSON payload is loose
-				const jsonBody = await new Promise<any>((resolve, reject) => {
-					let data = "";
-					req.on("data", (chunk: Buffer) => (data += chunk));
-					req.on("end", () => {
-						try {
-							resolve(JSON.parse(data));
-						} catch {
-							reject(new Error("Invalid JSON"));
-						}
-					});
-				});
+				let jsonBody: any;
+				try {
+					jsonBody = JSON.parse(bodyBuf.toString("utf-8"));
+				} catch {
+					return res.status(400).json({ error: "Invalid JSON" });
+				}
 				if (!jsonBody.filename || !jsonBody.data)
 					return res.status(400).json({ error: "filename and data required" });
 				cleanName = jsonBody.filename.replace(/[^a-zA-Z0-9._-]/g, "_");

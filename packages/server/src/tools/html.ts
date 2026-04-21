@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { ToolHandler, ToolResult } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { checkCharteCompliance } from "../lib/charte-check.js";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateCharteToken } from "../services/assets.js";
 import type { Documents } from "../services/documents.js";
@@ -388,10 +389,10 @@ async function runSet(
 		}
 	}
 
-	page.html = normalizeImageSrc(args.html);
+	page.html = stripActiveHtml(normalizeImageSrc(args.html));
 	documents.persist(doc.name);
 
-	const count = (args.html.match(/data-id=/g) || []).length;
+	const count = (page.html.match(/data-id=/g) || []).length;
 	const html = page.html || "";
 	const layoutInfo = await layout.measure(doc, html, pageIdx);
 	const tree = buildIdTree(html);
@@ -429,7 +430,7 @@ async function runPatch(
 
 	const results = args.ops.map((op) => applyOp(op, root, charte));
 
-	page.html = normalizeImageSrc(root.innerHTML);
+	page.html = stripActiveHtml(normalizeImageSrc(root.innerHTML));
 	documents.persist(doc.name);
 
 	const layoutInfo = await layout.measure(doc, page.html || "", pageIdx);

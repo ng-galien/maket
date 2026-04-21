@@ -99,16 +99,46 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
 	}
 }
 
+const MAX_REDIRECTS = 5;
+
 /**
- * Fetch with a hard byte cap. Aborts the response stream as soon as the cap
- * is exceeded, so a malicious server can't DoS the host by streaming forever.
- * The caller still has to handle Content-Length-less responses sensibly.
+ * Fetch with manual redirect handling, SSRF re-validation on every hop, and a
+ * hard byte cap. Without manual handling, `fetch()` follows redirects
+ * automatically — letting `https://public.example` reply `302
+ * http://127.0.0.1/secret` and bypass `assertSafeUrl`'s initial-URL check.
+ *
+ * The byte cap aborts the response stream as soon as it is exceeded, so a
+ * malicious server cannot DoS the host by streaming forever.
  */
 export async function boundedFetch(
 	url: string,
 	maxBytes: number = DEFAULT_MAX_FETCH_BYTES,
 ): Promise<Buffer> {
-	const response = await fetch(url);
+	let current = url;
+	let response: Response | null = null;
+	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+		response = await fetch(current, { redirect: "manual" });
+		// 3xx responses with a Location header — re-validate before following.
+		if (response.status >= 300 && response.status < 400) {
+			const next = response.headers.get("location");
+			if (!next) {
+				throw new Error(
+					`Redirect ${response.status} from ${current} without Location header.`,
+				);
+			}
+			const resolved = new URL(next, current).toString();
+			await assertSafeUrl(resolved);
+			current = resolved;
+			continue;
+		}
+		break;
+	}
+	if (!response) {
+		throw new Error(`No response after ${MAX_REDIRECTS} redirects from ${url}`);
+	}
+	if (response.status >= 300 && response.status < 400) {
+		throw new Error(`Too many redirects (>${MAX_REDIRECTS}) from ${url}`);
+	}
 	if (!response.ok) {
 		throw new Error(
 			`Download failed: ${response.status} ${response.statusText}`,

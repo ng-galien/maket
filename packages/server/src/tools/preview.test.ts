@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { AssetsService } from "../services/assets.js";
 import type { Config } from "../services/config.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
@@ -12,11 +13,19 @@ function fixture() {
 	const tmp = mkdtempSync(join(tmpdir(), "maket-preview-"));
 	const store = createSQLiteStore(":memory:");
 	const documents = createDocuments({ store });
-	const config = { EXPORTS_DIR: tmp, PORT: 3333 } as unknown as Config;
+	const config = {
+		EXPORTS_DIR: tmp,
+		ASSETS_DIR: tmp,
+		PORT: 3333,
+	} as unknown as Config;
+	const assets = {
+		mimeFromExt: () => "image/png",
+	} as unknown as AssetsService;
 	return {
 		store,
 		documents,
 		config,
+		assets,
 		cleanup: () => {
 			store.close();
 			rmSync(tmp, { recursive: true, force: true });
@@ -38,8 +47,8 @@ describe("previewPack — registration", () => {
 
 describe("maket_preview — action=snapshot", () => {
 	it("errors when document is missing", async () => {
-		const { documents, config, cleanup } = fixture();
-		const tool = createMaketPreviewTool({ documents, config });
+		const { documents, config, assets, cleanup } = fixture();
+		const tool = createMaketPreviewTool({ documents, config, assets });
 		const res = await tool.handler(
 			{ action: "snapshot", doc: "ghost", page: 1 },
 			NO_EXTRA,
@@ -49,7 +58,7 @@ describe("maket_preview — action=snapshot", () => {
 	});
 
 	it("errors when page is out of range", async () => {
-		const { store, documents, config, cleanup } = fixture();
+		const { store, documents, config, assets, cleanup } = fixture();
 		store.saveDoc(
 			createDocument({
 				name: "d",
@@ -64,7 +73,7 @@ describe("maket_preview — action=snapshot", () => {
 			}),
 		);
 		documents.loadAll();
-		const tool = createMaketPreviewTool({ documents, config });
+		const tool = createMaketPreviewTool({ documents, config, assets });
 		const res = await tool.handler(
 			{ action: "snapshot", doc: "d", page: 99 },
 			NO_EXTRA,
@@ -74,7 +83,7 @@ describe("maket_preview — action=snapshot", () => {
 	});
 
 	it("errors when page has no HTML", async () => {
-		const { store, documents, config, cleanup } = fixture();
+		const { store, documents, config, assets, cleanup } = fixture();
 		store.saveDoc(
 			createDocument({
 				name: "d",
@@ -89,7 +98,7 @@ describe("maket_preview — action=snapshot", () => {
 			}),
 		);
 		documents.loadAll();
-		const tool = createMaketPreviewTool({ documents, config });
+		const tool = createMaketPreviewTool({ documents, config, assets });
 		const res = await tool.handler(
 			{ action: "snapshot", doc: "d", page: 1 },
 			NO_EXTRA,
@@ -99,8 +108,8 @@ describe("maket_preview — action=snapshot", () => {
 	});
 
 	it("errors when doc/page args are missing", async () => {
-		const { documents, config, cleanup } = fixture();
-		const tool = createMaketPreviewTool({ documents, config });
+		const { documents, config, assets, cleanup } = fixture();
+		const tool = createMaketPreviewTool({ documents, config, assets });
 		const res = await tool.handler({ action: "snapshot" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		cleanup();

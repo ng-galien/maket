@@ -11,6 +11,7 @@ import {
 	type Response,
 	type Router,
 } from "express";
+import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import { isLoopbackReferer } from "../lib/local-origin.js";
 import {
 	bundleFilename,
@@ -18,6 +19,12 @@ import {
 	encodeBundle,
 	uniqueName,
 } from "../lib/maket-format.js";
+
+// Cap on `.maket` bundle imports. Bundles are gzipped JSON; 64 MB compressed
+// is generous (a typical doc snapshot is < 100 KB). After decompression the
+// `decodeBundle` helper is the next layer of defence.
+const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import {
@@ -182,9 +189,15 @@ export function createExportRouter({
 	// application/octet-stream). Returns { documents: string[], chartes: string[] }.
 	router.post("/api/import-maket", async (req, res) => {
 		try {
-			const chunks: Buffer[] = [];
-			for await (const chunk of req) chunks.push(chunk as Buffer);
-			const body = Buffer.concat(chunks);
+			let body: Buffer;
+			try {
+				body = await readBoundedBody(req, MAX_BUNDLE_BYTES);
+			} catch (e) {
+				if (e instanceof BodyTooLargeError) {
+					return res.status(413).json({ error: e.message });
+				}
+				throw e;
+			}
 			if (body.length === 0)
 				return res.status(400).json({ error: "Empty upload" });
 

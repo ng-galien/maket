@@ -244,7 +244,10 @@ process.on("exit", (code) => {
 const { COMPILED, PACKAGED, PACKAGE_DIR, PUBLIC_DIR, PORT, HOST } = config;
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json());
+// 5 MB is well above legitimate MCP/JSON payloads (largest doc bodies are
+// kilobytes; image data goes through the dedicated /api/upload route which
+// applies its own bigger cap). Hard limit blocks DoS via giant JSON bodies.
+app.use(express.json({ limit: "5mb" }));
 
 // Origin / Host guard — first line of defence against CSRF from any visited
 // site and against DNS-rebinding attacks. The whole product is local-only;

@@ -10,6 +10,7 @@
  */
 
 import puppeteer, { type Browser } from "puppeteer";
+import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
 
 export interface BrowserPool {
 	/** Returns the shared Browser, launching it on first use or after a
@@ -30,7 +31,11 @@ export function createBrowserPool(
 ): BrowserPool {
 	const launch =
 		opts.launch ??
-		(() => puppeteer.launch({ headless: true, args: ["--no-sandbox"] }));
+		(() =>
+			puppeteer.launch({
+				headless: true,
+				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
+			}));
 
 	let current: Browser | null = null;
 	let pending: Promise<Browser> | null = null;
