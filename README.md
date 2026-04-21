@@ -1,6 +1,6 @@
 # Maket
 
-**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or send via Gmail when you're done.
+**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
@@ -30,7 +30,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
 - **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
 - **PDF export** — Print-ready output via headless Chromium.
-- **Gmail send** — Compose an email document and send it as a PDF attachment.
+- **Gmail drafts** — Compose an email document and hand it off to Gmail as a draft; you review and send yourself.
 - **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
 - **Agent skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach the AI assistant how to design, brand, and review documents.
 
@@ -162,10 +162,27 @@ Override with environment variables:
 
 ### Gmail integration (optional)
 
+#### What Maket does (and doesn't) do with your Gmail
+
+Maket only ever **creates drafts**. It never calls any send endpoint. You review the draft in Gmail, you click Send. The code is open — grep `users.drafts.send` or `users.messages.send` in `packages/server/src/tools/gmail.ts`, you won't find a call site.
+
+Two authorisation levels, you pick at connect time:
+
+- **Draft only** (default) — Google asks: *"Manage drafts and send emails"*. Maket uses the draft half; the send half is the floor Google offers, not what Maket does.
+- **Draft + read** (opt-in with `with_read=true`) — also grants *"Read your Gmail"*. Enables `search` / `read` actions so the AI can reference past threads when composing.
+
+#### The "unverified app" screen — yes, you'll see it
+
+Maket is open source and free. Getting Google to drop the "unverified app" warning requires an annual security audit (CASA) that costs **$500–$4500/yr**. I'm not paying that for a free tool. You'll see the red screen once, click **Advanced → Go to maket (unsafe)**, and proceed. Normal for a small open-source app you run on your own machine.
+
+If you don't trust that — good instinct. Read `packages/server/src/services/gmail-client.ts` and `packages/server/src/tools/gmail.ts`, or ask your AI assistant to audit them. Nothing leaves your machine except the draft you just composed, going to your own Gmail.
+
+#### Setup
+
 1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
 2. Add redirect URI: `http://localhost:3333/auth/google/callback`.
 3. Copy `.env.example` → `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
-4. Run `maket_gmail connect` in your AI assistant — follow the browser flow to grant access.
+4. Run `maket_gmail connect` in your AI assistant (add `with_read=true` if you also want inbox reading). Follow the browser flow.
 
 ### Bootstrap a downstream workspace
 

@@ -61,6 +61,12 @@ Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpe
 - Co-located: `foo.ts` + `foo.test.ts`. DB tests use `createSQLiteStore(":memory:")` — never touch the filesystem.
 - Coverage thresholds in `vitest.config.ts` (core 90 %, services 80 %).
 
+### Gmail is draft-only, read is opt-in
+- Maket never calls `users.messages.send` nor `users.drafts.send`. The user reviews in Gmail and sends themselves. No exception.
+- `gmail.compose` is always requested. `gmail.readonly` is requested only when the caller passes `with_read=true` at `connect`. Guard `search` / `read` behind `gmailClient.grants().read`; on miss, return `text(…, { next: ["maket_gmail action=connect with_read=true"] })`.
+- The OAuth app is unverified and stays that way — we don't pay CASA for an open-source tool. Users see Google's "Advanced → proceed" screen once; that's the deal.
+- On successful draft creation, write `doc.meta.emailDraftUrl` + `emailDraftRole: "body"|"attachment"` on the body doc AND mirror both onto every attached doc, so each artefact carries a one-click review pointer back into Gmail.
+
 ## Git flow & changelog
 
 - Feature branches only; `main` takes release commits directly (`chore(release): vX.Y.Z`).
