@@ -572,6 +572,57 @@ describe("ws-handler — text editing", () => {
 		dispose();
 	});
 
+	it("charte_save emits charte:updated with the font @import so clients live-reload Google Fonts", () => {
+		const { bus, handler, dispose } = fixture();
+		const updates = vi.fn();
+		bus.on("charte:updated", updates);
+
+		handler(
+			{
+				type: "charte_save",
+				name: "brand",
+				tokens: { font: { heading: "Fraunces", body: "Inter" } },
+			},
+			STUB_WS,
+		);
+
+		expect(updates).toHaveBeenCalledTimes(1);
+		const css = (updates.mock.calls[0]?.[0] as { css: string }).css;
+		// Font import emitted so client's ensureCharteFonts() picks up new Google Fonts.
+		expect(css).toMatch(/@import\s+url\(['"]https:\/\/fonts\.googleapis\.com/);
+		expect(css).toContain("family=Fraunces");
+		expect(css).toContain("family=Inter");
+		// Vars still present.
+		expect(css).toMatch(/--charte-font-heading:\s*Fraunces/);
+		dispose();
+	});
+
+	it.each([
+		["tokens as string", { tokens: "oops" as unknown }],
+		["tokens group value as array", { tokens: { color: ["#fff"] as unknown } }],
+		[
+			"tokens non-string value",
+			{ tokens: { color: { primary: 42 as unknown } } },
+		],
+		["voice as array", { voice: ["nope" as unknown] }],
+		["rules as number", { rules: 7 as unknown }],
+	])("charte_save rejects malformed payload (%s) without persisting", (_, extra) => {
+		const { store, bus, handler, dispose } = fixture();
+		const toast = vi.fn();
+		const updates = vi.fn();
+		bus.on("toast", toast);
+		bus.on("charte:updated", updates);
+
+		handler({ type: "charte_save", name: "brand", ...extra } as any, STUB_WS);
+
+		expect(store.loadAllChartes()).toHaveLength(0);
+		expect(updates).not.toHaveBeenCalled();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ level: "error" }),
+		);
+		dispose();
+	});
+
 	it("check_layout_response resolves pending bridge requests", () => {
 		const { handler, wsBridge, dispose } = fixture();
 		const resolveSpy = vi.spyOn(wsBridge, "resolveResponse");

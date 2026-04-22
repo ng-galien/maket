@@ -13,7 +13,7 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import { charteToCSS } from "../lib/charte-css.js";
+import { composeCharteCss } from "../lib/charte-css.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Bus } from "../services/bus.js";
 import type { Store } from "../services/store.js";
@@ -206,7 +206,6 @@ function runSet(args: Args, store: Store, bus: Bus) {
 	}
 	store.saveCharte(charte);
 
-	const css = charteToCSS(charte);
 	const tokenGroups = Object.keys(args.tokens || {});
 	const tokenCount = tokenGroups.reduce(
 		(n, g) =>
@@ -222,7 +221,12 @@ function runSet(args: Args, store: Store, bus: Bus) {
 	if (args.voice) parts.push("voice");
 	if (args.rules) parts.push("rules");
 
-	bus.emit("charte:updated", { name: args.name, css });
+	// Emit the combined CSS (font @import + vars) so client's
+	// `ensureCharteFonts()` live-reloads new Google Fonts on tokens.font edits.
+	bus.emit("charte:updated", {
+		name: args.name,
+		css: composeCharteCss(charte),
+	});
 	return text(`Charte "${args.name}" saved — ${parts.join(", ")}`);
 }
 

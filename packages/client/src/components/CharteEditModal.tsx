@@ -241,6 +241,7 @@ export function CharteEditModal({ charte, onClose }: Props) {
 								addLabel={t("charte_edit_token_add")}
 								keyLabel={t("charte_edit_token_key")}
 								valueLabel={t("charte_edit_token_value")}
+								removeLabel={t("charte_edit_token_remove")}
 							/>
 						))}
 					</section>
@@ -367,6 +368,7 @@ interface TokenGroupProps {
 	addLabel: string;
 	keyLabel: string;
 	valueLabel: string;
+	removeLabel: string;
 }
 
 function TokenGroup({
@@ -379,6 +381,7 @@ function TokenGroup({
 	addLabel,
 	keyLabel,
 	valueLabel,
+	removeLabel,
 }: TokenGroupProps) {
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -417,7 +420,11 @@ function TokenGroup({
 							<button
 								type="button"
 								onClick={() => onRemove(idx)}
-								aria-label={valueLabel}
+								aria-label={
+									row[0].trim()
+										? `${removeLabel} "${row[0].trim()}"`
+										: removeLabel
+								}
 								className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:text-danger hover:bg-danger-soft transition"
 							>
 								<Trash2 size={13} />
@@ -472,8 +479,10 @@ function TokenValueInput({
 }
 
 /** Native color input paired with a free-text field so `var(...)`, named
- * colors, and rgb()/hsl() values stay editable. Picker syncs only when the
- * text is a 6-digit hex (the only shape `<input type="color">` speaks). */
+ * colors, and rgb()/hsl() values stay editable. Picker syncs whenever
+ * `toHex6()` can normalise the text to `#rrggbb` — i.e. any 3/4/6/8-digit
+ * hex (alpha from 4/8-digit forms is dropped, the native picker has no
+ * alpha channel). */
 function ColorValueInput({
 	value,
 	onChange,
