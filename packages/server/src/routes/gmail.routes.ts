@@ -11,6 +11,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import express, { Router as createRouter, type Router } from "express";
+import { requireBrowserContextLoopback } from "../lib/local-origin.js";
 import type { Config } from "../services/config.js";
 import type { GmailClient } from "../services/gmail-client.js";
 
@@ -140,6 +141,11 @@ export function createGmailRouter({
 	gmailClient,
 }: GmailRouterDeps): Router {
 	const router = createRouter();
+
+	// The credentials endpoint writes a secret file to disk — gate the whole
+	// router behind the same Referer check the export routes use so a hostile
+	// site can't drive a top-level navigation to overwrite `google-credentials.json`.
+	router.use(requireBrowserContextLoopback);
 
 	// The form uses url-encoded POST so it works without JS.
 	router.use(express.urlencoded({ extended: false, limit: "64kb" }));

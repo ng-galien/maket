@@ -126,6 +126,24 @@ describe("gmail routes — onboarding + auth-url", () => {
 		);
 	});
 
+	it("rejects POST /api/gmail/credentials when Referer is non-loopback", async () => {
+		const body = new URLSearchParams({
+			credentials: JSON.stringify({
+				installed: { client_id: "id", client_secret: "secret" },
+			}),
+		});
+		const res = await fetch(`${baseUrl}/api/gmail/credentials`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/x-www-form-urlencoded",
+				Referer: "https://evil.example/",
+			},
+			body,
+		});
+		expect(res.status).toBe(403);
+		expect(existsSync(join(dataDir, "google-credentials.json"))).toBe(false);
+	});
+
 	it("GET /api/gmail/auth-url?with_read=1 propagates the withRead option", async () => {
 		const res = await fetch(`${baseUrl}/api/gmail/auth-url?with_read=1`, {
 			redirect: "manual",

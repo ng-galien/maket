@@ -8,7 +8,9 @@
  * `config` (ASSETS_DIR for inlining images, PORT for OAuth redirect URI).
  */
 
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import { platform } from "node:os";
 import { join } from "node:path";
 import { asFunction } from "awilix";
 import { z } from "zod";
@@ -134,6 +136,35 @@ export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketGmailSchema>;
 
+/**
+ * Fire-and-forget browser launch for the OAuth consent URL. On Windows the
+ * launcher is a `cmd.exe` builtin (`start`) — spawn it through `cmd /c` with
+ * an empty title arg (`""`) so URLs containing `&` or spaces are parsed as
+ * the target, not as the window title. Errors are swallowed: the server's
+ * auth-code loop still runs, and the user can paste the URL manually if the
+ * browser can't open.
+ */
+function openBrowser(url: string): void {
+	try {
+		const child =
+			platform() === "win32"
+				? spawn("cmd", ["/c", "start", "", url], {
+						detached: true,
+						stdio: "ignore",
+					})
+				: spawn(platform() === "darwin" ? "open" : "xdg-open", [url], {
+						detached: true,
+						stdio: "ignore",
+					});
+		child.on("error", () => {
+			/* headless host or missing helper — handled by the manual paste fallback */
+		});
+		child.unref();
+	} catch {
+		/* noop — see comment above */
+	}
+}
+
 async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient, config } = deps;
 	const withRead = args.with_read === true;
@@ -155,15 +186,10 @@ async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		const redirectUri = `http://localhost:${config.PORT}/auth/google/callback`;
 		const authUrl = await gmailClient.getAuthUrl(redirectUri, { withRead });
 
-		const { execFile } = await import("node:child_process");
-		const { platform } = await import("node:os");
-		const cmd =
-			platform() === "darwin"
-				? "open"
-				: platform() === "win32"
-					? "start"
-					: "xdg-open";
-		execFile(cmd, [authUrl]);
+		// Best-effort — if we can't launch a browser (headless box, missing
+		// xdg-open, Windows `start` quirks), the user can still copy the URL
+		// from the OAuth flow; don't let a launch failure abort connect.
+		openBrowser(authUrl);
 
 		await gmailClient.startAuth();
 		const grants = gmailClient.grants();

@@ -4,15 +4,9 @@
  * (gzipped JSON bundle with documents + referenced chartes).
  */
 
-import {
-	Router as createRouter,
-	type NextFunction,
-	type Request,
-	type Response,
-	type Router,
-} from "express";
+import { Router as createRouter, type Router } from "express";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
-import { isLoopbackReferer } from "../lib/local-origin.js";
+import { requireBrowserContextLoopback } from "../lib/local-origin.js";
 import {
 	bundleFilename,
 	decodeBundle,
@@ -46,27 +40,6 @@ export interface ExportRouterDeps {
 
 function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
-}
-
-/**
- * Reject browser-initiated requests whose Referer points outside loopback.
- * The global Origin/Host middleware already blocks XHR/fetch from any other
- * origin, but a top-level navigation (`window.open`, `location.href`) carries
- * no Origin header — only Referer. This guard catches that vector.
- *
- * Native HTTP clients (curl, the MCP bridge) send neither header and pass.
- */
-function requireBrowserContextLoopback(
-	req: Request,
-	res: Response,
-	next: NextFunction,
-): void {
-	const referer = req.headers.referer;
-	if (referer && !isLoopbackReferer(referer)) {
-		res.status(403).end();
-		return;
-	}
-	next();
 }
 
 export function createExportRouter({

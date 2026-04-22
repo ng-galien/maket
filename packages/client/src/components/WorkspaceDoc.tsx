@@ -87,7 +87,9 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					{doc.meta?.emailDraftUrl && (
 						<DraftPill
 							kind={
-								(doc.meta?.emailDraftRole as "body" | "attachment") ?? "body"
+								doc.meta?.emailDraftRole === "attachment"
+									? "attachment"
+									: "body"
 							}
 							url={doc.meta.emailDraftUrl}
 						/>

@@ -74,7 +74,7 @@ export async function runGmail(argv: string[]): Promise<void> {
 }
 
 function runStatus(): void {
-	const { dataDir } = readEnv();
+	const { dataDir, url } = readEnv();
 	const creds = inspect(join(dataDir, "google-credentials.json"));
 	const token = inspect(join(dataDir, "google-token.json"));
 
@@ -82,7 +82,7 @@ function runStatus(): void {
 	lines.push(
 		creds.exists
 			? `  ✓ credentials  ${creds.path} (mode ${creds.mode})`
-			: `  ✗ credentials  missing at ${creds.path}\n                 → paste JSON at http://localhost:<MAKET_PORT>/setup/gmail`,
+			: `  ✗ credentials  missing at ${creds.path}\n                 → paste JSON at ${url}/setup/gmail`,
 	);
 	lines.push(
 		token.exists
@@ -93,7 +93,7 @@ function runStatus(): void {
 }
 
 async function runReset(force: boolean): Promise<void> {
-	const { dataDir } = readEnv();
+	const { dataDir, url } = readEnv();
 	const candidates = [
 		join(dataDir, "google-credentials.json"),
 		join(dataDir, "google-token.json"),
@@ -120,7 +120,5 @@ async function runReset(force: boolean): Promise<void> {
 		unlinkSync(path);
 		process.stdout.write(`Removed ${path}\n`);
 	}
-	process.stdout.write(
-		"Done. Re-run http://localhost:<MAKET_PORT>/setup/gmail to reconnect.\n",
-	);
+	process.stdout.write(`Done. Re-run ${url}/setup/gmail to reconnect.\n`);
 }
