@@ -134,28 +134,52 @@ export function CharteEditModal({ charte, onClose }: Props) {
 		const personalityList = splitCsv(personality);
 		const doList = splitLines(voiceDo);
 		const dontList = splitLines(voiceDont);
-		const voice: {
-			personality?: string[];
-			formality?: string;
-			do?: string[];
-			dont?: string[];
-		} = {};
-		if (personalityList.length) voice.personality = personalityList;
-		if (formality.trim()) voice.formality = formality.trim();
-		if (doList.length) voice.do = doList;
-		if (dontList.length) voice.dont = dontList;
-		const rules: Record<string, string> = {};
-		if (rTitles.trim()) rules.titles = rTitles.trim();
-		if (rPhotos.trim()) rules.photos = rPhotos.trim();
-		if (rLayout.trim()) rules.layout = rLayout.trim();
+
+		// WS `charte_save` is a full replace (see packages/shared/src/ws.ts).
+		// The modal only surfaces a subset of the charte shape, so we overlay
+		// our edits on top of the original and ship the merged record —
+		// otherwise `tokens.shadow`, `voice.vocabulary`, custom groups, and
+		// any rule key outside titles/photos/layout silently get wiped.
+		const modeledTokens = serializeTokens(tokens);
+		const mergedTokens: Record<string, Record<string, string>> = {
+			...(charte.tokens ?? {}),
+		};
+		for (const group of TOKEN_GROUPS) {
+			if (modeledTokens[group]) mergedTokens[group] = modeledTokens[group];
+			else delete mergedTokens[group];
+		}
+
+		const originalVoice = charte.voice ?? {};
+		const mergedVoice: NonNullable<CharteInput["voice"]> = { ...originalVoice };
+		mergedVoice.personality = personalityList.length
+			? personalityList
+			: undefined;
+		mergedVoice.formality = formality.trim() || undefined;
+		mergedVoice.do = doList.length ? doList : undefined;
+		mergedVoice.dont = dontList.length ? dontList : undefined;
+		for (const key of Object.keys(
+			mergedVoice,
+		) as (keyof typeof mergedVoice)[]) {
+			if (mergedVoice[key] === undefined) delete mergedVoice[key];
+		}
+
+		const mergedRules: Record<string, string> = { ...initialRules };
+		const setOrDelete = (key: string, value: string) => {
+			const trimmed = value.trim();
+			if (trimmed) mergedRules[key] = trimmed;
+			else delete mergedRules[key];
+		};
+		setOrDelete("titles", rTitles);
+		setOrDelete("photos", rPhotos);
+		setOrDelete("layout", rLayout);
 
 		wsSend({
 			type: "charte_save",
 			name: charte.name,
 			description: description.trim() || undefined,
-			tokens: serializeTokens(tokens),
-			voice: Object.keys(voice).length ? voice : undefined,
-			rules: Object.keys(rules).length ? rules : undefined,
+			tokens: mergedTokens,
+			voice: Object.keys(mergedVoice).length ? mergedVoice : undefined,
+			rules: Object.keys(mergedRules).length ? mergedRules : undefined,
 		});
 		onClose();
 	};
