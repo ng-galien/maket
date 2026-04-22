@@ -160,29 +160,20 @@ Override with environment variables:
 | `MAKET_DB` | `$MAKET_DATA_DIR/documents.db` | SQLite path |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Gmail OAuth credentials (optional) |
 
-### Gmail integration (optional)
+### Gmail integration (optional, power-user)
 
-#### What Maket does (and doesn't) do with your Gmail
+Maket can turn a composed document into a Gmail draft (with PDF attachments). It **only creates drafts** — never sends. You review the draft in Gmail and click Send yourself.
 
-Maket only ever **creates drafts**. It never calls any send endpoint. You review the draft in Gmail, you click Send. The code is open — grep `users.drafts.send` or `users.messages.send` in `packages/server/src/tools/gmail.ts`, you won't find a call site.
+Setup takes about 10 minutes: you register your own OAuth Desktop client in Google Cloud Console, enable the Gmail API, add yourself as a test user, and paste the JSON into Maket's setup form. Credentials live under `~/.maket/` with owner-only permissions — nothing in the repo, nothing on any server.
 
-Two authorisation levels, you pick at connect time:
+**Full walkthrough + troubleshooting: [docs/gmail-setup.md](docs/gmail-setup.md).**
 
-- **Draft only** (default) — Google asks: *"Manage drafts and send emails"*. Maket uses the draft half; the send half is the floor Google offers, not what Maket does.
-- **Draft + read** (opt-in with `with_read=true`) — also grants *"Read your Gmail"*. Enables `search` / `read` actions so the AI can reference past threads when composing.
+Quick CLI helpers once set up:
 
-#### The "unverified app" screen — yes, you'll see it
-
-Maket is open source and free. Getting Google to drop the "unverified app" warning requires an annual security audit (CASA) that costs **$500–$4500/yr**. I'm not paying that for a free tool. You'll see the red screen once, click **Advanced → Go to maket (unsafe)**, and proceed. Normal for a small open-source app you run on your own machine.
-
-If you don't trust that — good instinct. Read `packages/server/src/services/gmail-client.ts` and `packages/server/src/tools/gmail.ts`, or ask your AI assistant to audit them. Nothing leaves your machine except the draft you just composed, going to your own Gmail.
-
-#### Setup
-
-1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
-2. Add redirect URI: `http://localhost:3333/auth/google/callback`.
-3. Copy `.env.example` → `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
-4. Run `maket_gmail connect` in your AI assistant (add `with_read=true` if you also want inbox reading). Follow the browser flow.
+```bash
+maket gmail status         # check whether credentials are in place
+maket gmail reset --force  # wipe and start over
+```
 
 ### Bootstrap a downstream workspace
 

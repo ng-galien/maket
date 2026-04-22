@@ -21,6 +21,9 @@ COMMANDS
                         clients: claude | codex
                         flags:   --apply      write the config (default: print only)
                                  --scope=user|project   (claude only, default: user)
+  gmail <sub>         Manage Gmail OAuth state on this machine
+                        sub: status | reset [--force]
+                        see docs/gmail-setup.md for the full setup walkthrough
   help, --help        Show this help
   version, --version  Show the installed Maket version
 
@@ -34,6 +37,8 @@ EXAMPLES
   npx -y @ng-galien/maket install codex --apply
   maket start && maket open
   maket status
+  maket gmail status
+  maket gmail reset --force
   maket stop
 `;
 
