@@ -15,8 +15,14 @@ import { join, resolve, sep } from "node:path";
 import type { WsClientMessage, WsStateMessage } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
+import { charteToCSS } from "../lib/charte-css.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
-import { computeCanvasDims, createDocument, type Document } from "../types.js";
+import {
+	type Charte,
+	computeCanvasDims,
+	createDocument,
+	type Document,
+} from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
@@ -167,6 +173,31 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				if (msg.category != null) d.category = msg.category || "general";
 				documents.persist(d.name);
 				bus.emit("meta:updated", { docName: d.name });
+				break;
+			}
+
+			case "charte_save": {
+				const name = String(msg.name || "").trim();
+				if (!name) {
+					bus.emit("toast", {
+						text: "Charte name is required",
+						level: "error",
+					});
+					break;
+				}
+				const charte: Charte = {
+					name,
+					description: msg.description,
+					tokens: msg.tokens ?? {},
+				};
+				if (msg.voice) charte.voice = msg.voice;
+				if (msg.rules) charte.rules = msg.rules;
+				store.saveCharte(charte);
+				bus.emit("charte:updated", { name, css: charteToCSS(charte) });
+				bus.emit("toast", {
+					text: `Charte "${name}" saved`,
+					level: "success",
+				});
 				break;
 			}
 

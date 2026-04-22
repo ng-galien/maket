@@ -148,6 +148,27 @@ export interface WsDeleteAssetMessage {
 	filename: string;
 }
 
+/**
+ * Write a full charte record. Name is the identity — renaming is not part of
+ * this envelope; clients wanting to rename should `charte_save` under the new
+ * name and then call `maket_charte delete` on the old one. Tokens/voice/rules
+ * fully replace the stored values (no partial merge).
+ */
+export interface WsCharteSaveMessage {
+	type: "charte_save";
+	name: string;
+	description?: string;
+	tokens?: Record<string, Record<string, string>>;
+	voice?: {
+		personality?: string[];
+		formality?: string;
+		do?: string[];
+		dont?: string[];
+		vocabulary?: string[];
+	};
+	rules?: Record<string, string>;
+}
+
 export interface WsPageGoMessage {
 	type: "page_go";
 	docName: string;
@@ -246,6 +267,7 @@ export type WsClientMessage =
 	| WsUpdateCanvasMessage
 	| WsUpdateMetaMessage
 	| WsDeleteAssetMessage
+	| WsCharteSaveMessage
 	| WsPageGoMessage
 	| WsClearCanvasMessage
 	| WsTextEditMessage
