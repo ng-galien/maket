@@ -17,6 +17,19 @@ describe("createGmailClient", () => {
 		expect(a.isConnected()).toBe(true);
 		expect(b.isConnected()).toBe(false);
 	});
+
+	it("default grants: draft when connected, no read", () => {
+		const client = createGmailClient({ dataDir: "/tmp/test", env: {} });
+		expect(client.grants()).toEqual({ draft: false, read: false });
+		(client as any)._testForceConnected();
+		expect(client.grants()).toEqual({ draft: true, read: false });
+	});
+
+	it("read grant propagates when explicitly forced on", () => {
+		const client = createGmailClient({ dataDir: "/tmp/test", env: {} });
+		(client as any)._testForceConnected(true);
+		expect(client.grants()).toEqual({ draft: true, read: true });
+	});
 });
 
 describe("loadCredentials", () => {

@@ -11,6 +11,8 @@
  *  - Requests where Origin and Host both resolve to a loopback name
  */
 
+import type { NextFunction, Request, Response } from "express";
+
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
 /** True if the given Host: or origin host (with optional port) is loopback. */
@@ -50,4 +52,25 @@ export function isLoopbackReferer(referer: string | undefined | null): boolean {
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Reject browser-initiated requests whose Referer points outside loopback.
+ * The global Origin/Host middleware already blocks XHR/fetch from any other
+ * origin, but a top-level navigation (`window.open`, `location.href`) carries
+ * no Origin header — only Referer. This guard catches that vector.
+ *
+ * Native HTTP clients (curl, the MCP bridge) send neither header and pass.
+ */
+export function requireBrowserContextLoopback(
+	req: Request,
+	res: Response,
+	next: NextFunction,
+): void {
+	const referer = req.headers.referer;
+	if (referer && !isLoopbackReferer(referer)) {
+		res.status(403).end();
+		return;
+	}
+	next();
 }

@@ -16,6 +16,7 @@ const ROUTER_NAMES = [
 	"exportRouter",
 	"thumbnailRouter",
 	"oauthRouter",
+	"gmailRouter",
 	"mcpRouter",
 ] as const;
 
@@ -29,6 +30,7 @@ export { createAppRouter } from "./app.routes.js";
 export { createAssetsRouter } from "./assets.routes.js";
 export { createChartesRouter } from "./chartes.routes.js";
 export { createExportRouter } from "./export.routes.js";
+export { createGmailRouter } from "./gmail.routes.js";
 export { createMcpRouter } from "./mcp.routes.js";
 export { createOAuthRouter } from "./oauth.routes.js";
 export { createThumbnailRouter } from "./thumbnail.routes.js";

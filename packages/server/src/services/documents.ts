@@ -115,6 +115,8 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				locked: d.meta?.locked === true,
 				updatedAt: timestamps.get(d.name),
 				charteColor: resolveCharteColor(d.meta?.charte),
+				emailDraftUrl: d.meta?.emailDraftUrl,
+				emailDraftRole: d.meta?.emailDraftRole,
 			}));
 		},
 		all() {

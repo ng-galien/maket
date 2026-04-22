@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runBridge } from "./commands/bridge.ts";
+import { runGmail } from "./commands/gmail.ts";
 import { runHelp } from "./commands/help.ts";
 import { runInstall } from "./commands/install.ts";
 import { runLogs } from "./commands/logs.ts";
@@ -88,6 +89,9 @@ async function dispatch(argv: string[]): Promise<void> {
 			return;
 		case "install":
 			runInstall(rest);
+			return;
+		case "gmail":
+			await runGmail(rest);
 			return;
 		case "version":
 		case "--version":

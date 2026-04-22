@@ -13,10 +13,12 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const SCOPES = [
-	"https://www.googleapis.com/auth/gmail.compose",
-	"https://www.googleapis.com/auth/gmail.readonly",
-];
+const DRAFT_SCOPE = "https://www.googleapis.com/auth/gmail.compose";
+const READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+function buildScopes(withRead: boolean): string[] {
+	return withRead ? [DRAFT_SCOPE, READ_SCOPE] : [DRAFT_SCOPE];
+}
 
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
 const STATE_TTL_MS = OAUTH_TIMEOUT_MS;
@@ -46,17 +48,28 @@ export function loadCredentials(sources: CredentialSources): Credentials {
 	if (!path || !exists(path)) {
 		throw new Error(
 			"Google credentials not found.\n" +
-				"Option 1: Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env\n" +
-				`Option 2: Place credentials JSON at ${path || "<unset>"}`,
+				"Quickest path: open http://localhost:<MAKET_PORT>/setup/gmail and paste the OAuth Desktop JSON from Google Cloud Console.\n" +
+				"Manual path: set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in .env,\n" +
+				`or drop the JSON at ${path || "<unset>"}`,
 		);
 	}
 	const keys = JSON.parse(readFile(path));
 	return keys.installed || keys.web;
 }
 
+export interface GmailGrants {
+	/** Always true when connected — drafts are mandatory. */
+	draft: boolean;
+	/** True only if the user opted into gmail.readonly at connect time. */
+	read: boolean;
+}
+
 export interface GmailClient {
 	tryRestore(): Promise<boolean>;
-	getAuthUrl(redirectUri: string): Promise<string>;
+	getAuthUrl(
+		redirectUri: string,
+		opts?: { withRead?: boolean },
+	): Promise<string>;
 	startAuth(): Promise<void>;
 	handleCallback(
 		code: string,
@@ -65,6 +78,7 @@ export interface GmailClient {
 	): Promise<string>;
 	getGmail(): Promise<any>;
 	isConnected(): boolean;
+	grants(): GmailGrants;
 }
 
 export interface GmailClientInputs {
@@ -79,6 +93,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 
 	let auth: any = null;
 	let connected = false;
+	let readGranted = false;
 	let pendingResolve: (() => void) | null = null;
 	let pendingReject: ((err: Error) => void) | null = null;
 
@@ -115,11 +130,14 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		return true;
 	}
 
-	function saveToken(refreshToken: string): void {
+	function saveToken(refreshToken: string, withRead: boolean): void {
 		// Only the refresh token is persisted; client_id/client_secret stay in
 		// env or the credentials file. This keeps `google-token.json` from
 		// being a one-stop credential dump if the data dir leaks.
-		const payload = JSON.stringify({ refresh_token: refreshToken });
+		const payload = JSON.stringify({
+			refresh_token: refreshToken,
+			with_read: withRead,
+		});
 		const tmpPath = `${tokenPath}.tmp`;
 		writeFileSync(tmpPath, payload, { mode: 0o600 });
 		renameSync(tmpPath, tokenPath);
@@ -135,11 +153,11 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			} catch {
 				return false;
 			}
+			if (!data || typeof data !== "object") return false;
+			const payload = data as { refresh_token?: unknown; with_read?: unknown };
 			const refreshToken =
-				data &&
-				typeof data === "object" &&
-				typeof (data as { refresh_token?: unknown }).refresh_token === "string"
-					? (data as { refresh_token: string }).refresh_token
+				typeof payload.refresh_token === "string"
+					? payload.refresh_token
 					: null;
 			if (!refreshToken) return false;
 			const { google } = await import("googleapis");
@@ -151,10 +169,12 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			oauth2.setCredentials({ refresh_token: refreshToken });
 			auth = oauth2;
 			connected = true;
+			readGranted = payload.with_read === true;
 			return true;
 		},
 
-		async getAuthUrl(redirectUri: string) {
+		async getAuthUrl(redirectUri: string, opts) {
+			const withRead = opts?.withRead === true;
 			const { google } = await import("googleapis");
 			const creds = resolveCreds();
 			const oauth2 = new google.auth.OAuth2(
@@ -164,7 +184,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			);
 			return oauth2.generateAuthUrl({
 				access_type: "offline",
-				scope: SCOPES,
+				scope: buildScopes(withRead),
 				prompt: "consent",
 				state: newState(),
 			});
@@ -203,8 +223,14 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			);
 			const { tokens } = await oauth2.getToken(code);
 			oauth2.setCredentials(tokens);
+			// Google echoes the exact scopes the user agreed to in tokens.scope;
+			// trust that over what we asked for (user can shrink the grant in the
+			// consent screen).
+			const grantedScopes =
+				typeof tokens.scope === "string" ? tokens.scope.split(" ") : [];
+			readGranted = grantedScopes.includes(READ_SCOPE);
 			if (tokens.refresh_token) {
-				saveToken(tokens.refresh_token);
+				saveToken(tokens.refresh_token, readGranted);
 			}
 			auth = oauth2;
 			connected = true;
@@ -233,11 +259,16 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		isConnected() {
 			return connected;
 		},
+
+		grants() {
+			return { draft: connected, read: connected && readGranted };
+		},
 	};
 
 	// Testing hatch — exposed as `any` for unit tests, never used in production.
-	(client as any)._testForceConnected = () => {
+	(client as any)._testForceConnected = (withRead = false) => {
 		connected = true;
+		readGranted = withRead;
 	};
 
 	return client;

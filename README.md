@@ -1,6 +1,6 @@
 # Maket
 
-**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or send via Gmail when you're done.
+**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
@@ -30,7 +30,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
 - **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
 - **PDF export** — Print-ready output via headless Chromium.
-- **Gmail send** — Compose an email document and send it as a PDF attachment.
+- **Gmail drafts** — Compose an email document and hand it off to Gmail as a draft; you review and send yourself.
 - **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
 - **Agent skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach the AI assistant how to design, brand, and review documents.
 
@@ -160,12 +160,20 @@ Override with environment variables:
 | `MAKET_DB` | `$MAKET_DATA_DIR/documents.db` | SQLite path |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Gmail OAuth credentials (optional) |
 
-### Gmail integration (optional)
+### Gmail integration (optional, power-user)
 
-1. Create OAuth credentials at [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
-2. Add redirect URI: `http://localhost:3333/auth/google/callback`.
-3. Copy `.env.example` → `.env` and set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
-4. Run `maket_gmail connect` in your AI assistant — follow the browser flow to grant access.
+Maket can turn a composed document into a Gmail draft (with PDF attachments). It **only creates drafts** — never sends. You review the draft in Gmail and click Send yourself.
+
+Setup takes about 10 minutes: you register your own OAuth Desktop client in Google Cloud Console, enable the Gmail API, add yourself as a test user, and paste the JSON into Maket's setup form. Credentials live under `~/.maket/` with owner-only permissions — nothing in the repo, nothing on any server.
+
+**Full walkthrough + troubleshooting: [docs/gmail-setup.md](docs/gmail-setup.md).**
+
+Quick CLI helpers once set up:
+
+```bash
+maket gmail status         # check whether credentials are in place
+maket gmail reset --force  # wipe and start over
+```
 
 ### Bootstrap a downstream workspace
 

@@ -21,6 +21,7 @@ bun.lock
 .agents/
 .junie/
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Playwright E2E
 /.e2e-maket

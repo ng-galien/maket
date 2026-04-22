@@ -13,6 +13,26 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Changed
+- `maket_gmail` is now draft-only: Maket never calls any send endpoint.
+  `action=draft` returns a `#drafts/<message-id>` deep link that the user
+  clicks to review and send from Gmail themselves.
+- Gmail consent splits into two tiers at connect time. Default asks only
+  for `gmail.compose` ("Manage drafts and send emails") — the "Read your
+  Gmail" prompt is gone. Pass `action=connect with_read=true` to additionally
+  request `gmail.readonly` for `search` / `read`. When those actions are
+  called without the read grant, the tool returns an MCP `next:` hint that
+  walks the agent through the re-authorise flow.
+- Doc metadata gains `emailDraftUrl` + `emailDraftRole: "body"|"attachment"`.
+  On draft creation the URL is written to the body doc and mirrored onto
+  every attached doc, so each artefact carries a one-click review pointer
+  back into Gmail.
+
+### Added
+- A discreet **Draft ready / In draft** indicator in the sidebar (both list
+  and grid views) and in the Board doc label — leading cyan dot, trailing
+  external-link glyph, opens the Gmail draft in a new tab.
+
 ### Internal
 - CI now runs the full test suite with coverage (v8 provider) on every push
   and pull-request. A shields.io-compatible badge is regenerated on every

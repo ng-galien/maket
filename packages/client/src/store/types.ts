@@ -53,4 +53,8 @@ export interface DocSummary {
 	/** Primary colour of the associated charte — renders as a tiny dot in
 	 * the doc row so you can scan the catalog by brand at a glance. */
 	charteColor?: string;
+	/** Gmail deep link to the draft this doc is part of. Surfaced as a
+	 * discreet "Draft ready / In draft" pill in the sidebar when present. */
+	emailDraftUrl?: string;
+	emailDraftRole?: "body" | "attachment";
 }
