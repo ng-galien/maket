@@ -39,11 +39,41 @@ function makePage() {
 }
 
 describe("installNetworkGuard", () => {
-	it("switches the page to offline mode when requested", async () => {
+	it.each([
+		"offline",
+		"localhost-only",
+	] satisfies NetworkGuardMode[])("installs request interception (not setOfflineMode) in %s mode", async (mode) => {
+		const page = makePage();
+		await installNetworkGuard(page as any, mode);
+		expect(page.setRequestInterception).toHaveBeenCalledWith(true);
+		expect(page.setOfflineMode).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["data:text/plain,ok", true],
+		["about:blank", true],
+		["https://fonts.googleapis.com/css2?family=Inter", true],
+		["https://fonts.gstatic.com/s/inter/v1/font.woff2", true],
+		["http://localhost:3333/assets/x.png", false],
+		["https://127.0.0.1:24842/mcp", false],
+		["http://evil.example/steal", false],
+		["https://192.168.1.1/admin", false],
+		["https://fontsXgstatic.com/font.woff2", false],
+		["not a url", false],
+	] satisfies [
+		string,
+		boolean,
+	][])("offline mode %s -> %s", async (url, allowed) => {
 		const page = makePage();
 		await installNetworkGuard(page as any, "offline");
-		expect(page.setOfflineMode).toHaveBeenCalledWith(true);
-		expect(page.setRequestInterception).not.toHaveBeenCalled();
+		const req = page.trigger(url);
+		if (allowed) {
+			expect(req.continue).toHaveBeenCalled();
+			expect(req.abort).not.toHaveBeenCalled();
+		} else {
+			expect(req.abort).toHaveBeenCalledWith("blockedbyclient");
+			expect(req.continue).not.toHaveBeenCalled();
+		}
 	});
 
 	it.each([
@@ -51,8 +81,11 @@ describe("installNetworkGuard", () => {
 		["about:blank", true],
 		["http://localhost:3333/assets/x.png", true],
 		["https://127.0.0.1:24842/mcp", true],
+		["https://fonts.googleapis.com/css2?family=Fraunces", true],
+		["https://fonts.gstatic.com/s/geist/v1/font.woff2", true],
 		["http://evil.example/steal", false],
 		["https://192.168.1.1/admin", false],
+		["https://fonts.googleapis.com.evil.example/", false],
 		["not a url", false],
 	] satisfies [
 		string,
