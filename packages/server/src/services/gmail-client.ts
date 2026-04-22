@@ -48,8 +48,9 @@ export function loadCredentials(sources: CredentialSources): Credentials {
 	if (!path || !exists(path)) {
 		throw new Error(
 			"Google credentials not found.\n" +
-				"Option 1: Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env\n" +
-				`Option 2: Place credentials JSON at ${path || "<unset>"}`,
+				"Quickest path: open http://localhost:<MAKET_PORT>/setup/gmail and paste the OAuth Desktop JSON from Google Cloud Console.\n" +
+				"Manual path: set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET in .env,\n" +
+				`or drop the JSON at ${path || "<unset>"}`,
 		);
 	}
 	const keys = JSON.parse(readFile(path));

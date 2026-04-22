@@ -173,6 +173,17 @@ async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		return text(`Gmail connected: ${profile.data.emailAddress} (${features})`);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
+		const missingCreds = /credentials not found/i.test(message);
+		if (missingCreds) {
+			const setupUrl = `http://localhost:${config.PORT}/setup/gmail`;
+			return text(
+				`Gmail credentials not configured. Open ${setupUrl} to paste the OAuth Desktop JSON from Google Cloud Console, then retry maket_gmail connect.`,
+				{
+					isError: true,
+					next: [`open ${setupUrl}`, "maket_gmail action=connect"],
+				},
+			);
+		}
 		return text(`Gmail connection failed: ${message}`, true);
 	}
 }
