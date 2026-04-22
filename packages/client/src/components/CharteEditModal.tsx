@@ -1,6 +1,7 @@
 import type { ChartesListItem } from "@maket/shared";
 import { Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { wsSend } from "../store/ws";
 
@@ -159,7 +160,7 @@ export function CharteEditModal({ charte, onClose }: Props) {
 		onClose();
 	};
 
-	return (
+	return createPortal(
 		<div
 			className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4"
 			role="dialog"
@@ -205,6 +206,7 @@ export function CharteEditModal({ charte, onClose }: Props) {
 						{TOKEN_GROUPS.map((group) => (
 							<TokenGroup
 								key={group}
+								group={group}
 								label={t(`charte_edit_token_group_${group}`)}
 								rows={tokens[group]}
 								onChange={(idx, field, value) =>
@@ -215,7 +217,6 @@ export function CharteEditModal({ charte, onClose }: Props) {
 								addLabel={t("charte_edit_token_add")}
 								keyLabel={t("charte_edit_token_key")}
 								valueLabel={t("charte_edit_token_value")}
-								isColor={group === "color"}
 							/>
 						))}
 					</section>
@@ -302,7 +303,8 @@ export function CharteEditModal({ charte, onClose }: Props) {
 					</button>
 				</footer>
 			</div>
-		</div>
+		</div>,
+		document.body,
 	);
 }
 
@@ -333,6 +335,7 @@ function Field({
 
 interface TokenGroupProps {
 	label: string;
+	group: TokenGroupKey;
 	rows: TokenRow[];
 	onChange: (idx: number, field: 0 | 1, value: string) => void;
 	onAdd: () => void;
@@ -340,11 +343,11 @@ interface TokenGroupProps {
 	addLabel: string;
 	keyLabel: string;
 	valueLabel: string;
-	isColor: boolean;
 }
 
 function TokenGroup({
 	label,
+	group,
 	rows,
 	onChange,
 	onAdd,
@@ -352,7 +355,6 @@ function TokenGroup({
 	addLabel,
 	keyLabel,
 	valueLabel,
-	isColor,
 }: TokenGroupProps) {
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -382,18 +384,11 @@ function TokenGroup({
 								placeholder={keyLabel}
 								className="flex-1 px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20"
 							/>
-							{isColor && isLikelyColor(row[1]) && (
-								<span
-									className="w-6 h-6 rounded-md border border-black/10 flex-shrink-0"
-									style={{ background: row[1] }}
-									aria-hidden
-								/>
-							)}
-							<input
+							<TokenValueInput
+								group={group}
 								value={row[1]}
-								onChange={(e) => onChange(idx, 1, e.target.value)}
+								onChange={(v) => onChange(idx, 1, v)}
 								placeholder={valueLabel}
-								className="flex-[2] px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono"
 							/>
 							<button
 								type="button"
@@ -411,11 +406,170 @@ function TokenGroup({
 	);
 }
 
-function isLikelyColor(value: string): boolean {
-	const v = value.trim();
-	if (!v) return false;
+interface TokenValueInputProps {
+	group: TokenGroupKey;
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+}
+
+function TokenValueInput({
+	group,
+	value,
+	onChange,
+	placeholder,
+}: TokenValueInputProps) {
+	if (group === "color") {
+		return (
+			<ColorValueInput
+				value={value}
+				onChange={onChange}
+				placeholder={placeholder}
+			/>
+		);
+	}
+	if (group === "spacing" || group === "radius") {
+		return (
+			<LengthValueInput
+				value={value}
+				onChange={onChange}
+				placeholder={placeholder}
+			/>
+		);
+	}
 	return (
-		/^#[0-9a-f]{3,8}$/i.test(v) ||
-		/^(rgb|rgba|hsl|hsla|oklch|oklab|color)\s*\(/i.test(v)
+		<input
+			value={value}
+			onChange={(e) => onChange(e.target.value)}
+			placeholder={placeholder}
+			className="flex-[2] px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono"
+		/>
+	);
+}
+
+/** Native color input paired with a free-text field so `var(...)`, named
+ * colors, and rgb()/hsl() values stay editable. Picker syncs only when the
+ * text is a 6-digit hex (the only shape `<input type="color">` speaks). */
+function ColorValueInput({
+	value,
+	onChange,
+	placeholder,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+}) {
+	const pickerValue = toHex6(value) ?? "#000000";
+	const pickerDisabled = toHex6(value) === null;
+	return (
+		<div className="flex-[2] flex items-center gap-1.5">
+			<input
+				type="color"
+				value={pickerValue}
+				onChange={(e) => onChange(e.target.value)}
+				aria-label={placeholder}
+				disabled={pickerDisabled && value.trim() !== ""}
+				className="w-8 h-8 rounded-md border border-black/10 bg-transparent cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 p-0 flex-shrink-0"
+				style={{ padding: 0 }}
+			/>
+			<input
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				placeholder={placeholder}
+				className="flex-1 min-w-0 px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono"
+			/>
+		</div>
+	);
+}
+
+/** Return `#rrggbb` when the value is any hex shape `<input type="color">`
+ * can render (3/4/6/8 digits), otherwise `null`. Alpha from 4/8-digit hex is
+ * dropped — the native picker has no alpha channel, so it can't round-trip. */
+function toHex6(raw: string): string | null {
+	const v = raw.trim();
+	const m = v.match(/^#([0-9a-f]{3,8})$/i);
+	if (!m) return null;
+	const hex = m[1];
+	if (hex.length === 3)
+		return `#${hex
+			.split("")
+			.map((c) => c + c)
+			.join("")}`.toLowerCase();
+	if (hex.length === 4)
+		return `#${hex
+			.slice(0, 3)
+			.split("")
+			.map((c) => c + c)
+			.join("")}`.toLowerCase();
+	if (hex.length === 6) return `#${hex}`.toLowerCase();
+	if (hex.length === 8) return `#${hex.slice(0, 6)}`.toLowerCase();
+	return null;
+}
+
+const LENGTH_UNITS = [
+	"mm",
+	"cm",
+	"px",
+	"rem",
+	"em",
+	"%",
+	"vh",
+	"vw",
+	"pt",
+	"in",
+] as const;
+type LengthUnit = (typeof LENGTH_UNITS)[number];
+
+function parseLength(raw: string): { num: string; unit: LengthUnit } | null {
+	const m = raw.trim().match(/^(-?\d*\.?\d+)(mm|cm|px|rem|em|%|vh|vw|pt|in)$/i);
+	if (!m) return null;
+	const unit = m[2].toLowerCase() as LengthUnit;
+	return { num: m[1], unit };
+}
+
+/** Number + unit select. Falls back to plain text for values we can't parse
+ * (calc(), clamp(), var(), bare integers without a unit, etc.). */
+function LengthValueInput({
+	value,
+	onChange,
+	placeholder,
+}: {
+	value: string;
+	onChange: (value: string) => void;
+	placeholder: string;
+}) {
+	const parsed = parseLength(value);
+	if (!parsed) {
+		return (
+			<input
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				placeholder={placeholder}
+				className="flex-[2] px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono"
+			/>
+		);
+	}
+	return (
+		<div className="flex-[2] flex items-center gap-1.5">
+			<input
+				type="text"
+				inputMode="decimal"
+				value={parsed.num}
+				onChange={(e) => onChange(`${e.target.value}${parsed.unit}`)}
+				placeholder={placeholder}
+				className="flex-1 min-w-0 px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono"
+			/>
+			<select
+				value={parsed.unit}
+				onChange={(e) => onChange(`${parsed.num}${e.target.value}`)}
+				className="px-1.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20 font-mono cursor-pointer"
+			>
+				{LENGTH_UNITS.map((u) => (
+					<option key={u} value={u}>
+						{u}
+					</option>
+				))}
+			</select>
+		</div>
 	);
 }
