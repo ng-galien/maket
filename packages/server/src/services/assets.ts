@@ -175,7 +175,8 @@ export function createAssetsService(
 		readBase64(filename, preferThumb = true) {
 			const abs = safePath(filename);
 			if (!abs || !existsSync(abs)) return null;
-			const thumb = preferThumb ? safePath(join("thumbs", filename)) : null;
+			const thumbName = filename.replace(/\.[^.]+$/, ".jpg");
+			const thumb = preferThumb ? safePath(join("thumbs", thumbName)) : null;
 			const src = thumb && existsSync(thumb) ? thumb : abs;
 			return {
 				data: readFileSync(src).toString("base64"),

@@ -73,6 +73,21 @@ describe("createAssetsService", () => {
 		expect(assets.readBase64("ghost.png")).toBeNull();
 	});
 
+	it("readBase64 serves the .jpg thumb for a .png original (preferThumb)", () => {
+		// Regression: the optimizer writes thumbs as .jpg regardless of source ext.
+		// readBase64 must normalize the lookup to .jpg or it silently falls back
+		// to the full-size image — which can blow up naive base64-decoding clients.
+		const thumbBytes = Buffer.from("ffd8ffe0thumbnailbytes", "binary");
+		writeFileSync(join(dir, "pic.png"), TINY_PNG);
+		mkdirSync(join(dir, "thumbs"));
+		writeFileSync(join(dir, "thumbs", "pic.jpg"), thumbBytes);
+		const assets = createAssetsService({ assetsDir: dir });
+		const r = assets.readBase64("pic.png");
+		expect(r).not.toBeNull();
+		expect(r?.mime).toBe("image/jpeg");
+		expect(r?.data).toBe(thumbBytes.toString("base64"));
+	});
+
 	it("imageToken returns a 16-char hex string for an existing file", () => {
 		writeFileSync(join(dir, "tok.png"), TINY_PNG);
 		const assets = createAssetsService({ assetsDir: dir });
