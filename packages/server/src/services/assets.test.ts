@@ -348,5 +348,87 @@ describe("createAssetsService", () => {
 			const assets = createAssetsService({ assetsDir: dir });
 			expect(assets.validateImageFile("fake.svg").valid).toBe(false);
 		});
+
+		it("rejects unknown extensions with a supported-format hint", () => {
+			writeFileSync(join(dir, "oops.bmp"), Buffer.from([0x42, 0x4d]));
+			const assets = createAssetsService({ assetsDir: dir });
+			const result = assets.validateImageFile("oops.bmp");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toMatch(/Unsupported format/);
+		});
+
+		// Adobe Illustrator + Inkscape + Wikipedia emit self-closing or empty
+		// <foreignObject> tags as benign export artifacts. Rejecting them
+		// blanket-blocks the dominant SVG-in-the-wild shape, so we only flag
+		// non-empty ones.
+		it.each([
+			[
+				"illustrator flow placeholder (self-closing)",
+				'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject height="1" width="1" requiredExtensions="http://ns.adobe.com/Flows/1.0/"/></svg>',
+			],
+			[
+				"empty <foreignObject></foreignObject>",
+				'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject></foreignObject></svg>',
+			],
+			[
+				"whitespace-only <foreignObject>",
+				'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject>   \n  </foreignObject></svg>',
+			],
+		])("accepts SVG with %s", (_label, svg) => {
+			writeFileSync(join(dir, "ok.svg"), svg);
+			const assets = createAssetsService({ assetsDir: dir });
+			expect(assets.validateImageFile("ok.svg")).toEqual({ valid: true });
+		});
+
+		it("rejects SVG with non-empty <foreignObject> (HTML payload)", () => {
+			writeFileSync(
+				join(dir, "bad.svg"),
+				'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><div>hi</div></foreignObject></svg>',
+			);
+			const assets = createAssetsService({ assetsDir: dir });
+			const result = assets.validateImageFile("bad.svg");
+			expect(result.valid).toBe(false);
+			expect(result.reason).toMatch(/foreignObject/);
+		});
+	});
+
+	describe("optimize (SVG)", () => {
+		const MINIMAL_SVG = `<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 120 80"><rect width="120" height="80" fill="#00f"/></svg>`;
+
+		it("rasterizes an SVG into <filename>.thumb.png and returns natural dims", async () => {
+			writeFileSync(join(dir, "logo.svg"), MINIMAL_SVG);
+			const assets = createAssetsService({ assetsDir: dir });
+			const dims = await assets.optimize("logo.svg");
+			expect(dims).toEqual({ w: 120, h: 80 });
+			const thumb = join(dir, "thumbs", "logo.svg.thumb.png");
+			expect(existsSync(thumb)).toBe(true);
+			// PNG magic bytes — confirms we wrote a raster, not the SVG source.
+			const head = readFileSync(thumb).subarray(0, 4);
+			expect(Array.from(head)).toEqual([0x89, 0x50, 0x4e, 0x47]);
+		});
+
+		it("readBase64 serves the SVG thumb as image/png", async () => {
+			writeFileSync(join(dir, "logo.svg"), MINIMAL_SVG);
+			const assets = createAssetsService({ assetsDir: dir });
+			await assets.optimize("logo.svg");
+			const r = assets.readBase64("logo.svg");
+			expect(r?.mime).toBe("image/png");
+		});
+
+		it("hasThumb reflects whether the rasterized thumb exists", async () => {
+			writeFileSync(join(dir, "logo.svg"), MINIMAL_SVG);
+			const assets = createAssetsService({ assetsDir: dir });
+			expect(assets.hasThumb("logo.svg")).toBe(false);
+			await assets.optimize("logo.svg");
+			expect(assets.hasThumb("logo.svg")).toBe(true);
+		});
+
+		it("returns null and writes no thumb when the SVG is malformed", async () => {
+			writeFileSync(join(dir, "bad.svg"), "<svg not closed");
+			const assets = createAssetsService({ assetsDir: dir });
+			const dims = await assets.optimize("bad.svg");
+			expect(dims).toBeNull();
+			expect(existsSync(join(dir, "thumbs", "bad.svg.thumb.png"))).toBe(false);
+		});
 	});
 });

@@ -22,6 +22,7 @@ import {
 } from "node:fs";
 import { extname, join, resolve, sep } from "node:path";
 import { assertSafeUrl, boundedFetch } from "../lib/safe-fetch.js";
+import { rasterizeSvg, svgNaturalDims } from "../lib/svg-rasterize.js";
 
 const MIME_MAP: Record<string, string> = {
 	".png": "image/png",
@@ -38,12 +39,17 @@ const MAX_PX = 4000;
 const THUMB_PX = 400;
 
 /**
- * Thumbs are stored as `<source-filename>.thumb.jpg` so that assets differing
- * only by extension (e.g. `logo.png` and `logo.jpg`) get distinct thumbs.
+ * Thumbs are stored as `<source-filename>.thumb.<ext>` so that assets differing
+ * only by extension (e.g. `logo.png` and `logo.jpg`) get distinct thumbs. The
+ * thumb extension matches its content: JPEG for rasters (opaque, smaller),
+ * PNG for SVG (preserves transparency + crisp edges typical of logos).
  * Legacy thumbs (`<basename>.jpg`, used before v1.1.0) are migrated at startup;
  * see `migrateLegacyThumbs` below.
  */
-const thumbFilename = (filename: string) => `${filename}.thumb.jpg`;
+const thumbFilename = (filename: string) => {
+	const ext = extname(filename).toLowerCase();
+	return ext === ".svg" ? `${filename}.thumb.png` : `${filename}.thumb.jpg`;
+};
 
 export interface Dimensions {
 	w: number;
@@ -76,6 +82,8 @@ export interface AssetsService {
 	remove(filename: string): void;
 	/** Read a file as base64 + mime, prefer thumbnail if available. Returns null if missing. */
 	readBase64(filename: string, preferThumb?: boolean): ReadResult | null;
+	/** True iff a thumbnail exists on disk for this asset. */
+	hasThumb(filename: string): boolean;
 	/** Map an extension to a MIME type. Falls back to image/png for unknown. */
 	mimeFromExt(pathOrFilename: string): string;
 	/**
@@ -206,6 +214,11 @@ export function createAssetsService(
 			};
 		},
 
+		hasThumb(filename) {
+			const thumb = safePath(join("thumbs", thumbFilename(filename)));
+			return !!thumb && existsSync(thumb);
+		},
+
 		mimeFromExt(pathOrFilename) {
 			return MIME_MAP[extname(pathOrFilename).toLowerCase()] ?? "image/png";
 		},
@@ -284,28 +297,43 @@ export function createAssetsService(
 							reason: "Not a valid SVG (missing <?xml or <svg)",
 						};
 					}
-					// SVG can carry executable content (script tags, on* handlers,
-					// javascript: hrefs). When the SVG is later inlined via
-					// dangerouslySetInnerHTML or rendered by puppeteer with
-					// network access, that content runs. Reject anything that
-					// smells executable rather than try to sanitise.
+					// Threat model: the only path where SVG scripts can execute is
+					// direct browser navigation to `/assets/<file>.svg` (static
+					// route). Rasterized paths (MCP view, HTTP thumb/preview) go
+					// through resvg, which is a sandboxed WASM renderer that
+					// ignores scripts and foreignObject content. Page rendering
+					// inlines SVGs via `<img src="data:...">` (image-inline.ts),
+					// which browsers treat as images — no script execution.
+					//
+					// So we block only high-signal attack markers: scripts, event
+					// handlers, and javascript: URLs are never legitimate in an
+					// asset SVG. Empty `<foreignObject/>` is allowed because
+					// Adobe Illustrator / Inkscape / Wikipedia emit them as
+					// benign export artifacts (flow extension placeholders).
+					// Non-empty `<foreignObject>` can embed arbitrary HTML and
+					// stays blocked.
 					const body = readFileSync(abs, "utf8");
 					const dangerous =
 						/<script[\s>]/i.test(body) ||
 						/\son[a-z]+\s*=/i.test(body) ||
 						/javascript:/i.test(body) ||
-						/<foreignobject[\s>]/i.test(body);
+						/<foreignobject\b[^>]*?(?<!\/)>[\s\S]*?\S[\s\S]*?<\/foreignobject\s*>/i.test(
+							body,
+						);
 					if (dangerous) {
 						return {
 							valid: false,
 							reason:
-								"SVG contains active content (<script>, on* handler, javascript: URL, or <foreignObject>) — refused.",
+								"SVG contains active content (<script>, on* handler, javascript: URL, or non-empty <foreignObject>) — refused.",
 						};
 					}
 					return { valid: true };
 				}
 				default:
-					return { valid: true };
+					return {
+						valid: false,
+						reason: `Unsupported format: ${ext || "(no extension)"} — supported: ${[...IMAGE_EXTS].sort().join(", ")}`,
+					};
 			}
 		},
 
@@ -349,9 +377,23 @@ export function createAssetsService(
 
 		async optimize(filename) {
 			const ext = extname(filename).toLowerCase();
-			if ([".svg", ".gif"].includes(ext)) return null;
+			if (ext === ".gif") return null;
 			const abs = safePath(filename);
 			if (!abs || !existsSync(abs)) return null;
+			const td = thumbDir();
+			if (!existsSync(td)) mkdirSync(td, { recursive: true });
+			const thumbPath = join(td, thumbFilename(filename));
+
+			if (ext === ".svg") {
+				try {
+					const svg = readFileSync(abs);
+					writeFileSync(thumbPath, await rasterizeSvg(svg, THUMB_PX));
+					return svgNaturalDims(svg);
+				} catch {
+					return null;
+				}
+			}
+
 			try {
 				const { Jimp } = await import("jimp");
 				const image = await Jimp.read(abs);
@@ -364,10 +406,6 @@ export function createAssetsService(
 					const buf = await image.getBuffer("image/jpeg", { quality: 85 });
 					writeFileSync(abs, buf);
 				}
-				// Generate thumbnail
-				const td = thumbDir();
-				if (!existsSync(td)) mkdirSync(td, { recursive: true });
-				const thumbPath = join(td, thumbFilename(filename));
 				const thumb = image.clone();
 				thumb.scaleToFit({ w: THUMB_PX, h: THUMB_PX * 4 });
 				const thumbBuf = await thumb.getBuffer("image/jpeg", { quality: 75 });
