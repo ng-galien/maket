@@ -399,7 +399,7 @@ describe("ws-handler — file and document mutations", () => {
 		const thumbsDir = join(assetsDir, "thumbs");
 		mkdirSync(thumbsDir, { recursive: true });
 		writeFileSync(join(assetsDir, "hero.png"), "hero");
-		writeFileSync(join(thumbsDir, "hero.jpg"), "thumb");
+		writeFileSync(join(thumbsDir, "hero.png.thumb.jpg"), "thumb");
 		store.saveAsset({ filename: "hero.png", title: "Hero" });
 		const changed = vi.fn();
 		bus.on("assets:changed", changed);
@@ -407,7 +407,7 @@ describe("ws-handler — file and document mutations", () => {
 		handler({ type: "delete_asset", filename: "hero.png" }, STUB_WS);
 
 		expect(existsSync(join(assetsDir, "hero.png"))).toBe(false);
-		expect(existsSync(join(thumbsDir, "hero.jpg"))).toBe(false);
+		expect(existsSync(join(thumbsDir, "hero.png.thumb.jpg"))).toBe(false);
 		expect(store.loadAsset("hero.png")).toBeNull();
 		expect(changed).toHaveBeenCalledWith({});
 		dispose();

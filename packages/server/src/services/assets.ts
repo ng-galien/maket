@@ -15,6 +15,7 @@ import {
 	mkdirSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	statSync,
 	unlinkSync,
 	writeFileSync,
@@ -36,9 +37,13 @@ const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"]);
 const MAX_PX = 4000;
 const THUMB_PX = 400;
 
-/** When a thumbnail is generated, it is stored as .jpg regardless of source ext. */
-const thumbFilename = (filename: string) =>
-	filename.replace(/\.[^.]+$/, ".jpg");
+/**
+ * Thumbs are stored as `<source-filename>.thumb.jpg` so that assets differing
+ * only by extension (e.g. `logo.png` and `logo.jpg`) get distinct thumbs.
+ * Legacy thumbs (`<basename>.jpg`, used before v1.1.0) are migrated at startup;
+ * see `migrateLegacyThumbs` below.
+ */
+const thumbFilename = (filename: string) => `${filename}.thumb.jpg`;
 
 export interface Dimensions {
 	w: number;
@@ -89,6 +94,16 @@ export interface AssetsService {
 	getDimensions(filename: string): Dimensions | null;
 	/** Optimize (resize + re-encode) in place + generate a thumbnail under `thumbs/`. */
 	optimize(filename: string): Promise<Dimensions | null>;
+	/**
+	 * Rename thumbnails written under the pre-v1.1.0 convention (`<basename>.jpg`)
+	 * to the current `<source-filename>.thumb.jpg` scheme. Returns counts for
+	 * telemetry. Idempotent: safe to run on every boot.
+	 */
+	migrateLegacyThumbs(): {
+		migrated: number;
+		orphansDeleted: number;
+		ambiguous: number;
+	};
 }
 
 export interface AssetsServiceInputs {
@@ -359,6 +374,49 @@ export function createAssetsService(
 			} catch {
 				return null;
 			}
+		},
+
+		migrateLegacyThumbs() {
+			const td = thumbDir();
+			if (!existsSync(td))
+				return { migrated: 0, orphansDeleted: 0, ambiguous: 0 };
+			let migrated = 0;
+			let orphansDeleted = 0;
+			let ambiguous = 0;
+			const entries = readdirSync(td, { withFileTypes: true });
+			for (const entry of entries) {
+				if (!entry.isFile()) continue;
+				const name = entry.name;
+				if (!name.endsWith(".jpg") || name.endsWith(".thumb.jpg")) continue;
+				const base = name.slice(0, -".jpg".length);
+				const matching = Array.from(IMAGE_EXTS)
+					.map((ext) => `${base}${ext}`)
+					.filter((candidate) => {
+						const srcPath = safePath(candidate);
+						return !!srcPath && existsSync(srcPath);
+					});
+				const legacyPath = join(td, name);
+				if (matching.length === 0) {
+					unlinkSync(legacyPath);
+					orphansDeleted += 1;
+					continue;
+				}
+				if (matching.length > 1) {
+					ambiguous += 1;
+					continue;
+				}
+				const onlyMatch = matching[0];
+				if (!onlyMatch) continue;
+				const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
+				if (!targetPath) continue;
+				if (existsSync(targetPath)) {
+					unlinkSync(legacyPath);
+				} else {
+					renameSync(legacyPath, targetPath);
+				}
+				migrated += 1;
+			}
+			return { migrated, orphansDeleted, ambiguous };
 		},
 	};
 }

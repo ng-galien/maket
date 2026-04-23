@@ -2,6 +2,7 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
+	readFileSync,
 	rmSync,
 	writeFileSync,
 } from "node:fs";
@@ -79,42 +80,127 @@ describe("createAssetsService", () => {
 		expect(assets.readBase64("ghost.png")).toBeNull();
 	});
 
-	// When a thumb exists, it is stored as .jpg regardless of source ext;
-	// readBase64 must normalize the lookup or clients get the full-size blob.
+	// Thumbs live under <source-filename>.thumb.jpg so assets that differ
+	// only by extension (logo.png + logo.jpg) each get their own thumb.
 	it.each([
-		{ source: "pic.png", thumb: "pic.jpg" },
-		{ source: "pic.jpg", thumb: "pic.jpg" },
-		{ source: "pic.webp", thumb: "pic.jpg" },
-		{ source: "pic.gif", thumb: "pic.jpg" },
-	])("readBase64 serves the .jpg thumb for $source", ({ source, thumb }) => {
+		"pic.png",
+		"pic.jpg",
+		"pic.webp",
+		"pic.gif",
+	])("readBase64 serves the .thumb.jpg for %s", (source) => {
 		const thumbBytes = Buffer.from("thumb-bytes");
 		writeFileSync(join(dir, source), TINY_PNG);
 		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", thumb), thumbBytes);
+		writeFileSync(join(dir, "thumbs", `${source}.thumb.jpg`), thumbBytes);
 		const assets = createAssetsService({ assetsDir: dir });
 		const r = assets.readBase64(source);
 		expect(r?.mime).toBe("image/jpeg");
 		expect(r?.data).toBe(thumbBytes.toString("base64"));
 	});
 
+	it("readBase64 does not collide between same-basename different-ext assets", () => {
+		const pngThumb = Buffer.from("png-thumb");
+		const jpgThumb = Buffer.from("jpg-thumb");
+		writeFileSync(join(dir, "logo.png"), TINY_PNG);
+		writeFileSync(join(dir, "logo.jpg"), TINY_PNG);
+		mkdirSync(join(dir, "thumbs"));
+		writeFileSync(join(dir, "thumbs", "logo.png.thumb.jpg"), pngThumb);
+		writeFileSync(join(dir, "thumbs", "logo.jpg.thumb.jpg"), jpgThumb);
+		const assets = createAssetsService({ assetsDir: dir });
+		expect(assets.readBase64("logo.png")?.data).toBe(
+			pngThumb.toString("base64"),
+		);
+		expect(assets.readBase64("logo.jpg")?.data).toBe(
+			jpgThumb.toString("base64"),
+		);
+	});
+
 	it("readBase64 skips the thumb when preferThumb is false", () => {
 		writeFileSync(join(dir, "pic.png"), TINY_PNG);
 		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", "pic.jpg"), Buffer.from("thumb"));
+		writeFileSync(join(dir, "thumbs", "pic.png.thumb.jpg"), Buffer.from("t"));
 		const assets = createAssetsService({ assetsDir: dir });
 		const r = assets.readBase64("pic.png", false);
 		expect(r?.mime).toBe("image/png");
 		expect(r?.data).toBe(TINY_PNG.toString("base64"));
 	});
 
-	it("remove deletes the .jpg thumb for non-jpg sources", () => {
+	it("remove deletes the .thumb.jpg sibling", () => {
 		writeFileSync(join(dir, "pic.png"), TINY_PNG);
 		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", "pic.jpg"), Buffer.from("thumb"));
+		writeFileSync(join(dir, "thumbs", "pic.png.thumb.jpg"), Buffer.from("t"));
 		const assets = createAssetsService({ assetsDir: dir });
 		assets.remove("pic.png");
 		expect(assets.exists("pic.png")).toBe(false);
-		expect(existsSync(join(dir, "thumbs", "pic.jpg"))).toBe(false);
+		expect(existsSync(join(dir, "thumbs", "pic.png.thumb.jpg"))).toBe(false);
+	});
+
+	describe("migrateLegacyThumbs", () => {
+		it("renames legacy <base>.jpg thumbs to <source>.thumb.jpg", () => {
+			writeFileSync(join(dir, "logo.png"), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			const legacy = Buffer.from("legacy");
+			writeFileSync(join(dir, "thumbs", "logo.jpg"), legacy);
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 1, orphansDeleted: 0, ambiguous: 0 });
+			expect(existsSync(join(dir, "thumbs", "logo.jpg"))).toBe(false);
+			expect(
+				readFileSync(join(dir, "thumbs", "logo.png.thumb.jpg")).toString(),
+			).toBe("legacy");
+		});
+
+		it("deletes orphan thumbs whose source is gone", () => {
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(join(dir, "thumbs", "ghost.jpg"), Buffer.from("orphan"));
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 0, orphansDeleted: 1, ambiguous: 0 });
+			expect(existsSync(join(dir, "thumbs", "ghost.jpg"))).toBe(false);
+		});
+
+		it("leaves the legacy thumb in place when the basename is ambiguous", () => {
+			writeFileSync(join(dir, "logo.png"), TINY_PNG);
+			writeFileSync(
+				join(dir, "logo.jpg"),
+				Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+			);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(join(dir, "thumbs", "logo.jpg"), Buffer.from("shared"));
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 0, orphansDeleted: 0, ambiguous: 1 });
+			expect(existsSync(join(dir, "thumbs", "logo.jpg"))).toBe(true);
+		});
+
+		it("is idempotent and ignores already-migrated thumbs", () => {
+			writeFileSync(join(dir, "pic.png"), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(
+				join(dir, "thumbs", "pic.png.thumb.jpg"),
+				Buffer.from("already-new"),
+			);
+			const assets = createAssetsService({ assetsDir: dir });
+			expect(assets.migrateLegacyThumbs()).toEqual({
+				migrated: 0,
+				orphansDeleted: 0,
+				ambiguous: 0,
+			});
+			expect(assets.migrateLegacyThumbs()).toEqual({
+				migrated: 0,
+				orphansDeleted: 0,
+				ambiguous: 0,
+			});
+		});
+
+		it("is a no-op when the thumbs dir does not exist", () => {
+			const assets = createAssetsService({ assetsDir: dir });
+			expect(assets.migrateLegacyThumbs()).toEqual({
+				migrated: 0,
+				orphansDeleted: 0,
+				ambiguous: 0,
+			});
+		});
 	});
 
 	it("imageToken returns a 16-char hex string for an existing file", () => {
@@ -157,15 +243,6 @@ describe("createAssetsService", () => {
 		} finally {
 			rmSync(src, { recursive: true, force: true });
 		}
-	});
-
-	it("remove deletes the file + its thumbnail", () => {
-		writeFileSync(join(dir, "r.png"), TINY_PNG);
-		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", "r.png"), TINY_PNG);
-		const assets = createAssetsService({ assetsDir: dir });
-		assets.remove("r.png");
-		expect(assets.exists("r.png")).toBe(false);
 	});
 
 	it("getDimensions reads PNG header", () => {
