@@ -36,6 +36,10 @@ const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"]);
 const MAX_PX = 4000;
 const THUMB_PX = 400;
 
+/** Thumbs are always written as .jpg regardless of source ext. */
+const thumbFilename = (filename: string) =>
+	filename.replace(/\.[^.]+$/, ".jpg");
+
 export interface Dimensions {
 	w: number;
 	h: number;
@@ -168,15 +172,16 @@ export function createAssetsService(
 		remove(filename) {
 			const abs = safePath(filename);
 			if (abs && existsSync(abs)) unlinkSync(abs);
-			const thumbAbs = safePath(join("thumbs", filename));
+			const thumbAbs = safePath(join("thumbs", thumbFilename(filename)));
 			if (thumbAbs && existsSync(thumbAbs)) unlinkSync(thumbAbs);
 		},
 
 		readBase64(filename, preferThumb = true) {
 			const abs = safePath(filename);
 			if (!abs || !existsSync(abs)) return null;
-			const thumbName = filename.replace(/\.[^.]+$/, ".jpg");
-			const thumb = preferThumb ? safePath(join("thumbs", thumbName)) : null;
+			const thumb = preferThumb
+				? safePath(join("thumbs", thumbFilename(filename)))
+				: null;
 			const src = thumb && existsSync(thumb) ? thumb : abs;
 			return {
 				data: readFileSync(src).toString("base64"),
@@ -345,7 +350,7 @@ export function createAssetsService(
 				// Generate thumbnail
 				const td = thumbDir();
 				if (!existsSync(td)) mkdirSync(td, { recursive: true });
-				const thumbPath = join(td, filename.replace(/\.[^.]+$/, ".jpg"));
+				const thumbPath = join(td, thumbFilename(filename));
 				const thumb = image.clone();
 				thumb.scaleToFit({ w: THUMB_PX, h: THUMB_PX * 4 });
 				const thumbBuf = await thumb.getBuffer("image/jpeg", { quality: 75 });

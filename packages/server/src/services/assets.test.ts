@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -73,19 +79,42 @@ describe("createAssetsService", () => {
 		expect(assets.readBase64("ghost.png")).toBeNull();
 	});
 
-	it("readBase64 serves the .jpg thumb for a .png original (preferThumb)", () => {
-		// Regression: the optimizer writes thumbs as .jpg regardless of source ext.
-		// readBase64 must normalize the lookup to .jpg or it silently falls back
-		// to the full-size image — which can blow up naive base64-decoding clients.
-		const thumbBytes = Buffer.from("ffd8ffe0thumbnailbytes", "binary");
-		writeFileSync(join(dir, "pic.png"), TINY_PNG);
+	// Thumbs are written as .jpg regardless of source ext; readBase64 must
+	// normalize the lookup or clients get the full-size blob instead.
+	it.each([
+		{ source: "pic.png", thumb: "pic.jpg" },
+		{ source: "pic.jpg", thumb: "pic.jpg" },
+		{ source: "pic.webp", thumb: "pic.jpg" },
+		{ source: "pic.gif", thumb: "pic.jpg" },
+	])("readBase64 serves the .jpg thumb for $source", ({ source, thumb }) => {
+		const thumbBytes = Buffer.from("thumb-bytes");
+		writeFileSync(join(dir, source), TINY_PNG);
 		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", "pic.jpg"), thumbBytes);
+		writeFileSync(join(dir, "thumbs", thumb), thumbBytes);
 		const assets = createAssetsService({ assetsDir: dir });
-		const r = assets.readBase64("pic.png");
-		expect(r).not.toBeNull();
+		const r = assets.readBase64(source);
 		expect(r?.mime).toBe("image/jpeg");
 		expect(r?.data).toBe(thumbBytes.toString("base64"));
+	});
+
+	it("readBase64 skips the thumb when preferThumb is false", () => {
+		writeFileSync(join(dir, "pic.png"), TINY_PNG);
+		mkdirSync(join(dir, "thumbs"));
+		writeFileSync(join(dir, "thumbs", "pic.jpg"), Buffer.from("thumb"));
+		const assets = createAssetsService({ assetsDir: dir });
+		const r = assets.readBase64("pic.png", false);
+		expect(r?.mime).toBe("image/png");
+		expect(r?.data).toBe(TINY_PNG.toString("base64"));
+	});
+
+	it("remove deletes the .jpg thumb for non-jpg sources", () => {
+		writeFileSync(join(dir, "pic.png"), TINY_PNG);
+		mkdirSync(join(dir, "thumbs"));
+		writeFileSync(join(dir, "thumbs", "pic.jpg"), Buffer.from("thumb"));
+		const assets = createAssetsService({ assetsDir: dir });
+		assets.remove("pic.png");
+		expect(assets.exists("pic.png")).toBe(false);
+		expect(existsSync(join(dir, "thumbs", "pic.jpg"))).toBe(false);
 	});
 
 	it("imageToken returns a 16-char hex string for an existing file", () => {
