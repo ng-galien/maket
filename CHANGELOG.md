@@ -13,6 +13,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-04-23
+
 ### Changed
 - `maket_gmail` is now draft-only: Maket never calls any send endpoint.
   `action=draft` returns a `#drafts/<message-id>` deep link that the user
@@ -32,6 +34,35 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 - A discreet **Draft ready / In draft** indicator in the sidebar (both list
   and grid views) and in the Board doc label — leading cyan dot, trailing
   external-link glyph, opens the Gmail draft in a new tab.
+- **SVG asset support.** `maket_image view` and the HTTP `/assets/thumb|preview`
+  route now rasterize SVGs to PNG via resvg-js (WASM). The vector source
+  stays on disk; a `<file>.thumb.png` sibling is generated on import and
+  served to both the vision model and the client asset grid. Fixes the
+  "Could not process image" 400 that hit every SVG view call before, and
+  silences the per-request Jimp error the UI thumb route was emitting on
+  every SVG tile.
+
+### Fixed
+- **Thumbnail pipeline** (PR #6) — a cluster of bugs around `assets/thumbs/`:
+  `maket_image view` was looking up thumbs under the source extension while
+  the writer always produced `.jpg`, so `.png`/`.webp`/`.gif` silently fell
+  back to the full-size image (naive MCP clients blew their stack on the
+  multi-MB base64 blob); `logo.png` and `logo.jpg` shared a single thumb
+  (collision); `delete` left orphan thumbs on disk; and the legacy-thumb
+  migration produced false positives on basenames ending in `.thumb`. Naming
+  is now `<source-filename>.thumb.<ext>` with a one-shot, idempotent,
+  case-aware, race-safe migration at boot (with counters).
+- **WebSocket `delete_asset`** routes through `assets.remove` like the MCP
+  tool, so UI deletes clean up thumbnails and DB rows the same way.
+- **SVG safety guard relaxed.** Empty `<foreignObject/>` tags (emitted by
+  Illustrator, Inkscape, and Wikipedia as flow/extension placeholders) are
+  no longer rejected. Non-empty `<foreignObject>`, `<script>`, `on*=`
+  handlers, and `javascript:` URLs stay blocked.
+- **Unsupported image formats** now fail `maket_image import` with a clear
+  supported-list message (derived from `IMAGE_EXTS`, so it can't drift)
+  instead of silently passing validation and blowing up later.
+- **Charte web fonts** are now loaded in headless PDF/image renders (PR #3),
+  so layout-check measurements match the live preview.
 
 ### Internal
 - CI now runs the full test suite with coverage (v8 provider) on every push
@@ -56,6 +87,7 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   without `as any` suppressions.
 - Removed dead `biome-ignore` suppressions across ~17 files (Biome no longer
   flags these `any` casts — the suppressions were noise).
+- Landing page (GH Pages) rewritten in a sober editorial register, EN + FR.
 
 ## [1.0.1] — 2026-04-21
 
