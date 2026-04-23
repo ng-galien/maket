@@ -79,8 +79,8 @@ describe("createAssetsService", () => {
 		expect(assets.readBase64("ghost.png")).toBeNull();
 	});
 
-	// Thumbs are written as .jpg regardless of source ext; readBase64 must
-	// normalize the lookup or clients get the full-size blob instead.
+	// When a thumb exists, it is stored as .jpg regardless of source ext;
+	// readBase64 must normalize the lookup or clients get the full-size blob.
 	it.each([
 		{ source: "pic.png", thumb: "pic.jpg" },
 		{ source: "pic.jpg", thumb: "pic.jpg" },

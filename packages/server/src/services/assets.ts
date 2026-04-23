@@ -36,7 +36,7 @@ const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"]);
 const MAX_PX = 4000;
 const THUMB_PX = 400;
 
-/** Thumbs are always written as .jpg regardless of source ext. */
+/** When a thumbnail is generated, it is stored as .jpg regardless of source ext. */
 const thumbFilename = (filename: string) =>
 	filename.replace(/\.[^.]+$/, ".jpg");
 
