@@ -32,6 +32,7 @@ function log(msg: string) {
 // staged package's own `dependencies` on first `npm install`/`npx`.
 const EXTERNALS = [
   "@modelcontextprotocol/sdk",
+  "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",
