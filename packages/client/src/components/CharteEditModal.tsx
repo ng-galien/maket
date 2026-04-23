@@ -554,7 +554,10 @@ const LENGTH_UNITS = [
 type LengthUnit = (typeof LENGTH_UNITS)[number];
 
 function parseLength(raw: string): { num: string; unit: LengthUnit } | null {
-	const m = raw.trim().match(/^(-?\d*\.?\d+)(mm|cm|px|rem|em|%|vh|vw|pt|in)$/i);
+	// Number part allows zero digits so an in-progress edit like "px" (user
+	// wiped the digits before retyping) or "1." stays in the num+unit UI
+	// instead of collapsing to the plain-text fallback and losing the unit.
+	const m = raw.trim().match(/^(-?\d*\.?\d*)(mm|cm|px|rem|em|%|vh|vw|pt|in)$/i);
 	if (!m) return null;
 	const unit = m[2].toLowerCase() as LengthUnit;
 	return { num: m[1], unit };

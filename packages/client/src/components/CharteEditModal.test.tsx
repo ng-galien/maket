@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CharteEditModal } from "./CharteEditModal";
@@ -85,5 +85,45 @@ describe("CharteEditModal", () => {
 
 		// Rules keys outside titles/photos/layout survive.
 		expect(payload.rules?.imagery).toBe("no stock photos");
+	});
+
+	it("keeps the unit when the user clears the number before retyping it", async () => {
+		// Repro: a spacing row shows "8px". User wipes the "8" to type "10".
+		// The intermediate value is just "px" (no digits). The current
+		// parseLength regex requires at least one digit, so it falls back to a
+		// plain text input, the unit select disappears, and the next keystroke
+		// writes "10" with no unit — silently breaking spacing/radius tokens.
+		const charte = {
+			name: "spaced",
+			tokens: { spacing: { gap: "8px" } },
+		};
+		render(<CharteEditModal charte={charte} onClose={() => {}} />);
+
+		const numericInput = () =>
+			screen
+				.getAllByRole("textbox")
+				.find((i) => (i as HTMLInputElement).inputMode === "decimal") as
+				| HTMLInputElement
+				| undefined;
+
+		expect(numericInput()?.value).toBe("8");
+
+		// Clear the number field — after this the length UI must stay intact.
+		fireEvent.change(numericInput() as HTMLInputElement, {
+			target: { value: "" },
+		});
+		expect(numericInput()).toBeDefined();
+
+		fireEvent.change(numericInput() as HTMLInputElement, {
+			target: { value: "10" },
+		});
+
+		const user = userEvent.setup();
+		await user.click(screen.getByRole("button", { name: /enregistrer/i }));
+
+		const payload = wsSendSpy.mock.calls[0]?.[0] as {
+			tokens?: Record<string, Record<string, string>>;
+		};
+		expect(payload.tokens?.spacing?.gap).toBe("10px");
 	});
 });
