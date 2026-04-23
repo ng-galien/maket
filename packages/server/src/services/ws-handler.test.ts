@@ -10,8 +10,8 @@ import { join } from "node:path";
 import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { computeCanvasDims, createDocument } from "../types.js";
+import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
-import type { Config } from "./config.js";
 import { createDocuments } from "./documents.js";
 import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
@@ -40,10 +40,10 @@ function fixture() {
 	const wsRegistry = createWsRegistry();
 	const wsBridge = createWsBridge({ wsRegistry });
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
-	const config = { ASSETS_DIR: assetsDir } as Config;
+	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
+		assets,
 		bus,
-		config,
 		documents,
 		pending,
 		store,
@@ -58,7 +58,7 @@ function fixture() {
 		handler,
 		wsBridge,
 		wsRegistry,
-		config,
+		assetsDir,
 		dispose: () => {
 			store.close();
 			rmSync(assetsDir, { recursive: true, force: true });
@@ -395,19 +395,19 @@ describe("ws-handler — document and canvas flows", () => {
 
 describe("ws-handler — file and document mutations", () => {
 	it("delete_asset removes the file, its thumb, db row, and emits assets:changed", () => {
-		const { store, bus, handler, config, dispose } = fixture();
-		const thumbsDir = join(config.ASSETS_DIR, "thumbs");
+		const { store, bus, handler, assetsDir, dispose } = fixture();
+		const thumbsDir = join(assetsDir, "thumbs");
 		mkdirSync(thumbsDir, { recursive: true });
-		writeFileSync(join(config.ASSETS_DIR, "hero.png"), "hero");
-		writeFileSync(join(thumbsDir, "hero.png"), "thumb");
+		writeFileSync(join(assetsDir, "hero.png"), "hero");
+		writeFileSync(join(thumbsDir, "hero.png.thumb.jpg"), "thumb");
 		store.saveAsset({ filename: "hero.png", title: "Hero" });
 		const changed = vi.fn();
 		bus.on("assets:changed", changed);
 
 		handler({ type: "delete_asset", filename: "hero.png" }, STUB_WS);
 
-		expect(existsSync(join(config.ASSETS_DIR, "hero.png"))).toBe(false);
-		expect(existsSync(join(thumbsDir, "hero.png"))).toBe(false);
+		expect(existsSync(join(assetsDir, "hero.png"))).toBe(false);
+		expect(existsSync(join(thumbsDir, "hero.png.thumb.jpg"))).toBe(false);
 		expect(store.loadAsset("hero.png")).toBeNull();
 		expect(changed).toHaveBeenCalledWith({});
 		dispose();

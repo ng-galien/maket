@@ -9,6 +9,7 @@ import type { AssetsListResponse, UploadResponse } from "@maket/shared";
 import type { Response } from "express";
 import express, { Router as createRouter, type Router } from "express";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
+import { rasterizeSvg } from "../lib/svg-rasterize.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
@@ -67,26 +68,37 @@ export function createAssetsRouter({
 		const cfg = VARIANTS[variant];
 		if (!cfg) return res.status(400).end();
 		const cacheDir = join(ASSETS_DIR, cfg.subdir);
-		const cached = join(cacheDir, file.replace(/\.[^.]+$/, ".jpg"));
+		const srcExt = extname(file).toLowerCase();
+		const isSvg = srcExt === ".svg";
+		const cacheExt = isSvg ? ".png" : ".jpg";
+		const contentType = isSvg ? "image/png" : "image/jpeg";
+		const cached = join(cacheDir, file.replace(/\.[^.]+$/, cacheExt));
 
 		if (existsSync(cached)) {
-			res.setHeader("Content-Type", "image/jpeg");
+			res.setHeader("Content-Type", contentType);
 			res.setHeader("Cache-Control", "public, max-age=86400");
 			return res.sendFile(cached);
 		}
 
 		try {
-			const { Jimp } = await import("jimp");
-			const image = await Jimp.read(original);
-			if (image.width <= cfg.maxPx && image.height <= cfg.maxPx) {
-				res.setHeader("Cache-Control", "public, max-age=86400");
-				return res.sendFile(original);
-			}
-			image.scaleToFit({ w: cfg.maxPx, h: cfg.maxPx });
-			const buf = await image.getBuffer("image/jpeg", { quality: cfg.quality });
 			if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
+			let buf: Buffer;
+			if (isSvg) {
+				buf = await rasterizeSvg(readFileSync(original), cfg.maxPx);
+			} else {
+				const { Jimp } = await import("jimp");
+				const image = await Jimp.read(original);
+				if (image.width <= cfg.maxPx && image.height <= cfg.maxPx) {
+					res.setHeader("Cache-Control", "public, max-age=86400");
+					return res.sendFile(original);
+				}
+				image.scaleToFit({ w: cfg.maxPx, h: cfg.maxPx });
+				buf = Buffer.from(
+					await image.getBuffer("image/jpeg", { quality: cfg.quality }),
+				);
+			}
 			writeFileSync(cached, buf);
-			res.setHeader("Content-Type", "image/jpeg");
+			res.setHeader("Content-Type", contentType);
 			res.setHeader("Cache-Control", "public, max-age=86400");
 			res.sendFile(cached);
 		} catch (err: any) {
