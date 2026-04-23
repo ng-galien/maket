@@ -201,6 +201,52 @@ describe("createAssetsService", () => {
 				ambiguous: 0,
 			});
 		});
+
+		// Regression: a pre-v1.1.0 source whose basename ended in `.thumb`
+		// produced a legacy thumb named `<base>.thumb.jpg`, which looks like a
+		// new-convention thumb. The migration must still rename it.
+		it("migrates legacy thumbs from sources whose basename ends in .thumb", () => {
+			writeFileSync(join(dir, "foo.thumb.png"), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(
+				join(dir, "thumbs", "foo.thumb.jpg"),
+				Buffer.from("legacy"),
+			);
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 1, orphansDeleted: 0, ambiguous: 0 });
+			expect(existsSync(join(dir, "thumbs", "foo.thumb.jpg"))).toBe(false);
+			expect(existsSync(join(dir, "thumbs", "foo.thumb.png.thumb.jpg"))).toBe(
+				true,
+			);
+		});
+
+		// Regression: on case-sensitive filesystems the synthesized candidate
+		// (lowercase ext) could not find a source with an uppercase ext, so the
+		// legacy thumb was wrongly unlinked as orphan.
+		it("matches sources with case-preserving filenames (PIC.PNG)", () => {
+			writeFileSync(join(dir, "PIC.PNG"), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(join(dir, "thumbs", "PIC.jpg"), Buffer.from("legacy"));
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 1, orphansDeleted: 0, ambiguous: 0 });
+			expect(existsSync(join(dir, "thumbs", "PIC.PNG.thumb.jpg"))).toBe(true);
+		});
+
+		it("counts a legacy thumb cleaned up by an existing new thumb as an orphan, not a migration", () => {
+			writeFileSync(join(dir, "logo.png"), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(
+				join(dir, "thumbs", "logo.png.thumb.jpg"),
+				Buffer.from("already-new"),
+			);
+			writeFileSync(join(dir, "thumbs", "logo.jpg"), Buffer.from("stale"));
+			const assets = createAssetsService({ assetsDir: dir });
+			const stats = assets.migrateLegacyThumbs();
+			expect(stats).toEqual({ migrated: 0, orphansDeleted: 1, ambiguous: 0 });
+			expect(existsSync(join(dir, "thumbs", "logo.jpg"))).toBe(false);
+		});
 	});
 
 	it("imageToken returns a 16-char hex string for an existing file", () => {

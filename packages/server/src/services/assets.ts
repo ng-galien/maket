@@ -132,6 +132,14 @@ export function createAssetsService(
 		return abs.startsWith(resolve(assetsDir) + sep) ? abs : null;
 	}
 
+	function listFilenames(): string[] {
+		if (!existsSync(assetsDir)) return [];
+		return readdirSync(assetsDir, { withFileTypes: true })
+			.filter((d) => d.isFile())
+			.map((d) => d.name)
+			.filter((f) => IMAGE_EXTS.has(extname(f).toLowerCase()));
+	}
+
 	return {
 		resolveSafePath: safePath,
 
@@ -140,13 +148,7 @@ export function createAssetsService(
 			return !!p && existsSync(p);
 		},
 
-		listFilenames() {
-			if (!existsSync(assetsDir)) return [];
-			return readdirSync(assetsDir, { withFileTypes: true })
-				.filter((d) => d.isFile())
-				.map((d) => d.name)
-				.filter((f) => IMAGE_EXTS.has(extname(f).toLowerCase()));
-		},
+		listFilenames,
 
 		async importFromLocal(source, dest, overwrite) {
 			const absDest = safePath(dest);
@@ -383,38 +385,59 @@ export function createAssetsService(
 			let migrated = 0;
 			let orphansDeleted = 0;
 			let ambiguous = 0;
+			// A new-convention thumb always ends in `<image-ext>.thumb.jpg`. Anything
+			// that ends in `.thumb.jpg` but with a non-image suffix under the extension
+			// slot is a pre-v1.1.0 thumb of a source whose basename happened to end
+			// in `.thumb` (e.g. `foo.thumb.png` → legacy thumb `foo.thumb.jpg`) and
+			// still needs migrating.
+			const sources = listFilenames();
+			const sourcesByBase = new Map<string, string[]>();
+			for (const f of sources) {
+				const base = f.replace(/\.[^.]+$/, "");
+				const list = sourcesByBase.get(base) ?? [];
+				list.push(f);
+				sourcesByBase.set(base, list);
+			}
+			const isNewConventionThumb = (name: string) => {
+				if (!name.endsWith(".thumb.jpg")) return false;
+				const sourceName = name.slice(0, -".thumb.jpg".length);
+				return IMAGE_EXTS.has(extname(sourceName).toLowerCase());
+			};
 			const entries = readdirSync(td, { withFileTypes: true });
 			for (const entry of entries) {
 				if (!entry.isFile()) continue;
 				const name = entry.name;
-				if (!name.endsWith(".jpg") || name.endsWith(".thumb.jpg")) continue;
+				if (!name.endsWith(".jpg")) continue;
+				if (isNewConventionThumb(name)) continue;
 				const base = name.slice(0, -".jpg".length);
-				const matching = Array.from(IMAGE_EXTS)
-					.map((ext) => `${base}${ext}`)
-					.filter((candidate) => {
-						const srcPath = safePath(candidate);
-						return !!srcPath && existsSync(srcPath);
-					});
+				const matching = sourcesByBase.get(base) ?? [];
 				const legacyPath = join(td, name);
-				if (matching.length === 0) {
-					unlinkSync(legacyPath);
-					orphansDeleted += 1;
-					continue;
+				try {
+					if (matching.length === 0) {
+						unlinkSync(legacyPath);
+						orphansDeleted += 1;
+						continue;
+					}
+					if (matching.length > 1) {
+						ambiguous += 1;
+						continue;
+					}
+					const onlyMatch = matching[0];
+					if (!onlyMatch) continue;
+					const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
+					if (!targetPath) continue;
+					if (existsSync(targetPath)) {
+						unlinkSync(legacyPath);
+						orphansDeleted += 1;
+					} else {
+						renameSync(legacyPath, targetPath);
+						migrated += 1;
+					}
+				} catch {
+					// A concurrent migration (dev-watcher race) or filesystem hiccup can
+					// make the legacy thumb vanish between scan and rename. Skip it —
+					// the other process will have counted it.
 				}
-				if (matching.length > 1) {
-					ambiguous += 1;
-					continue;
-				}
-				const onlyMatch = matching[0];
-				if (!onlyMatch) continue;
-				const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
-				if (!targetPath) continue;
-				if (existsSync(targetPath)) {
-					unlinkSync(legacyPath);
-				} else {
-					renameSync(legacyPath, targetPath);
-				}
-				migrated += 1;
 			}
 			return { migrated, orphansDeleted, ambiguous };
 		},
