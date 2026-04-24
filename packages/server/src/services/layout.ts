@@ -31,18 +31,40 @@ import type { Document } from "../types.js";
 import type { Documents } from "./documents.js";
 import type { WsRegistry } from "./ws-registry.js";
 
+/**
+ * Structured layout verdict. Services return this instead of a raw string
+ * so the tool layer can branch on `status` (e.g. emit `next:` hints on
+ * tight/overflow) without parsing text back.
+ *
+ * - `text` is newline-prefixed for direct concatenation into set/patch
+ *   responses. The check runner trims before rendering in isolation.
+ * - `overflowIds` lists the `data-id` of elements flagged by the mm-math
+ *   walker or headless measurement. Empty when status is `ok` or `tight`.
+ */
+export interface LayoutResult {
+	status: "ok" | "tight" | "overflow";
+	text: string;
+	overflowIds: string[];
+}
+
 export interface LayoutService {
 	/**
 	 * Broadcast the new page state so connected previews refresh, then return
-	 * a canvas-authoritative layout summary (newline-prefixed for direct
-	 * concatenation into tool output).
+	 * a canvas-authoritative layout verdict.
 	 */
-	measure(doc: Document, pageHtml: string, pageIdx: number): Promise<string>;
+	measure(
+		doc: Document,
+		pageHtml: string,
+		pageIdx: number,
+	): Promise<LayoutResult>;
 	/**
-	 * Return a trimmed layout summary for `maket_html check` (no leading
-	 * newline, no state broadcast).
+	 * Return a layout verdict for `maket_html check` (no state broadcast).
 	 */
-	check(doc: Document, pageHtml: string, pageIdx: number): Promise<string>;
+	check(
+		doc: Document,
+		pageHtml: string,
+		pageIdx: number,
+	): Promise<LayoutResult>;
 }
 
 export interface LayoutServiceDeps {
@@ -137,18 +159,22 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 		}
 	}
 
-	async function runMeasure(doc: Document, pageHtml: string): Promise<string> {
+	async function runMeasure(
+		doc: Document,
+		pageHtml: string,
+	): Promise<LayoutResult> {
 		// serverLayoutCheck is fast and authoritative for declared-mm dimensions
 		// (width/height > canvas, flex-row children sum, absolute overshoot).
-		// If it flags anything, report that — no need to warm puppeteer.
-		const serverReport = serverLayoutCheck(pageHtml, doc.canvas);
-		if (!/Layout OK/.test(serverReport)) return serverReport;
+		// If it flags overflow, report that — no need to warm puppeteer.
+		const serverResult = serverLayoutCheck(pageHtml, doc.canvas);
+		if (serverResult.status === "overflow") return serverResult;
 		// Otherwise fall through to headless rendering, which also catches
-		// content-driven overflow (long text, wrapping etc.) that mm-math
-		// can't see. A missing puppeteer falls back to the server's OK.
+		// content-driven overflow and the "tight" threshold (bottom margin
+		// below the min ship clearance). Missing puppeteer falls back to the
+		// server's OK.
 		const headless = await headlessCheck(doc, pageHtml);
-		if (headless) return formatLayoutReport(headless);
-		return serverReport;
+		if (headless) return formatLayoutReport(headless, doc.canvas);
+		return serverResult;
 	}
 
 	function broadcastState(doc: Document, pageIdx: number) {
@@ -170,7 +196,7 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 			return runMeasure(doc, pageHtml);
 		},
 		async check(doc, pageHtml, _pageIdx) {
-			return (await runMeasure(doc, pageHtml)).trim();
+			return runMeasure(doc, pageHtml);
 		},
 	};
 }
@@ -205,9 +231,14 @@ function parseMm(value: string | undefined): number | null {
 export function serverLayoutCheck(
 	html: string,
 	canvas: { w: number; h: number },
-): string {
+): LayoutResult {
 	const { document: dom } = parseHTML(`<html><body>${html}</body></html>`);
 	const issues: string[] = [];
+	const overflowIds = new Set<string>();
+	const flag = (id: string | null, msg: string) => {
+		issues.push(msg);
+		if (id) overflowIds.add(id);
+	};
 	for (const el of dom.body.querySelectorAll("[data-id]")) {
 		const node = el as unknown as {
 			getAttribute(name: string): string | null;
@@ -219,12 +250,14 @@ export function serverLayoutCheck(
 		const w = parseMm(props.get("width"));
 		const h = parseMm(props.get("height"));
 		if (w && w > canvas.w) {
-			issues.push(
+			flag(
+				id,
 				`[${id}] width ${w}mm > canvas ${canvas.w}mm (+${Math.round(w - canvas.w)}mm)`,
 			);
 		}
 		if (h && h > canvas.h) {
-			issues.push(
+			flag(
+				id,
 				`[${id}] height ${h}mm > canvas ${canvas.h}mm (+${Math.round(h - canvas.h)}mm)`,
 			);
 		}
@@ -265,7 +298,8 @@ export function serverLayoutCheck(
 			if (childCount > 0 && childCount === totalChildren) {
 				if (childCount > 1) childSum += gap * (childCount - 1);
 				if (childSum > innerW) {
-					issues.push(
+					flag(
+						id,
 						`[${id}] flex row children total ${Math.round(childSum)}mm > container ${Math.round(innerW)}mm (+${Math.round(childSum - innerW)}mm)`,
 					);
 				}
@@ -275,23 +309,52 @@ export function serverLayoutCheck(
 			const left = parseMm(props.get("left"));
 			const top = parseMm(props.get("top"));
 			if (left != null && w != null && left + w > canvas.w) {
-				issues.push(
+				flag(
+					id,
 					`[${id}] left(${left}mm) + width(${w}mm) = ${left + w}mm > canvas ${canvas.w}mm`,
 				);
 			}
 			if (top != null && h != null && top + h > canvas.h) {
-				issues.push(
+				flag(
+					id,
 					`[${id}] top(${top}mm) + height(${h}mm) = ${top + h}mm > canvas ${canvas.h}mm`,
 				);
 			}
 		}
 	}
-	if (issues.length === 0) return "\n✓ Layout OK";
-	return `\nⓘ Layout overflow — non-blocking (${issues.length} issue(s)):\n${issues.map((i) => `  • ${i}`).join("\n")}`;
+	if (issues.length === 0) {
+		return { status: "ok", text: "\n✓ Layout OK", overflowIds: [] };
+	}
+	return {
+		status: "overflow",
+		text: `\n⛔ Layout overflow — ${issues.length} issue(s). Not shippable.\n${issues.map((i) => `  • ${i}`).join("\n")}`,
+		overflowIds: [...overflowIds],
+	};
 }
 
-export function formatLayoutReport(resp: LayoutReport | null): string {
-	if (!resp) return "\nⓘ Layout check unavailable";
+/** px per mm at 96 DPI — `installNetworkGuard` renders at this scale. */
+const PX_PER_MM = 96 / 25.4;
+
+/**
+ * Minimum bottom-margin clearance before a page is considered "shippable".
+ * Scales with canvas height so a 148mm A5 and a 297mm A4 both get a
+ * reasonable guardrail (~10mm on A5, ~15mm on A4), without a config knob.
+ */
+function tightThresholdMm(canvasH: number): number {
+	return Math.max(10, canvasH * 0.05);
+}
+
+export function formatLayoutReport(
+	resp: LayoutReport | null,
+	canvas: { w: number; h: number },
+): LayoutResult {
+	if (!resp) {
+		return {
+			status: "overflow",
+			text: "\n⚠ Layout check unavailable",
+			overflowIds: [],
+		};
+	}
 	const overflowing = [
 		...new Set(
 			[
@@ -308,27 +371,49 @@ export function formatLayoutReport(resp: LayoutReport | null): string {
 			(resp.overflowByW ?? 0) > 0 ||
 			overflowing.length,
 	);
-	if (!hasOverflow) return "\n✓ Layout OK";
-	const details: string[] = [];
-	if ((resp.overflowBy ?? 0) > 0) {
-		details.push(
-			`  Vertical: content ${resp.contentHeight}px > container ${resp.containerHeight}px (+${resp.overflowBy}px)`,
-		);
+	if (hasOverflow) {
+		const details: string[] = [];
+		if ((resp.overflowBy ?? 0) > 0) {
+			details.push(
+				`  Vertical: content ${resp.contentHeight}px > container ${resp.containerHeight}px (+${resp.overflowBy}px)`,
+			);
+		}
+		if ((resp.overflowByW ?? 0) > 0) {
+			details.push(
+				`  Horizontal: content ${resp.contentWidth}px > container ${resp.containerWidth}px (+${resp.overflowByW}px)`,
+			);
+		}
+		if (overflowing.length > 0) {
+			details.push(`  Overflowing: ${overflowing.join(", ")}`);
+		}
+		if (details.length === 0) {
+			details.push(
+				"  Elements exceed page bounds (check absolute positioning or transforms)",
+			);
+		}
+		return {
+			status: "overflow",
+			text: `\n⛔ Layout overflow — not shippable:\n${details.join("\n")}`,
+			overflowIds: overflowing,
+		};
 	}
-	if ((resp.overflowByW ?? 0) > 0) {
-		details.push(
-			`  Horizontal: content ${resp.contentWidth}px > container ${resp.containerWidth}px (+${resp.overflowByW}px)`,
-		);
+	// No overflow — test the tight threshold on vertical clearance.
+	const containerH = resp.containerHeight ?? 0;
+	const contentH = resp.contentHeight ?? 0;
+	if (containerH > 0 && contentH > 0) {
+		const bottomMarginPx = containerH - contentH;
+		const thresholdMm = tightThresholdMm(canvas.h);
+		const thresholdPx = thresholdMm * PX_PER_MM;
+		if (bottomMarginPx < thresholdPx) {
+			const bottomMarginMm = Math.round(bottomMarginPx / PX_PER_MM);
+			return {
+				status: "tight",
+				text: `\n⚠ Layout tight — bottom margin ${bottomMarginMm}mm (min ${Math.round(thresholdMm)}mm). Tighten or move content up before shipping.`,
+				overflowIds: [],
+			};
+		}
 	}
-	if (overflowing.length > 0) {
-		details.push(`  Overflowing: ${overflowing.join(", ")}`);
-	}
-	if (details.length === 0) {
-		details.push(
-			"  Elements exceed page bounds (check absolute positioning or transforms)",
-		);
-	}
-	return `\nⓘ Layout overflow — non-blocking:\n${details.join("\n")}`;
+	return { status: "ok", text: "\n✓ Layout OK", overflowIds: [] };
 }
 
 // Run inside puppeteer — has access to `document`.

@@ -4,24 +4,36 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createAssetsService } from "../services/assets.js";
 import { createDocuments } from "../services/documents.js";
-import type { LayoutService } from "../services/layout.js";
+import type { LayoutResult, LayoutService } from "../services/layout.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketHtmlTool, htmlPack } from "./html.js";
 
-function fakeLayout(): LayoutService & { measure: ReturnType<typeof vi.fn> } {
+const OK_RESULT: LayoutResult = {
+	status: "ok",
+	text: "\n✓ Layout OK",
+	overflowIds: [],
+};
+
+function fakeLayout(result: LayoutResult = OK_RESULT): LayoutService & {
+	measure: ReturnType<typeof vi.fn>;
+	check: ReturnType<typeof vi.fn>;
+} {
 	return {
-		measure: vi.fn(async () => "\n✓ Layout OK"),
-		check: vi.fn(async () => "✓ Layout OK"),
-	} as LayoutService & { measure: ReturnType<typeof vi.fn> };
+		measure: vi.fn(async () => result),
+		check: vi.fn(async () => result),
+	} as unknown as LayoutService & {
+		measure: ReturnType<typeof vi.fn>;
+		check: ReturnType<typeof vi.fn>;
+	};
 }
 
-function fixture() {
+function fixture(layoutResult: LayoutResult = OK_RESULT) {
 	const tmp = mkdtempSync(join(tmpdir(), "maket-html-"));
 	const store = createSQLiteStore(":memory:");
 	const documents = createDocuments({ store });
 	const assets = createAssetsService({ assetsDir: tmp });
-	const layout = fakeLayout();
+	const layout = fakeLayout(layoutResult);
 	return {
 		store,
 		documents,
@@ -422,6 +434,110 @@ describe("maket_html — action=check", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
+		store.close();
+	});
+});
+
+describe("maket_html — layout signal → next: hints", () => {
+	const TIGHT: LayoutResult = {
+		status: "tight",
+		text: "\n⚠ Layout tight — bottom margin 4mm (min 15mm). Tighten or move content up before shipping.",
+		overflowIds: [],
+	};
+	const OVERFLOW: LayoutResult = {
+		status: "overflow",
+		text: "\n⛔ Layout overflow — not shippable:\n  Vertical: content 400px > container 358px (+42px)\n  Overflowing: footer, p3-footer-left",
+		overflowIds: ["footer", "p3-footer-left"],
+	};
+
+	it("keeps the response clean when layout is ok (no next: block)", async () => {
+		const { store, documents, layout, assets } = fixture(OK_RESULT);
+		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		expect((res.content[0] as any).text).not.toMatch(/^next:/m);
+		store.close();
+	});
+
+	it("appends snapshot + patch hints on tight (no specific ids)", async () => {
+		const { store, documents, layout, assets } = fixture(TIGHT);
+		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		const body = (res.content[0] as any).text as string;
+		expect(body).toMatch(/Layout tight/);
+		expect(body).toMatch(/next:/);
+		expect(body).toMatch(/maket_preview action=snapshot doc=d page=1/);
+		expect(body).toMatch(/maket_html action=patch doc=d page=1/);
+		expect(body).toMatch(/reduce paddings\/margins/);
+		store.close();
+	});
+
+	it("targets overflowing ids in the patch hint on overflow", async () => {
+		const { store, documents, layout, assets } = fixture(OVERFLOW);
+		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		const body = (res.content[0] as any).text as string;
+		expect(body).toMatch(/next:/);
+		expect(body).toMatch(/maket_preview action=snapshot doc=d page=1/);
+		expect(body).toMatch(
+			/maket_html action=patch doc=d page=1.*# target: footer, p3-footer-left/,
+		);
+		store.close();
+	});
+
+	it("wires hints through action=set so agents see them after writing", async () => {
+		const { store, documents, layout, assets } = fixture(OVERFLOW);
+		store.saveDoc(makeDoc("d"));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a">x</div>`,
+			},
+			NO_EXTRA,
+		);
+		const body = (res.content[0] as any).text as string;
+		expect(body).toMatch(/Layout overflow/);
+		expect(body).toMatch(/next:/);
+		expect(body).toMatch(/maket_preview action=snapshot doc=d page=1/);
+		store.close();
+	});
+
+	it("wires hints through action=patch so agents see them after edits", async () => {
+		const { store, documents, layout, assets } = fixture(TIGHT);
+		store.saveDoc(makeDoc("d", `<div data-id="a">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "a", style: { color: "red" } }],
+			},
+			NO_EXTRA,
+		);
+		const body = (res.content[0] as any).text as string;
+		expect(body).toMatch(/Layout tight/);
+		expect(body).toMatch(/next:/);
+		expect(body).toMatch(/maket_preview action=snapshot doc=d page=1/);
 		store.close();
 	});
 });

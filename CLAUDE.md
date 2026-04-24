@@ -70,6 +70,7 @@ Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpe
 ## Git flow & changelog
 
 - Feature branches only; `main` takes release commits directly (`chore(release): vX.Y.Z`).
+- **One feature = one branch = one issue.** Never stack unrelated work on an existing `feat/*` branch. Each new task: open a GitHub issue, branch from `origin/main` (skip local main to avoid divergence surprises), commit, let the PR close the issue.
 - No push or PR without explicit user go-ahead.
 - Conventional Commits. `npm run changelog:draft` groups commits since the last tag into an `[Unreleased]` draft — paste into `CHANGELOG.md`, cut the noise.
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0 + a non-standard `Internal` bucket for CI/tests/cleanup.
