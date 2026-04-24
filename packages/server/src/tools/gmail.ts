@@ -1,21 +1,27 @@
 /**
  * gmail pack — maket_gmail (compound).
  *
- * Compound dispatch: connect, search, read, draft.
+ * Compound dispatch: connect, search, read, fetch_attachment, draft.
  *
- * Deps: `documents` (email doc lookup), `store` (attachment docs, charte),
- * `gmailClient` (OAuth + API), `pdfService` (render PDF attachments),
- * `config` (ASSETS_DIR for inlining images, PORT for OAuth redirect URI).
+ * Deps: `documents` (email doc lookup), `store` (attachment docs, charte,
+ * asset rows), `gmailClient` (OAuth + API), `pdfService` (render PDF
+ * attachments), `config` (ASSETS_DIR for inlining images, DATA_DIR for the
+ * non-image attachments drop, PORT for OAuth redirect URI), `assets`
+ * (filesystem helpers when importing image attachments into the library),
+ * `bus` (asset-changed broadcast when an image lands in the library).
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { platform } from "node:os";
+import { extname, join, resolve, sep } from "node:path";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler, ToolResult } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { parseCharteVars } from "../lib/charte-css.js";
-import type { AssetsService } from "../services/assets.js";
+import { type AssetsService, IMAGE_EXTS } from "../services/assets.js";
+import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { GmailClient } from "../services/gmail-client.js";
@@ -30,11 +36,23 @@ export interface GmailDeps {
 	pdfService: PdfService;
 	config: Config;
 	assets: AssetsService;
+	bus: Bus;
 }
 
 type GmailPayload = any;
 
-const ActionSchema = z.enum(["connect", "search", "read", "draft"]);
+const ActionSchema = z.enum([
+	"connect",
+	"search",
+	"read",
+	"draft",
+	"fetch_attachment",
+]);
+
+// Gmail caps user attachments at 25 MB; we leave headroom for protocol
+// overhead and uncommon >25 MB attachments delivered via drive.google.com
+// CIDs. 35 MB is the ceiling we refuse to decode into memory.
+const MAX_ATTACHMENT_BYTES = 35 * 1024 * 1024;
 
 const MaketGmailSchema = z.object({
 	action: ActionSchema.describe(
@@ -86,21 +104,52 @@ const MaketGmailSchema = z.object({
 		.describe(
 			"For draft: names of other Maket docs to attach as PDFs. Falls back to doc.meta.emailAttachments.",
 		),
+	attachmentId: z
+		.string()
+		.optional()
+		.describe(
+			"For fetch_attachment: Gmail attachment id from a previous action=read call.",
+		),
+	filename: z
+		.string()
+		.optional()
+		.describe(
+			"For fetch_attachment: override the saved filename. Defaults to the name reported by Gmail.",
+		),
+	overwrite: z
+		.boolean()
+		.optional()
+		.describe(
+			"For fetch_attachment: replace an existing file (asset or non-image drop) when set. Default false.",
+		),
+	category: z
+		.string()
+		.optional()
+		.describe(
+			"For fetch_attachment (image branch only): category tag saved with the asset row. Default email-attachment.",
+		),
 	quality: z
 		.enum(["screen", "print", "hd"])
 		.optional()
 		.describe(
 			"For draft: PDF quality preset for attachments. Default screen (smaller).",
 		),
+	with_read: z
+		.boolean()
+		.optional()
+		.describe(
+			"For connect: also request read access (inbox search + message read). Default false — Maket only creates drafts.",
+		),
 });
 
 const DESCRIPTION = [
-	"When to use: connect Gmail, search/read mail, or create a draft from a Maket document. All actions except connect require an active OAuth session — call connect first.",
+	"When to use: connect Gmail, search/read mail, download an attachment, or create a draft from a Maket document. All actions except connect require an active OAuth session — call connect first.",
 	"",
-	"  connect — restore the refresh token if present, otherwise open the browser for OAuth consent.",
-	"  search  — list subject/from/date for messages matching a Gmail query. Capped at 50.",
-	"  read    — fetch one message by id: headers, body (3000-char truncated), attachments listing.",
-	"  draft   — compose a Gmail draft from a document page. Charte tokens resolve to literals, assets inline as base64, listed docs attach as PDFs. The draft is opened in Gmail for review — we never send automatically.",
+	"  connect          — restore the refresh token if present, otherwise open the browser for OAuth consent. Pass with_read=true to also request inbox access (drafts are always granted).",
+	"  search           — list subject/from/date for messages matching a Gmail query. Capped at 50. Requires with_read=true at connect time.",
+	"  read             — fetch one message by id: headers, body (3000-char truncated), attachments listing. Requires with_read=true at connect time.",
+	"  fetch_attachment — download one attachment (id + attachmentId from a prior read). Images land in the Maket asset library (validated, optimized, thumbnailed, metadata row). Other files (PDF, zip, docx, …) drop into <DATA_DIR>/attachments/ untouched. Requires with_read=true at connect time.",
+	"  draft            — compose a Gmail draft from a document page. Charte tokens resolve to literals, assets inline as base64, listed docs attach as PDFs. Maket never sends — the user reviews and sends from Gmail.",
 ].join("\n");
 
 export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
@@ -114,11 +163,13 @@ export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
 			const args = MaketGmailSchema.parse(rawArgs);
 			switch (args.action) {
 				case "connect":
-					return runConnect(deps);
+					return runConnect(args, deps);
 				case "search":
 					return runSearch(args, deps);
 				case "read":
 					return runRead(args, deps);
+				case "fetch_attachment":
+					return runFetchAttachment(args, deps);
 				case "draft":
 					return runDraft(args, deps);
 			}
@@ -128,36 +179,93 @@ export function createMaketGmailTool(deps: GmailDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketGmailSchema>;
 
-async function runConnect(deps: GmailDeps): Promise<ToolResult> {
+/**
+ * Fire-and-forget browser launch for the OAuth consent URL. On Windows the
+ * launcher is a `cmd.exe` builtin (`start`) — spawn it through `cmd /c` with
+ * an empty title arg (`""`) so URLs containing `&` or spaces are parsed as
+ * the target, not as the window title. Errors are swallowed: the server's
+ * auth-code loop still runs, and the user can paste the URL manually if the
+ * browser can't open.
+ */
+function openBrowser(url: string): void {
+	try {
+		const child =
+			platform() === "win32"
+				? spawn("cmd", ["/c", "start", "", url], {
+						detached: true,
+						stdio: "ignore",
+					})
+				: spawn(platform() === "darwin" ? "open" : "xdg-open", [url], {
+						detached: true,
+						stdio: "ignore",
+					});
+		child.on("error", () => {
+			/* headless host or missing helper — handled by the manual paste fallback */
+		});
+		child.unref();
+	} catch {
+		/* noop — see comment above */
+	}
+}
+
+async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient, config } = deps;
+	const withRead = args.with_read === true;
 	try {
 		const restored = await gmailClient.tryRestore();
 		if (restored) {
+			const grants = gmailClient.grants();
 			const gmail = await gmailClient.getGmail();
 			const profile = await gmail.users.getProfile({ userId: "me" });
-			return text(`Gmail already connected: ${profile.data.emailAddress}`);
+			// If the caller asked for read but the existing grant doesn't cover it,
+			// fall through to a fresh OAuth round so the user can consent to it.
+			if (!withRead || grants.read) {
+				const features = grants.read ? "draft + read" : "draft only";
+				return text(
+					`Gmail already connected: ${profile.data.emailAddress} (${features})`,
+				);
+			}
 		}
 		const redirectUri = `http://localhost:${config.PORT}/auth/google/callback`;
-		const authUrl = await gmailClient.getAuthUrl(redirectUri);
+		const authUrl = await gmailClient.getAuthUrl(redirectUri, { withRead });
 
-		const { execFile } = await import("node:child_process");
-		const { platform } = await import("node:os");
-		const cmd =
-			platform() === "darwin"
-				? "open"
-				: platform() === "win32"
-					? "start"
-					: "xdg-open";
-		execFile(cmd, [authUrl]);
+		// Best-effort — if we can't launch a browser (headless box, missing
+		// xdg-open, Windows `start` quirks), the user can still copy the URL
+		// from the OAuth flow; don't let a launch failure abort connect.
+		openBrowser(authUrl);
 
 		await gmailClient.startAuth();
+		const grants = gmailClient.grants();
 		const gmail = await gmailClient.getGmail();
 		const profile = await gmail.users.getProfile({ userId: "me" });
-		return text(`Gmail connected: ${profile.data.emailAddress}`);
+		const features = grants.read ? "draft + read" : "draft only";
+		return text(`Gmail connected: ${profile.data.emailAddress} (${features})`);
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
+		const missingCreds = /credentials not found/i.test(message);
+		if (missingCreds) {
+			const setupUrl = `http://localhost:${config.PORT}/setup/gmail`;
+			return text(
+				`Gmail credentials not configured. Open ${setupUrl} to paste the OAuth Desktop JSON from Google Cloud Console, then retry maket_gmail connect.`,
+				{
+					isError: true,
+					next: [`open ${setupUrl}`, "maket_gmail action=connect"],
+				},
+			);
+		}
 		return text(`Gmail connection failed: ${message}`, true);
 	}
+}
+
+function requireRead(deps: GmailDeps): ToolResult | null {
+	if (deps.gmailClient.grants().read) return null;
+	return text(
+		"Gmail is connected in draft-only mode — reading is not authorized. Ask the user whether to enable inbox reading; if yes, call maket_gmail action=connect with_read=true.",
+		{
+			isError: true,
+			next: ["maket_gmail action=connect with_read=true"],
+		},
+	);
 }
 
 async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
@@ -165,6 +273,8 @@ async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	if (!args.query) return text("query is required for action=search", true);
 	if (!gmailClient.isConnected())
 		return text("Gmail not connected — call maket_gmail connect first", true);
+	const readGate = requireRead(deps);
+	if (readGate) return readGate;
 	const maxResults = Math.min(args.maxResults || 10, 50);
 	const gmail = await gmailClient.getGmail();
 	const listRes = await gmail.users.messages.list({
@@ -255,6 +365,8 @@ async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	if (!args.id) return text("id is required for action=read", true);
 	if (!gmailClient.isConnected())
 		return text("Gmail not connected — call maket_gmail connect first", true);
+	const readGate = requireRead(deps);
+	if (readGate) return readGate;
 	const gmail = await gmailClient.getGmail();
 	const detail = await gmail.users.messages.get({
 		userId: "me",
@@ -283,9 +395,9 @@ async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	if (attachments.length > 0) {
 		lines.push("", `attachments (${attachments.length}):`);
 		for (const a of attachments) {
-			const size =
-				a.size < 1024 ? `${a.size}B` : `${(a.size / 1024).toFixed(0)}KB`;
-			lines.push(`  ${a.filename} (${a.mimeType}, ${size}) id:${a.id}`);
+			lines.push(
+				`  ${a.filename} (${a.mimeType}, ${formatSize(a.size)}) id:${a.id}`,
+			);
 		}
 	}
 	const maxBody = 3000;
@@ -293,6 +405,232 @@ async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	lines.push("", "body:", truncated ? body.slice(0, maxBody) : body);
 	if (truncated) lines.push(`... (${body.length - maxBody} chars remaining)`);
 	return text(lines.join("\n"));
+}
+
+function findAttachmentMeta(
+	payload: GmailPayload,
+	attachmentId: string,
+): { filename: string; mimeType: string } | null {
+	if (
+		payload.filename &&
+		payload.filename.length > 0 &&
+		payload.body?.attachmentId === attachmentId
+	) {
+		return {
+			filename: payload.filename,
+			mimeType: payload.mimeType || "application/octet-stream",
+		};
+	}
+	if (payload.parts) {
+		for (const part of payload.parts) {
+			const hit = findAttachmentMeta(part, attachmentId);
+			if (hit) return hit;
+		}
+	}
+	return null;
+}
+
+// Empty result signals an invalid name. Control chars are stripped by
+// code-point iteration to keep biome's noControlCharactersInRegex happy.
+function sanitizeFilename(raw: string): string {
+	const base = raw.replace(/[\\/]/g, "_").replace(/^\.+/, "");
+	let out = "";
+	for (const ch of base) {
+		const code = ch.charCodeAt(0);
+		if (code < 0x20 || code === 0x7f) continue;
+		if (/[<>:"|?*]/.test(ch)) {
+			out += "_";
+			continue;
+		}
+		out += ch;
+	}
+	return out.trim();
+}
+
+function formatSize(bytes: number): string {
+	return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(0)}KB`;
+}
+
+async function runFetchAttachment(
+	args: Args,
+	deps: GmailDeps,
+): Promise<ToolResult> {
+	const { gmailClient, assets, store, bus, config } = deps;
+	if (!args.id) return text("id is required for action=fetch_attachment", true);
+	if (!args.attachmentId)
+		return text(
+			"attachmentId is required for action=fetch_attachment — run action=read on the message first to list attachment ids",
+			true,
+		);
+	if (!gmailClient.isConnected())
+		return text("Gmail not connected — call maket_gmail connect first", true);
+	const readGate = requireRead(deps);
+	if (readGate) return readGate;
+
+	const gmail = await gmailClient.getGmail();
+
+	let resolvedFilename = args.filename;
+	let mimeType = "application/octet-stream";
+	if (!resolvedFilename) {
+		const detail = await gmail.users.messages.get({
+			userId: "me",
+			id: args.id,
+			format: "full",
+		});
+		const meta = findAttachmentMeta(detail.data.payload, args.attachmentId);
+		if (!meta) {
+			return text(
+				`Attachment id "${args.attachmentId}" not found on message "${args.id}"`,
+				true,
+			);
+		}
+		resolvedFilename = meta.filename;
+		mimeType = meta.mimeType;
+	}
+
+	const safeName = sanitizeFilename(resolvedFilename);
+	if (!safeName)
+		return text(
+			"Gmail returned an empty attachment filename and none was provided",
+			true,
+		);
+
+	const res = await gmail.users.messages.attachments.get({
+		userId: "me",
+		messageId: args.id,
+		id: args.attachmentId,
+	});
+	const b64 = res.data?.data;
+	if (typeof b64 !== "string")
+		return text("Gmail returned no attachment data", true);
+	const tooLarge = (n: number) =>
+		text(
+			`Attachment too large (${n} bytes) — limit is ${MAX_ATTACHMENT_BYTES} bytes`,
+			true,
+		);
+	const declaredSize = res.data.size;
+	if (
+		typeof declaredSize !== "number" ||
+		!Number.isFinite(declaredSize) ||
+		declaredSize < 0
+	)
+		return text("Gmail returned an invalid attachment size", true);
+	if (declaredSize > MAX_ATTACHMENT_BYTES) return tooLarge(declaredSize);
+	// Reject via the base64url payload length too — this upper-bounds the
+	// decoded size without allocating, so a dishonest `size` field can't get
+	// us to allocate an oversized Buffer.
+	const estimatedDecoded = Math.floor((b64.length * 3) / 4);
+	if (estimatedDecoded > MAX_ATTACHMENT_BYTES)
+		return tooLarge(estimatedDecoded);
+	const buffer = Buffer.from(b64, "base64url");
+	if (buffer.length > MAX_ATTACHMENT_BYTES) return tooLarge(buffer.length);
+
+	const ext = extname(safeName).toLowerCase();
+	const isImage = IMAGE_EXTS.has(ext);
+	if (isImage) {
+		return importImageAttachment({
+			buffer,
+			filename: safeName,
+			mimeType,
+			overwrite: args.overwrite === true,
+			category: args.category || "email-attachment",
+			assets,
+			store,
+			bus,
+		});
+	}
+	return dropNonImageAttachment({
+		buffer,
+		filename: safeName,
+		mimeType,
+		overwrite: args.overwrite === true,
+		dataDir: config.DATA_DIR,
+	});
+}
+
+// On validation failure, remove() is required so a rejected image doesn't
+// linger in the library between agent turns.
+async function importImageAttachment(inputs: {
+	buffer: Buffer;
+	filename: string;
+	mimeType: string;
+	overwrite: boolean;
+	category: string;
+	assets: AssetsService;
+	store: Store;
+	bus: Bus;
+}): Promise<ToolResult> {
+	const {
+		buffer,
+		filename,
+		mimeType,
+		overwrite,
+		category,
+		assets,
+		store,
+		bus,
+	} = inputs;
+	try {
+		await assets.importBuffer(buffer, filename, overwrite);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return text(`Image import failed: ${msg}`, true);
+	}
+
+	const validation = assets.validateImageFile(filename);
+	if (!validation.valid) {
+		assets.remove(filename);
+		return text(
+			`Image import rejected: ${validation.reason}. File discarded.`,
+			true,
+		);
+	}
+
+	const optimized = await assets.optimize(filename);
+	const dims = optimized || assets.getDimensions(filename);
+	store.saveAsset({
+		filename,
+		category,
+		width: dims?.w,
+		height: dims?.h,
+	});
+	bus.emit("assets:changed", {});
+
+	const dimInfo = dims ? ` (${dims.w}×${dims.h})` : "";
+	const sizeInfo = formatSize(buffer.length);
+	return text(
+		`Imported ${filename}${dimInfo} (${mimeType}, ${sizeInfo}) into the Maket asset library.`,
+		{
+			next: [
+				`maket_image action=view filename="${filename}"`,
+				`maket_image action=meta filename="${filename}" context_token=<from view> title=... tags=[...]`,
+			],
+		},
+	);
+}
+
+function dropNonImageAttachment(inputs: {
+	buffer: Buffer;
+	filename: string;
+	mimeType: string;
+	overwrite: boolean;
+	dataDir: string;
+}): ToolResult {
+	const { buffer, filename, mimeType, overwrite, dataDir } = inputs;
+	const attDir = join(dataDir, "attachments");
+	const destAbs = resolve(join(attDir, filename));
+	if (!destAbs.startsWith(resolve(attDir) + sep))
+		return text(`Invalid filename: ${filename}`, true);
+	if (existsSync(destAbs) && !overwrite)
+		return text(
+			`Attachment already saved at ${destAbs}. Pass overwrite=true to replace.`,
+			true,
+		);
+	mkdirSync(attDir, { recursive: true });
+	writeFileSync(destAbs, buffer);
+	return text(
+		`Saved ${filename} (${mimeType}, ${formatSize(buffer.length)}) to ${destAbs}`,
+	);
 }
 
 function resolveCharteVars(html: string, charteCss: string): string {
@@ -472,12 +810,32 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		requestBody: { message: { raw } },
 	});
 	const draftId = draft.data.id || "";
+	// Gmail's draft deep link uses the underlying message id, not the draft id.
+	// Falling back to the Drafts folder if the message id is missing keeps the
+	// link useful even when the API response shape drifts.
+	const messageId = draft.data.message?.id || "";
+	const draftUrl = messageId
+		? `https://mail.google.com/mail/u/0/#drafts/${messageId}`
+		: "https://mail.google.com/mail/u/0/#drafts";
 
 	if (doc.meta) {
 		doc.meta.emailDraftId = draftId;
+		doc.meta.emailDraftUrl = draftUrl;
+		doc.meta.emailDraftRole = "body";
 		doc.meta.emailTo = to;
 		doc.meta.emailSubject = subject;
 		documents.persist(doc.name);
+	}
+
+	// Mirror the draft URL onto each attached doc so it surfaces alongside every
+	// artefact that ended up in the email, not just the body.
+	for (const name of attachmentNames) {
+		const attDoc = documents.resolveOrLoad(name);
+		if (!attDoc?.meta) continue;
+		attDoc.meta.emailDraftId = draftId;
+		attDoc.meta.emailDraftUrl = draftUrl;
+		attDoc.meta.emailDraftRole = "attachment";
+		documents.persist(attDoc.name);
 	}
 
 	const attInfo =
@@ -485,7 +843,7 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 			? ` with ${pdfAttachments.length} PDF attachment(s)`
 			: "";
 	return text(
-		`Draft created${attInfo}: ${draftId}\nTo: ${to}\nSubject: ${subject}\n\nOpen Gmail to review and send.`,
+		`Draft created${attInfo}: ${draftId}\nTo: ${to}\nSubject: ${subject}\n\nReview & send in Gmail: ${draftUrl}`,
 	);
 }
 
@@ -499,6 +857,7 @@ export const gmailPack: ToolPack = {
 		"pdfService",
 		"config",
 		"assets",
+		"bus",
 	],
 	declaresTools: ["maket_gmail"],
 	register(container) {

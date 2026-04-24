@@ -104,7 +104,7 @@ export function createMaketImageTool(deps: AssetsDeps): ToolHandler {
 				case "list":
 					return runList(args, store, assets);
 				case "view":
-					return runView(args, store, assets);
+					return await runView(args, store, assets);
 				case "meta":
 					return runMeta(args, store, bus, assets);
 				case "import":
@@ -159,7 +159,11 @@ function runList(args: Args, store: Store, assets: AssetsService): ToolResult {
 	return text(`${header}\n${sections.join("\n")}`);
 }
 
-function runView(args: Args, store: Store, assets: AssetsService): ToolResult {
+async function runView(
+	args: Args,
+	store: Store,
+	assets: AssetsService,
+): Promise<ToolResult> {
 	if (!args.filename) return text("filename is required for action=view", true);
 	if (!assets.exists(args.filename))
 		return text(`Asset not found: ${args.filename}`, true);
@@ -169,6 +173,20 @@ function runView(args: Args, store: Store, assets: AssetsService): ToolResult {
 			`Cannot view "${args.filename}": ${validation.reason}. Delete with maket_image delete or re-import a valid file.`,
 			true,
 		);
+	}
+	// SVGs are rejected by the vision API. Ensure a rasterized thumb exists
+	// (legacy SVGs imported before the rasterizer landed won't have one).
+	if (
+		extname(args.filename).toLowerCase() === ".svg" &&
+		!assets.hasThumb(args.filename)
+	) {
+		await assets.optimize(args.filename);
+		if (!assets.hasThumb(args.filename)) {
+			return text(
+				`Cannot render SVG "${args.filename}": rasterization failed (malformed or unsupported features). Delete with maket_image delete or re-import a valid file.`,
+				true,
+			);
+		}
 	}
 	const r = assets.readBase64(args.filename, true);
 	if (!r) return text(`Asset not readable: ${args.filename}`, true);

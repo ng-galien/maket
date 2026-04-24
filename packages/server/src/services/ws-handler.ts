@@ -10,8 +10,6 @@
  * targeting a specific page.
  */
 
-import { existsSync, unlinkSync } from "node:fs";
-import { join, resolve, sep } from "node:path";
 import type { WsClientMessage, WsStateMessage } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
@@ -23,8 +21,8 @@ import {
 	createDocument,
 	type Document,
 } from "../types.js";
+import type { AssetsService } from "./assets.js";
 import type { Bus } from "./bus.js";
-import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
 import type { Pending } from "./pending.js";
 import type { Store } from "./store.js";
@@ -36,8 +34,8 @@ export type WsMessage = WsClientMessage;
 export type WsMessageHandler = (msg: WsMessage, ws: WebSocket) => void;
 
 export interface WsHandlerDeps {
+	assets: AssetsService;
 	bus: Bus;
-	config: Config;
 	documents: Documents;
 	pending: Pending;
 	store: Store;
@@ -49,8 +47,7 @@ const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
 export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
-	const { bus, config, documents, pending, store, wsRegistry, wsBridge } = deps;
-	const assetsDir = config.ASSETS_DIR;
+	const { assets, bus, documents, pending, store, wsRegistry, wsBridge } = deps;
 
 	function wsDoc(msg: { docName?: string }): Document | null {
 		return msg.docName ? documents.resolve(msg.docName) : null;
@@ -215,12 +212,8 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 			case "delete_asset": {
 				if (!msg.filename) break;
 				const filename = String(msg.filename);
-				const abs = resolve(join(assetsDir, filename));
-				if (!abs.startsWith(resolve(assetsDir) + sep)) break;
-				if (!existsSync(abs)) break;
-				unlinkSync(abs);
-				const thumb = join(assetsDir, "thumbs", filename);
-				if (existsSync(thumb)) unlinkSync(thumb);
+				if (!assets.exists(filename)) break;
+				assets.remove(filename);
 				store.deleteAsset(filename);
 				bus.emit("assets:changed", {});
 				break;

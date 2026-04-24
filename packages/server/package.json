@@ -8,6 +8,7 @@
 	"dependencies": {
 		"@maket/shared": "*",
 		"@modelcontextprotocol/sdk": "^1.12.1",
+		"@resvg/resvg-js": "^2.6.2",
 		"awilix": "^13.0.3",
 		"beautiful-mermaid": "^1.1.3",
 		"express": "^4.21.0",

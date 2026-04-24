@@ -156,5 +156,10 @@
 
 	"watermark_title": "Maket",
 	"watermark_pan": "Space + glisser pour se déplacer",
-	"watermark_zoom": "Molette pour zoomer"
+	"watermark_zoom": "Molette pour zoomer",
+
+	"doc_draft_body": "Brouillon prêt",
+	"doc_draft_body_aria": "Ouvrir ce brouillon dans Gmail",
+	"doc_draft_attachment": "Dans un brouillon",
+	"doc_draft_attachment_aria": "Ouvrir le brouillon Gmail auquel ce doc est attaché"
 }

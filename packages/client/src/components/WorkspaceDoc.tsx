@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { memo } from "react";
 import { useDocByName, useStore } from "../store/useStore";
 import { PageCanvas } from "./PageCanvas";
+import { DraftPill } from "./shared/DraftPill";
 
 const PAGE_GAP = 12;
 
@@ -83,6 +84,16 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					<span className="text-2xs text-text-3 shrink-0">
 						{doc.canvas.format} · {doc.pages.length}p
 					</span>
+					{doc.meta?.emailDraftUrl && (
+						<DraftPill
+							kind={
+								doc.meta?.emailDraftRole === "attachment"
+									? "attachment"
+									: "body"
+							}
+							url={doc.meta.emailDraftUrl}
+						/>
+					)}
 					{pendingCount > 0 && (
 						<span className="text-2xs font-bold text-white bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
 							{pendingCount}

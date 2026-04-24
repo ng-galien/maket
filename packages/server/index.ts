@@ -18,6 +18,7 @@ import { createAppContainer } from "./src/bootstrap.js";
 import { registerToolPacks } from "./src/core/tool-pack-registry.js";
 import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
+import type { AssetsService } from "./src/services/assets.js";
 import type { Bus } from "./src/services/bus.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
@@ -83,6 +84,18 @@ const bus = appContainer.resolve<Bus>("bus");
 const documents = appContainer.resolve<Documents>("documents");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WsMessageHandler>("wsHandler");
+const assets = appContainer.resolve<AssetsService>("assets");
+
+const thumbMigration = assets.migrateLegacyThumbs();
+if (
+	thumbMigration.migrated ||
+	thumbMigration.orphansDeleted ||
+	thumbMigration.ambiguous
+) {
+	log(
+		`[boot] Thumb migration: migrated=${thumbMigration.migrated} orphans=${thumbMigration.orphansDeleted} ambiguous=${thumbMigration.ambiguous}`,
+	);
+}
 
 log("[boot] Loading documents...");
 documents.loadAll();

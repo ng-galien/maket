@@ -156,5 +156,10 @@
 
 	"watermark_title": "Maket",
 	"watermark_pan": "Space + drag to pan",
-	"watermark_zoom": "Scroll to zoom"
+	"watermark_zoom": "Scroll to zoom",
+
+	"doc_draft_body": "Draft ready",
+	"doc_draft_body_aria": "Open this email's draft in Gmail",
+	"doc_draft_attachment": "In draft",
+	"doc_draft_attachment_aria": "Open the Gmail draft this doc is attached to"
 }
