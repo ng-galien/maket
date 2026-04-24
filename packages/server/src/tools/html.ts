@@ -125,28 +125,20 @@ function resolveDocPage(
 	return { doc, page, pageIdx };
 }
 
-/**
- * Action hints shown in the `next:` block when layout isn't OK. Keeps `ok`
- * responses clean (no trailing block), and on tight/overflow pushes the
- * agent toward the two things that actually help: a visual snapshot and a
- * targeted patch. We drop ids into a shell-style comment so the hint stays
- * a valid-looking command.
- */
 function layoutNextHints(
 	result: LayoutResult,
 	docName: string,
 	page: number,
 ): string[] | undefined {
 	if (result.status === "ok") return undefined;
-	const hints = [`maket_preview action=snapshot doc=${docName} page=${page}`];
 	const target =
 		result.overflowIds.length > 0
 			? `  # target: ${result.overflowIds.join(", ")}`
 			: "  # reduce paddings/margins to add bottom clearance";
-	hints.push(
+	return [
+		`maket_preview action=snapshot doc=${docName} page=${page}`,
 		`maket_html action=patch doc=${docName} page=${page} ops=[...]${target}`,
-	);
-	return hints;
+	];
 }
 
 // ============================================================
@@ -376,7 +368,7 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 				case "get":
 					return runGet(args, page);
 				case "check":
-					return runCheck(doc, page, pageIdx, args.page, layout);
+					return runCheck(doc, page, pageIdx, layout);
 			}
 		},
 	};
@@ -499,13 +491,12 @@ async function runCheck(
 	doc: Document,
 	page: Page,
 	pageIdx: number,
-	page1based: number,
 	layout: LayoutService,
 ): Promise<ToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
 	const layoutResult = await layout.check(doc, page.html, pageIdx);
 	return text(layoutResult.text.trim(), {
-		next: layoutNextHints(layoutResult, doc.name, page1based),
+		next: layoutNextHints(layoutResult, doc.name, pageIdx + 1),
 	});
 }
 
