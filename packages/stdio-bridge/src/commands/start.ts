@@ -32,5 +32,5 @@ export async function runStart(
 	process.stdout.write(
 		`maket: started${pid ? ` (pid ${pid})` : ""} on ${env.url}\n`,
 	);
-	process.stdout.write(`maket: logs → ${env.dataDir}/server-spawn.log\n`);
+	process.stdout.write(`maket: logs → ${env.serverSpawnLog}\n`);
 }

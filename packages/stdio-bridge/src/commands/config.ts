@@ -41,7 +41,8 @@ export function runConfig(overrides: MaketEnvOverrides = {}): void {
 		["dataDir", env.dataDir],
 		["serverEntry", resolvedServerEntry()],
 		["bridgeLog", env.bridgeLog],
-		["serverLog", env.serverSpawnLog],
+		["serverLog", env.serverLog],
+		["serverSpawnLog", env.serverSpawnLog],
 		["gmail", gmailLine],
 	];
 

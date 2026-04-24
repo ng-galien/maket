@@ -4,7 +4,7 @@
  * don't fail the exit code.
  */
 
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -67,9 +67,11 @@ function isPortFree(port: number, host: string): Promise<boolean> {
 }
 
 function checkDataDir(dataDir: string): Check {
-	// Try a write probe directly — catches both "missing" and "not writable"
-	// in one syscall pair. The server would create the dir on boot anyway.
+	// Mirror what `ensureServer` does on boot: create the dir if missing,
+	// then verify it's writable. Otherwise a fresh install fails doctor
+	// even though the server would have created ~/.maket itself.
 	try {
+		mkdirSync(dataDir, { recursive: true });
 		const probe = join(dataDir, `.doctor-${Date.now()}`);
 		writeFileSync(probe, "");
 		rmSync(probe);

@@ -73,7 +73,16 @@ function removeClaudeEntry(path: string, scope: ClaudeScope): void {
 		return;
 	}
 
-	const servers = json.mcpServers as Record<string, unknown> | undefined;
+	// Guard against malformed configs: a string / array / null `mcpServers`
+	// would crash the `in` / `delete` operators below. Treat anything that
+	// isn't a plain object as "nothing to remove".
+	const rawServers = json.mcpServers;
+	const servers =
+		rawServers !== null &&
+		typeof rawServers === "object" &&
+		!Array.isArray(rawServers)
+			? (rawServers as Record<string, unknown>)
+			: undefined;
 	if (!servers || !("maket" in servers)) {
 		process.stdout.write(`maket: no "maket" entry found in ${path}.\n`);
 		return;

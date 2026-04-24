@@ -1,6 +1,10 @@
 /**
- * `maket restart` — stop (if running) then start. A no-op stop (nothing
- * running) is not an error, so we clear `exitCode` before running start.
+ * `maket restart` — stop (tolerant of no-op) then start.
+ *
+ * `runStop` leaves `process.exitCode` untouched when nothing was running,
+ * and sets it to 1 for real failures (invalid PID file, kill failed, port
+ * still busy, orphan server with no PID file). We short-circuit on those
+ * so `restart` never silently masks a broken stop.
  */
 
 import type { MaketEnvOverrides } from "./_env.ts";
@@ -11,6 +15,6 @@ export async function runRestart(
 	overrides: MaketEnvOverrides = {},
 ): Promise<void> {
 	await runStop(overrides);
-	process.exitCode = 0;
+	if (process.exitCode) return;
 	await runStart(overrides);
 }
