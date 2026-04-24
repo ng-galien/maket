@@ -21,29 +21,25 @@ const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
 const expected = rootPkg.version;
 
 const workspaces = readdirSync(join(ROOT, "packages"), { withFileTypes: true })
-	.filter((d) => d.isDirectory())
-	.map((d) => join(ROOT, "packages", d.name, "package.json"));
+  .filter((d) => d.isDirectory())
+  .map((d) => join(ROOT, "packages", d.name, "package.json"));
 
 const drift = [];
 for (const file of workspaces) {
-	const pkg = JSON.parse(readFileSync(file, "utf-8"));
-	if (pkg.version !== expected) {
-		drift.push({ file, version: pkg.version, name: pkg.name });
-	}
+  const pkg = JSON.parse(readFileSync(file, "utf-8"));
+  if (pkg.version !== expected) {
+    drift.push({ file, version: pkg.version, name: pkg.name });
+  }
 }
 
 if (drift.length === 0) {
-	process.stdout.write(`check-versions: ok (all packages at ${expected})\n`);
-	process.exit(0);
+  process.stdout.write(`check-versions: ok (all packages at ${expected})\n`);
+  process.exit(0);
 }
 
-process.stderr.write(
-	`check-versions: drift — root is ${expected}, but:\n`,
-);
+process.stderr.write(`check-versions: drift — root is ${expected}, but:\n`);
 for (const d of drift) {
-	process.stderr.write(`  ${d.name}: ${d.version}  (${d.file})\n`);
+  process.stderr.write(`  ${d.name}: ${d.version}  (${d.file})\n`);
 }
-process.stderr.write(
-	"\nFix: node scripts/bump-version.mjs <version>\n",
-);
+process.stderr.write("\nFix: node scripts/bump-version.mjs <version>\n");
 process.exit(1);

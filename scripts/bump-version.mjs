@@ -15,11 +15,10 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const version = process.argv[2];
 
 if (!version || !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(version)) {
-	process.stderr.write(
-		"usage: node scripts/bump-version.mjs <semver>\n" +
-			"       e.g. node scripts/bump-version.mjs 1.2.0\n",
-	);
-	process.exit(1);
+  process.stderr.write(
+    "usage: node scripts/bump-version.mjs <semver>\n" + "       e.g. node scripts/bump-version.mjs 1.2.0\n",
+  );
+  process.exit(1);
 }
 
 /**
@@ -28,26 +27,23 @@ if (!version || !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(version)) {
  * lose trailing newlines, which would churn every release commit.
  */
 function rewriteVersion(file) {
-	const src = readFileSync(file, "utf-8");
-	const next = src.replace(
-		/("version"\s*:\s*")[^"]+(")/,
-		`$1${version}$2`,
-	);
-	if (next === src) {
-		process.stderr.write(`bump-version: no version field in ${file}\n`);
-		process.exit(1);
-	}
-	writeFileSync(file, next);
+  const src = readFileSync(file, "utf-8");
+  const next = src.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
+  if (next === src) {
+    process.stderr.write(`bump-version: no version field in ${file}\n`);
+    process.exit(1);
+  }
+  writeFileSync(file, next);
 }
 
 const targets = [join(ROOT, "package.json")];
 for (const d of readdirSync(join(ROOT, "packages"), { withFileTypes: true })) {
-	if (d.isDirectory()) {
-		targets.push(join(ROOT, "packages", d.name, "package.json"));
-	}
+  if (d.isDirectory()) {
+    targets.push(join(ROOT, "packages", d.name, "package.json"));
+  }
 }
 
 for (const file of targets) {
-	rewriteVersion(file);
-	process.stdout.write(`bump-version: ${file} → ${version}\n`);
+  rewriteVersion(file);
+  process.stdout.write(`bump-version: ${file} → ${version}\n`);
 }
