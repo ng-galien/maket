@@ -73,7 +73,7 @@ npx -y @ng-galien/maket open
 
 The CLI registers an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed) and a `[mcp_servers.maket]` section in `~/.codex/config.toml`. Without arguments, the binary runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, and other MCP clients invoke automatically.
 
-Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file.
+Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
 
 ### Option B — Clone and hack on it
 
@@ -102,17 +102,22 @@ Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings
 ### CLI reference
 
 ```text
-maket [command]
+maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
-  bridge              Run stdio ↔ HTTP MCP proxy (default for MCP clients)
-  start               Start the Maket HTTP server in the background
-  stop                Stop a server started by 'maket start'
-  status              Show whether the server is reachable
-  open                Open the Maket UI in your browser
-  logs [--bridge]     Tail server (or bridge) logs
-  install <client>    Install Maket as an MCP server in a client
-                        clients: claude | codex
-                        flags:   --apply, --scope=user|project
+  bridge                Run stdio ↔ HTTP MCP proxy (default for MCP clients)
+  start                 Start the Maket HTTP server in the background
+  stop                  Stop a server started by 'maket start'
+  restart               Stop (if running) then start
+  status                Show whether the server is reachable
+  open                  Open the Maket UI in your browser
+  logs [--bridge]       Tail server (or bridge) logs
+  config                Print the resolved runtime config
+  doctor                One-shot diagnostic (node, port, data dir, Chromium, Gmail, npm)
+  update [<version>]    Upgrade the CLI (or pin to <version>); --check for a no-op compare
+  install <client>      Wire Maket into an MCP client  (claude | codex)
+  uninstall <client>    Remove Maket from an MCP client (claude | codex)
+                          install/uninstall flags: --apply, --scope=user|project
+  gmail <sub>           Manage Gmail OAuth state       (status | reset [--force])
   help, version
 ```
 

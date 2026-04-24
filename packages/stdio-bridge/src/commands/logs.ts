@@ -13,8 +13,7 @@ import {
 	statSync,
 	watchFile,
 } from "node:fs";
-import { join } from "node:path";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
 const SNAPSHOT_LINES = 200;
 const FOLLOW_INITIAL_LINES = 10;
@@ -40,13 +39,16 @@ function streamFrom(path: string, start: number, end: number): Promise<void> {
 	});
 }
 
-export function runLogs(args: string[]): void {
-	const env = readEnv();
-	const wantBridge = args.includes("--bridge");
-	const follow = !args.includes("--no-follow");
-	const path = wantBridge
-		? env.bridgeLog
-		: join(env.dataDir, "server-spawn.log");
+export interface LogsOpts extends MaketEnvOverrides {
+	bridge?: boolean;
+	follow?: boolean;
+}
+
+export function runLogs(opts: LogsOpts = {}): void {
+	const env = readEnv(opts);
+	const wantBridge = opts.bridge === true;
+	const follow = opts.follow !== false;
+	const path = wantBridge ? env.bridgeLog : env.serverSpawnLog;
 
 	if (!existsSync(path)) {
 		process.stderr.write(`maket: no log at ${path}\n`);

@@ -8,10 +8,10 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute } from "node:path";
 import { createJsonRpcProxy } from "../proxy.ts";
 import { ensureServer } from "../spawn.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
 /**
  * Resolve a spawn command from the environment, with strict validation to
@@ -39,19 +39,18 @@ function resolveServerCmd(): string[] | undefined {
 	return [process.execPath, entry];
 }
 
-export async function runBridge(): Promise<void> {
-	const port = Number(process.env.MAKET_PORT ?? 24842);
-	const host = process.env.MAKET_HOST ?? "127.0.0.1";
-	const dataDir = process.env.MAKET_DATA_DIR ?? join(homedir(), ".maket");
+export async function runBridge(
+	overrides: MaketEnvOverrides = {},
+): Promise<void> {
+	const { port, host, dataDir, bridgeLog, pidFile } = readEnv(overrides);
 	const cmd = resolveServerCmd();
 
-	const logPath = join(dataDir, "bridge.log");
 	const log = (msg: string) => {
 		const line = `${new Date().toISOString()} ${msg}\n`;
 		process.stderr.write(line);
 		try {
 			mkdirSync(dataDir, { recursive: true });
-			appendFileSync(logPath, line);
+			appendFileSync(bridgeLog, line);
 		} catch {}
 	};
 
@@ -65,7 +64,7 @@ export async function runBridge(): Promise<void> {
 			host,
 			dataDir,
 			cmd,
-			pidFile: join(dataDir, "server.pid"),
+			pidFile,
 		});
 		log(`ensureServer ok started=${started} alreadyRunning=${alreadyRunning}`);
 	} catch (e) {

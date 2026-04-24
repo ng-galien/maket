@@ -73,7 +73,8 @@ Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpe
 - No push or PR without explicit user go-ahead.
 - Conventional Commits. `npm run changelog:draft` groups commits since the last tag into an `[Unreleased]` draft — paste into `CHANGELOG.md`, cut the noise.
 - `CHANGELOG.md` follows Keep a Changelog 1.1.0 + a non-standard `Internal` bucket for CI/tests/cleanup.
-- Internal-only branches merge without a version bump. Release = runtime change: roll `[Unreleased]` → `[X.Y.Z]`, bump `package.json`, tag `vX.Y.Z`.
+- Internal-only branches merge without a version bump. Release = runtime change: roll `[Unreleased]` → `[X.Y.Z]`, run `npm run version:bump X.Y.Z` (rewrites root + every workspace `package.json`), tag `vX.Y.Z`.
+- **Version alignment is enforced.** Root `package.json` + every `packages/*/package.json` must share the same `version`. `npm run version:check` runs inside `quality` and fails the gate on drift. Never bump a single file by hand — always `version:bump`.
 
 ## Dev flow gotchas
 
