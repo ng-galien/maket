@@ -33,7 +33,14 @@ const MIME_MAP: Record<string, string> = {
 	".gif": "image/gif",
 };
 
-const IMAGE_EXTS = new Set([".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"]);
+export const IMAGE_EXTS = new Set([
+	".png",
+	".jpg",
+	".jpeg",
+	".svg",
+	".webp",
+	".gif",
+]);
 
 const MAX_PX = 4000;
 const THUMB_PX = 400;

@@ -1,8 +1,15 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createAssetsService } from "../services/assets.js";
+import { createBus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import { createDocuments } from "../services/documents.js";
 import type { GmailClient } from "../services/gmail-client.js";
@@ -19,6 +26,9 @@ type GmailApiMock = {
 		messages: {
 			list: ReturnType<typeof vi.fn>;
 			get: ReturnType<typeof vi.fn>;
+			attachments: {
+				get: ReturnType<typeof vi.fn>;
+			};
 		};
 		drafts: {
 			create: ReturnType<typeof vi.fn>;
@@ -42,6 +52,9 @@ function fakeGmailClient(
 			messages: {
 				list: vi.fn(async () => ({ data: { messages: [] } })),
 				get: vi.fn(async () => ({ data: { payload: { headers: [] } } })),
+				attachments: {
+					get: vi.fn(async () => ({ data: { size: 0, data: "" } })),
+				},
 			},
 			drafts: {
 				create: vi.fn(async () => ({ data: { id: "DRAFT_123" } })),
@@ -76,8 +89,15 @@ function fixture(
 			pageCount: 1,
 		})),
 	};
-	const config = { ASSETS_DIR: tmp } as unknown as Config;
-	const assets = createAssetsService({ assetsDir: tmp });
+	const assetsDir = join(tmp, "assets");
+	const dataDir = tmp;
+	mkdirSync(assetsDir, { recursive: true });
+	const config = {
+		ASSETS_DIR: assetsDir,
+		DATA_DIR: dataDir,
+	} as unknown as Config;
+	const assets = createAssetsService({ assetsDir });
+	const bus = createBus();
 	return {
 		store,
 		documents,
@@ -85,6 +105,8 @@ function fixture(
 		pdfService,
 		config,
 		assets,
+		bus,
+		tmp,
 		cleanup: () => {
 			store.close();
 			rmSync(tmp, { recursive: true, force: true });
@@ -186,6 +208,7 @@ describe("maket_gmail — action=search", () => {
 							},
 						},
 					})),
+					attachments: { get: vi.fn() },
 				},
 				drafts: { create: vi.fn() },
 			},
@@ -270,6 +293,7 @@ describe("maket_gmail — action=read", () => {
 							},
 						},
 					})),
+					attachments: { get: vi.fn() },
 				},
 				drafts: { create: vi.fn() },
 			},
@@ -368,6 +392,7 @@ describe("maket_gmail — action=draft", () => {
 				messages: {
 					list: vi.fn(),
 					get: vi.fn(),
+					attachments: { get: vi.fn() },
 				},
 				drafts: {
 					create: vi.fn(async () => ({
@@ -408,7 +433,11 @@ describe("maket_gmail — action=draft", () => {
 				getProfile: vi.fn(async () => ({
 					data: { emailAddress: "me@example.com" },
 				})),
-				messages: { list: vi.fn(), get: vi.fn() },
+				messages: {
+					list: vi.fn(),
+					get: vi.fn(),
+					attachments: { get: vi.fn() },
+				},
 				drafts: {
 					create: vi.fn(async () => ({
 						data: { id: "DRAFT_42", message: { id: "MSG_42" } },
@@ -503,6 +532,310 @@ describe("maket_gmail — action=draft", () => {
 		).toString();
 		expect(mime).toMatch(/multipart\/mixed/);
 		expect(mime).toMatch(/filename="brochure\.pdf"/);
+		cleanup();
+	});
+});
+
+describe("maket_gmail — action=fetch_attachment", () => {
+	// A minimal 1×1 transparent PNG — passes magic-byte validation and Jimp
+	// accepts it, so the happy-path test exercises optimize() + saveAsset().
+	const TINY_PNG = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+		"base64",
+	);
+
+	function makePayload(
+		filename: string,
+		mimeType: string,
+		attachmentId: string,
+		size: number,
+	) {
+		return {
+			filename,
+			mimeType,
+			body: { attachmentId, size },
+		};
+	}
+
+	function makeApi(
+		payload: object | null,
+		attachmentData: { size: number; data: string },
+	): GmailApiMock {
+		return {
+			users: {
+				getProfile: vi.fn(),
+				messages: {
+					list: vi.fn(),
+					get: vi.fn(async () => ({ data: { payload } })),
+					attachments: {
+						get: vi.fn(async () => ({ data: attachmentData })),
+					},
+				},
+				drafts: { create: vi.fn() },
+			},
+		};
+	}
+
+	it("errors when not connected", async () => {
+		const { cleanup, ...deps } = fixture({ connected: false });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		cleanup();
+	});
+
+	it("returns next: connect with_read=true when read is not granted", async () => {
+		const { cleanup, ...deps } = fixture({ connected: true, read: false });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(
+			/maket_gmail action=connect with_read=true/,
+		);
+		cleanup();
+	});
+
+	it("errors when id or attachmentId is missing", async () => {
+		const { cleanup, ...deps } = fixture({ connected: true });
+		const tool = createMaketGmailTool(deps);
+		const res1 = await tool.handler(
+			{ action: "fetch_attachment", attachmentId: "AID" },
+			NO_EXTRA,
+		);
+		expect(res1.isError).toBe(true);
+		const res2 = await tool.handler(
+			{ action: "fetch_attachment", id: "MID" },
+			NO_EXTRA,
+		);
+		expect(res2.isError).toBe(true);
+		expect((res2.content[0] as any).text).toMatch(/attachmentId is required/);
+		cleanup();
+	});
+
+	it("image branch: writes into ASSETS_DIR, registers an asset row, emits assets:changed", async () => {
+		const payload = makePayload(
+			"pic.png",
+			"image/png",
+			"AID-img",
+			TINY_PNG.length,
+		);
+		const api = makeApi(payload, {
+			size: TINY_PNG.length,
+			data: TINY_PNG.toString("base64url"),
+		});
+		const { cleanup, bus, store, config, ...deps } = fixture({
+			connected: true,
+			api,
+		});
+		const busSpy = vi.fn();
+		bus.on("assets:changed", busSpy);
+		const tool = createMaketGmailTool({ ...deps, bus, store, config });
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-img" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		expect(existsSync(join(config.ASSETS_DIR, "pic.png"))).toBe(true);
+		// Raw bytes must NOT have leaked into <DATA_DIR>/attachments/ — the image
+		// branch owns the file.
+		expect(existsSync(join(config.DATA_DIR, "attachments", "pic.png"))).toBe(
+			false,
+		);
+		expect(store.loadAsset("pic.png")).toBeTruthy();
+		expect(busSpy).toHaveBeenCalled();
+		expect((res.content[0] as any).text).toMatch(/asset library/);
+		expect((res.content[0] as any).text).toMatch(/maket_image action=view/);
+		cleanup();
+	});
+
+	it("image branch: validation failure (wrong magic bytes) discards the file and returns an error", async () => {
+		const fake = Buffer.from("notapng");
+		const payload = makePayload(
+			"bogus.png",
+			"image/png",
+			"AID-bad",
+			fake.length,
+		);
+		const api = makeApi(payload, {
+			size: fake.length,
+			data: fake.toString("base64url"),
+		});
+		const { cleanup, bus, store, config, ...deps } = fixture({
+			connected: true,
+			api,
+		});
+		const busSpy = vi.fn();
+		bus.on("assets:changed", busSpy);
+		const tool = createMaketGmailTool({ ...deps, bus, store, config });
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-bad" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/rejected/);
+		expect(existsSync(join(config.ASSETS_DIR, "bogus.png"))).toBe(false);
+		expect(store.loadAsset("bogus.png")).toBeNull();
+		expect(busSpy).not.toHaveBeenCalled();
+		cleanup();
+	});
+
+	it("non-image branch: writes to <DATA_DIR>/attachments, skips the asset library", async () => {
+		const pdfBytes = Buffer.from("%PDF-1.4\n%fake\n");
+		const payload = makePayload(
+			"invoice.pdf",
+			"application/pdf",
+			"AID-pdf",
+			pdfBytes.length,
+		);
+		const api = makeApi(payload, {
+			size: pdfBytes.length,
+			data: pdfBytes.toString("base64url"),
+		});
+		const { cleanup, bus, store, config, ...deps } = fixture({
+			connected: true,
+			api,
+		});
+		const busSpy = vi.fn();
+		bus.on("assets:changed", busSpy);
+		const tool = createMaketGmailTool({ ...deps, bus, store, config });
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-pdf" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		const saved = join(config.DATA_DIR, "attachments", "invoice.pdf");
+		expect(existsSync(saved)).toBe(true);
+		expect(readFileSync(saved).toString()).toBe(pdfBytes.toString());
+		expect(store.loadAsset("invoice.pdf")).toBeNull();
+		expect(busSpy).not.toHaveBeenCalled();
+		expect(existsSync(join(config.ASSETS_DIR, "invoice.pdf"))).toBe(false);
+		cleanup();
+	});
+
+	it("refuses to overwrite an existing non-image file unless overwrite=true", async () => {
+		const bytes = Buffer.from("v1");
+		const payload = makePayload(
+			"note.txt",
+			"text/plain",
+			"AID-note",
+			bytes.length,
+		);
+		const api = makeApi(payload, {
+			size: bytes.length,
+			data: bytes.toString("base64url"),
+		});
+		const { cleanup, config, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool({ ...deps, config });
+		const first = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-note" },
+			NO_EXTRA,
+		);
+		expect(first.isError).toBeUndefined();
+		const second = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-note" },
+			NO_EXTRA,
+		);
+		expect(second.isError).toBe(true);
+		expect((second.content[0] as any).text).toMatch(/already saved/);
+		const third = await tool.handler(
+			{
+				action: "fetch_attachment",
+				id: "MID",
+				attachmentId: "AID-note",
+				overwrite: true,
+			},
+			NO_EXTRA,
+		);
+		expect(third.isError).toBeUndefined();
+		cleanup();
+	});
+
+	it("refuses to overwrite an existing image asset unless overwrite=true", async () => {
+		const payload = makePayload(
+			"pic.png",
+			"image/png",
+			"AID-img",
+			TINY_PNG.length,
+		);
+		const api = makeApi(payload, {
+			size: TINY_PNG.length,
+			data: TINY_PNG.toString("base64url"),
+		});
+		const { cleanup, config, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool({ ...deps, config });
+		const first = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-img" },
+			NO_EXTRA,
+		);
+		expect(first.isError).toBeUndefined();
+		const second = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-img" },
+			NO_EXTRA,
+		);
+		expect(second.isError).toBe(true);
+		expect((second.content[0] as any).text).toMatch(/already exists/i);
+		cleanup();
+	});
+
+	it("rejects attachments whose declared size exceeds the 35 MB cap", async () => {
+		const payload = makePayload(
+			"huge.bin",
+			"application/octet-stream",
+			"AID-huge",
+			99 * 1024 * 1024,
+		);
+		const api = makeApi(payload, { size: 99 * 1024 * 1024, data: "" });
+		const { cleanup, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-huge" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/too large/);
+		cleanup();
+	});
+
+	it("errors clearly when the attachment id is not present on the message", async () => {
+		const api = makeApi({ parts: [] }, { size: 0, data: "" });
+		const { cleanup, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-missing" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/not found/);
+		cleanup();
+	});
+
+	it("sanitizes filenames so non-image writes stay inside <DATA_DIR>/attachments", async () => {
+		const bytes = Buffer.from("x");
+		const api = makeApi(null, {
+			size: bytes.length,
+			data: bytes.toString("base64url"),
+		});
+		const { cleanup, config, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool({ ...deps, config });
+		const res = await tool.handler(
+			{
+				action: "fetch_attachment",
+				id: "MID",
+				attachmentId: "AID-esc",
+				filename: "../../etc/passwd",
+			},
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		const txt = (res.content[0] as any).text as string;
+		expect(txt).toContain(join(config.DATA_DIR, "attachments"));
+		expect(txt).not.toMatch(/\.\.\//);
 		cleanup();
 	});
 });
