@@ -508,10 +508,20 @@ async function runFetchAttachment(
 			`Attachment too large (${n} bytes) — limit is ${MAX_ATTACHMENT_BYTES} bytes`,
 			true,
 		);
-	const declaredSize = typeof res.data.size === "number" ? res.data.size : 0;
-	// Declared size check rejects before we pay the decode cost; the second
-	// check after decode defends against a dishonest `size` field.
+	const declaredSize = res.data.size;
+	if (
+		typeof declaredSize !== "number" ||
+		!Number.isFinite(declaredSize) ||
+		declaredSize < 0
+	)
+		return text("Gmail returned an invalid attachment size", true);
 	if (declaredSize > MAX_ATTACHMENT_BYTES) return tooLarge(declaredSize);
+	// Reject via the base64url payload length too — this upper-bounds the
+	// decoded size without allocating, so a dishonest `size` field can't get
+	// us to allocate an oversized Buffer.
+	const estimatedDecoded = Math.floor((b64.length * 3) / 4);
+	if (estimatedDecoded > MAX_ATTACHMENT_BYTES)
+		return tooLarge(estimatedDecoded);
 	const buffer = Buffer.from(b64, "base64url");
 	if (buffer.length > MAX_ATTACHMENT_BYTES) return tooLarge(buffer.length);
 

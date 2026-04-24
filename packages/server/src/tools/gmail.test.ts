@@ -802,6 +802,50 @@ describe("maket_gmail — action=fetch_attachment", () => {
 		cleanup();
 	});
 
+	it("rejects when Gmail omits or malforms the `size` field", async () => {
+		const payload = makePayload(
+			"weird.bin",
+			"application/octet-stream",
+			"AID-weird",
+			0,
+		);
+		const api = makeApi(payload, {
+			size: "not-a-number",
+			data: "AA==",
+		} as unknown as { size: number; data: string });
+		const { cleanup, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-weird" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/invalid attachment size/);
+		cleanup();
+	});
+
+	it("rejects via the base64 length estimate when the payload itself is oversized", async () => {
+		// A dishonest declared size + a gigantic base64 payload: the pre-decode
+		// estimate must reject before we allocate a huge Buffer.
+		const payload = makePayload(
+			"bloat.bin",
+			"application/octet-stream",
+			"AID-bloat",
+			10,
+		);
+		const bigB64 = "A".repeat(60 * 1024 * 1024);
+		const api = makeApi(payload, { size: 10, data: bigB64 });
+		const { cleanup, ...deps } = fixture({ connected: true, api });
+		const tool = createMaketGmailTool(deps);
+		const res = await tool.handler(
+			{ action: "fetch_attachment", id: "MID", attachmentId: "AID-bloat" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toMatch(/too large/);
+		cleanup();
+	});
+
 	it("errors clearly when the attachment id is not present on the message", async () => {
 		const api = makeApi({ parts: [] }, { size: 0, data: "" });
 		const { cleanup, ...deps } = fixture({ connected: true, api });
