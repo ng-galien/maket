@@ -8,10 +8,12 @@
 
 import { probeServer } from "../probe.ts";
 import { ensureServer } from "../spawn.ts";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
-export async function runStart(): Promise<void> {
-	const env = readEnv();
+export async function runStart(
+	overrides: MaketEnvOverrides = {},
+): Promise<void> {
+	const env = readEnv(overrides);
 
 	if (await probeServer(env.port, env.host, 300)) {
 		process.stdout.write(
@@ -30,5 +32,5 @@ export async function runStart(): Promise<void> {
 	process.stdout.write(
 		`maket: started${pid ? ` (pid ${pid})` : ""} on ${env.url}\n`,
 	);
-	process.stdout.write(`maket: logs → ${env.dataDir}/server-spawn.log\n`);
+	process.stdout.write(`maket: logs → ${env.serverSpawnLog}\n`);
 }

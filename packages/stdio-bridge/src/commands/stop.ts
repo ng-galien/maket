@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { probeServer } from "../probe.ts";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
 function isAlive(pid: number): boolean {
 	try {
@@ -31,8 +31,10 @@ async function waitForPortFree(
 	return false;
 }
 
-export async function runStop(): Promise<void> {
-	const env = readEnv();
+export async function runStop(
+	overrides: MaketEnvOverrides = {},
+): Promise<void> {
+	const env = readEnv(overrides);
 
 	if (!existsSync(env.pidFile)) {
 		if (await probeServer(env.port, env.host, 300)) {

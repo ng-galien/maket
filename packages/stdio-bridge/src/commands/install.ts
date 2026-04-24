@@ -1,89 +1,32 @@
 /**
  * `maket install <claude|codex>` — register Maket as an MCP server in a client.
  *
- * Default behaviour is print-only. Pass `--apply` to actually write/run.
- *
- * Claude Code: prefers the `claude mcp add` CLI when available, falls back to
- * editing `~/.claude.json` (user scope) or `<cwd>/.mcp.json` (project scope).
- *
- * Codex (OpenAI Codex CLI): edits `~/.codex/config.toml` and adds/updates a
- * `[mcp_servers.maket]` section.
+ * Print-only by default, `--apply` to actually write/run. Claude Code prefers
+ * `claude mcp add` when the CLI is on PATH, falls back to editing
+ * `~/.claude.json` (user) or `<cwd>/.mcp.json` (project). Codex CLI edits
+ * `~/.codex/config.toml`.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
-import {
-	chmodSync,
-	copyFileSync,
-	existsSync,
-	lstatSync,
-	mkdirSync,
-	readFileSync,
-	writeFileSync,
-} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { hasBin } from "./_bin.ts";
+import { codexTomlSnippet, PKG, stripMaketSection } from "./_codex-toml.ts";
+import { backup, refuseSymlink } from "./_fs-safety.ts";
 
-const PKG = "@ng-galien/maket";
 const CMD = "npx";
 const ARGS = ["-y", PKG];
 
-interface Opts {
+export type ClaudeScope = "user" | "project";
+
+export interface InstallOpts {
+	client: "claude" | "codex";
 	apply: boolean;
-	scope: "user" | "project";
+	scope: ClaudeScope;
 }
 
-function parseOpts(args: string[]): Opts {
-	const apply = args.includes("--apply");
-	const scopeArg = args.find((a) => a.startsWith("--scope="));
-	const scope = scopeArg?.split("=")[1] === "project" ? "project" : "user";
-	return { apply, scope };
-}
-
-function hasBin(bin: string): boolean {
-	const r = spawnSync(process.platform === "win32" ? "where" : "which", [bin], {
-		stdio: "ignore",
-	});
-	return r.status === 0;
-}
-
-function backup(path: string): void {
-	if (!existsSync(path)) return;
-	const dest = `${path}.bak.${Date.now()}`;
-	copyFileSync(path, dest);
-	// The original may have been world-readable, but the backup carries auth
-	// tokens (~/.claude.json includes them) — pin it owner-only regardless.
-	try {
-		chmodSync(dest, 0o600);
-	} catch {
-		/* best-effort — Windows / unusual FS */
-	}
-	process.stdout.write(`maket: backed up ${path} → ${dest}\n`);
-}
-
-/**
- * Refuse to operate on a symlink. Without this, a hostile local actor could
- * pre-create `~/.claude.json` as a symlink to `/etc/passwd` (or any file the
- * current user can write) and our `writeFileSync` would follow it.
- */
-function refuseSymlink(path: string): boolean {
-	if (!existsSync(path)) return false;
-	try {
-		if (lstatSync(path).isSymbolicLink()) {
-			process.stderr.write(
-				`maket: refusing to write — ${path} is a symlink. Resolve it manually first.\n`,
-			);
-			process.exitCode = 1;
-			return true;
-		}
-	} catch {
-		/* lstat may fail on weird FS — fall through */
-	}
-	return false;
-}
-
-// ── Claude Code ───────────────────────────────────────────────────────────────
-
-function installClaude(opts: Opts): void {
+function installClaude(opts: InstallOpts): void {
 	const cliCmd = [
 		"claude",
 		"mcp",
@@ -137,7 +80,7 @@ function claudeJsonSnippet(): string {
 	);
 }
 
-function writeClaudeConfig(path: string, scope: "user" | "project"): void {
+function writeClaudeConfig(path: string, scope: ClaudeScope): void {
 	if (refuseSymlink(path)) return;
 	let json: Record<string, unknown> = {};
 	if (existsSync(path)) {
@@ -166,17 +109,7 @@ function writeClaudeConfig(path: string, scope: "user" | "project"): void {
 	process.stdout.write(`maket: wrote ${scope}-scope config → ${path}\n`);
 }
 
-// ── Codex CLI ─────────────────────────────────────────────────────────────────
-
-function codexTomlSnippet(): string {
-	return [
-		"[mcp_servers.maket]",
-		`command = "${CMD}"`,
-		`args = [${ARGS.map((a) => `"${a}"`).join(", ")}]`,
-	].join("\n");
-}
-
-function installCodex(opts: Opts): void {
+function installCodex(opts: InstallOpts): void {
 	const target = join(homedir(), ".codex", "config.toml");
 
 	if (!opts.apply) {
@@ -206,40 +139,7 @@ function installCodex(opts: Opts): void {
 	process.stdout.write(`maket: wrote Codex MCP config → ${target}\n`);
 }
 
-/**
- * Remove an existing `[mcp_servers.maket]` block from a TOML string. Conservative
- * line-based parsing — we own the section we wrote, so this is safe enough.
- */
-export function stripMaketSection(toml: string): string {
-	const lines = toml.split("\n");
-	const out: string[] = [];
-	let inSection = false;
-	for (const line of lines) {
-		const isHeader = /^\s*\[/.test(line);
-		if (isHeader) {
-			inSection = /^\s*\[mcp_servers\.maket\]\s*$/.test(line);
-			if (inSection) continue;
-		}
-		if (!inSection) out.push(line);
-	}
-	return out.join("\n");
-}
-
-// ── Entrypoint ────────────────────────────────────────────────────────────────
-
-export function runInstall(args: string[]): void {
-	const client = args[0];
-	const opts = parseOpts(args.slice(1));
-	if (client === "claude") {
-		installClaude(opts);
-		return;
-	}
-	if (client === "codex") {
-		installCodex(opts);
-		return;
-	}
-	process.stderr.write(
-		"maket: usage — maket install <claude|codex> [--apply] [--scope=user|project]\n",
-	);
-	process.exitCode = 1;
+export function runInstall(opts: InstallOpts): void {
+	if (opts.client === "claude") installClaude(opts);
+	else installCodex(opts);
 }

@@ -11,9 +11,9 @@
  */
 
 import { existsSync, statSync, unlinkSync } from "node:fs";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
+import { gmailPaths } from "./_gmail-state.ts";
 
 const GMAIL_HELP = `maket gmail — manage Gmail OAuth state on this machine
 
@@ -53,18 +53,24 @@ function prompt(question: string): Promise<boolean> {
 	});
 }
 
-export async function runGmail(argv: string[]): Promise<void> {
-	const [sub = "", ...rest] = argv;
+export interface GmailOpts extends MaketEnvOverrides {
+	force?: boolean;
+}
+
+export async function runGmail(
+	sub: string | undefined,
+	opts: GmailOpts = {},
+): Promise<void> {
 	if (!sub || sub === "help" || sub === "--help" || sub === "-h") {
 		process.stdout.write(GMAIL_HELP);
 		return;
 	}
 	switch (sub) {
 		case "status":
-			runStatus();
+			runStatus(opts);
 			return;
 		case "reset":
-			await runReset(rest.includes("--force"));
+			await runReset(opts);
 			return;
 		default:
 			process.stderr.write(`maket gmail: unknown subcommand "${sub}"\n\n`);
@@ -73,10 +79,11 @@ export async function runGmail(argv: string[]): Promise<void> {
 	}
 }
 
-function runStatus(): void {
-	const { dataDir, url } = readEnv();
-	const creds = inspect(join(dataDir, "google-credentials.json"));
-	const token = inspect(join(dataDir, "google-token.json"));
+function runStatus(overrides: MaketEnvOverrides): void {
+	const { dataDir, url } = readEnv(overrides);
+	const { credentialsPath, tokenPath } = gmailPaths(dataDir);
+	const creds = inspect(credentialsPath);
+	const token = inspect(tokenPath);
 
 	const lines: string[] = ["Gmail OAuth state"];
 	lines.push(
@@ -92,13 +99,11 @@ function runStatus(): void {
 	process.stdout.write(`${lines.join("\n")}\n`);
 }
 
-async function runReset(force: boolean): Promise<void> {
-	const { dataDir, url } = readEnv();
-	const candidates = [
-		join(dataDir, "google-credentials.json"),
-		join(dataDir, "google-token.json"),
-	];
-	const present = candidates.filter((p) => existsSync(p));
+async function runReset(opts: GmailOpts): Promise<void> {
+	const { dataDir, url } = readEnv(opts);
+	const force = opts.force === true;
+	const { credentialsPath, tokenPath } = gmailPaths(dataDir);
+	const present = [credentialsPath, tokenPath].filter((p) => existsSync(p));
 
 	if (present.length === 0) {
 		process.stdout.write("Nothing to reset — no Gmail files found.\n");

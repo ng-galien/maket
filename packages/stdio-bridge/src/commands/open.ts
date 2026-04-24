@@ -4,10 +4,10 @@
 
 import { spawn } from "node:child_process";
 import { platform } from "node:os";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
-export function runOpen(): void {
-	const env = readEnv();
+export function runOpen(overrides: MaketEnvOverrides = {}): void {
+	const env = readEnv(overrides);
 	const url = env.url;
 	const opener =
 		platform() === "darwin"

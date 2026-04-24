@@ -5,10 +5,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { probeServer } from "../probe.ts";
-import { readEnv } from "./_env.ts";
+import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 
-export async function runStatus(): Promise<void> {
-	const env = readEnv();
+export async function runStatus(
+	overrides: MaketEnvOverrides = {},
+): Promise<void> {
+	const env = readEnv(overrides);
 	const reachable = await probeServer(env.port, env.host, 400);
 	const pid =
 		existsSync(env.pidFile) &&
