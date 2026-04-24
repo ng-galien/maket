@@ -13,8 +13,14 @@
 import type { WsClientMessage, WsStateMessage } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
+import { composeCharteCss } from "../lib/charte-css.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
-import { computeCanvasDims, createDocument, type Document } from "../types.js";
+import {
+	type Charte,
+	computeCanvasDims,
+	createDocument,
+	type Document,
+} from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -164,6 +170,42 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				if (msg.category != null) d.category = msg.category || "general";
 				documents.persist(d.name);
 				bus.emit("meta:updated", { docName: d.name });
+				break;
+			}
+
+			case "charte_save": {
+				const name = String(msg.name || "").trim();
+				if (!name) {
+					bus.emit("toast", {
+						text: "Charte name is required",
+						level: "error",
+					});
+					break;
+				}
+				// Runtime shape check — the MCP tool path is zod-validated; this
+				// WS path was not, so a malformed client message could persist
+				// `tokens: "oops"` and break everything that reads the charte.
+				const invalid = validateCharteSavePayload(msg);
+				if (invalid) {
+					bus.emit("toast", {
+						text: `Charte "${name}" rejected: ${invalid}`,
+						level: "error",
+					});
+					break;
+				}
+				const charte: Charte = {
+					name,
+					description: msg.description,
+					tokens: (msg.tokens ?? {}) as Charte["tokens"],
+				};
+				if (msg.voice) charte.voice = msg.voice;
+				if (msg.rules) charte.rules = msg.rules;
+				store.saveCharte(charte);
+				bus.emit("charte:updated", { name, css: composeCharteCss(charte) });
+				bus.emit("toast", {
+					text: `Charte "${name}" saved`,
+					level: "success",
+				});
 				break;
 			}
 
@@ -356,4 +398,49 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				break;
 		}
 	};
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isStringArray(v: unknown): v is string[] {
+	return Array.isArray(v) && v.every((s) => typeof s === "string");
+}
+
+/** Runtime shape check for `charte_save` payloads. Returns an error message
+ * when the payload would persist malformed data, `null` when it's safe. The
+ * MCP tool path has zod; this is the WS equivalent. */
+function validateCharteSavePayload(msg: {
+	tokens?: unknown;
+	voice?: unknown;
+	rules?: unknown;
+}): string | null {
+	if (msg.tokens !== undefined) {
+		if (!isPlainObject(msg.tokens)) return "tokens must be an object";
+		for (const [group, bucket] of Object.entries(msg.tokens)) {
+			if (!isPlainObject(bucket)) return `tokens.${group} must be an object`;
+			for (const [k, v] of Object.entries(bucket)) {
+				if (typeof v !== "string")
+					return `tokens.${group}.${k} must be a string`;
+			}
+		}
+	}
+	if (msg.voice !== undefined) {
+		if (!isPlainObject(msg.voice)) return "voice must be an object";
+		const v = msg.voice;
+		for (const key of ["personality", "do", "dont", "vocabulary"] as const) {
+			if (v[key] !== undefined && !isStringArray(v[key]))
+				return `voice.${key} must be a string[]`;
+		}
+		if (v.formality !== undefined && typeof v.formality !== "string")
+			return "voice.formality must be a string";
+	}
+	if (msg.rules !== undefined) {
+		if (!isPlainObject(msg.rules)) return "rules must be an object";
+		for (const [k, val] of Object.entries(msg.rules)) {
+			if (typeof val !== "string") return `rules.${k} must be a string`;
+		}
+	}
+	return null;
 }

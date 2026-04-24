@@ -6,6 +6,7 @@ import {
 	LayoutGrid,
 	List,
 	MoreVertical,
+	Pencil,
 	Search,
 	Sparkles,
 	X,
@@ -15,6 +16,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
+import { CharteEditModal } from "./CharteEditModal";
 
 /** Shared envelope (`{ name }`) plus the fields this panel actually renders. */
 interface Charte extends ChartesListItem {
@@ -90,6 +92,7 @@ export function ChartesTab() {
 	const t = useT();
 	const [chartes, setChartes] = useState<Charte[]>([]);
 	const [preview, setPreview] = useState<Charte | null>(null);
+	const [editing, setEditing] = useState<Charte | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -134,14 +137,37 @@ export function ChartesTab() {
 		wsSend({ type: "update_meta", docName: focusedDocName, charte: "" });
 	};
 
+	useEffect(() => {
+		// If a charte is being previewed/edited and the list refreshes (after a
+		// save), re-hydrate from the fresh data so the UI reflects persisted
+		// state.
+		if (!chartes.length) return;
+		if (preview) {
+			const next = chartes.find((c) => c.name === preview.name);
+			if (next && next !== preview) setPreview(next);
+		}
+		if (editing) {
+			const next = chartes.find((c) => c.name === editing.name);
+			if (next && next !== editing) setEditing(next);
+		}
+	}, [chartes, preview, editing]);
+
+	const editModal = editing ? (
+		<CharteEditModal charte={editing} onClose={() => setEditing(null)} />
+	) : null;
+
 	// Preview mode — inline, replaces the list
 	if (preview) {
 		return (
-			<ChartePreviewInline
-				charte={preview}
-				onBack={() => setPreview(null)}
-				barPosition={barPosition}
-			/>
+			<>
+				<ChartePreviewInline
+					charte={preview}
+					onBack={() => setPreview(null)}
+					onEdit={() => setEditing(preview)}
+					barPosition={barPosition}
+				/>
+				{editModal}
+			</>
 		);
 	}
 
@@ -165,152 +191,159 @@ export function ChartesTab() {
 	const restCharte = filtered.filter((c) => c.name !== currentCharte);
 
 	return (
-		<div
-			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
-		>
-			{/* Header — search + view toggle */}
-			<div className="px-1 flex items-center gap-1.5">
-				<div className="relative flex-1 min-w-0">
-					<Search
-						size={13}
-						className="absolute left-3 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
-					/>
-					<input
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						placeholder={t("charte_search_hint")}
-						className="w-full pl-8 pr-8 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
-					/>
-					{search && (
+		<>
+			<div
+				className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
+			>
+				{/* Header — search + view toggle */}
+				<div className="px-1 flex items-center gap-1.5">
+					<div className="relative flex-1 min-w-0">
+						<Search
+							size={13}
+							className="absolute left-3 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
+						/>
+						<input
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+							placeholder={t("charte_search_hint")}
+							className="w-full pl-8 pr-8 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
+						/>
+						{search && (
+							<button
+								type="button"
+								onClick={() => setSearch("")}
+								aria-label="Clear"
+								className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
+							>
+								<X size={12} />
+							</button>
+						)}
+					</div>
+					<div className="flex rounded-lg bg-input p-0.5">
 						<button
 							type="button"
-							onClick={() => setSearch("")}
-							aria-label="Clear"
-							className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
+							onClick={() => setViewAndPersist("list")}
+							aria-label={t("view_list")}
+							title={t("view_list")}
+							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+								view === "list"
+									? "bg-panel shadow-sm text-text-1"
+									: "text-text-3 hover:text-text-1"
+							}`}
 						>
-							<X size={12} />
+							<List size={14} />
 						</button>
-					)}
+						<button
+							type="button"
+							onClick={() => setViewAndPersist("grid")}
+							aria-label={t("view_grid")}
+							title={t("view_grid")}
+							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+								view === "grid"
+									? "bg-panel shadow-sm text-text-1"
+									: "text-text-3 hover:text-text-1"
+							}`}
+						>
+							<LayoutGrid size={14} />
+						</button>
+					</div>
 				</div>
-				<div className="flex rounded-lg bg-input p-0.5">
-					<button
-						type="button"
-						onClick={() => setViewAndPersist("list")}
-						aria-label={t("view_list")}
-						title={t("view_list")}
-						className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-							view === "list"
-								? "bg-panel shadow-sm text-text-1"
-								: "text-text-3 hover:text-text-1"
-						}`}
-					>
-						<List size={14} />
-					</button>
-					<button
-						type="button"
-						onClick={() => setViewAndPersist("grid")}
-						aria-label={t("view_grid")}
-						title={t("view_grid")}
-						className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-							view === "grid"
-								? "bg-panel shadow-sm text-text-1"
-								: "text-text-3 hover:text-text-1"
-						}`}
-					>
-						<LayoutGrid size={14} />
-					</button>
-				</div>
-			</div>
 
-			{loading ? (
-				<div className="text-center text-text-3 text-xs py-6">
-					{t("loading")}
-				</div>
-			) : chartes.length === 0 ? (
-				<EmptyState />
-			) : filtered.length === 0 ? (
-				<div className="px-4 py-6 text-center text-base text-text-3">
-					{t("charte_no_match")}
-				</div>
-			) : (
-				<>
-					{activeCharte && (
-						<section className="flex flex-col gap-1.5">
-							<div className="flex items-center gap-2 px-1">
-								<span
-									className="w-1.5 h-1.5 rounded-full bg-accent"
-									aria-hidden
-								/>
-								<span className="text-2xs font-bold uppercase tracking-wider text-accent">
-									{t("charte_active_section")}
-								</span>
+				{loading ? (
+					<div className="text-center text-text-3 text-xs py-6">
+						{t("loading")}
+					</div>
+				) : chartes.length === 0 ? (
+					<EmptyState />
+				) : filtered.length === 0 ? (
+					<div className="px-4 py-6 text-center text-base text-text-3">
+						{t("charte_no_match")}
+					</div>
+				) : (
+					<>
+						{activeCharte && (
+							<section className="flex flex-col gap-1.5">
+								<div className="flex items-center gap-2 px-1">
+									<span
+										className="w-1.5 h-1.5 rounded-full bg-accent"
+										aria-hidden
+									/>
+									<span className="text-2xs font-bold uppercase tracking-wider text-accent">
+										{t("charte_active_section")}
+									</span>
+								</div>
+								{view === "grid" ? (
+									<CharteCard
+										charte={activeCharte}
+										isActive
+										hasDoc={hasDoc}
+										onOpen={() => setPreview(activeCharte)}
+										onEdit={() => setEditing(activeCharte)}
+										onApply={() => applyCharte(activeCharte.name)}
+										onUnapply={unapplyCharte}
+										menuOpen={menuFor === activeCharte.name}
+										onMenuOpen={() => setMenuFor(activeCharte.name)}
+										onMenuClose={() => setMenuFor(null)}
+									/>
+								) : (
+									<CharteRow
+										charte={activeCharte}
+										isActive
+										hasDoc={hasDoc}
+										onOpen={() => setPreview(activeCharte)}
+										onEdit={() => setEditing(activeCharte)}
+										onApply={() => applyCharte(activeCharte.name)}
+										onUnapply={unapplyCharte}
+										menuOpen={menuFor === activeCharte.name}
+										onMenuOpen={() => setMenuFor(activeCharte.name)}
+										onMenuClose={() => setMenuFor(null)}
+									/>
+								)}
+								<div className="h-px bg-black/[0.06] my-1" />
+							</section>
+						)}
+						{view === "grid" ? (
+							<div className="grid grid-cols-1 gap-2">
+								{restCharte.map((c) => (
+									<CharteCard
+										key={c.name}
+										charte={c}
+										isActive={false}
+										hasDoc={hasDoc}
+										onOpen={() => setPreview(c)}
+										onEdit={() => setEditing(c)}
+										onApply={() => applyCharte(c.name)}
+										onUnapply={unapplyCharte}
+										menuOpen={menuFor === c.name}
+										onMenuOpen={() => setMenuFor(c.name)}
+										onMenuClose={() => setMenuFor(null)}
+									/>
+								))}
 							</div>
-							{view === "grid" ? (
-								<CharteCard
-									charte={activeCharte}
-									isActive
-									hasDoc={hasDoc}
-									onOpen={() => setPreview(activeCharte)}
-									onApply={() => applyCharte(activeCharte.name)}
-									onUnapply={unapplyCharte}
-									menuOpen={menuFor === activeCharte.name}
-									onMenuOpen={() => setMenuFor(activeCharte.name)}
-									onMenuClose={() => setMenuFor(null)}
-								/>
-							) : (
-								<CharteRow
-									charte={activeCharte}
-									isActive
-									hasDoc={hasDoc}
-									onOpen={() => setPreview(activeCharte)}
-									onApply={() => applyCharte(activeCharte.name)}
-									onUnapply={unapplyCharte}
-									menuOpen={menuFor === activeCharte.name}
-									onMenuOpen={() => setMenuFor(activeCharte.name)}
-									onMenuClose={() => setMenuFor(null)}
-								/>
-							)}
-							<div className="h-px bg-black/[0.06] my-1" />
-						</section>
-					)}
-					{view === "grid" ? (
-						<div className="grid grid-cols-1 gap-2">
-							{restCharte.map((c) => (
-								<CharteCard
-									key={c.name}
-									charte={c}
-									isActive={false}
-									hasDoc={hasDoc}
-									onOpen={() => setPreview(c)}
-									onApply={() => applyCharte(c.name)}
-									onUnapply={unapplyCharte}
-									menuOpen={menuFor === c.name}
-									onMenuOpen={() => setMenuFor(c.name)}
-									onMenuClose={() => setMenuFor(null)}
-								/>
-							))}
-						</div>
-					) : (
-						<div className="flex flex-col gap-1">
-							{restCharte.map((c) => (
-								<CharteRow
-									key={c.name}
-									charte={c}
-									isActive={false}
-									hasDoc={hasDoc}
-									onOpen={() => setPreview(c)}
-									onApply={() => applyCharte(c.name)}
-									onUnapply={unapplyCharte}
-									menuOpen={menuFor === c.name}
-									onMenuOpen={() => setMenuFor(c.name)}
-									onMenuClose={() => setMenuFor(null)}
-								/>
-							))}
-						</div>
-					)}
-				</>
-			)}
-		</div>
+						) : (
+							<div className="flex flex-col gap-1">
+								{restCharte.map((c) => (
+									<CharteRow
+										key={c.name}
+										charte={c}
+										isActive={false}
+										hasDoc={hasDoc}
+										onOpen={() => setPreview(c)}
+										onEdit={() => setEditing(c)}
+										onApply={() => applyCharte(c.name)}
+										onUnapply={unapplyCharte}
+										menuOpen={menuFor === c.name}
+										onMenuOpen={() => setMenuFor(c.name)}
+										onMenuClose={() => setMenuFor(null)}
+									/>
+								))}
+							</div>
+						)}
+					</>
+				)}
+			</div>
+			{editModal}
+		</>
 	);
 }
 
@@ -334,6 +367,7 @@ interface CharteCommonProps {
 	isActive: boolean;
 	hasDoc: boolean;
 	onOpen: () => void;
+	onEdit: () => void;
 	onApply: () => void;
 	onUnapply: () => void;
 	menuOpen: boolean;
@@ -346,6 +380,7 @@ function CharteRow({
 	isActive,
 	hasDoc,
 	onOpen,
+	onEdit,
 	onApply,
 	onUnapply,
 	menuOpen,
@@ -469,6 +504,7 @@ function CharteRow({
 					onApply={onApply}
 					onUnapply={onUnapply}
 					onOpen={onOpen}
+					onEdit={onEdit}
 					anchorRef={menuBtnRef}
 				/>
 			)}
@@ -481,6 +517,7 @@ function CharteCard({
 	isActive,
 	hasDoc,
 	onOpen,
+	onEdit,
 	onApply,
 	onUnapply,
 	menuOpen,
@@ -607,6 +644,7 @@ function CharteCard({
 					onApply={onApply}
 					onUnapply={onUnapply}
 					onOpen={onOpen}
+					onEdit={onEdit}
 					anchorRef={menuBtnRef}
 				/>
 			)}
@@ -622,6 +660,7 @@ interface CharteMenuProps {
 	onApply: () => void;
 	onUnapply: () => void;
 	onOpen: () => void;
+	onEdit: () => void;
 	anchorRef: React.RefObject<HTMLElement | null>;
 }
 
@@ -633,6 +672,7 @@ function CharteMenu({
 	onApply,
 	onUnapply,
 	onOpen,
+	onEdit,
 	anchorRef,
 }: CharteMenuProps) {
 	const t = useT();
@@ -696,6 +736,15 @@ function CharteMenu({
 				}}
 			>
 				{t("charte_details")}
+			</MenuItem>
+			<MenuItem
+				icon={<Pencil size={13} />}
+				onClick={() => {
+					onEdit();
+					onClose();
+				}}
+			>
+				{t("charte_edit")}
 			</MenuItem>
 			{hasDoc && !isActive && (
 				<MenuItem
@@ -785,10 +834,12 @@ function isReadableOnDark(color: string | undefined): boolean {
 function ChartePreviewInline({
 	charte,
 	onBack,
+	onEdit,
 	barPosition,
 }: {
 	charte: Charte;
 	onBack: () => void;
+	onEdit: () => void;
 	barPosition: "top" | "bottom";
 }) {
 	const t = useT();
@@ -823,6 +874,14 @@ function ChartePreviewInline({
 						</div>
 					)}
 				</div>
+				<button
+					type="button"
+					onClick={onEdit}
+					className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-2 hover:text-text-1 hover:bg-input transition"
+				>
+					<Pencil size={13} />
+					{t("charte_edit")}
+				</button>
 			</div>
 
 			{/* Colors */}

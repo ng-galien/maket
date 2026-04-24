@@ -67,6 +67,16 @@ export function charteFontImport(charte: Charte): string {
 	return `@import url('https://fonts.googleapis.com/css2?${params.join("&")}&display=swap');`;
 }
 
+/** Combined CSS the `charte:updated` broadcast ships to clients — font
+ * import + var block. `ensureCharteFonts()` on the client scans this for
+ * `@import url(...)` to live-load new Google Fonts, so font-token edits
+ * propagate to already-open docs without a full reload. */
+export function composeCharteCss(charte: Charte): string {
+	const fontImport = charteFontImport(charte);
+	const vars = charteToCSS(charte);
+	return fontImport ? `${fontImport}\n${vars}` : vars;
+}
+
 /** Parse CSS var definitions from a :root {} block. Returns Map<varName, value> */
 export function parseCharteVars(css: string): Map<string, string> {
 	const vars = new Map<string, string>();
