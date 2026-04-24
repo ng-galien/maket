@@ -17,9 +17,15 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import {
+	collectAssetFilenames,
+	loadAssetsFromDir,
+} from "../lib/asset-collector.js";
+import { writeBundleAssets } from "../lib/asset-writer.js";
+import {
 	bundleFilename,
 	decodeBundle,
-	encodeBundle,
+	encodeBundleV1,
+	encodeBundleV2,
 	MAKET_BUNDLE_EXT,
 	uniqueName,
 } from "../lib/maket-format.js";
@@ -150,6 +156,12 @@ const MaketDocSchema = z.object({
 		.describe(
 			"For import: absolute or EXPORTS_DIR-relative path to a .maket file to load.",
 		),
+	include_assets: z
+		.boolean()
+		.optional()
+		.describe(
+			"For export: embed referenced asset binaries (images, SVGs) in the bundle. Default true — produces a portable .maket that survives transfer to another machine or datadir. Set false for a structure-only snapshot (smaller, git-friendly).",
+		),
 });
 
 const DESCRIPTION = [
@@ -164,8 +176,8 @@ const DESCRIPTION = [
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
-	"  export    — write a `.maket` bundle (gzipped JSON) to EXPORTS_DIR. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes are embedded automatically. Override the filename with `output`.",
-	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes skip names that already exist so your current brand isn't overwritten.",
+	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes are embedded automatically. Override the filename with `output`.",
+	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes skip names that already exist so your current brand isn't overwritten. Assets in the bundle are restored to ASSETS_DIR with the same collision-renaming rule.",
 ].join("\n");
 
 function totalElementCount(pages: Page[]): number {
@@ -372,7 +384,7 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	return text(`Renamed "${oldName}" → "${args.name}"`);
 }
 
-function runExport(
+async function runExport(
 	args: Args,
 	documents: Documents,
 	store: Store,
@@ -410,7 +422,24 @@ function runExport(
 		}
 	}
 
-	const buf = encodeBundle(selected, chartes);
+	const includeAssets = args.include_assets !== false;
+	let buf: Buffer;
+	let assetReport = "";
+	if (includeAssets) {
+		const refs = collectAssetFilenames(selected);
+		const { assets, missing: missingAssets } = loadAssetsFromDir(
+			refs,
+			config.ASSETS_DIR,
+		);
+		buf = await encodeBundleV2(selected, chartes, assets);
+		assetReport = assets.length > 0 ? ` + ${assets.length} asset(s)` : "";
+		if (missingAssets.length > 0) {
+			assetReport += ` (${missingAssets.length} missing: ${missingAssets.slice(0, 3).join(", ")}${missingAssets.length > 3 ? "…" : ""})`;
+		}
+	} else {
+		buf = encodeBundleV1(selected, chartes);
+	}
+
 	const defaultName =
 		selected.length === 1
 			? selected[0]?.name || "maket-bundle"
@@ -435,11 +464,11 @@ function runExport(
 			.join(", ") + (selected.length > 3 ? `, +${selected.length - 3}` : "");
 	const charteLabel = chartes.length ? ` + ${chartes.length} charte(s)` : "";
 	return text(
-		`Exported ${selected.length} document(s)${charteLabel} → ${outPath} (${Math.round(buf.length / 1024)} KB)\n  ${docLabel}`,
+		`Exported ${selected.length} document(s)${charteLabel}${assetReport} → ${outPath} (${Math.round(buf.length / 1024)} KB)\n  ${docLabel}`,
 	);
 }
 
-function runImport(
+async function runImport(
 	args: Args,
 	documents: Documents,
 	store: Store,
@@ -459,9 +488,9 @@ function runImport(
 		return text(`Could not read "${resolved}": ${msg}`, true);
 	}
 
-	let bundle: ReturnType<typeof decodeBundle>;
+	let bundle: Awaited<ReturnType<typeof decodeBundle>>;
 	try {
-		bundle = decodeBundle(buf);
+		bundle = await decodeBundle(buf);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		return text(msg, true);
@@ -508,14 +537,19 @@ function runImport(
 		}
 	}
 
+	const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);
+	if (assetReport.written > 0) {
+		bus.emit("assets:changed", {});
+	}
+
 	bus.emit("toast", {
-		text: `Imported ${importedDocs.length} document(s)${importedChartes.length ? ` + ${importedChartes.length} charte(s)` : ""}`,
+		text: `Imported ${importedDocs.length} document(s)${importedChartes.length ? ` + ${importedChartes.length} charte(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
 		level: "success",
 	});
 
 	const lines: string[] = [];
 	lines.push(
-		`Imported from ${resolved} (exported ${bundle.exportedAt || "unknown"})`,
+		`Imported from ${resolved} (bundle v${bundle.version}, exported ${bundle.exportedAt || "unknown"})`,
 	);
 	lines.push(`Documents: ${importedDocs.join(", ") || "(none)"}`);
 	if (renamedDocs.length) lines.push(`  renamed: ${renamedDocs.join(", ")}`);
@@ -523,6 +557,14 @@ function runImport(
 		lines.push(`Chartes added: ${importedChartes.join(", ")}`);
 	if (skippedChartes.length)
 		lines.push(`Chartes skipped (already exist): ${skippedChartes.join(", ")}`);
+	if (bundle.assets.length > 0) {
+		const parts = [`Assets: ${assetReport.written} written`];
+		if (assetReport.skipped)
+			parts.push(`${assetReport.skipped} skipped (already present)`);
+		if (assetReport.rejected.length)
+			parts.push(`${assetReport.rejected.length} rejected (unsafe path)`);
+		lines.push(parts.join(", "));
+	}
 	return text(lines.join("\n"));
 }
 

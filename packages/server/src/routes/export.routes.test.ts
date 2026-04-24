@@ -1,7 +1,7 @@
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startTestApp } from "../../tests/helpers.js";
-import { encodeBundle } from "../lib/maket-format.js";
+import { encodeBundleV1 } from "../lib/maket-format.js";
 import { createBus } from "../services/bus.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
@@ -35,6 +35,12 @@ describe("export routes — .maket bundle", () => {
 				pdfService: pdfService as unknown as PdfService,
 				store,
 				bus,
+				config: {
+					DATA_DIR: "/tmp",
+					ASSETS_DIR: "/tmp/maket-test-assets",
+					EXPORTS_DIR: "/tmp/maket-test-exports",
+					DOCS_DIR: "/tmp/maket-test-docs",
+				} as never,
 			}),
 		);
 		({ baseUrl, close } = await startTestApp(app));
@@ -62,7 +68,7 @@ describe("export routes — .maket bundle", () => {
 		});
 	}
 
-	it("GET /api/export-maket?name=... streams a gzipped bundle that re-imports", async () => {
+	it("GET /api/export-maket?name=... streams a v2 ZIP bundle that re-imports", async () => {
 		store.saveDoc(makeDoc("poster"));
 		store.saveCharte({
 			name: "brand",
@@ -72,15 +78,16 @@ describe("export routes — .maket bundle", () => {
 
 		const res = await fetch(`${baseUrl}/api/export-maket?name=poster`);
 		expect(res.status).toBe(200);
-		expect(res.headers.get("content-type")).toBe("application/gzip");
+		expect(res.headers.get("content-type")).toBe("application/zip");
 		const buf = Buffer.from(await res.arrayBuffer());
-		expect(buf[0]).toBe(0x1f);
-		expect(buf[1]).toBe(0x8b);
+		// ZIP magic bytes
+		expect(buf[0]).toBe(0x50);
+		expect(buf[1]).toBe(0x4b);
 
 		// Re-import via POST on the same server — the doc must collide-rename
 		const importRes = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
-			headers: { "Content-Type": "application/gzip" },
+			headers: { "Content-Type": "application/zip" },
 			body: new Uint8Array(buf),
 		});
 		expect(importRes.status).toBe(200);
@@ -133,6 +140,12 @@ describe("export routes — .maket bundle", () => {
 				pdfService: pdfService2,
 				store: store2,
 				bus: bus2,
+				config: {
+					DATA_DIR: "/tmp",
+					ASSETS_DIR: "/tmp/maket-test-assets-2",
+					EXPORTS_DIR: "/tmp/maket-test-exports-2",
+					DOCS_DIR: "/tmp/maket-test-docs-2",
+				} as never,
 			}),
 		);
 		const { baseUrl: baseUrl2, close: close2 } = await startTestApp(app2);
@@ -224,7 +237,7 @@ describe("export routes — .maket bundle", () => {
 				},
 			],
 		});
-		const buf = encodeBundle([unsafe], []);
+		const buf = encodeBundleV1([unsafe], []);
 
 		const res = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
