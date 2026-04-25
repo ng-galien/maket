@@ -178,7 +178,7 @@ See [references/layout-patterns.md](references/layout-patterns.md) for complete 
 
 ### Composition rules
 
-1. **Margins** — 10mm minimum from canvas edges (print), 8mm (screen)
+1. **Margins** — declare safe zone via `maket_canvas margins={t,r,b,l}`. Presets: `{10,10,10,10}` poster, `{15,15,15,18}` paperback (left binding), `{10,20,10,13}` magazine, `{25,25,25,25}` office doc. See `docs/layout.md`
 2. **Alignment** — Pick ONE anchor per section. Use `gap` for consistent spacing
 3. **Images in flex** — Always add `min-height:0` (column) or `min-width:0` (row) on `<img>` elements, otherwise they refuse to shrink
 4. **Z-order** — First in HTML = behind. Background first, text last. Use `position:absolute` only for overlays, scrims, and decorative elements
