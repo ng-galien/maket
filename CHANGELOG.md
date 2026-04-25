@@ -13,6 +13,61 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.2.0] — 2026-04-25
+
+### Changed
+- **Layout verdict** is now a three-axis check (`✓ ok` / `⚠ tight` / `⛔ overflow`).
+  `tight` measures every `[data-id]` block against the canvas's declared
+  `margins` (per-side mm), no longer a hidden heuristic. `overflow` covers
+  canvas escape AND pairwise block intersection (`overlap`), surfaced
+  with a distinct headline (e.g. `Layout overlap — not shippable`).
+- **Canvas `textMargin: number` → `margins: {top, right, bottom, left}`.**
+  `maket_canvas` and `maket_doc new` accept the new per-side object;
+  legacy persisted docs migrate automatically on load — `textMargin: N`
+  becomes symmetric per-side margins, the legacy field is dropped.
+- **Live preview safe-zone guide** redrawn from the new per-side margins
+  and bumped from a 0.5px / 0.3 alpha hairline to 1px / 0.7 alpha so the
+  cyan dashed rectangle is actually readable as a print reference.
+
+### Added
+- **`maket_html check`** now reports overlap + tight per-side, and the
+  `next:` block bundles `overflowIds + overlapIds + tightIds` into the
+  patch hint.
+- **`docs/layout.md`** — user-facing guide explaining the safe-zone in
+  the live preview, margin presets per use case (poster, paperback,
+  magazine, office doc) with public sources, and natural-language
+  prompts to ask the assistant to check and correct the layout.
+- **`maket_gmail action=fetch_attachment`** for retrieving Gmail
+  attachments (closes #9).
+- **Inline brand-guide editor** — modal + color picker + live refresh
+  for chartes (#4).
+- **CLI overhaul** — `maket doctor / update / restart / uninstall /
+  config`; cac-based argument parsing (#11).
+
+### Fixed
+- **Browser tab favicon.** Replaced the placeholder purple SVG (heavy
+  filters/masks that didn't render at favicon sizes) with the
+  maket-blueprint identity — navy (`#0D1B2A`) + serif "M." + cyan
+  (`#00A8B5`) accent dot, matching the marketing site.
+- **Headless layout measurement** — `fonts.ready` alone wasn't enough;
+  unloaded `<img>` reported `naturalHeight=0` and the walker silently
+  agreed the page fit. New `lib/page-stable-wait.ts` helper runs
+  `fonts.ready` + `image.decode()` in parallel then `rAF×2`, reused by
+  `pdf.ts`, `thumbnail.ts`, `tools/preview.ts`, `services/layout.ts`
+  for a single stability contract.
+- **Headless root pick** — uses the canonical `[data-id="page"]`
+  selector with `firstElementChild` as fallback, instead of blindly
+  picking the first child (which broke when user HTML started with
+  `<style>` or a comment).
+- **Tight tolerance** symmetric ±2px (was asymmetric `top<-1` /
+  `bottom>h+1`, causing flicker at the boundary).
+- **Headless-unavailable** verdict now surfaces the caveat in the text
+  instead of silently falling back to the mm-math result.
+
+### Internal
+- Dropped `packages/client/public/icons.svg` — stale Vite-template
+  social-icon sprite, zero references in the codebase.
+
 ## [1.1.0] — 2026-04-23
 
 ### Changed
