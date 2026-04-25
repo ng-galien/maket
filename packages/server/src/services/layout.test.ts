@@ -183,6 +183,8 @@ describe("formatLayoutReport (pure)", () => {
 			A4,
 		);
 		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overlap — not shippable/);
+		expect(result.text).not.toMatch(/Layout overflow —/);
 		expect(result.text).toMatch(/Overlapping: a ↔ b/);
 		expect(result.text).toContain("⛔");
 		expect(result.overlapIds).toEqual(["a", "b"]);
@@ -202,6 +204,7 @@ describe("formatLayoutReport (pure)", () => {
 			A4,
 		);
 		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overflow and overlap — not shippable/);
 		expect(result.text).toMatch(/Vertical: content 1163px/);
 		expect(result.text).toMatch(/Overflowing: foot/);
 		expect(result.text).toMatch(/Overlapping: a ↔ b/);

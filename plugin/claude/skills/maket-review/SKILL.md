@@ -24,7 +24,7 @@ All tools require explicit `doc` and `page` params — no implicit state.
 maket_workspace state(doc)     → doc info, format, charte, pages
 maket_html get(doc, page)      → page HTML source
 maket_charte view              → if a charte is set, read it to know the expected tokens
-maket_html check(doc, page)    → layout verdict: overflow | overlap | tight
+maket_html check(doc, page)    → status: ok | tight | overflow (overlap reported under overflow)
 maket_preview snapshot(doc, page) → visual screenshot for your own inspection
 ```
 
@@ -42,7 +42,7 @@ Check the HTML against this checklist. Each check has a severity:
 | **Broken images** | `src` pointing to non-existent files, wrong paths | Check `maket_image list`, fix `src` to use the correct filename |
 | **Overflow** | Block escapes the canvas | Reduce sizes or restructure layout |
 | **Overlap** | Two `[data-id]` blocks intersect | Move one block; intentional overlay → `position:absolute` on a wrapper, not on tagged blocks |
-| **Tight** | Block crosses a declared margin (warning, ship-risky in print) | Tighten paddings or fix margins via `maket_canvas margins={t,r,b,l}` |
+| **Tight** | Block crosses a declared margin (warning, ship-risky in print) | Tighten paddings or fix margins via `maket_canvas margins={top,right,bottom,left}` |
 
 #### Important (visual quality)
 
@@ -72,7 +72,7 @@ This is the layer that separates "it works" from "it's well placed". A document 
 **How to think about space:**
 
 Whitespace isn't "emptiness" — it's a design element. It guides the eye. A well-placed document has:
-1. **Margins that breathe** — declare the safe zone via `maket_canvas margins={t,r,b,l}`. More at the top than the bottom (the eye enters from the top)
+1. **Margins that breathe** — declare the safe zone via `maket_canvas margins={top,right,bottom,left}`. More at the top than the bottom (the eye enters from the top)
 2. **Regular vertical rhythm** — the same gap between sections, a smaller gap within a section
 3. **Consistent alignment** — if the title is centered, the subtitle is too. If the body is left-aligned, images align to the same edge
 4. **Balanced visual weight** — a large image at the top demands a counterweight at the bottom (logo, visible footer)

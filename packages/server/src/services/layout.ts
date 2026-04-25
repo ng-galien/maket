@@ -429,9 +429,15 @@ export function formatLayoutReport(
 				"  Elements exceed page bounds (check absolute positioning or transforms)",
 			);
 		}
+		const headline =
+			hasOverflow && hasOverlap
+				? "Layout overflow and overlap — not shippable"
+				: hasOverflow
+					? "Layout overflow — not shippable"
+					: "Layout overlap — not shippable";
 		return {
 			status: "overflow",
-			text: `\n⛔ Layout overflow — not shippable:\n${details.join("\n")}`,
+			text: `\n⛔ ${headline}:\n${details.join("\n")}`,
 			overflowIds: overflowing,
 			overlapIds,
 		};
