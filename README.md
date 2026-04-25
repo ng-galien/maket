@@ -130,14 +130,16 @@ Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
 | `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
 | `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
 | `maket_page` | Page structure — add, remove, rename, reorder, list |
-| `maket_canvas` | Canvas setup — format, orientation, background, text margin |
-| `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow) |
+| `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
+| `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow / overlap / margin clearance) |
 | `maket_charte` | Brand chartes — list, view, set, delete |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
 | `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
 | `maket_pdf` | Export a document to PDF via headless Chromium |
 | `maket_gmail` | Gmail — connect, search, read, draft |
+
+**Layout & print margins guide: [docs/layout.md](docs/layout.md)** — what the cyan safe-zone in the preview means, margin presets per use case, and prompts to ask the assistant when something looks off.
 
 ## Plugin & skills
 
