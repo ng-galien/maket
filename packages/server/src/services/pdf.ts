@@ -19,6 +19,7 @@ import { parseCharteVars } from "../lib/charte-css.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import { waitForPageStable } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
@@ -103,7 +104,7 @@ export function createPdfService(
 			try {
 				await installNetworkGuard(p, "offline");
 				await p.setContent(fullHtml, { waitUntil: "networkidle0" });
-				await p.evaluate(() => document.fonts.ready);
+				await waitForPageStable(p);
 				const pdfBuffer = await p.pdf({
 					width: `${w}mm`,
 					height: `${h}mm`,

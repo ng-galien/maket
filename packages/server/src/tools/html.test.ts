@@ -13,6 +13,7 @@ const OK_RESULT: LayoutResult = {
 	status: "ok",
 	text: "\n✓ Layout OK",
 	overflowIds: [],
+	overlapIds: [],
 };
 
 function fakeLayout(result: LayoutResult = OK_RESULT): LayoutService & {
@@ -443,11 +444,13 @@ describe("maket_html — layout signal → next: hints", () => {
 		status: "tight",
 		text: "\n⚠ Layout tight — bottom margin 4mm (min 15mm). Tighten or move content up before shipping.",
 		overflowIds: [],
+		overlapIds: [],
 	};
 	const OVERFLOW: LayoutResult = {
 		status: "overflow",
 		text: "\n⛔ Layout overflow — not shippable:\n  Vertical: content 400px > container 358px (+42px)\n  Overflowing: footer, p3-footer-left",
 		overflowIds: ["footer", "p3-footer-left"],
+		overlapIds: [],
 	};
 
 	it("keeps the response clean when layout is ok (no next: block)", async () => {

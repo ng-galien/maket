@@ -333,7 +333,7 @@ export const PageCanvas = memo(function PageCanvas({
 		});
 	}, [pending, renderHtml]);
 
-	const margin = canvas.textMargin;
+	const margins = canvas.margins;
 
 	return (
 		<>
@@ -356,13 +356,16 @@ export const PageCanvas = memo(function PageCanvas({
 					dangerouslySetInnerHTML={{ __html: renderHtml }}
 					style={{ width: "100%", height: "100%" }}
 				/>
-				{margin != null && margin > 0 && (
+				{margins && (
 					<div
 						className="margin-guide"
 						style={{
 							position: "absolute",
-							inset: `${margin}mm`,
-							border: "0.5px dashed rgba(0,180,220,0.3)",
+							top: `${margins.top}mm`,
+							right: `${margins.right}mm`,
+							bottom: `${margins.bottom}mm`,
+							left: `${margins.left}mm`,
+							border: "1px dashed rgba(0,180,220,0.7)",
 							pointerEvents: "none",
 							zIndex: 9999,
 						}}

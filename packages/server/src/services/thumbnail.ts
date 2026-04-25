@@ -16,6 +16,7 @@
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import { waitForPageStable } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
@@ -81,7 +82,7 @@ async function defaultSnapshot(
 		await installNetworkGuard(page, "offline");
 		await page.setViewport(viewport);
 		await page.setContent(html, { waitUntil: "networkidle0" });
-		await page.evaluate(() => document.fonts.ready);
+		await waitForPageStable(page);
 		const png = await page.screenshot({
 			type: "png",
 			clip: { x: 0, y: 0, width: viewport.width, height: viewport.height },

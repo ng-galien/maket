@@ -13,6 +13,7 @@
 
 import { charteFontImport, charteToCSS } from "../lib/charte-css.js";
 import type { DocSummary, Document } from "../types.js";
+import { normalizeCanvas } from "../types.js";
 import type { Store } from "./store.js";
 
 export interface Documents {
@@ -59,7 +60,10 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 
 	return {
 		loadAll() {
-			for (const d of store.loadAll()) cache.set(d.name, d);
+			for (const d of store.loadAll()) {
+				normalizeCanvas(d.canvas);
+				cache.set(d.name, d);
+			}
 		},
 		resolve(name) {
 			return cache.get(name) ?? null;
@@ -68,7 +72,10 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			const cached = cache.get(name);
 			if (cached) return cached;
 			const loaded = store.loadOne(name);
-			if (loaded) cache.set(loaded.name, loaded);
+			if (loaded) {
+				normalizeCanvas(loaded.canvas);
+				cache.set(loaded.name, loaded);
+			}
 			return loaded ?? null;
 		},
 		persist(name) {

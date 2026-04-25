@@ -131,10 +131,17 @@ function layoutNextHints(
 	page: number,
 ): string[] | undefined {
 	if (result.status === "ok") return undefined;
+	const targets = [
+		...new Set([
+			...result.overflowIds,
+			...result.overlapIds,
+			...(result.tightIds ?? []),
+		]),
+	].filter(Boolean);
 	const target =
-		result.overflowIds.length > 0
-			? `  # target: ${result.overflowIds.join(", ")}`
-			: "  # reduce paddings/margins to add bottom clearance";
+		targets.length > 0
+			? `  # target: ${targets.join(", ")}`
+			: "  # reduce paddings/margins to add clearance inside the safe zone";
 	return [
 		`maket_preview action=snapshot doc=${docName} page=${page}`,
 		`maket_html action=patch doc=${docName} page=${page} ops=[...]${target}`,

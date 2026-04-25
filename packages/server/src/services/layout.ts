@@ -27,6 +27,10 @@ import { parseStyle } from "../lib/charte-check.js";
 import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import {
+	PAGE_BLOCK_SELECTOR,
+	waitForPageStable,
+} from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
 import type { Documents } from "./documents.js";
 import type { WsRegistry } from "./ws-registry.js";
@@ -38,7 +42,12 @@ export interface LayoutResult {
 	status: "ok" | "tight" | "overflow";
 	/** Newline-prefixed for direct concatenation; check runner trims. */
 	text: string;
+	/** Block ids that escape the canvas. */
 	overflowIds: string[];
+	/** Block ids involved in any pairwise intersection (flat unique list). */
+	overlapIds: string[];
+	/** Block ids that cross a declared margin band (flat unique list). */
+	tightIds?: string[];
 }
 
 export interface LayoutService {
@@ -137,8 +146,21 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 				height: Math.ceil(h * PX_PER_MM),
 			});
 			await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-			await page.evaluate(() => document.fonts.ready);
-			return (await page.evaluate(measureInBrowser)) as LayoutReport | null;
+			await waitForPageStable(page);
+			const m = doc.canvas.margins;
+			const marginsPx = m
+				? {
+						top: m.top * PX_PER_MM,
+						right: m.right * PX_PER_MM,
+						bottom: m.bottom * PX_PER_MM,
+						left: m.left * PX_PER_MM,
+					}
+				: null;
+			return (await page.evaluate(
+				measureInBrowser,
+				PAGE_BLOCK_SELECTOR,
+				marginsPx,
+			)) as LayoutReport | null;
 		} catch {
 			return null;
 		} finally {
@@ -153,10 +175,21 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 		// Skip puppeteer when mm-math already sees overflow.
 		const serverResult = serverLayoutCheck(pageHtml, doc.canvas);
 		if (serverResult.status === "overflow") return serverResult;
-		// Headless catches content-driven overflow + the tight threshold;
-		// falls back to the server's ok when puppeteer is unavailable.
+		// Headless catches content-driven overflow, overlap, and the tight
+		// threshold; falls back to the server's ok when puppeteer is unavailable.
 		const headless = await headlessCheck(doc, pageHtml);
 		if (headless) return formatLayoutReport(headless, doc.canvas);
+		// Headless unavailable: server check passed but content-driven overflow
+		// + overlap can't be verified. Surface that explicitly so the agent
+		// doesn't treat ✓ as full validation.
+		if (serverResult.status === "ok") {
+			return {
+				status: "ok",
+				text: "\n✓ Layout OK (headless unavailable — content overflow + overlap unchecked)",
+				overflowIds: [],
+				overlapIds: [],
+			};
+		}
 		return serverResult;
 	}
 
@@ -189,18 +222,27 @@ export interface LayoutReport {
 	overflow?: boolean;
 	containerHeight?: number;
 	contentHeight?: number;
-	/**
-	 * Bottommost edge of any [data-id] descendant relative to the root's top,
-	 * in px. Used for the tight clearance check — `contentHeight` falls back
-	 * to `root.scrollHeight` which always equals `containerHeight` on a
-	 * fixed-size root, masking the real bottom margin.
-	 */
-	childMaxBottom?: number;
 	overflowBy?: number;
 	containerWidth?: number;
 	contentWidth?: number;
 	overflowByW?: number;
 	overflowing?: string[];
+	/**
+	 * Pairs of [data-id] block ids whose AABBs intersect. Skips ancestor /
+	 * descendant relations (a block "overlapping" its own contents is by
+	 * design). Empty when no pair intersects.
+	 */
+	overlaps?: [string, string][];
+	/**
+	 * Block ids that cross into a margin band (per side). Populated only when
+	 * the canvas declares `margins`; otherwise all sides are empty.
+	 */
+	tight?: {
+		top: string[];
+		right: string[];
+		bottom: string[];
+		left: string[];
+	};
 	elements?: {
 		id?: string;
 		name?: string;
@@ -310,33 +352,31 @@ export function serverLayoutCheck(
 		}
 	}
 	if (issues.length === 0) {
-		return { status: "ok", text: "\n✓ Layout OK", overflowIds: [] };
+		return {
+			status: "ok",
+			text: "\n✓ Layout OK",
+			overflowIds: [],
+			overlapIds: [],
+		};
 	}
 	return {
 		status: "overflow",
 		text: `\n⛔ Layout overflow — ${issues.length} issue(s). Not shippable.\n${issues.map((i) => `  • ${i}`).join("\n")}`,
 		overflowIds: [...overflowIds],
+		overlapIds: [],
 	};
-}
-
-/**
- * Min bottom-margin clearance before a page counts as "shippable". Scales
- * with canvas height so A5 and A4 both get a sensible guardrail without a
- * config knob.
- */
-function tightThresholdMm(canvasH: number): number {
-	return Math.max(10, canvasH * 0.05);
 }
 
 export function formatLayoutReport(
 	resp: LayoutReport | null,
-	canvas: { w: number; h: number },
+	_canvas: { w: number; h: number },
 ): LayoutResult {
 	if (!resp) {
 		return {
 			status: "overflow",
 			text: "\n⛔ Layout check unavailable",
 			overflowIds: [],
+			overlapIds: [],
 		};
 	}
 	const vOverflow = (resp.overflowBy ?? 0) > 0;
@@ -344,7 +384,19 @@ export function formatLayoutReport(
 	const hasElementOverflow =
 		(resp.overflowing?.length ?? 0) > 0 ||
 		(resp.elements?.some((el) => el.overflow) ?? false);
-	if (resp.overflow || vOverflow || hOverflow || hasElementOverflow) {
+	const overlapPairs = resp.overlaps ?? [];
+	const overlapIdSet = new Set<string>();
+	const overlapText: string[] = [];
+	for (const [a, b] of overlapPairs) {
+		if (a) overlapIdSet.add(a);
+		if (b) overlapIdSet.add(b);
+		overlapText.push(`${a} ↔ ${b}`);
+	}
+	const overlapIds = [...overlapIdSet];
+	const hasOverlap = overlapPairs.length > 0;
+	const hasOverflow =
+		resp.overflow === true || vOverflow || hOverflow || hasElementOverflow;
+	if (hasOverflow || hasOverlap) {
 		const overflowing = [
 			...new Set(
 				[
@@ -369,6 +421,9 @@ export function formatLayoutReport(
 		if (overflowing.length > 0) {
 			details.push(`  Overflowing: ${overflowing.join(", ")}`);
 		}
+		if (hasOverlap) {
+			details.push(`  Overlapping: ${overlapText.join(", ")}`);
+		}
 		if (details.length === 0) {
 			details.push(
 				"  Elements exceed page bounds (check absolute positioning or transforms)",
@@ -378,89 +433,148 @@ export function formatLayoutReport(
 			status: "overflow",
 			text: `\n⛔ Layout overflow — not shippable:\n${details.join("\n")}`,
 			overflowIds: overflowing,
+			overlapIds,
 		};
 	}
-	const containerH = resp.containerHeight ?? 0;
-	const childBottom = resp.childMaxBottom ?? 0;
-	const thresholdMm = tightThresholdMm(canvas.h);
-	const bottomMarginPx = containerH - childBottom;
-	if (
-		containerH > 0 &&
-		childBottom > 0 &&
-		bottomMarginPx < thresholdMm * PX_PER_MM
-	) {
-		const bottomMarginMm = Math.round(bottomMarginPx / PX_PER_MM);
+	const tight = resp.tight;
+	const tightSides: { side: string; ids: string[] }[] = [];
+	if (tight?.top.length) tightSides.push({ side: "top", ids: tight.top });
+	if (tight?.right.length) tightSides.push({ side: "right", ids: tight.right });
+	if (tight?.bottom.length)
+		tightSides.push({ side: "bottom", ids: tight.bottom });
+	if (tight?.left.length) tightSides.push({ side: "left", ids: tight.left });
+	if (tightSides.length > 0) {
+		const ids = [...new Set(tightSides.flatMap((s) => s.ids))];
+		const sideText = tightSides
+			.map((s) => `${s.side}: ${s.ids.join(", ")}`)
+			.join(" • ");
 		return {
 			status: "tight",
-			text: `\n⚠ Layout tight — bottom margin ${bottomMarginMm}mm (min ${Math.round(thresholdMm)}mm). Tighten or move content up before shipping.`,
+			text: `\n⚠ Layout tight — blocks cross declared margins (${sideText}). Tighten or move content inside the safe zone before shipping.`,
 			overflowIds: [],
+			overlapIds: [],
+			tightIds: ids,
 		};
 	}
-	return { status: "ok", text: "\n✓ Layout OK", overflowIds: [] };
+	return {
+		status: "ok",
+		text: "\n✓ Layout OK",
+		overflowIds: [],
+		overlapIds: [],
+	};
 }
 
-// Run inside puppeteer — has access to `document`.
-function measureInBrowser() {
-	const root = document.body.firstElementChild as HTMLElement | null;
+// Run inside puppeteer — has access to `document`. Selector + margins passed
+// in because page.evaluate ships the function source, not its closure.
+//
+// Format contract (see html.ts tool description): the agent's HTML root is
+// `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
+// declaring its own measurement zone. Falls back to firstElementChild for
+// legacy / non-canonical content.
+function measureInBrowser(
+	pageSelector: string,
+	marginsPx: {
+		top: number;
+		right: number;
+		bottom: number;
+		left: number;
+	} | null,
+) {
+	const TOLERANCE_PX = 2;
+	const root = (document.body.querySelector(pageSelector) ??
+		document.body.firstElementChild) as HTMLElement | null;
 	if (!root) return null;
 	const rootRect = root.getBoundingClientRect();
 	const containerHeight = Math.round(rootRect.height);
 	const containerWidth = Math.round(rootRect.width);
-	const elements = [...root.querySelectorAll("[data-id]")].map((node) => {
+	const blocks = [...root.querySelectorAll("[data-id]")].map((node) => {
 		const el = node as HTMLElement;
 		const rect = el.getBoundingClientRect();
 		const top = Math.round(rect.top - rootRect.top);
 		const left = Math.round(rect.left - rootRect.left);
 		const bottom = Math.round(rect.bottom - rootRect.top);
 		const right = Math.round(rect.right - rootRect.left);
-		const overflow =
-			top < -1 ||
-			left < -1 ||
-			bottom > containerHeight + 1 ||
-			right > containerWidth + 1;
 		return {
-			id: el.dataset.id,
+			el,
+			id: el.dataset.id || "",
 			name: el.dataset.name || "",
 			top,
 			left,
 			bottom,
 			right,
-			overflow,
+			overflow:
+				top < -TOLERANCE_PX ||
+				left < -TOLERANCE_PX ||
+				bottom > containerHeight + TOLERANCE_PX ||
+				right > containerWidth + TOLERANCE_PX,
 		};
 	});
-	const minTop = elements.length
-		? Math.min(0, ...elements.map((el) => el.top))
-		: 0;
-	const minLeft = elements.length
-		? Math.min(0, ...elements.map((el) => el.left))
-		: 0;
-	const maxBottom = elements.length
-		? Math.max(root.scrollHeight, ...elements.map((el) => el.bottom))
+	const minTop = blocks.length ? Math.min(0, ...blocks.map((b) => b.top)) : 0;
+	const minLeft = blocks.length ? Math.min(0, ...blocks.map((b) => b.left)) : 0;
+	const maxBottom = blocks.length
+		? Math.max(root.scrollHeight, ...blocks.map((b) => b.bottom))
 		: root.scrollHeight;
-	const maxRight = elements.length
-		? Math.max(root.scrollWidth, ...elements.map((el) => el.right))
+	const maxRight = blocks.length
+		? Math.max(root.scrollWidth, ...blocks.map((b) => b.right))
 		: root.scrollWidth;
 	const contentHeight = Math.round(maxBottom - minTop);
 	const contentWidth = Math.round(maxRight - minLeft);
-	const childMaxBottom = elements.length
-		? Math.round(Math.max(0, ...elements.map((el) => el.bottom)))
-		: 0;
-	const overflowing = elements
-		.filter((el) => el.overflow)
-		.map((el) => el.id || el.name || "")
+	const overflowing = blocks
+		.filter((b) => b.overflow)
+		.map((b) => b.id || b.name || "")
 		.filter(Boolean);
 	const overflowV = contentHeight > containerHeight;
 	const overflowH = contentWidth > containerWidth;
+	// Pairwise AABB intersection on tagged blocks. Skip ancestor/descendant
+	// relations (a block "overlapping" its own contents is by design — flex/
+	// grid containers always intersect their children). N is small (~50
+	// blocks/page → ~1250 pairs) so quadratic cost is negligible.
+	const overlaps: [string, string][] = [];
+	for (const [i, a] of blocks.entries()) {
+		if (!a.id) continue;
+		for (const b of blocks.slice(i + 1)) {
+			if (!b.id) continue;
+			if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
+			const intersects =
+				a.left < b.right - TOLERANCE_PX &&
+				a.right > b.left + TOLERANCE_PX &&
+				a.top < b.bottom - TOLERANCE_PX &&
+				a.bottom > b.top + TOLERANCE_PX;
+			if (intersects) overlaps.push([a.id, b.id]);
+		}
+	}
+	const tight = { top: [], right: [], bottom: [], left: [] } as {
+		top: string[];
+		right: string[];
+		bottom: string[];
+		left: string[];
+	};
+	if (marginsPx) {
+		for (const b of blocks) {
+			if (!b.id || b.overflow) continue;
+			if (b.top < marginsPx.top - TOLERANCE_PX) tight.top.push(b.id);
+			if (b.left < marginsPx.left - TOLERANCE_PX) tight.left.push(b.id);
+			if (b.bottom > containerHeight - marginsPx.bottom + TOLERANCE_PX)
+				tight.bottom.push(b.id);
+			if (b.right > containerWidth - marginsPx.right + TOLERANCE_PX)
+				tight.right.push(b.id);
+		}
+	}
 	return {
 		overflow: overflowV || overflowH || overflowing.length > 0,
 		containerHeight,
 		contentHeight,
-		childMaxBottom,
 		overflowBy: overflowV ? contentHeight - containerHeight : 0,
 		containerWidth,
 		contentWidth,
 		overflowByW: overflowH ? contentWidth - containerWidth : 0,
 		overflowing,
-		elements,
+		overlaps,
+		tight,
+		elements: blocks.map((b) => ({
+			id: b.id,
+			name: b.name,
+			overflow: b.overflow,
+		})),
 	};
 }

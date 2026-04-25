@@ -36,6 +36,13 @@ const FormatSchema = z.enum([
 	"MOBILE",
 ]);
 
+const MarginsSchema = z.object({
+	top: z.number(),
+	right: z.number(),
+	bottom: z.number(),
+	left: z.number(),
+});
+
 const MaketCanvasSchema = z.object({
 	doc: z.string().describe("Document name."),
 	format: FormatSchema.optional().describe(
@@ -51,10 +58,9 @@ const MaketCanvasSchema = z.object({
 		.describe(
 			"CSS background colour. Unspecified keeps the current value. Prefer var(--charte-color-bg) when a charte is loaded.",
 		),
-	textMargin: z
-		.number()
-		.optional()
-		.describe("Textual margin in mm. Unspecified keeps the current value."),
+	margins: MarginsSchema.optional().describe(
+		"Per-side safe-zone insets in mm: {top, right, bottom, left}. The layout verdict reports `tight` when blocks cross into any band, and the client draws dashed guides at these insets. Unspecified keeps the current value.",
+	),
 });
 
 const DESCRIPTION = [
@@ -89,14 +95,15 @@ export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 				w,
 				h,
 				bg: args.background || d.canvas.bg,
-				textMargin: args.textMargin ?? d.canvas.textMargin,
+				margins: args.margins ?? d.canvas.margins,
 			};
 			bus.emit("canvas:changed", { docName: d.name });
-			const tm = d.canvas.textMargin
-				? `  textMargin:${d.canvas.textMargin}mm`
+			const m = d.canvas.margins;
+			const mDesc = m
+				? `  margins:{t:${m.top} r:${m.right} b:${m.bottom} l:${m.left}}mm`
 				: "";
 			return text(
-				`Canvas: ${fmt} ${orient} (${w}x${h}mm) bg=${d.canvas.bg}${tm}`,
+				`Canvas: ${fmt} ${orient} (${w}x${h}mm) bg=${d.canvas.bg}${mDesc}`,
 			);
 		},
 	};

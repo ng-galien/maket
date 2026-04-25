@@ -70,6 +70,7 @@ describe("serverLayoutCheck (pure)", () => {
 		expect(result.status).toBe("ok");
 		expect(result.text).toMatch(/Layout OK/);
 		expect(result.overflowIds).toEqual([]);
+		expect(result.overlapIds).toEqual([]);
 	});
 
 	it("detects overflow on explicit width and surfaces the offending id", () => {
@@ -84,17 +85,18 @@ describe("serverLayoutCheck (pure)", () => {
 		expect(result.text).not.toContain("ⓘ");
 		expect(result.text).not.toMatch(/non-blocking/);
 		expect(result.overflowIds).toEqual(["big"]);
+		expect(result.overlapIds).toEqual([]);
 	});
 });
 
 describe("formatLayoutReport (pure)", () => {
-	it("returns OK when no overflow flags are set and clearance is comfortable", () => {
+	it("returns OK when no overflow / overlap / margin violation is reported", () => {
 		const result = formatLayoutReport(
 			{
 				overflow: false,
 				containerHeight: 1123,
 				contentHeight: 1123,
-				childMaxBottom: 500,
+				tight: { top: [], right: [], bottom: [], left: [] },
 			},
 			A4,
 		);
@@ -124,35 +126,39 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.overflowIds).toContain("footer");
 	});
 
-	it("flags a 'tight' page when childMaxBottom is within the min ship clearance", () => {
-		// A4 threshold = max(10mm, 5% * 297mm) = ~14.85mm = ~56px at 96dpi.
-		// container = 1123px, childMaxBottom = 1118px → 5px clearance → tight.
+	it("flags 'tight' per-side when blocks cross declared margin bands", () => {
 		const result = formatLayoutReport(
 			{
 				overflow: false,
 				containerHeight: 1123,
-				contentHeight: 1123,
-				childMaxBottom: 1118,
+				contentHeight: 1100,
+				tight: {
+					top: [],
+					right: ["sidebar"],
+					bottom: ["footer"],
+					left: [],
+				},
 			},
 			A4,
 		);
 		expect(result.status).toBe("tight");
 		expect(result.text).toMatch(/Layout tight/);
-		expect(result.text).toMatch(/bottom margin \d+mm/);
-		expect(result.text).toMatch(/Tighten.*before shipping/);
+		expect(result.text).toMatch(/right: sidebar/);
+		expect(result.text).toMatch(/bottom: footer/);
 		expect(result.text).toContain("⚠");
+		expect(result.tightIds).toEqual(
+			expect.arrayContaining(["sidebar", "footer"]),
+		);
 		expect(result.overflowIds).toEqual([]);
 	});
 
-	it("does NOT flag tight when childMaxBottom leaves comfortable clearance, even if scrollHeight equals container", () => {
-		// Regression: fixed-height root made contentHeight === containerHeight,
-		// causing tight to fire even with content occupying ~half the canvas.
+	it("returns OK when margins are declared but no block crosses them", () => {
 		const result = formatLayoutReport(
 			{
 				overflow: false,
 				containerHeight: 1123,
-				contentHeight: 1123,
-				childMaxBottom: 246,
+				contentHeight: 600,
+				tight: { top: [], right: [], bottom: [], left: [] },
 			},
 			A4,
 		);
@@ -164,6 +170,43 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.status).toBe("overflow");
 		expect(result.text).toMatch(/unavailable/);
 		expect(result.text).not.toContain("ⓘ");
+	});
+
+	it("flags pairwise overlap as non-shippable and surfaces both ids", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 600,
+				overlaps: [["a", "b"]],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Overlapping: a ↔ b/);
+		expect(result.text).toContain("⛔");
+		expect(result.overlapIds).toEqual(["a", "b"]);
+		expect(result.overflowIds).toEqual([]);
+	});
+
+	it("co-reports overflow and overlap when both occur", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: true,
+				overflowBy: 40,
+				contentHeight: 1163,
+				containerHeight: 1123,
+				overflowing: ["foot"],
+				overlaps: [["a", "b"]],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Vertical: content 1163px/);
+		expect(result.text).toMatch(/Overflowing: foot/);
+		expect(result.text).toMatch(/Overlapping: a ↔ b/);
+		expect(result.overflowIds).toContain("foot");
+		expect(result.overlapIds).toEqual(["a", "b"]);
 	});
 });
 
@@ -188,12 +231,15 @@ describe("LayoutService — measure", () => {
 		cleanup();
 	});
 
-	it("returns OK on a conforming layout", async () => {
+	it("returns OK on a conforming layout but flags headless-unavailable", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
 		const result = await service.measure(doc(html), html, 0);
+		// fixture's browserLaunch throws → headless unavailable → server-OK
+		// is wrapped with an explicit caveat so the agent doesn't treat ✓ as
+		// full validation (no overlap / content-overflow check ran).
 		expect(result.status).toBe("ok");
-		expect(result.text).toMatch(/Layout OK/);
+		expect(result.text).toMatch(/Layout OK \(headless unavailable/);
 		cleanup();
 	});
 
@@ -247,7 +293,7 @@ describe("LayoutService — measure", () => {
 		store.close();
 	});
 
-	it("flags tight when headless reports content just under the min bottom clearance", async () => {
+	it("flags tight per-side when headless reports a block crossing the bottom margin", async () => {
 		const store = createSQLiteStore(":memory:");
 		const documents = createDocuments({ store });
 		const wsRegistry = createWsRegistry();
@@ -257,12 +303,15 @@ describe("LayoutService — measure", () => {
 			on: vi.fn(),
 			setViewport: vi.fn(async () => {}),
 			setContent: vi.fn(async () => {}),
-			evaluate: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
-				overflow: false,
-				containerHeight: 1123,
-				contentHeight: 1123,
-				childMaxBottom: 1118,
-			}),
+			evaluate: vi
+				.fn()
+				.mockResolvedValueOnce(undefined)
+				.mockResolvedValueOnce({
+					overflow: false,
+					containerHeight: 1123,
+					contentHeight: 1100,
+					tight: { top: [], right: [], bottom: ["footer"], left: [] },
+				}),
 			close: vi.fn(async () => {}),
 		};
 		const browser = {
@@ -275,14 +324,13 @@ describe("LayoutService — measure", () => {
 			{ documents, wsRegistry },
 			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 		);
-		// mm-math returns OK on a bare root, so the headless branch runs.
 		const html = `<div data-id="root" style="width:210mm;height:297mm"></div>`;
 
 		const result = await service.measure(doc(html), html, 0);
 
 		expect(result.status).toBe("tight");
 		expect(result.text).toMatch(/Layout tight/);
-		expect(result.text).toMatch(/before shipping/);
+		expect(result.text).toMatch(/bottom: footer/);
 		store.close();
 	});
 

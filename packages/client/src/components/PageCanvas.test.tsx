@@ -111,7 +111,7 @@ describe("PageCanvas toolbar interactions", () => {
 	});
 });
 
-function makeDoc(html: string, textMargin?: number): Document {
+function makeDoc(html: string, marginUniform?: number): Document {
 	return {
 		id: "id-alpha",
 		name: "alpha",
@@ -120,7 +120,16 @@ function makeDoc(html: string, textMargin?: number): Document {
 			w: 210,
 			h: 297,
 			background: "#fff",
-			...(textMargin != null ? { textMargin } : {}),
+			...(marginUniform != null
+				? {
+						margins: {
+							top: marginUniform,
+							right: marginUniform,
+							bottom: marginUniform,
+							left: marginUniform,
+						},
+					}
+				: {}),
 		},
 		pages: [{ name: "p1", elements: [], html }],
 		activePage: 0,
@@ -224,7 +233,7 @@ describe("PageCanvas rendering", () => {
 		]);
 	});
 
-	it("renders a margin guide only when canvas.textMargin > 0", () => {
+	it("renders a margin guide only when canvas.margins is set", () => {
 		const noMargin = render(
 			<PageCanvas
 				doc={makeDoc('<p data-id="a">x</p>')}

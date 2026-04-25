@@ -8,13 +8,46 @@ import crypto from "node:crypto";
 
 export { computeCanvasDims, FORMATS, SCREEN_FORMATS } from "@maket/shared";
 
+export interface Margins {
+	top: number;
+	right: number;
+	bottom: number;
+	left: number;
+}
+
 export interface Canvas {
 	format: string;
 	orientation: string;
 	w: number;
 	h: number;
 	bg: string;
-	textMargin?: number;
+	/**
+	 * Safe-zone insets in mm. When set, the layout verdict reports `tight`
+	 * for blocks that cross into any margin band, and the client draws
+	 * dashed guides at the inset edges. When absent, only overflow (canvas
+	 * edge crossings) is reported.
+	 */
+	margins?: Margins;
+}
+
+/**
+ * Canvas migration: pre-margins docs persisted a uniform `textMargin: number`.
+ * Mutates `canvas` in place to convert legacy `textMargin: N` to
+ * `margins: {top:N, right:N, bottom:N, left:N}` and drop the legacy field.
+ * No-op on canvases that already use the new shape or have no margins set.
+ */
+export function normalizeCanvas(canvas: Canvas): Canvas {
+	const legacy = (canvas as { textMargin?: number }).textMargin;
+	if (legacy != null && !canvas.margins) {
+		canvas.margins = {
+			top: legacy,
+			right: legacy,
+			bottom: legacy,
+			left: legacy,
+		};
+	}
+	delete (canvas as { textMargin?: number }).textMargin;
+	return canvas;
 }
 
 export interface DocMeta {
