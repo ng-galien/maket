@@ -93,7 +93,8 @@ describe("formatLayoutReport (pure)", () => {
 			{
 				overflow: false,
 				containerHeight: 1123,
-				contentHeight: 500,
+				contentHeight: 1123,
+				childMaxBottom: 500,
 			},
 			A4,
 		);
@@ -123,14 +124,15 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.overflowIds).toContain("footer");
 	});
 
-	it("flags a 'tight' page when bottom margin is below the min ship clearance", () => {
+	it("flags a 'tight' page when childMaxBottom is within the min ship clearance", () => {
 		// A4 threshold = max(10mm, 5% * 297mm) = ~14.85mm = ~56px at 96dpi.
-		// container = 1123px (canvas), content = 1118px → 5px clearance → tight.
+		// container = 1123px, childMaxBottom = 1118px → 5px clearance → tight.
 		const result = formatLayoutReport(
 			{
 				overflow: false,
 				containerHeight: 1123,
-				contentHeight: 1118,
+				contentHeight: 1123,
+				childMaxBottom: 1118,
 			},
 			A4,
 		);
@@ -140,6 +142,21 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.text).toMatch(/Tighten.*before shipping/);
 		expect(result.text).toContain("⚠");
 		expect(result.overflowIds).toEqual([]);
+	});
+
+	it("does NOT flag tight when childMaxBottom leaves comfortable clearance, even if scrollHeight equals container", () => {
+		// Regression: fixed-height root made contentHeight === containerHeight,
+		// causing tight to fire even with content occupying ~half the canvas.
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 1123,
+				childMaxBottom: 246,
+			},
+			A4,
+		);
+		expect(result.status).toBe("ok");
 	});
 
 	it("returns overflow status (not decorative ⓘ) when headless is unavailable", () => {
@@ -243,7 +260,8 @@ describe("LayoutService — measure", () => {
 			evaluate: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
 				overflow: false,
 				containerHeight: 1123,
-				contentHeight: 1118,
+				contentHeight: 1123,
+				childMaxBottom: 1118,
 			}),
 			close: vi.fn(async () => {}),
 		};

@@ -189,6 +189,13 @@ export interface LayoutReport {
 	overflow?: boolean;
 	containerHeight?: number;
 	contentHeight?: number;
+	/**
+	 * Bottommost edge of any [data-id] descendant relative to the root's top,
+	 * in px. Used for the tight clearance check — `contentHeight` falls back
+	 * to `root.scrollHeight` which always equals `containerHeight` on a
+	 * fixed-size root, masking the real bottom margin.
+	 */
+	childMaxBottom?: number;
 	overflowBy?: number;
 	containerWidth?: number;
 	contentWidth?: number;
@@ -374,12 +381,12 @@ export function formatLayoutReport(
 		};
 	}
 	const containerH = resp.containerHeight ?? 0;
-	const contentH = resp.contentHeight ?? 0;
+	const childBottom = resp.childMaxBottom ?? 0;
 	const thresholdMm = tightThresholdMm(canvas.h);
-	const bottomMarginPx = containerH - contentH;
+	const bottomMarginPx = containerH - childBottom;
 	if (
 		containerH > 0 &&
-		contentH > 0 &&
+		childBottom > 0 &&
 		bottomMarginPx < thresholdMm * PX_PER_MM
 	) {
 		const bottomMarginMm = Math.round(bottomMarginPx / PX_PER_MM);
@@ -435,6 +442,9 @@ function measureInBrowser() {
 		: root.scrollWidth;
 	const contentHeight = Math.round(maxBottom - minTop);
 	const contentWidth = Math.round(maxRight - minLeft);
+	const childMaxBottom = elements.length
+		? Math.round(Math.max(0, ...elements.map((el) => el.bottom)))
+		: 0;
 	const overflowing = elements
 		.filter((el) => el.overflow)
 		.map((el) => el.id || el.name || "")
@@ -445,6 +455,7 @@ function measureInBrowser() {
 		overflow: overflowV || overflowH || overflowing.length > 0,
 		containerHeight,
 		contentHeight,
+		childMaxBottom,
 		overflowBy: overflowV ? contentHeight - containerHeight : 0,
 		containerWidth,
 		contentWidth,
