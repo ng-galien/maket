@@ -18,6 +18,7 @@ import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import { waitForPageStable } from "../lib/page-stable-wait.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Config } from "../services/config.js";
@@ -149,7 +150,7 @@ async function runSnapshot(
 			height: Math.ceil(h * scale),
 		});
 		await p.setContent(fullHtml, { waitUntil: "networkidle0" });
-		await p.evaluate(() => document.fonts.ready);
+		await waitForPageStable(p);
 		const png = (await p.screenshot({
 			type: "png",
 			fullPage: false,

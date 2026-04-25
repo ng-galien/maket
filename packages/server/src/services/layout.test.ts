@@ -61,38 +61,155 @@ function doc(html: string): Document {
 	} as unknown as Document;
 }
 
+const A4 = { w: 210, h: 297 };
+
 describe("serverLayoutCheck (pure)", () => {
 	it("reports no overflow on a conforming layout", () => {
 		const html = `<div data-id="root" style="width:100mm;height:100mm"></div>`;
-		expect(serverLayoutCheck(html, { w: 210, h: 297 })).toMatch(/Layout OK/);
+		const result = serverLayoutCheck(html, A4);
+		expect(result.status).toBe("ok");
+		expect(result.text).toMatch(/Layout OK/);
+		expect(result.overflowIds).toEqual([]);
+		expect(result.overlapIds).toEqual([]);
 	});
 
-	it("detects overflow on explicit width", () => {
+	it("detects overflow on explicit width and surfaces the offending id", () => {
 		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
-		const out = serverLayoutCheck(html, { w: 210, h: 297 });
-		expect(out).toMatch(/Layout overflow — non-blocking/);
-		expect(out).toMatch(/width 400mm > canvas 210mm/);
+		const result = serverLayoutCheck(html, A4);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(
+			/Layout overflow — 1 issue\(s\)\. Not shippable/,
+		);
+		expect(result.text).toMatch(/width 400mm > canvas 210mm/);
+		expect(result.text).toContain("⛔");
+		expect(result.text).not.toContain("ⓘ");
+		expect(result.text).not.toMatch(/non-blocking/);
+		expect(result.overflowIds).toEqual(["big"]);
+		expect(result.overlapIds).toEqual([]);
 	});
 });
 
 describe("formatLayoutReport (pure)", () => {
-	it("returns OK when no overflow flags are set", () => {
-		expect(formatLayoutReport({ overflow: false })).toMatch(/Layout OK/);
+	it("returns OK when no overflow / overlap / margin violation is reported", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 1123,
+				tight: { top: [], right: [], bottom: [], left: [] },
+			},
+			A4,
+		);
+		expect(result.status).toBe("ok");
+		expect(result.text).toMatch(/Layout OK/);
 	});
 
-	it("formats vertical overflow", () => {
-		const out = formatLayoutReport({
-			overflow: true,
-			overflowBy: 42,
-			contentHeight: 400,
-			containerHeight: 358,
-		});
-		expect(out).toMatch(/Layout overflow — non-blocking/);
-		expect(out).toMatch(/Vertical: content 400px > container 358px \(\+42px\)/);
+	it("formats vertical overflow with the stronger ⛔ marker", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: true,
+				overflowBy: 42,
+				contentHeight: 400,
+				containerHeight: 358,
+				overflowing: ["footer"],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overflow — not shippable/);
+		expect(result.text).toMatch(
+			/Vertical: content 400px > container 358px \(\+42px\)/,
+		);
+		expect(result.text).toContain("⛔");
+		expect(result.text).not.toContain("ⓘ");
+		expect(result.text).not.toMatch(/non-blocking/);
+		expect(result.overflowIds).toContain("footer");
 	});
 
-	it("returns 'unavailable' on null input", () => {
-		expect(formatLayoutReport(null)).toMatch(/unavailable/);
+	it("flags 'tight' per-side when blocks cross declared margin bands", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 1100,
+				tight: {
+					top: [],
+					right: ["sidebar"],
+					bottom: ["footer"],
+					left: [],
+				},
+			},
+			A4,
+		);
+		expect(result.status).toBe("tight");
+		expect(result.text).toMatch(/Layout tight/);
+		expect(result.text).toMatch(/right: sidebar/);
+		expect(result.text).toMatch(/bottom: footer/);
+		expect(result.text).toContain("⚠");
+		expect(result.tightIds).toEqual(
+			expect.arrayContaining(["sidebar", "footer"]),
+		);
+		expect(result.overflowIds).toEqual([]);
+	});
+
+	it("returns OK when margins are declared but no block crosses them", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 600,
+				tight: { top: [], right: [], bottom: [], left: [] },
+			},
+			A4,
+		);
+		expect(result.status).toBe("ok");
+	});
+
+	it("returns overflow status (not decorative ⓘ) when headless is unavailable", () => {
+		const result = formatLayoutReport(null, A4);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/unavailable/);
+		expect(result.text).not.toContain("ⓘ");
+	});
+
+	it("flags pairwise overlap as non-shippable and surfaces both ids", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 600,
+				overlaps: [["a", "b"]],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overlap — not shippable/);
+		expect(result.text).not.toMatch(/Layout overflow —/);
+		expect(result.text).toMatch(/Overlapping: a ↔ b/);
+		expect(result.text).toContain("⛔");
+		expect(result.overlapIds).toEqual(["a", "b"]);
+		expect(result.overflowIds).toEqual([]);
+	});
+
+	it("co-reports overflow and overlap when both occur", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: true,
+				overflowBy: 40,
+				contentHeight: 1163,
+				containerHeight: 1123,
+				overflowing: ["foot"],
+				overlaps: [["a", "b"]],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overflow and overlap — not shippable/);
+		expect(result.text).toMatch(/Vertical: content 1163px/);
+		expect(result.text).toMatch(/Overflowing: foot/);
+		expect(result.text).toMatch(/Overlapping: a ↔ b/);
+		expect(result.overflowIds).toContain("foot");
+		expect(result.overlapIds).toEqual(["a", "b"]);
 	});
 });
 
@@ -100,10 +217,12 @@ describe("LayoutService — measure", () => {
 	it("falls back to server check when puppeteer is unavailable", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
-		const report = await service.measure(doc(html), html, 0);
-		expect(report).toMatch(/Layout overflow — non-blocking/);
+		const result = await service.measure(doc(html), html, 0);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overflow/);
+		expect(result.overflowIds).toContain("big");
 		// measure() keeps the leading newline for direct concatenation.
-		expect(report.startsWith("\n")).toBe(true);
+		expect(result.text.startsWith("\n")).toBe(true);
 		cleanup();
 	});
 
@@ -115,11 +234,15 @@ describe("LayoutService — measure", () => {
 		cleanup();
 	});
 
-	it("returns OK on a conforming layout", async () => {
+	it("returns OK on a conforming layout but flags headless-unavailable", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
-		const report = await service.measure(doc(html), html, 0);
-		expect(report).toMatch(/Layout OK/);
+		const result = await service.measure(doc(html), html, 0);
+		// fixture's browserLaunch throws → headless unavailable → server-OK
+		// is wrapped with an explicit caveat so the agent doesn't treat ✓ as
+		// full validation (no overlap / content-overflow check ran).
+		expect(result.status).toBe("ok");
+		expect(result.text).toMatch(/Layout OK \(headless unavailable/);
 		cleanup();
 	});
 
@@ -133,12 +256,16 @@ describe("LayoutService — measure", () => {
 			on: vi.fn(),
 			setViewport: vi.fn(async () => {}),
 			setContent: vi.fn(async () => {}),
-			evaluate: vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
-				overflow: true,
-				containerHeight: 100,
-				contentHeight: 140,
-				overflowBy: 40,
-			}),
+			evaluate: vi
+				.fn()
+				.mockResolvedValueOnce(undefined)
+				.mockResolvedValueOnce({
+					overflow: true,
+					containerHeight: 100,
+					contentHeight: 140,
+					overflowBy: 40,
+					overflowing: ["body"],
+				}),
 			close: vi.fn(async () => {}),
 		};
 		const browser = {
@@ -153,17 +280,60 @@ describe("LayoutService — measure", () => {
 		);
 		const html = `<div data-id="root"><img data-id="img" src="/assets/hero.png"></div>`;
 
-		const report = await service.measure(doc(html), html, 0);
+		const result = await service.measure(doc(html), html, 0);
 
-		expect(report).toMatch(
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(
 			/Vertical: content 140px > container 100px \(\+40px\)/,
 		);
+		expect(result.overflowIds).toContain("body");
 		expect(browserLaunch).toHaveBeenCalledOnce();
 		expect(page.setContent).toHaveBeenCalledWith(
 			expect.stringContaining("http://test/assets/hero.png"),
 			{ waitUntil: "networkidle0" },
 		);
 		expect(page.close).toHaveBeenCalledOnce();
+		store.close();
+	});
+
+	it("flags tight per-side when headless reports a block crossing the bottom margin", async () => {
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const wsRegistry = createWsRegistry();
+		const page = {
+			setOfflineMode: vi.fn(async () => {}),
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent: vi.fn(async () => {}),
+			evaluate: vi
+				.fn()
+				.mockResolvedValueOnce(undefined)
+				.mockResolvedValueOnce({
+					overflow: false,
+					containerHeight: 1123,
+					contentHeight: 1100,
+					tight: { top: [], right: [], bottom: ["footer"], left: [] },
+				}),
+			close: vi.fn(async () => {}),
+		};
+		const browser = {
+			connected: true,
+			on: vi.fn(),
+			newPage: vi.fn(async () => page),
+		};
+		const browserLaunch = vi.fn(async () => browser as any);
+		const service = createLayoutService(
+			{ documents, wsRegistry },
+			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
+		);
+		const html = `<div data-id="root" style="width:210mm;height:297mm"></div>`;
+
+		const result = await service.measure(doc(html), html, 0);
+
+		expect(result.status).toBe("tight");
+		expect(result.text).toMatch(/Layout tight/);
+		expect(result.text).toMatch(/bottom: footer/);
 		store.close();
 	});
 
@@ -184,10 +354,9 @@ describe("LayoutService — check", () => {
 	it("falls back to server check when puppeteer is unavailable", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
-		const report = await service.check(doc(html), html, 0);
-		expect(report).toMatch(/Layout overflow — non-blocking/);
-		// check() trims leading newline
-		expect(report.startsWith("\n")).toBe(false);
+		const result = await service.check(doc(html), html, 0);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Layout overflow/);
 		cleanup();
 	});
 

@@ -1,10 +1,17 @@
+export interface Margins {
+	top: number;
+	right: number;
+	bottom: number;
+	left: number;
+}
+
 export interface Canvas {
 	w: number;
 	h: number;
 	background: string;
 	format?: string;
 	orientation?: string;
-	textMargin?: number;
+	margins?: Margins;
 	bleed?: number;
 }
 

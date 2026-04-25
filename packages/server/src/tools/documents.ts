@@ -109,10 +109,17 @@ const MaketDocSchema = z.object({
 		.describe(
 			"For new/meta: name of an existing charte to associate with this document. The charte itself is applied later via maket_charte view.",
 		),
-	textMargin: z
-		.number()
+	margins: z
+		.object({
+			top: z.number(),
+			right: z.number(),
+			bottom: z.number(),
+			left: z.number(),
+		})
 		.optional()
-		.describe("For new: textual margin in mm. Optional."),
+		.describe(
+			"For new: per-side safe-zone insets in mm {top, right, bottom, left}. Optional.",
+		),
 	designNotes: z
 		.string()
 		.optional()
@@ -219,7 +226,7 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 			w,
 			h,
 			bg: args.background || "#ffffff",
-			textMargin: args.textMargin,
+			margins: args.margins,
 		},
 		meta: { charte: args.charte },
 	});

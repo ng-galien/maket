@@ -22,7 +22,7 @@ import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateCharteToken } from "../services/assets.js";
 import type { Documents } from "../services/documents.js";
-import type { LayoutService } from "../services/layout.js";
+import type { LayoutResult, LayoutService } from "../services/layout.js";
 import type { Store } from "../services/store.js";
 import type { Charte, Document, Page } from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
@@ -123,6 +123,29 @@ function resolveDocPage(
 	const page = doc.pages[pageIdx];
 	if (!page) return `Page ${page1based} not found (${doc.pages.length} pages)`;
 	return { doc, page, pageIdx };
+}
+
+function layoutNextHints(
+	result: LayoutResult,
+	docName: string,
+	page: number,
+): string[] | undefined {
+	if (result.status === "ok") return undefined;
+	const targets = [
+		...new Set([
+			...result.overflowIds,
+			...result.overlapIds,
+			...(result.tightIds ?? []),
+		]),
+	].filter(Boolean);
+	const target =
+		targets.length > 0
+			? `  # target: ${targets.join(", ")}`
+			: "  # reduce paddings/margins to add clearance inside the safe zone";
+	return [
+		`maket_preview action=snapshot doc=${docName} page=${page}`,
+		`maket_html action=patch doc=${docName} page=${page} ops=[...]${target}`,
+	];
 }
 
 // ============================================================
@@ -312,7 +335,7 @@ const DESCRIPTION = [
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
-	"  check — measure layout overflow against the canvas size; no side effects. Overflow is reported as a non-blocking hint, not an error.",
+	"  check — measure layout against the canvas + declared `canvas.margins`; no side effects. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status). On tight/overflow, the `next:` block points to a snapshot + targeted patch.",
 ].join("\n");
 
 export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
@@ -393,7 +416,7 @@ async function runSet(
 
 	const count = (page.html.match(/data-id=/g) || []).length;
 	const html = page.html || "";
-	const layoutInfo = await layout.measure(doc, html, pageIdx);
+	const layoutResult = await layout.measure(doc, html, pageIdx);
 	const tree = buildIdTree(html);
 
 	return text(
@@ -401,13 +424,14 @@ async function runSet(
 			`Page "${page.name || args.page}" updated — ${count} elements`,
 			"",
 			"layout:",
-			layoutInfo.trim(),
+			layoutResult.text.trim(),
 			"",
 			"tree:",
 			tree,
 			"",
 			"Tip: use maket_html patch to refine by data-id (style, content, insert, replace, remove).",
 		].join("\n"),
+		{ next: layoutNextHints(layoutResult, doc.name, args.page) },
 	);
 }
 
@@ -432,7 +456,7 @@ async function runPatch(
 	page.html = stripActiveHtml(normalizeImageSrc(root.innerHTML));
 	documents.persist(doc.name);
 
-	const layoutInfo = await layout.measure(doc, page.html || "", pageIdx);
+	const layoutResult = await layout.measure(doc, page.html || "", pageIdx);
 	const tree = buildIdTree(root);
 	return text(
 		[
@@ -440,11 +464,12 @@ async function runPatch(
 			results.join("\n"),
 			"",
 			"layout:",
-			layoutInfo.trim(),
+			layoutResult.text.trim(),
 			"",
 			"tree:",
 			tree,
 		].join("\n"),
+		{ next: layoutNextHints(layoutResult, doc.name, args.page) },
 	);
 }
 
@@ -476,7 +501,10 @@ async function runCheck(
 	layout: LayoutService,
 ): Promise<ToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
-	return text(await layout.check(doc, page.html, pageIdx));
+	const layoutResult = await layout.check(doc, page.html, pageIdx);
+	return text(layoutResult.text.trim(), {
+		next: layoutNextHints(layoutResult, doc.name, pageIdx + 1),
+	});
 }
 
 export const htmlPack: ToolPack = {
