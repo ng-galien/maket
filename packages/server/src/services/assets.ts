@@ -101,9 +101,26 @@ export interface AssetsService {
 	 * returns the raw bytes inline to the model.
 	 */
 	validateImageFile(filename: string): { valid: boolean; reason?: string };
-	/** Compute a short HMAC token of filename + size + mtime. Null if file missing. */
+	/**
+	 * Proof-of-read token for an image. HMAC over filename + size + mtime,
+	 * signed with the per-process secret. Issued by `maket_image view` and
+	 * required by `maket_image meta` to prove the agent read the binary
+	 * before attributing metadata.
+	 *
+	 * Not optimistic concurrency control: the token doesn't protect against
+	 * concurrent writes. It only proves that *some* read happened in this
+	 * process's lifetime — the secret is regenerated on restart so tokens
+	 * issued by a previous process are unverifiable.
+	 *
+	 * Null if the file is missing.
+	 */
 	imageToken(filename: string): string | null;
-	/** Compute a short HMAC token of a charte's name + JSON hash. Null when no charte. */
+	/**
+	 * Proof-of-read token for a charte (HMAC over name + JSON hash). Same
+	 * semantics as `imageToken`: issued by `maket_charte view`, required by
+	 * `maket_html set/patch` to prove the brand guide was consulted before
+	 * the agent writes HTML against it. Not OCC. Null when no charte.
+	 */
 	charteToken(charte: { name: string } | null | undefined): string | null;
 	/** Read natural dimensions from PNG/JPEG header. Null if unknown/missing. */
 	getDimensions(filename: string): Dimensions | null;
@@ -490,7 +507,13 @@ export function createAssetsService(
 }
 
 /**
- * Token validators — decoupled from filesystem, pure logic.
+ * Proof-of-read token validators — decoupled from filesystem, pure logic.
+ *
+ * The contract these guards enforce: "the agent must have read the resource
+ * (asset / charte) in this server's lifetime before being allowed to write
+ * derived data". This is NOT optimistic concurrency control — there is no
+ * version vector, and a token re-issued after a no-op read passes the check.
+ * The guarantee is on read-before-write, not on intervening-write detection.
  */
 
 export function validateAssetToken(

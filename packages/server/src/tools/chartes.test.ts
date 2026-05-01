@@ -131,11 +131,11 @@ describe("maket_charte — action=set", () => {
 });
 
 describe("maket_charte — action=delete", () => {
-	it("deletes an existing charte and emits charte:updated (empty css)", async () => {
+	it("deletes an existing charte and emits charte:removed", async () => {
 		const { store, bus, assets, cleanup } = fixture();
 		store.saveCharte({ name: "gone", tokens: {} });
 		const listener = vi.fn();
-		bus.on("charte:updated", listener);
+		bus.on("charte:removed", listener);
 
 		const tool = createMaketCharteTool({ store, bus, assets });
 		const res = await tool.handler(
@@ -144,7 +144,7 @@ describe("maket_charte — action=delete", () => {
 		);
 		expect(res.isError).toBeUndefined();
 		expect(store.loadCharte("gone")).toBeNull();
-		expect(listener).toHaveBeenCalledWith({ name: "gone", css: "" });
+		expect(listener).toHaveBeenCalledWith({ name: "gone" });
 		cleanup();
 	});
 

@@ -209,12 +209,75 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				break;
 			}
 
+			case "update_charte_meta": {
+				const name = String(msg.name || "").trim();
+				if (!name) {
+					bus.emit("toast", {
+						text: "Charte name is required",
+						level: "error",
+					});
+					break;
+				}
+				const existing = store.loadCharte(name);
+				if (!existing) {
+					bus.emit("toast", {
+						text: `Charte "${name}" not found`,
+						level: "error",
+					});
+					break;
+				}
+				const invalid = validateCharteSavePayload(msg);
+				if (invalid) {
+					bus.emit("toast", {
+						text: `Charte "${name}" rejected: ${invalid}`,
+						level: "error",
+					});
+					break;
+				}
+				// Partial merge: only fields present in msg overwrite existing ones.
+				// Tokens replace the whole map when provided; omit to keep palette.
+				const merged: Charte = { ...existing };
+				if (msg.description !== undefined) merged.description = msg.description;
+				if (msg.tokens !== undefined)
+					merged.tokens = msg.tokens as Charte["tokens"];
+				if (msg.voice !== undefined) merged.voice = msg.voice;
+				if (msg.rules !== undefined) merged.rules = msg.rules;
+				store.saveCharte(merged);
+				bus.emit("charte:updated", { name, css: composeCharteCss(merged) });
+				break;
+			}
+
 			case "delete_asset": {
 				if (!msg.filename) break;
 				const filename = String(msg.filename);
 				if (!assets.exists(filename)) break;
 				assets.remove(filename);
 				store.deleteAsset(filename);
+				bus.emit("assets:changed", {});
+				break;
+			}
+
+			case "update_asset_meta": {
+				const filename = String(msg.filename || "");
+				if (!filename) break;
+				if (!assets.exists(filename)) {
+					bus.emit("toast", {
+						text: `Asset "${filename}" not found`,
+						level: "error",
+					});
+					break;
+				}
+				// store.saveAsset uses UPSERT with COALESCE on every field, so
+				// passing only the fields in msg preserves the others.
+				store.saveAsset({
+					filename,
+					title: msg.title,
+					description: msg.description,
+					category: msg.category,
+					tags: msg.tags,
+					credit: msg.credit,
+					orientation: msg.orientation,
+				});
 				bus.emit("assets:changed", {});
 				break;
 			}
@@ -283,13 +346,13 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				}
 				// Rename path: the cache key moves, so we delete the old record from
 				// the store + cache, mutate d.name, and re-insert. A subsequent
-				// `document:loaded` broadcasts the new state; `remove_doc` for the
+				// `document:loaded` broadcasts the new state; `doc_removed` for the
 				// old name clears it from every connected client.
 				documents.delete(name);
 				d.name = newName;
 				documents.all().set(newName, d);
 				documents.persist(newName);
-				wsRegistry.broadcast({ type: "remove_doc", name });
+				wsRegistry.broadcast({ type: "doc_removed", name });
 				bus.emit("document:loaded", { docName: newName });
 				bus.emit("toast", {
 					text: `"${name}" → "${newName}"`,

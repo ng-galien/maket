@@ -234,7 +234,7 @@ function runDelete(args: Args, store: Store, bus: Bus) {
 	if (!args.name) return text("name is required for action=delete", true);
 	const deleted = store.deleteCharte(args.name);
 	if (!deleted) return text(`Charte not found: "${args.name}"`, true);
-	bus.emit("charte:updated", { name: args.name, css: "" });
+	bus.emit("charte:removed", { name: args.name });
 	return text(`Charte "${args.name}" deleted`);
 }
 

@@ -324,7 +324,7 @@ describe("ack_messages", () => {
 	});
 });
 
-describe("remove_doc", () => {
+describe("doc_removed", () => {
 	it("removes the named doc from the workspace", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		initWs();
@@ -334,7 +334,7 @@ describe("remove_doc", () => {
 			.getState()
 			.upsertDoc(doc("beta"), [summary("alpha"), summary("beta")], "");
 
-		MockWebSocket.last().emit({ type: "remove_doc", name: "beta" });
+		MockWebSocket.last().emit({ type: "doc_removed", name: "beta" });
 		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
 		expect(useStore.getState().docs.has("beta")).toBe(false);
 	});

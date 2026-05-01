@@ -357,9 +357,21 @@ function connect(): void {
 			location.reload();
 		}
 
-		if (msg.type === "remove_doc") {
-			console.log("[ws] remove_doc:", msg.name);
+		if (msg.type === "doc_removed") {
+			console.log("[ws] doc_removed:", msg.name);
 			useStore.getState().removeDocFromWorkspace(msg.name);
+		}
+
+		if (msg.type === "charte_removed") {
+			const s = useStore.getState();
+			const chartesCss = new Map(s.chartesCss);
+			for (const [docName, doc] of s.docs) {
+				if (doc.meta?.charte === msg.name) chartesCss.set(docName, "");
+			}
+			useStore.setState({
+				chartesCss,
+				chartesVersion: s.chartesVersion + 1,
+			});
 		}
 
 		if (msg.type === "assets_changed") {

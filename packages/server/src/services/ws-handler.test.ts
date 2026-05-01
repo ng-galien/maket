@@ -436,7 +436,7 @@ describe("ws-handler — file and document mutations", () => {
 
 		expect(documents.resolve("old")).toBeNull();
 		expect(documents.resolve("new")?.name).toBe("new");
-		expect(removed).toHaveBeenCalledWith({ type: "remove_doc", name: "old" });
+		expect(removed).toHaveBeenCalledWith({ type: "doc_removed", name: "old" });
 		expect(toast).toHaveBeenCalledWith(
 			expect.objectContaining({ text: expect.stringMatching(/old.*new/i) }),
 		);
@@ -617,6 +617,150 @@ describe("ws-handler — text editing", () => {
 
 		expect(store.loadAllChartes()).toHaveLength(0);
 		expect(updates).not.toHaveBeenCalled();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ level: "error" }),
+		);
+		dispose();
+	});
+
+	it("update_charte_meta merges fields into an existing charte without wiping omitted ones", () => {
+		const { store, bus, handler, dispose } = fixture();
+		store.saveCharte({
+			name: "brand",
+			description: "v1 desc",
+			tokens: { color: { primary: "#2563EB" } },
+			voice: { personality: ["bold"] },
+		});
+		const updates = vi.fn();
+		bus.on("charte:updated", updates);
+
+		handler(
+			{
+				type: "update_charte_meta",
+				name: "brand",
+				description: "v2 desc",
+				rules: { titles: "sentence case" },
+			},
+			STUB_WS,
+		);
+
+		const stored = store.loadCharte("brand");
+		// Updated fields written.
+		expect(stored?.description).toBe("v2 desc");
+		expect(stored?.rules?.titles).toBe("sentence case");
+		// Omitted fields preserved.
+		expect(stored?.tokens.color?.primary).toBe("#2563EB");
+		expect(stored?.voice?.personality).toEqual(["bold"]);
+		// Wire emits the recomposed CSS so clients reload tokens/fonts.
+		expect(updates).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "brand" }),
+		);
+		dispose();
+	});
+
+	it("update_charte_meta toasts when the charte does not exist (no creation)", () => {
+		const { store, bus, handler, dispose } = fixture();
+		const toast = vi.fn();
+		const updates = vi.fn();
+		bus.on("toast", toast);
+		bus.on("charte:updated", updates);
+
+		handler(
+			{
+				type: "update_charte_meta",
+				name: "nope",
+				description: "ghost",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadCharte("nope")).toBeNull();
+		expect(updates).not.toHaveBeenCalled();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ level: "error" }),
+		);
+		dispose();
+	});
+
+	it("update_charte_meta rejects malformed tokens without persisting", () => {
+		const { store, bus, handler, dispose } = fixture();
+		store.saveCharte({
+			name: "brand",
+			tokens: { color: { primary: "#2563EB" } },
+		});
+		const updates = vi.fn();
+		const toast = vi.fn();
+		bus.on("charte:updated", updates);
+		bus.on("toast", toast);
+
+		handler(
+			{
+				type: "update_charte_meta",
+				name: "brand",
+				tokens: "oops" as unknown,
+			} as any,
+			STUB_WS,
+		);
+
+		// Existing charte left intact.
+		expect(store.loadCharte("brand")?.tokens.color?.primary).toBe("#2563EB");
+		expect(updates).not.toHaveBeenCalled();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ level: "error" }),
+		);
+		dispose();
+	});
+
+	it("update_asset_meta merges fields into an existing asset row without wiping omitted ones", () => {
+		const { store, bus, assetsDir, handler, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "px");
+		store.saveAsset({
+			filename: "hero.png",
+			title: "Old title",
+			description: "Old desc",
+			tags: ["a", "b"],
+		});
+		const changed = vi.fn();
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_meta",
+				filename: "hero.png",
+				title: "New title",
+				credit: "@photographer",
+			},
+			STUB_WS,
+		);
+
+		const row = store.loadAsset("hero.png");
+		expect(row?.title).toBe("New title");
+		expect(row?.credit).toBe("@photographer");
+		// Omitted fields preserved by the COALESCE upsert.
+		expect(row?.description).toBe("Old desc");
+		expect(row?.tags).toEqual(["a", "b"]);
+		expect(changed).toHaveBeenCalledWith({});
+		dispose();
+	});
+
+	it("update_asset_meta toasts when the file is missing (no row creation)", () => {
+		const { store, bus, handler, dispose } = fixture();
+		const toast = vi.fn();
+		const changed = vi.fn();
+		bus.on("toast", toast);
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_meta",
+				filename: "missing.png",
+				title: "Ghost",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadAsset("missing.png")).toBeNull();
+		expect(changed).not.toHaveBeenCalled();
 		expect(toast).toHaveBeenCalledWith(
 			expect.objectContaining({ level: "error" }),
 		);
