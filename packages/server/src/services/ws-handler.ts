@@ -267,6 +267,17 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
+				// Runtime shape check — without it a `tags: "oops"` (string)
+				// would persist as literal text and crash the next loadAsset on
+				// `JSON.parse(row.tags)`. Mirrors validateCharteSavePayload.
+				const invalid = validateAssetMetaPayload(msg);
+				if (invalid) {
+					bus.emit("toast", {
+						text: `Asset "${filename}" rejected: ${invalid}`,
+						level: "error",
+					});
+					break;
+				}
 				// store.saveAsset uses UPSERT with COALESCE on every field, so
 				// passing only the fields in msg preserves the others.
 				store.saveAsset({
@@ -505,5 +516,32 @@ function validateCharteSavePayload(msg: {
 			if (typeof val !== "string") return `rules.${k} must be a string`;
 		}
 	}
+	return null;
+}
+
+/** Runtime shape check for `update_asset_meta` payloads. Returns an error
+ * message when the payload would persist malformed data, `null` when it's
+ * safe. Same contract as validateCharteSavePayload. */
+function validateAssetMetaPayload(msg: {
+	title?: unknown;
+	description?: unknown;
+	category?: unknown;
+	tags?: unknown;
+	credit?: unknown;
+	orientation?: unknown;
+}): string | null {
+	for (const key of [
+		"title",
+		"description",
+		"category",
+		"credit",
+		"orientation",
+	] as const) {
+		const v = msg[key];
+		if (v !== undefined && typeof v !== "string")
+			return `${key} must be a string`;
+	}
+	if (msg.tags !== undefined && !isStringArray(msg.tags))
+		return "tags must be a string[]";
 	return null;
 }

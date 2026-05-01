@@ -743,6 +743,38 @@ describe("ws-handler — text editing", () => {
 		dispose();
 	});
 
+	it.each([
+		["title as number", { title: 42 as unknown }],
+		["tags as string", { tags: "oops" as unknown }],
+		["tags non-string element", { tags: [1, 2] as unknown }],
+		["credit as object", { credit: { x: 1 } as unknown }],
+	])("update_asset_meta rejects malformed payload (%s) without persisting", (_, extra) => {
+		const { store, bus, assetsDir, handler, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "px");
+		store.saveAsset({ filename: "hero.png", title: "kept" });
+		const toast = vi.fn();
+		const changed = vi.fn();
+		bus.on("toast", toast);
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_meta",
+				filename: "hero.png",
+				...extra,
+			} as any,
+			STUB_WS,
+		);
+
+		// Existing row left intact.
+		expect(store.loadAsset("hero.png")?.title).toBe("kept");
+		expect(changed).not.toHaveBeenCalled();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ level: "error" }),
+		);
+		dispose();
+	});
+
 	it("update_asset_meta toasts when the file is missing (no row creation)", () => {
 		const { store, bus, handler, dispose } = fixture();
 		const toast = vi.fn();
