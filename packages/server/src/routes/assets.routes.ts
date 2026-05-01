@@ -4,6 +4,9 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+// SQLite `assets` table is the single source of truth for image metadata.
+// The legacy `${ASSETS_DIR}/metadata.json` sidecar was append-only and never
+// read at runtime — removed.
 import { extname, join, resolve, sep } from "node:path";
 import type { AssetsListResponse, UploadResponse } from "@maket/shared";
 import type { Response } from "express";
@@ -35,7 +38,7 @@ const ALLOWED_IMG_EXTS = new Set([
 	".gif",
 ]);
 
-const RESERVED_NAMES = new Set(["metadata.json", "thumbs"]);
+const RESERVED_NAMES = new Set(["thumbs"]);
 
 const VARIANTS: Record<
 	string,
@@ -202,19 +205,6 @@ export function createAssetsRouter({
 
 			const replaced = assets.exists(cleanName);
 			await assets.importBuffer(buf, cleanName, true);
-
-			// Add to metadata.json index if present (legacy).
-			const metaPath = join(ASSETS_DIR, "metadata.json");
-			if (existsSync(metaPath)) {
-				const meta = JSON.parse(readFileSync(metaPath, "utf-8"));
-				if (!meta.images.find((i: any) => i.file === cleanName)) {
-					meta.images.push({
-						file: cleanName,
-						title: cleanName.replace(/\.[^.]+$/, "").replace(/[-_]/g, " "),
-					});
-					writeFileSync(metaPath, JSON.stringify(meta, null, 2), "utf-8");
-				}
-			}
 
 			setTimeout(() => {
 				void assets.optimize(cleanName);

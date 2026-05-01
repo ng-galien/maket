@@ -98,11 +98,7 @@ describe("assets routes", () => {
 		});
 	});
 
-	it("accepts JSON uploads, updates metadata.json, and emits assets:changed", async () => {
-		writeFileSync(
-			join(assetsDir, "metadata.json"),
-			JSON.stringify({ images: [] }),
-		);
+	it("accepts JSON uploads and emits assets:changed", async () => {
 		const changed = vi.fn();
 		bus.on("assets:changed", changed);
 
@@ -123,16 +119,6 @@ describe("assets routes", () => {
 		expect(readFileSync(join(assetsDir, "hello_world.png"), "utf-8")).toBe(
 			"pixel",
 		);
-		expect(
-			JSON.parse(readFileSync(join(assetsDir, "metadata.json"), "utf-8")),
-		).toEqual({
-			images: [
-				{
-					file: "hello_world.png",
-					title: "hello world",
-				},
-			],
-		});
 		expect(changed).toHaveBeenCalledWith({});
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(assets.optimize).toHaveBeenCalledWith("hello_world.png");

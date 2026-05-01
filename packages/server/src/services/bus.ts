@@ -25,6 +25,7 @@ export interface BusEvents {
 	"assets:changed": Record<string, never>;
 	"meta:updated": { docName: string };
 	"charte:updated": { name: string; css: string };
+	"charte:removed": { name: string };
 	"messages:acked": { ids: string[] };
 	toast: { text: string; level?: string; duration?: number };
 }

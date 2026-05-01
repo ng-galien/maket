@@ -216,6 +216,10 @@ bus.on("charte:updated", ({ name, css }) => {
 	wsRegistry.broadcast({ type: "charte_updated", name, css });
 });
 
+bus.on("charte:removed", ({ name }) => {
+	wsRegistry.broadcast({ type: "charte_removed", name });
+});
+
 bus.on("toast", ({ text, level, duration }) => {
 	wsRegistry.broadcast({
 		type: "toast",
@@ -226,7 +230,7 @@ bus.on("toast", ({ text, level, duration }) => {
 });
 
 bus.on("document:deleted", ({ docName }) => {
-	wsRegistry.broadcast({ type: "remove_doc", name: docName });
+	wsRegistry.broadcast({ type: "doc_removed", name: docName });
 });
 
 bus.on("messages:acked", ({ ids }) => {

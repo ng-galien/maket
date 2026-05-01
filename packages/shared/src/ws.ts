@@ -5,6 +5,19 @@
  * opaque on domain payloads. The `doc` field on `state` is whatever
  * `documents.lightView()` emits — that projection diverges between server
  * persistence and client UI, so we deliberately keep it `unknown` here.
+ *
+ * Naming convention:
+ *   - client → server: `verb_resource` — the client asks the server to
+ *     perform an action (`load_document`, `update_meta`, `delete_asset`).
+ *     Partial-update messages (`update_meta`, `update_charte_meta`,
+ *     `update_asset_meta`) carry only fields to merge; omitted fields are
+ *     preserved server-side. Full-record writes use a different verb
+ *     (`charte_save`).
+ *   - server → client: notification names — the server announces a fact.
+ *     Either a noun (`state`, `toast`, `activity`) or `noun_pastVerb`
+ *     (`charte_updated`, `charte_removed`, `assets_changed`, `doc_removed`).
+ *   - RPC pairs use `<name>_request` / `<name>_response` (see
+ *     `check_layout_*`).
  */
 
 // ============================================================
@@ -35,8 +48,15 @@ export interface WsCharteUpdatedMessage {
 	css: string;
 }
 
-export interface WsRemoveDocMessage {
-	type: "remove_doc";
+/** Distinct from `charte_updated`: announces deletion. Replaces the legacy
+ * overload where `charte_updated` with `css: ""` signalled removal. */
+export interface WsCharteRemovedMessage {
+	type: "charte_removed";
+	name: string;
+}
+
+export interface WsDocRemovedMessage {
+	type: "doc_removed";
 	name: string;
 }
 
@@ -78,7 +98,8 @@ export type WsServerMessage =
 	| WsStateMessage
 	| WsToastMessage
 	| WsCharteUpdatedMessage
-	| WsRemoveDocMessage
+	| WsCharteRemovedMessage
+	| WsDocRemovedMessage
 	| WsAckMessagesMessage
 	| WsReloadMessage
 	| WsActivityMessage
@@ -149,13 +170,60 @@ export interface WsDeleteAssetMessage {
 }
 
 /**
+ * Partial update of an asset's metadata row. Mirrors `update_meta` for docs:
+ * only fields explicitly set are written; omitted fields are preserved.
+ * Identity is `filename` — renaming an asset is not part of this envelope.
+ *
+ * Clear-vs-preserve semantics (shared by `update_meta` and
+ * `update_charte_meta` — same gap): this verb does NOT support clearing an
+ * existing scalar value. Empty strings collapse to NULL through
+ * `store.saveAsset`'s `|| null` fallback, then the SQL UPSERT's `COALESCE`
+ * preserves the prior row value. `tags: []` is treated as "preserve" by
+ * the upsert's `CASE WHEN excluded.tags != '[]'`. To clear a stored value
+ * today, callers must round-trip through MCP delete + re-import. A
+ * dedicated clear-fields contract is tracked as a follow-up.
+ */
+export interface WsUpdateAssetMetaMessage {
+	type: "update_asset_meta";
+	filename: string;
+	title?: string;
+	description?: string;
+	category?: string;
+	tags?: string[];
+	credit?: string;
+	orientation?: string;
+}
+
+/**
  * Write a full charte record. Name is the identity — renaming is not part of
  * this envelope; clients wanting to rename should `charte_save` under the new
  * name and then call `maket_charte delete` on the old one. Tokens/voice/rules
- * fully replace the stored values (no partial merge).
+ * fully replace the stored values (no partial merge — use
+ * `update_charte_meta` for partial edits).
  */
 export interface WsCharteSaveMessage {
 	type: "charte_save";
+	name: string;
+	description?: string;
+	tokens?: Record<string, Record<string, string>>;
+	voice?: {
+		personality?: string[];
+		formality?: string;
+		do?: string[];
+		dont?: string[];
+		vocabulary?: string[];
+	};
+	rules?: Record<string, string>;
+}
+
+/**
+ * Partial update of a charte. Mirrors `update_meta` for docs and
+ * `update_asset_meta` for assets: only fields explicitly set are merged;
+ * omitted fields are preserved server-side. Use this for editing
+ * description/voice/rules without rebuilding tokens, or vice versa.
+ */
+export interface WsUpdateCharteMetaMessage {
+	type: "update_charte_meta";
 	name: string;
 	description?: string;
 	tokens?: Record<string, Record<string, string>>;
@@ -267,7 +335,9 @@ export type WsClientMessage =
 	| WsUpdateCanvasMessage
 	| WsUpdateMetaMessage
 	| WsDeleteAssetMessage
+	| WsUpdateAssetMetaMessage
 	| WsCharteSaveMessage
+	| WsUpdateCharteMetaMessage
 	| WsPageGoMessage
 	| WsClearCanvasMessage
 	| WsTextEditMessage
