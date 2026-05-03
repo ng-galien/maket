@@ -13,6 +13,16 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Added
+- **`.maket` bundle v2: portable export with embedded assets** (#12).
+  `maket_doc action=export` (and `GET /api/export-maket`) now default to a
+  ZIP container carrying `manifest.json` + `assets/*`, so a bundle
+  transferred to another machine or a fresh datadir keeps its images.
+  Pass `include_assets=false` for the previous structure-only snapshot
+  (lighter, git-friendly). Old v1 gzip-JSON bundles continue to import —
+  `decodeBundle` dispatches by magic bytes (`1f8b` → v1, `504b0304` →
+  v2). Path-traversal protection drops ZIP entries that escape `assets/`.
+
 ## [1.2.0] — 2026-04-25
 
 ### Changed

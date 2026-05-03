@@ -1,26 +1,31 @@
 /**
  * export routes — /print (HTML with auto-print script) + /api/export-pdf (PDF
  * rendered by Puppeteer via PdfService) + /api/export-maket, /api/import-maket
- * (gzipped JSON bundle with documents + referenced chartes).
+ * (.maket bundle with documents + referenced chartes + asset binaries).
  */
 
 import { Router as createRouter, type Router } from "express";
+import {
+	collectAssetFilenames,
+	loadAssetsFromDir,
+} from "../lib/asset-collector.js";
+import { writeBundleAssets } from "../lib/asset-writer.js";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import { requireBrowserContextLoopback } from "../lib/local-origin.js";
 import {
 	bundleFilename,
 	decodeBundle,
-	encodeBundle,
+	encodeBundleV2,
 	uniqueName,
 } from "../lib/maket-format.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 
-// Cap on `.maket` bundle imports. Bundles are gzipped JSON; 64 MB compressed
-// is generous (a typical doc snapshot is < 100 KB). After decompression the
-// `decodeBundle` helper is the next layer of defence.
-const MAX_BUNDLE_BYTES = 64 * 1024 * 1024;
+// Cap on `.maket` bundle uploads. v2 bundles carry asset binaries, so the
+// bound is looser than v1's. `decodeBundle` is the next layer of defence.
+const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 
 import type { Bus } from "../services/bus.js";
+import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import {
 	boxShadowToDropShadow,
@@ -36,6 +41,7 @@ export interface ExportRouterDeps {
 	pdfService: PdfService;
 	store: Store;
 	bus: Bus;
+	config: Config;
 }
 
 function safeName(raw: string): string {
@@ -47,6 +53,7 @@ export function createExportRouter({
 	pdfService,
 	store,
 	bus,
+	config,
 }: ExportRouterDeps): Router {
 	const router = createRouter();
 
@@ -108,7 +115,7 @@ export function createExportRouter({
 
 	// .maket bundle export — ?name=foo for a single doc, ?names=a,b for a list,
 	// omit both to export every document. Referenced chartes are embedded.
-	router.get("/api/export-maket", (req, res) => {
+	router.get("/api/export-maket", async (req, res) => {
 		try {
 			const single = req.query.name as string | undefined;
 			const csv = req.query.names as string | undefined;
@@ -144,9 +151,11 @@ export function createExportRouter({
 				}
 			}
 
-			const buf = encodeBundle(docs, chartes);
+			const refs = collectAssetFilenames(docs);
+			const { assets } = loadAssetsFromDir(refs, config.ASSETS_DIR);
+			const buf = await encodeBundleV2(docs, chartes, assets);
 			const baseName = docs.length === 1 ? docs[0]?.name : "maket-bundle";
-			res.setHeader("Content-Type", "application/gzip");
+			res.setHeader("Content-Type", "application/zip");
 			res.setHeader(
 				"Content-Disposition",
 				`attachment; filename="${bundleFilename(baseName)}"`,
@@ -173,9 +182,9 @@ export function createExportRouter({
 			if (body.length === 0)
 				return res.status(400).json({ error: "Empty upload" });
 
-			let bundle: ReturnType<typeof decodeBundle>;
+			let bundle: Awaited<ReturnType<typeof decodeBundle>>;
 			try {
-				bundle = decodeBundle(body);
+				bundle = await decodeBundle(body);
 			} catch (e) {
 				const msg = e instanceof Error ? e.message : String(e);
 				return res.status(400).json({ error: msg });
@@ -228,17 +237,26 @@ export function createExportRouter({
 				}
 			}
 
+			const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);
+			if (assetReport.written > 0) {
+				bus.emit("assets:changed", {});
+			}
+
 			bus.emit("toast", {
-				text: `Imported ${imported.length} document(s)${chartesAdded.length ? ` + ${chartesAdded.length} charte(s)` : ""}`,
+				text: `Imported ${imported.length} document(s)${chartesAdded.length ? ` + ${chartesAdded.length} charte(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
 				level: "success",
 			});
 
 			return res.json({
 				ok: true,
+				version: bundle.version,
 				documents: imported,
 				renamed,
 				chartesAdded,
 				chartesSkipped,
+				assetsWritten: assetReport.written,
+				assetsSkipped: assetReport.skipped,
+				assetsRejected: assetReport.rejected.length,
 				exportedAt: bundle.exportedAt,
 			});
 		} catch (e: any) {
