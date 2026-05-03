@@ -24,10 +24,7 @@ import type { Charte, Document } from "../types.js";
 export const MAKET_BUNDLE_KIND = "maket-bundle";
 export const MAKET_BUNDLE_EXT = ".maket";
 
-/** Highest bundle version this server can emit. */
-export const MAKET_BUNDLE_VERSION = 2;
-
-/** Versions this server can read. Increment both on format changes. */
+/** Versions this server can read. Increment on format changes. */
 const SUPPORTED_VERSIONS = new Set([1, 2]);
 
 export interface BundleDocument {
