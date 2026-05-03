@@ -170,15 +170,10 @@ export interface WsDeleteAssetMessage {
 }
 
 /**
- * Partial update of an asset's metadata row. Mirrors `update_meta` for docs:
- * only fields explicitly set are written; omitted fields are preserved.
- * Identity is `filename` — renaming an asset is not part of this envelope.
- *
- * Clear-vs-preserve semantics: only `undefined` preserves. Pass `""` to clear
- * a string field, `[]` to clear tags. The server-side `saveAsset` honours
- * this via `?? null` for prose fields plus a `$tags_set` flag for tags;
- * symmetric with `update_charte_meta` (which merges in JS) and
- * `update_meta` (`!= null` checks let `""` through for prose fields).
+ * Partial update of an asset's metadata row. Mirrors `update_meta` for docs
+ * and `update_charte_meta` for chartes — same clear-vs-preserve rule across
+ * the three: only `undefined` preserves; `""` clears a string field, `[]`
+ * clears tags. Identity is `filename` (renames are out of envelope).
  */
 export interface WsUpdateAssetMetaMessage {
 	type: "update_asset_meta";
