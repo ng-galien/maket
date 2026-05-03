@@ -13,6 +13,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-05-03
+
 ### Added
 - **`.maket` bundle v2: portable export with embedded assets** (#12).
   `maket_doc action=export` (and `GET /api/export-maket`) now default to a
@@ -22,6 +24,30 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   (lighter, git-friendly). Old v1 gzip-JSON bundles continue to import —
   `decodeBundle` dispatches by magic bytes (`1f8b` → v1, `504b0304` →
   v2). Path-traversal protection drops ZIP entries that escape `assets/`.
+
+### Changed
+- **Symmetric metadata wire contract** (#18). The three partial-update
+  WS verbs (`update_meta` for docs, `update_charte_meta`, `update_asset_meta`)
+  now share one rule: only `undefined` preserves; `""` / `[]` clear.
+  Previously, sending an empty string to clear an asset's title silently
+  collapsed to NULL and the SQL UPSERT preserved the prior value — there
+  was no way to clear a stored field without round-tripping through
+  delete + re-import (#19). The metadata.json sidecar that the
+  v6→sql migration left behind is also removed on the read path; only
+  the SQL row is consulted.
+
+### Fixed
+- **Security: agent-authored HTML can no longer exfiltrate via Google Fonts**
+  (#5). The puppeteer network guard previously admitted any URL on
+  `fonts.googleapis.com` / `fonts.gstatic.com` on the assumption that
+  the URL came from a static charte token — true for `charteFontImport`,
+  but the same render path also processes agent-authored HTML, so a
+  prompt-injected `<link href="…?family=Inter&leak={{secret}}">` would
+  round-trip the secret through Google's access logs. Tightened to a
+  path + query-key allowlist (`/css|/css2`, keys
+  `family|display|subset|text|effect`; gstatic only `/s/...` with no
+  query). Charte font tokens are validated against `[A-Za-z0-9 -]+`
+  before being spliced into the `@import` URL.
 
 ## [1.2.0] — 2026-04-25
 
@@ -187,6 +213,9 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ng-galien/maket/compare/v1.2.0...v1.3.0
+[1.2.0]: https://github.com/ng-galien/maket/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/ng-galien/maket/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/ng-galien/maket/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ng-galien/maket/releases/tag/v1.0.0
