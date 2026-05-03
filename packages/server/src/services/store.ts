@@ -226,7 +226,15 @@ export class DocumentStore implements Store {
 			"DELETE FROM chartes WHERE name = ?",
 		);
 
-		// Assets
+		// Assets — partial-update UPSERT.
+		//
+		// `coalesce(excluded.X, assets.X)` is the "preserve on null" pattern for
+		// nullable text/integer columns: pass NULL to keep the prior value, any
+		// real value (including `''`) to write. The `tags` column is NOT NULL,
+		// so it cannot use that pattern; instead `$tags_set = 1` flags an
+		// explicit write and `0` flags preserve. With this split, every field
+		// follows the rule "only `undefined` from the JS caller preserves" —
+		// `''` and `[]` clear, matching the partial-update WS verb contract.
 		this.stmtAssetUpsert = this.db.prepare(`
       INSERT INTO assets (filename, title, description, category, tags, credit, width, height, orientation, created_at)
       VALUES ($filename, $title, $description, $category, $tags, $credit, $width, $height, $orientation, datetime('now'))
@@ -234,7 +242,7 @@ export class DocumentStore implements Store {
         title = coalesce(excluded.title, assets.title),
         description = coalesce(excluded.description, assets.description),
         category = coalesce(excluded.category, assets.category),
-        tags = CASE WHEN excluded.tags != '[]' THEN excluded.tags ELSE assets.tags END,
+        tags = CASE WHEN $tags_set = 1 THEN excluded.tags ELSE assets.tags END,
         credit = coalesce(excluded.credit, assets.credit),
         width = coalesce(excluded.width, assets.width),
         height = coalesce(excluded.height, assets.height),
@@ -365,16 +373,24 @@ export class DocumentStore implements Store {
 	// ---- Assets CRUD ----
 
 	saveAsset(a: AssetInput): void {
+		// `?? null` (not `|| null`) so that empty string / 0 / `[]` reach the
+		// SQL layer as themselves and clear the column, instead of collapsing
+		// to NULL which the COALESCE would then preserve. Only `undefined`
+		// preserves — that is the partial-update contract.
+		const tagsSet = a.tags !== undefined ? 1 : 0;
+		const tagsValue =
+			typeof a.tags === "string" ? a.tags : JSON.stringify(a.tags ?? []);
 		this.stmtAssetUpsert.run({
 			filename: a.filename,
-			title: a.title || null,
-			description: a.description || null,
-			category: a.category || null,
-			tags: typeof a.tags === "string" ? a.tags : JSON.stringify(a.tags || []),
-			credit: a.credit || null,
-			width: a.width || null,
-			height: a.height || null,
-			orientation: a.orientation || null,
+			title: a.title ?? null,
+			description: a.description ?? null,
+			category: a.category ?? null,
+			tags: tagsValue,
+			tags_set: tagsSet,
+			credit: a.credit ?? null,
+			width: a.width ?? null,
+			height: a.height ?? null,
+			orientation: a.orientation ?? null,
 		});
 	}
 

@@ -162,12 +162,16 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					break;
 				}
 				if (!d.meta) d.meta = {};
-				if (msg.designNotes != null) d.meta.designNotes = msg.designNotes;
-				if (msg.teamNotes != null) d.meta.teamNotes = msg.teamNotes;
-				if (msg.rating != null)
+				// Use `!== undefined` (not `!= null`) so `""` reaches the assignment
+				// and clears the field — partial-update contract: only `undefined`
+				// preserves. Category falls back to "general" when cleared because
+				// docs cannot be category-less in this schema.
+				if (msg.designNotes !== undefined) d.meta.designNotes = msg.designNotes;
+				if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
+				if (msg.rating !== undefined)
 					d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
-				if (msg.charte != null) d.meta.charte = msg.charte;
-				if (msg.category != null) d.category = msg.category || "general";
+				if (msg.charte !== undefined) d.meta.charte = msg.charte;
+				if (msg.category !== undefined) d.category = msg.category || "general";
 				documents.persist(d.name);
 				bus.emit("meta:updated", { docName: d.name });
 				break;
@@ -278,8 +282,9 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// store.saveAsset uses UPSERT with COALESCE on every field, so
-				// passing only the fields in msg preserves the others.
+				// store.saveAsset preserves fields whose value is `undefined`
+				// and writes everything else (including `""` / `[]` for
+				// explicit clear). Forwarding msg.* directly is the contract.
 				store.saveAsset({
 					filename,
 					title: msg.title,
