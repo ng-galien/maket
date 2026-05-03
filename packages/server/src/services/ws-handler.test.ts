@@ -357,6 +357,30 @@ describe("ws-handler — document and canvas flows", () => {
 		dispose();
 	});
 
+	it("update_meta clears prose fields when the caller sends ``", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const doc = makeDoc("meta-clear");
+		doc.meta = { designNotes: "kept", teamNotes: "kept" };
+		store.saveDoc(doc);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "update_meta",
+				docName: "meta-clear",
+				designNotes: "",
+				teamNotes: "",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("meta-clear")?.meta).toMatchObject({
+			designNotes: "",
+			teamNotes: "",
+		});
+		dispose();
+	});
+
 	it("page_go switches the active page and clear_canvas resets the current page", () => {
 		const { store, documents, bus, handler, dispose } = fixture();
 		const doc = createDocument({
@@ -658,6 +682,29 @@ describe("ws-handler — text editing", () => {
 		dispose();
 	});
 
+	it("update_charte_meta clears description when the caller sends ``", () => {
+		const { store, handler, dispose } = fixture();
+		store.saveCharte({
+			name: "brand",
+			description: "kept",
+			tokens: { color: { primary: "#2563EB" } },
+		});
+
+		handler(
+			{
+				type: "update_charte_meta",
+				name: "brand",
+				description: "",
+			},
+			STUB_WS,
+		);
+
+		const stored = store.loadCharte("brand");
+		expect(stored?.description).toBe("");
+		expect(stored?.tokens.color?.primary).toBe("#2563EB");
+		dispose();
+	});
+
 	it("update_charte_meta toasts when the charte does not exist (no creation)", () => {
 		const { store, bus, handler, dispose } = fixture();
 		const toast = vi.fn();
@@ -708,6 +755,60 @@ describe("ws-handler — text editing", () => {
 		expect(toast).toHaveBeenCalledWith(
 			expect.objectContaining({ level: "error" }),
 		);
+		dispose();
+	});
+
+	it("update_asset_meta clears string fields when the caller sends ``", () => {
+		const { store, bus, assetsDir, handler, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "px");
+		store.saveAsset({
+			filename: "hero.png",
+			title: "Old title",
+			description: "Old desc",
+			credit: "@photographer",
+		});
+		const changed = vi.fn();
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_meta",
+				filename: "hero.png",
+				title: "",
+				credit: "",
+			},
+			STUB_WS,
+		);
+
+		const row = store.loadAsset("hero.png");
+		expect(row?.title).toBe("");
+		expect(row?.credit).toBe("");
+		expect(row?.description).toBe("Old desc");
+		expect(changed).toHaveBeenCalledWith({});
+		dispose();
+	});
+
+	it("update_asset_meta clears tags when the caller sends []", () => {
+		const { store, assetsDir, handler, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "px");
+		store.saveAsset({
+			filename: "hero.png",
+			title: "Hero",
+			tags: ["a", "b"],
+		});
+
+		handler(
+			{
+				type: "update_asset_meta",
+				filename: "hero.png",
+				tags: [],
+			},
+			STUB_WS,
+		);
+
+		const row = store.loadAsset("hero.png");
+		expect(row?.tags).toEqual([]);
+		expect(row?.title).toBe("Hero");
 		dispose();
 	});
 

@@ -170,18 +170,10 @@ export interface WsDeleteAssetMessage {
 }
 
 /**
- * Partial update of an asset's metadata row. Mirrors `update_meta` for docs:
- * only fields explicitly set are written; omitted fields are preserved.
- * Identity is `filename` — renaming an asset is not part of this envelope.
- *
- * Clear-vs-preserve semantics (shared by `update_meta` and
- * `update_charte_meta` — same gap): this verb does NOT support clearing an
- * existing scalar value. Empty strings collapse to NULL through
- * `store.saveAsset`'s `|| null` fallback, then the SQL UPSERT's `COALESCE`
- * preserves the prior row value. `tags: []` is treated as "preserve" by
- * the upsert's `CASE WHEN excluded.tags != '[]'`. To clear a stored value
- * today, callers must round-trip through MCP delete + re-import. A
- * dedicated clear-fields contract is tracked as a follow-up.
+ * Partial update of an asset's metadata row. Mirrors `update_meta` for docs
+ * and `update_charte_meta` for chartes — same clear-vs-preserve rule across
+ * the three: only `undefined` preserves; `""` clears a string field, `[]`
+ * clears tags. Identity is `filename` (renames are out of envelope).
  */
 export interface WsUpdateAssetMetaMessage {
 	type: "update_asset_meta";
