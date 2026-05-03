@@ -36,6 +36,13 @@ export function charteToCSS(charte: Charte): string {
 	return `:root {\n${entries.map(([k, v]) => `  ${k}: ${v};`).join("\n")}\n}`;
 }
 
+// Google Fonts family names are alphanumerics, spaces, and hyphens (e.g.
+// "Source Sans 3", "JetBrains Mono"). Anything else — `&`, `=`, `?`, `,` —
+// is either invalid for the Fonts API or dangerous when spliced into the
+// query string (it would let a malicious charte token inject extra params).
+// Reject conservatively rather than encoding.
+const VALID_FAMILY_NAME = /^[A-Za-z0-9 -]+$/;
+
 /** Generate Google Fonts @import from charte font tokens */
 export function charteFontImport(charte: Charte): string {
 	const fonts = charte.tokens?.font;
@@ -56,6 +63,7 @@ export function charteFontImport(charte: Charte): string {
 		const [first = ""] = value.split(",");
 		const name = first.replace(/['"]/g, "").trim();
 		if (!name || GENERIC.has(name.toLowerCase())) continue;
+		if (!VALID_FAMILY_NAME.test(name)) continue;
 		families.add(name);
 	}
 
