@@ -19,11 +19,22 @@ interface CharteInput extends ChartesListItem {
 	rules?: Record<string, string> | string;
 }
 
-type TokenRow = [string, string];
+interface TokenRow {
+	id: string;
+	key: string;
+	value: string;
+}
+
 type TokenGroupKey = "color" | "font" | "spacing" | "radius";
 type TokenState = Record<TokenGroupKey, TokenRow[]>;
 
 const TOKEN_GROUPS: TokenGroupKey[] = ["color", "font", "spacing", "radius"];
+let tokenRowSeq = 0;
+
+function createTokenRow(key: string, value: string): TokenRow {
+	tokenRowSeq += 1;
+	return { id: `token-row-${tokenRowSeq}`, key, value };
+}
 
 function parseRules(rules: CharteInput["rules"]): Record<string, string> {
 	if (!rules) return {};
@@ -41,7 +52,9 @@ function toTokenState(tokens: CharteInput["tokens"]): TokenState {
 	const state = {} as TokenState;
 	for (const group of TOKEN_GROUPS) {
 		const bucket = tokens?.[group];
-		state[group] = bucket ? Object.entries(bucket) : [];
+		state[group] = bucket
+			? Object.entries(bucket).map(([key, value]) => createTokenRow(key, value))
+			: [];
 	}
 	return state;
 }
@@ -51,9 +64,11 @@ function serializeTokens(
 ): Record<string, Record<string, string>> {
 	const out: Record<string, Record<string, string>> = {};
 	for (const group of TOKEN_GROUPS) {
-		const rows = state[group].filter(([k]) => k.trim() !== "");
+		const rows = state[group].filter((row) => row.key.trim() !== "");
 		if (rows.length === 0) continue;
-		out[group] = Object.fromEntries(rows.map(([k, v]) => [k.trim(), v]));
+		out[group] = Object.fromEntries(
+			rows.map((row) => [row.key.trim(), row.value]),
+		);
 	}
 	return out;
 }
@@ -112,15 +127,19 @@ export function CharteEditModal({ charte, onClose }: Props) {
 	) => {
 		setTokens((prev) => {
 			const next = { ...prev, [group]: [...prev[group]] };
-			const row = [...next[group][idx]] as TokenRow;
-			row[field] = value;
-			next[group][idx] = row;
+			const row = next[group][idx];
+			if (!row) return prev;
+			next[group][idx] =
+				field === 0 ? { ...row, key: value } : { ...row, value };
 			return next;
 		});
 	};
 
 	const addRow = (group: TokenGroupKey) => {
-		setTokens((prev) => ({ ...prev, [group]: [...prev[group], ["", ""]] }));
+		setTokens((prev) => ({
+			...prev,
+			[group]: [...prev[group], createTokenRow("", "")],
+		}));
 	};
 
 	const removeRow = (group: TokenGroupKey, idx: number) => {
@@ -398,16 +417,16 @@ function TokenGroup({
 			) : (
 				<div className="flex flex-col gap-1.5">
 					{rows.map((row, idx) => (
-						<div key={idx} className="flex items-center gap-1.5">
+						<div key={row.id} className="flex items-center gap-1.5">
 							<input
-								value={row[0]}
+								value={row.key}
 								onChange={(e) => onChange(idx, 0, e.target.value)}
 								placeholder={keyLabel}
 								className="flex-1 px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20"
 							/>
 							<TokenValueInput
 								group={group}
-								value={row[1]}
+								value={row.value}
 								onChange={(v) => onChange(idx, 1, v)}
 								placeholder={valueLabel}
 							/>
@@ -415,8 +434,8 @@ function TokenGroup({
 								type="button"
 								onClick={() => onRemove(idx)}
 								aria-label={
-									row[0].trim()
-										? `${removeLabel} "${row[0].trim()}"`
+									row.key.trim()
+										? `${removeLabel} "${row.key.trim()}"`
 										: removeLabel
 								}
 								className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:text-danger hover:bg-danger-soft transition"

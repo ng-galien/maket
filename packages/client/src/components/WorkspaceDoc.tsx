@@ -29,6 +29,8 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const docWidthPx = doc.canvas.w * 3.78;
 	const labelScale = 1 / Math.max(zoomK, 0.1);
 	const labelMaxWidth = docWidthPx / labelScale;
+	const pageKey = (page: (typeof doc.pages)[number]) =>
+		`${docName}:${page.name ?? ""}:${page.html ?? ""}`;
 
 	return (
 		<div
@@ -38,7 +40,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			style={{ gap: PAGE_GAP }}
 		>
 			{doc.pages.map((_page, i) => (
-				<div key={`${docName}-${i}`} className="flex flex-col items-center">
+				<div key={pageKey(_page)} className="flex flex-col items-center">
 					<PageCanvas
 						doc={doc}
 						pageIndex={i}
