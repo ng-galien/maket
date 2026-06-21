@@ -92,6 +92,8 @@ Maket uses `code-moniker` for structural rules and code-smell review. The versio
 
 Do not add enforceable architecture or boundary rules to `AGENTS.md`, and do not add ad-hoc checker scripts in parallel with `code-moniker`. `AGENTS.md` is operator guidance for agents working in the repository; it is not the project's rule engine. If a boundary rule cannot be expressed with `code-moniker` yet, document that as a `code-moniker` evolution instead of creating another local rule system.
 
+Exceptions are local and explicit. If a rule is intentionally not applicable, keep the rule enabled and add a targeted suppression comment in the file being checked, for example `// code-moniker: ignore[smell-long-callable]`, with a nearby explanation of the design reason.
+
 ### Option C — Package as a desktop extension (.mcpb)
 
 ```bash

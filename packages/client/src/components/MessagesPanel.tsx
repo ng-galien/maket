@@ -155,6 +155,8 @@ function MessageBody({ msg }: { msg: PendingMessage }) {
 	return null;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MessagesPanel is an adapter over the pending queue: queue ownership stays in Zustand while the panel only renders and dispatches UI commands.
 export function MessagesPanel() {
 	const t = useT();
 	const open = useStore((s) => s.activePanel === "exchange");

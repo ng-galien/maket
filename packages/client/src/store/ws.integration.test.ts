@@ -1,4 +1,8 @@
-import type { WsCheckLayoutResponse, WsMessage } from "@maket/shared";
+import type {
+	LayoutCheckResult,
+	WorkspaceCommand,
+	WorkspaceSignal,
+} from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -41,14 +45,14 @@ class MockWebSocket {
 		this.readyState = 1;
 		this.onopen?.();
 	}
-	emit(msg: WsMessage) {
+	emit(msg: WorkspaceSignal) {
 		this.onmessage?.({ data: JSON.stringify(msg) } as MessageEvent);
 	}
-	lastSent<T extends WsMessage>(): T {
+	lastSent<T extends WorkspaceCommand>(): T {
 		return JSON.parse(this.sent[this.sent.length - 1]) as T;
 	}
-	sentPayloads(): WsMessage[] {
-		return this.sent.map((s) => JSON.parse(s) as WsMessage);
+	sentPayloads(): WorkspaceCommand[] {
+		return this.sent.map((s) => JSON.parse(s) as WorkspaceCommand);
 	}
 }
 
@@ -368,7 +372,7 @@ describe("check_layout_request", () => {
 			pageIdx: 0,
 		});
 
-		const payload = MockWebSocket.last().lastSent<WsCheckLayoutResponse>();
+		const payload = MockWebSocket.last().lastSent<LayoutCheckResult>();
 		expect(payload.type).toBe("check_layout_response");
 		expect(payload._reqId).toBe("r-42");
 

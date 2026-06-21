@@ -6,6 +6,7 @@
 // recreate the coupling.
 // ============================================================
 
+export * from "./charte.js";
 export * from "./formats.js";
 export * from "./http.js";
 export * from "./ws.js";

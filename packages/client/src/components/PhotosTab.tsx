@@ -28,28 +28,23 @@ type ImageAsset = AssetsListItem;
 type RowMode = { kind: "idle" } | { kind: "confirm-delete" };
 
 export function PhotosTab() {
-	const t = useT();
-	const [images, setImages] = useState<ImageAsset[]>([]);
-	const [activeFilter, setActiveFilter] = useState("Tous");
-	const [loading, setLoading] = useState(true);
-	const [selected, setSelected] = useState<ImageAsset | null>(null);
-	const [search, setSearch] = useState("");
-	const [menuFor, setMenuFor] = useState<string | null>(null);
-	const [modeFor, setModeFor] = useState<{
-		file: string;
-		mode: RowMode;
-	} | null>(null);
-	const [checked, setChecked] = useState<Set<string>>(new Set());
-	const [lastClicked, setLastClicked] = useState<string | null>(null);
-	const [dragOver, setDragOver] = useState(false);
-	const [uploadBtnDrag, setUploadBtnDrag] = useState(false);
-	const [uploading, setUploading] = useState<{
-		total: number;
-		done: number;
-		errors: string[];
-	} | null>(null);
-	const uploadInputRef = useRef<HTMLInputElement>(null);
+	const model = usePhotosTabModel();
+	if (model.selected) {
+		return (
+			<ImageDetail
+				img={model.selected}
+				onClose={() => model.setSelected(null)}
+				onDelete={model.deleteSelected}
+				onInsert={model.insertSelected}
+			/>
+		);
+	}
+	return <PhotosTabView model={model} />;
+}
 
+function usePhotoAssets() {
+	const [images, setImages] = useState<ImageAsset[]>([]);
+	const [loading, setLoading] = useState(true);
 	const fetchImages = useCallback(() => {
 		setLoading(true);
 		fetch("/api/assets")
@@ -60,16 +55,142 @@ export function PhotosTab() {
 			})
 			.catch(() => setLoading(false));
 	}, []);
-
 	useEffect(() => {
 		fetchImages();
 	}, [fetchImages]);
-
 	useEffect(() => {
 		const handler = () => fetchImages();
 		window.addEventListener("assets-changed", handler);
 		return () => window.removeEventListener("assets-changed", handler);
 	}, [fetchImages]);
+	return { images, setImages, loading };
+}
+
+function usePhotoUpload(
+	t: ReturnType<typeof useT>,
+	setImages: (images: ImageAsset[]) => void,
+) {
+	const [uploadBtnDrag, setUploadBtnDrag] = useState(false);
+	const [uploading, setUploading] = useState<{
+		total: number;
+		done: number;
+		errors: string[];
+	} | null>(null);
+	const uploadInputRef = useRef<HTMLInputElement>(null);
+	const handleUpload = useCallback(
+		async (files: FileList) => {
+			const state = { total: files.length, done: 0, errors: [] as string[] };
+			setUploading({ ...state });
+			await uploadFiles(files, state, setUploading);
+			const r = await fetch("/api/assets");
+			const data = (await r.json()) as AssetsListResponse;
+			setImages(data.images || []);
+			queueImageClassification(files, state.errors, t);
+			setTimeout(() => setUploading(null), state.errors.length ? 3000 : 800);
+		},
+		[setImages, t],
+	);
+	const openFilePicker = () => {
+		if (uploading) return;
+		uploadInputRef.current?.click();
+	};
+	return {
+		uploadBtnDrag,
+		setUploadBtnDrag,
+		uploading,
+		uploadInputRef,
+		handleUpload,
+		openFilePicker,
+	};
+}
+
+async function uploadFiles(
+	files: FileList,
+	state: { total: number; done: number; errors: string[] },
+	setUploading: (state: {
+		total: number;
+		done: number;
+		errors: string[];
+	}) => void,
+): Promise<void> {
+	await Promise.all(
+		Array.from(files).map(async (file) => {
+			const formData = new FormData();
+			formData.append("file", file);
+			try {
+				const res = await fetch("/api/upload", {
+					method: "POST",
+					body: formData,
+				});
+				if (!res.ok) state.errors.push(file.name);
+			} catch {
+				state.errors.push(file.name);
+			}
+			state.done++;
+			setUploading({ ...state });
+		}),
+	);
+}
+
+function queueImageClassification(
+	files: FileList,
+	errors: string[],
+	t: ReturnType<typeof useT>,
+): void {
+	const uploaded = Array.from(files)
+		.map((f) => f.name)
+		.filter((n) => !errors.includes(n));
+	if (uploaded.length === 0) return;
+	useStore.getState().addPending({
+		id: crypto.randomUUID(),
+		type: "classify-images",
+		docName: undefined,
+		text: t("pending_classify_images", {
+			files: uploaded.join(", "),
+			count: String(uploaded.length),
+		}),
+		ts: Date.now(),
+	});
+}
+
+function usePhotoFilters(images: ImageAsset[], search: string) {
+	const [activeFilter, setActiveFilter] = useState("Tous");
+	const q = search.trim().toLowerCase();
+	const searched = q
+		? images.filter((img) => photoMatchesQuery(img, q))
+		: images;
+	const categories = [
+		"Tous",
+		...new Set(images.map((img) => img.category || "").filter(Boolean)),
+	];
+	const filtered =
+		activeFilter === "Tous"
+			? searched
+			: searched.filter((img) => img.category === activeFilter);
+	return { activeFilter, setActiveFilter, categories, filtered };
+}
+
+function photoMatchesQuery(img: ImageAsset, query: string): boolean {
+	if (img.file.toLowerCase().includes(query)) return true;
+	if (img.title?.toLowerCase().includes(query)) return true;
+	if (img.description?.toLowerCase().includes(query)) return true;
+	return img.tags?.some((tag) => tag.toLowerCase().includes(query)) ?? false;
+}
+
+function usePhotosTabModel() {
+	const t = useT();
+	const assets = usePhotoAssets();
+	const upload = usePhotoUpload(t, assets.setImages);
+	const [selected, setSelected] = useState<ImageAsset | null>(null);
+	const [search, setSearch] = useState("");
+	const [menuFor, setMenuFor] = useState<string | null>(null);
+	const [modeFor, setModeFor] = useState<{
+		file: string;
+		mode: RowMode;
+	} | null>(null);
+	const [checked, setChecked] = useState<Set<string>>(new Set());
+	const [lastClicked, setLastClicked] = useState<string | null>(null);
+	const [dragOver, setDragOver] = useState(false);
 
 	useEffect(() => {
 		if (checked.size === 0) return;
@@ -80,110 +201,9 @@ export function PhotosTab() {
 		return () => document.removeEventListener("keydown", onKey);
 	}, [checked.size]);
 
-	const handleUpload = useCallback(
-		async (files: FileList) => {
-			const total = files.length;
-			const state = { total, done: 0, errors: [] as string[] };
-			setUploading({ ...state });
-
-			await Promise.all(
-				Array.from(files).map(async (file) => {
-					const formData = new FormData();
-					formData.append("file", file);
-					try {
-						const res = await fetch("/api/upload", {
-							method: "POST",
-							body: formData,
-						});
-						if (!res.ok) state.errors.push(file.name);
-					} catch {
-						state.errors.push(file.name);
-					}
-					state.done++;
-					setUploading({ ...state });
-				}),
-			);
-
-			const r = await fetch("/api/assets");
-			const data = (await r.json()) as AssetsListResponse;
-			setImages(data.images || []);
-
-			const uploaded = Array.from(files)
-				.map((f) => f.name)
-				.filter((n) => !state.errors.includes(n));
-			if (uploaded.length > 0) {
-				useStore.getState().addPending({
-					id: crypto.randomUUID(),
-					type: "classify-images",
-					docName: undefined,
-					text: t("pending_classify_images", {
-						files: uploaded.join(", "),
-						count: String(uploaded.length),
-					}),
-					ts: Date.now(),
-				});
-			}
-
-			setTimeout(() => setUploading(null), state.errors.length ? 3000 : 800);
-		},
-		[t],
-	);
-
-	const openFilePicker = () => {
-		if (uploading) return;
-		uploadInputRef.current?.click();
-	};
-
 	const barPosition = useStore((s) => s.barPosition);
-
-	if (selected) {
-		return (
-			<ImageDetail
-				img={selected}
-				onClose={() => setSelected(null)}
-				onDelete={(file) => {
-					wsSend({ type: "delete_asset", filename: file });
-					setSelected(null);
-				}}
-				onInsert={
-					useStore.getState().focusedDocName
-						? (file) => {
-								useStore.getState().addPending({
-									id: crypto.randomUUID(),
-									type: "drop-image",
-									file,
-									text: t("pending_insert_image", { file }),
-									ts: Date.now(),
-								});
-								setSelected(null);
-							}
-						: null
-				}
-			/>
-		);
-	}
-
-	const q = search.trim().toLowerCase();
-	const searched = q
-		? images.filter((img) => {
-				if (img.file.toLowerCase().includes(q)) return true;
-				if (img.title?.toLowerCase().includes(q)) return true;
-				if (img.description?.toLowerCase().includes(q)) return true;
-				if (img.tags?.some((tag) => tag.toLowerCase().includes(q))) return true;
-				return false;
-			})
-		: images;
-
-	const categories = [
-		"Tous",
-		...new Set(images.map((img) => img.category || "").filter(Boolean)),
-	];
-	const filtered =
-		activeFilter === "Tous"
-			? searched
-			: searched.filter((img) => img.category === activeFilter);
-
-	const flatOrder = filtered.map((i) => i.file);
+	const filters = usePhotoFilters(assets.images, search);
+	const flatOrder = filters.filtered.map((i) => i.file);
 
 	const handleTileClick = (img: ImageAsset, e: React.MouseEvent) => {
 		if (e.metaKey || e.ctrlKey) {
@@ -246,10 +266,171 @@ export function PhotosTab() {
 		},
 	});
 
+	const insertSelected = useStore.getState().focusedDocName
+		? (file: string) => {
+				useStore.getState().addPending({
+					id: crypto.randomUUID(),
+					type: "drop-image",
+					file,
+					text: t("pending_insert_image", { file }),
+					ts: Date.now(),
+				});
+				setSelected(null);
+			}
+		: null;
+
+	const deleteSelected = (file: string) => {
+		wsSend({ type: "delete_asset", filename: file });
+		setSelected(null);
+	};
+
+	return {
+		images: assets.images,
+		activeFilter: filters.activeFilter,
+		setActiveFilter: filters.setActiveFilter,
+		loading: assets.loading,
+		selected,
+		setSelected,
+		search,
+		setSearch,
+		dragOver,
+		setDragOver,
+		uploadBtnDrag: upload.uploadBtnDrag,
+		setUploadBtnDrag: upload.setUploadBtnDrag,
+		uploading: upload.uploading,
+		uploadInputRef: upload.uploadInputRef,
+		handleUpload: upload.handleUpload,
+		openFilePicker: upload.openFilePicker,
+		barPosition,
+		categories: filters.categories,
+		filtered: filters.filtered,
+		checked,
+		clearChecked: () => setChecked(new Set()),
+		bulkDelete,
+		photoItemFor,
+		insertSelected,
+		deleteSelected,
+	};
+}
+
+function PhotosTabView({
+	model,
+}: {
+	model: ReturnType<typeof usePhotosTabModel>;
+}) {
+	const {
+		images,
+		activeFilter,
+		setActiveFilter,
+		loading,
+		search,
+		setSearch,
+		dragOver,
+		setDragOver,
+		uploadBtnDrag,
+		setUploadBtnDrag,
+		uploading,
+		uploadInputRef,
+		handleUpload,
+		openFilePicker,
+		barPosition,
+		categories,
+		filtered,
+		checked,
+		clearChecked,
+		bulkDelete,
+		photoItemFor,
+	} = model;
+
 	return (
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-3 p-3`}
 		>
+			<PhotoToolbar
+				model={{
+					search,
+					setSearch,
+					uploadInputRef,
+					uploadBtnDrag,
+					setUploadBtnDrag,
+					uploading,
+					handleUpload,
+					openFilePicker,
+				}}
+			/>
+
+			{categories.length > 1 && (
+				<div className="flex gap-1.5 flex-wrap">
+					{categories.map((f) => (
+						<button
+							key={f}
+							type="button"
+							onClick={() => setActiveFilter(f)}
+							className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
+								activeFilter === f
+									? "bg-accent/15 text-accent ring-1 ring-accent/20"
+									: "bg-input text-text-3 hover:text-text-1"
+							}`}
+						>
+							{f}
+						</button>
+					))}
+				</div>
+			)}
+
+			<PhotoContent
+				model={{
+					loading,
+					images,
+					filtered,
+					dragOver,
+					setDragOver,
+					openFilePicker,
+					handleUpload,
+					photoItemFor,
+				}}
+			/>
+
+			{dragOver && images.length > 0 && (
+				<div className="fixed inset-0 bg-accent/10 pointer-events-none z-50 ring-4 ring-accent/40 ring-inset" />
+			)}
+
+			{checked.size > 0 && (
+				<BulkBar
+					count={checked.size}
+					onClear={clearChecked}
+					onDelete={bulkDelete}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface PhotoToolbarModel {
+	search: string;
+	setSearch: (value: string) => void;
+	uploadInputRef: React.RefObject<HTMLInputElement | null>;
+	uploadBtnDrag: boolean;
+	setUploadBtnDrag: (dragging: boolean) => void;
+	uploading: { total: number; done: number; errors: string[] } | null;
+	handleUpload: (files: FileList) => void;
+	openFilePicker: () => void;
+}
+
+function PhotoToolbar({ model }: { model: PhotoToolbarModel }) {
+	const {
+		search,
+		setSearch,
+		uploadInputRef,
+		uploadBtnDrag,
+		setUploadBtnDrag,
+		uploading,
+		handleUpload,
+		openFilePicker,
+	} = model;
+	const t = useT();
+	return (
+		<>
 			<div className="flex items-center gap-1.5">
 				<div className="relative flex-1 min-w-0">
 					<Search
@@ -273,146 +454,181 @@ export function PhotosTab() {
 						</button>
 					)}
 				</div>
-				<input
-					ref={uploadInputRef}
-					type="file"
-					accept="image/*"
-					multiple
-					className="hidden"
-					onChange={(e) => {
-						if (e.target.files?.length) handleUpload(e.target.files);
-						e.target.value = "";
-					}}
+				<UploadButton
+					inputRef={uploadInputRef}
+					dragging={uploadBtnDrag}
+					setDragging={setUploadBtnDrag}
+					handleUpload={handleUpload}
+					openFilePicker={openFilePicker}
 				/>
-				<button
-					type="button"
-					onClick={openFilePicker}
-					onDragOver={(e) => {
-						if (!e.dataTransfer.types.includes("Files")) return;
-						e.preventDefault();
-						e.dataTransfer.dropEffect = "copy";
-						if (!uploadBtnDrag) setUploadBtnDrag(true);
-					}}
-					onDragLeave={() => setUploadBtnDrag(false)}
-					onDrop={(e) => {
-						e.preventDefault();
-						setUploadBtnDrag(false);
-						if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
-					}}
-					aria-label={t("photo_upload")}
-					title={t("photo_upload")}
-					className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
-						uploadBtnDrag
-							? "bg-accent-soft text-accent ring-2 ring-accent/40"
-							: "bg-input text-text-3 hover:text-text-1"
-					}`}
-				>
-					<Upload size={14} />
-				</button>
 			</div>
+			{uploading && <UploadProgress uploading={uploading} />}
+		</>
+	);
+}
 
-			{uploading && (
-				<div className="mx-1 px-3 py-2 rounded-lg bg-accent-soft">
-					<div className="h-1.5 rounded-full bg-white/50 overflow-hidden">
-						<div
-							className="h-full bg-accent rounded-full transition-all duration-300"
-							style={{
-								width: `${(uploading.done / uploading.total) * 100}%`,
-							}}
-						/>
-					</div>
-					<div className="text-xs font-semibold text-accent mt-1.5 tabular-nums">
-						{t("upload_progress", {
-							done: String(uploading.done),
-							total: String(uploading.total),
-						})}
-					</div>
-					{uploading.errors.length > 0 && (
-						<div className="text-xs text-danger mt-0.5">
-							{uploading.errors
-								.map((f) => t("upload_error", { file: f }))
-								.join(", ")}
-						</div>
-					)}
-				</div>
-			)}
+function UploadButton({
+	inputRef,
+	dragging,
+	setDragging,
+	handleUpload,
+	openFilePicker,
+}: {
+	inputRef: React.RefObject<HTMLInputElement | null>;
+	dragging: boolean;
+	setDragging: (dragging: boolean) => void;
+	handleUpload: (files: FileList) => void;
+	openFilePicker: () => void;
+}) {
+	const t = useT();
+	return (
+		<>
+			<input
+				ref={inputRef}
+				type="file"
+				accept="image/*"
+				multiple
+				className="hidden"
+				onChange={(e) => {
+					if (e.target.files?.length) handleUpload(e.target.files);
+					e.target.value = "";
+				}}
+			/>
+			<button
+				type="button"
+				onClick={openFilePicker}
+				onDragOver={(e) => {
+					if (!e.dataTransfer.types.includes("Files")) return;
+					e.preventDefault();
+					e.dataTransfer.dropEffect = "copy";
+					if (!dragging) setDragging(true);
+				}}
+				onDragLeave={() => setDragging(false)}
+				onDrop={(e) => {
+					e.preventDefault();
+					setDragging(false);
+					if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
+				}}
+				aria-label={t("photo_upload")}
+				title={t("photo_upload")}
+				className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+					dragging
+						? "bg-accent-soft text-accent ring-2 ring-accent/40"
+						: "bg-input text-text-3 hover:text-text-1"
+				}`}
+			>
+				<Upload size={14} />
+			</button>
+		</>
+	);
+}
 
-			{categories.length > 1 && (
-				<div className="flex gap-1.5 flex-wrap">
-					{categories.map((f) => (
-						<button
-							key={f}
-							type="button"
-							onClick={() => setActiveFilter(f)}
-							className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
-								activeFilter === f
-									? "bg-accent/15 text-accent ring-1 ring-accent/20"
-									: "bg-input text-text-3 hover:text-text-1"
-							}`}
-						>
-							{f}
-						</button>
-					))}
-				</div>
-			)}
-
-			{loading ? (
-				<div className="text-center text-text-3 text-xs py-6">
-					{t("loading")}
-				</div>
-			) : images.length === 0 ? (
-				<EmptyDropZone
-					dragOver={dragOver}
-					onOpenPicker={openFilePicker}
-					onDragOver={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						setDragOver(true);
-					}}
-					onDragLeave={() => setDragOver(false)}
-					onDrop={(e) => {
-						e.preventDefault();
-						setDragOver(false);
-						if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
-					}}
-				/>
-			) : filtered.length === 0 ? (
-				<div className="px-4 py-6 text-center text-base text-text-3">
-					{t("photo_no_match")}
-				</div>
-			) : (
+function UploadProgress({
+	uploading,
+}: {
+	uploading: { total: number; done: number; errors: string[] };
+}) {
+	const t = useT();
+	return (
+		<div className="mx-1 px-3 py-2 rounded-lg bg-accent-soft">
+			<div className="h-1.5 rounded-full bg-white/50 overflow-hidden">
 				<div
-					className="grid grid-cols-2 gap-2"
-					onDragOver={(e) => {
-						if (!e.dataTransfer.types.includes("Files")) return;
-						e.preventDefault();
-						setDragOver(true);
+					className="h-full bg-accent rounded-full transition-all duration-300"
+					style={{
+						width: `${(uploading.done / uploading.total) * 100}%`,
 					}}
-					onDragLeave={() => setDragOver(false)}
-					onDrop={(e) => {
-						if (!e.dataTransfer.files.length) return;
-						e.preventDefault();
-						setDragOver(false);
-						handleUpload(e.dataTransfer.files);
-					}}
-				>
-					{filtered.map((img) => (
-						<PhotoTile key={img.file} {...photoItemFor(img)} />
-					))}
+				/>
+			</div>
+			<div className="text-xs font-semibold text-accent mt-1.5 tabular-nums">
+				{t("upload_progress", {
+					done: String(uploading.done),
+					total: String(uploading.total),
+				})}
+			</div>
+			{uploading.errors.length > 0 && (
+				<div className="text-xs text-danger mt-0.5">
+					{uploading.errors
+						.map((f) => t("upload_error", { file: f }))
+						.join(", ")}
 				</div>
 			)}
+		</div>
+	);
+}
 
-			{dragOver && images.length > 0 && (
-				<div className="fixed inset-0 bg-accent/10 pointer-events-none z-50 ring-4 ring-accent/40 ring-inset" />
-			)}
+interface PhotoContentModel {
+	loading: boolean;
+	images: ImageAsset[];
+	filtered: ImageAsset[];
+	dragOver: boolean;
+	setDragOver: (dragging: boolean) => void;
+	openFilePicker: () => void;
+	handleUpload: (files: FileList) => void;
+	photoItemFor: (img: ImageAsset) => PhotoTileProps;
+}
 
-			{checked.size > 0 && (
-				<BulkBar
-					count={checked.size}
-					onClear={() => setChecked(new Set())}
-					onDelete={bulkDelete}
-				/>
-			)}
+function PhotoContent({ model }: { model: PhotoContentModel }) {
+	const {
+		loading,
+		images,
+		filtered,
+		dragOver,
+		setDragOver,
+		openFilePicker,
+		handleUpload,
+		photoItemFor,
+	} = model;
+	const t = useT();
+	if (loading) {
+		return (
+			<div className="text-center text-text-3 text-xs py-6">{t("loading")}</div>
+		);
+	}
+	if (images.length === 0) {
+		return (
+			<EmptyDropZone
+				dragOver={dragOver}
+				onOpenPicker={openFilePicker}
+				onDragOver={(e) => {
+					e.preventDefault();
+					e.stopPropagation();
+					setDragOver(true);
+				}}
+				onDragLeave={() => setDragOver(false)}
+				onDrop={(e) => {
+					e.preventDefault();
+					setDragOver(false);
+					if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files);
+				}}
+			/>
+		);
+	}
+	if (filtered.length === 0) {
+		return (
+			<div className="px-4 py-6 text-center text-base text-text-3">
+				{t("photo_no_match")}
+			</div>
+		);
+	}
+	return (
+		<div
+			className="grid grid-cols-2 gap-2"
+			onDragOver={(e) => {
+				if (!e.dataTransfer.types.includes("Files")) return;
+				e.preventDefault();
+				setDragOver(true);
+			}}
+			onDragLeave={() => setDragOver(false)}
+			onDrop={(e) => {
+				if (!e.dataTransfer.files.length) return;
+				e.preventDefault();
+				setDragOver(false);
+				handleUpload(e.dataTransfer.files);
+			}}
+		>
+			{filtered.map((img) => (
+				<PhotoTile key={img.file} {...photoItemFor(img)} />
+			))}
 		</div>
 	);
 }

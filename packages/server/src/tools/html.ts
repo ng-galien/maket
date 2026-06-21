@@ -346,42 +346,53 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 			description: DESCRIPTION,
 			schema: MaketHtmlSchema,
 		},
-		handler: async (rawArgs) => {
-			const args = MaketHtmlSchema.parse(rawArgs);
-			const resolved = resolveDocPage(documents, args.doc, args.page);
-			if (typeof resolved === "string") return text(resolved, true);
-			const { doc, page, pageIdx } = resolved;
-
-			switch (args.action) {
-				case "set": {
-					const locked = lockGuard(doc);
-					if (locked) return locked;
-					return runSet({
-						args,
-						doc,
-						page,
-						pageIdx,
-						documents,
-						store,
-						layout,
-						assets,
-					});
-				}
-				case "patch": {
-					const locked = lockGuard(doc);
-					if (locked) return locked;
-					return runPatch(args, doc, page, pageIdx, documents, store, layout);
-				}
-				case "get":
-					return runGet(args, page);
-				case "check":
-					return runCheck(doc, page, pageIdx, layout);
-			}
-		},
+		handler: (rawArgs) =>
+			handleMaketHtmlTool(rawArgs, { documents, store, layout, assets }),
 	};
 }
 
 type Args = z.infer<typeof MaketHtmlSchema>;
+
+interface MaketHtmlToolDeps {
+	documents: Documents;
+	store: Store;
+	layout: LayoutService;
+	assets: AssetsService;
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP handlers are adapter boundaries: this one resolves the document/page contract and delegates HTML actions to the owning services.
+async function handleMaketHtmlTool(rawArgs: unknown, deps: MaketHtmlToolDeps) {
+	const args = MaketHtmlSchema.parse(rawArgs);
+	const resolved = resolveDocPage(deps.documents, args.doc, args.page);
+	if (typeof resolved === "string") return text(resolved, true);
+	const { doc, page, pageIdx } = resolved;
+
+	switch (args.action) {
+		case "set": {
+			const locked = lockGuard(doc);
+			if (locked) return locked;
+			return runSet({ args, doc, page, pageIdx, ...deps });
+		}
+		case "patch": {
+			const locked = lockGuard(doc);
+			if (locked) return locked;
+			return runPatch(
+				args,
+				doc,
+				page,
+				pageIdx,
+				deps.documents,
+				deps.store,
+				deps.layout,
+			);
+		}
+		case "get":
+			return runGet(args, page);
+		case "check":
+			return runCheck(doc, page, pageIdx, deps.layout);
+	}
+}
 
 interface HtmlSetContext {
 	args: Args;

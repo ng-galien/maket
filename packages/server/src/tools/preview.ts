@@ -93,6 +93,8 @@ async function runOpen(config: Config): Promise<ToolResult> {
 	return text(`Opened ${previewUrl} in browser`);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Snapshot is an adapter workflow that coordinates document resolution, preview rendering, filesystem output, and MCP response shaping.
 async function runSnapshot(
 	args: Args,
 	documents: Documents,

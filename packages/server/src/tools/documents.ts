@@ -196,31 +196,44 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 			description: DESCRIPTION,
 			schema: MaketDocSchema,
 		},
-		handler: async (rawArgs) => {
-			const args = MaketDocSchema.parse(rawArgs);
-			switch (args.action) {
-				case "new":
-					return runNew(args, documents, bus);
-				case "list":
-					return runList(documents);
-				case "delete":
-					return runDelete(args, documents, bus, pending);
-				case "duplicate":
-					return runDuplicate(args, documents, bus);
-				case "rename":
-					return runRename(args, documents, bus);
-				case "meta":
-					return runMeta(args, documents, bus);
-				case "export":
-					return runExport(args, documents, store, config);
-				case "import":
-					return runImport(args, documents, store, bus, config);
-			}
-		},
+		handler: (rawArgs) =>
+			handleMaketDocTool(rawArgs, { documents, bus, store, config, pending }),
 	};
 }
 
 type Args = z.infer<typeof MaketDocSchema>;
+
+interface MaketDocToolDeps {
+	documents: Documents;
+	bus: Bus;
+	store: Store;
+	config: Config;
+	pending: Pending;
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP handlers are adapter boundaries: they parse the tool contract and route to document workflows without taking ownership from services.
+async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
+	const args = MaketDocSchema.parse(rawArgs);
+	switch (args.action) {
+		case "new":
+			return runNew(args, deps.documents, deps.bus);
+		case "list":
+			return runList(deps.documents);
+		case "delete":
+			return runDelete(args, deps.documents, deps.bus, deps.pending);
+		case "duplicate":
+			return runDuplicate(args, deps.documents, deps.bus);
+		case "rename":
+			return runRename(args, deps.documents, deps.bus);
+		case "meta":
+			return runMeta(args, deps.documents, deps.bus);
+		case "export":
+			return runExport(args, deps.documents, deps.store, deps.config);
+		case "import":
+			return runImport(args, deps.documents, deps.store, deps.bus, deps.config);
+	}
+}
 
 function runNew(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=new", true);
@@ -384,6 +397,8 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	return text(`Renamed "${oldName}" → "${args.name}"`);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Export is an MCP workflow coordinator that gathers documents, assets, chartes, and config into the portable bundle boundary.
 async function runExport(
 	args: Args,
 	documents: Documents,
@@ -466,6 +481,8 @@ async function runExport(
 	);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Import is an MCP workflow coordinator that restores bundle data across document, asset, charte, persistence, and event services.
 async function runImport(
 	args: Args,
 	documents: Documents,

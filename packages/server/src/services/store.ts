@@ -180,6 +180,7 @@ export class DocumentStore implements Store {
 		this.initializeSchema();
 		this.backfillDocumentIds();
 		this.backfillPageIds();
+		this.assertPageIdsBackfilled();
 		this.prepareStatements();
 	}
 
@@ -236,6 +237,26 @@ export class DocumentStore implements Store {
 		for (const row of rows) stmt.run({ ...row, id: crypto.randomUUID() });
 		this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
 		log(`SQLite: added id column to pages (backfilled ${rows.length} rows)`);
+	}
+
+	private assertPageIdsBackfilled(): void {
+		const cols = this.db.prepare("PRAGMA table_info(pages)").all() as {
+			name: string;
+		}[];
+		if (cols.length === 0) return;
+		if (!cols.some((c) => c.name === "id")) {
+			throw new Error("SQLite migration failed: pages.id column is missing");
+		}
+		const row = this.db
+			.prepare(
+				"SELECT count(*) AS count FROM pages WHERE id IS NULL OR id = ''",
+			)
+			.get() as { count: number };
+		if (row.count > 0) {
+			throw new Error(
+				`SQLite migration failed: ${row.count} page row(s) still have no id`,
+			);
+		}
 	}
 
 	private prepareStatements(): void {

@@ -10,10 +10,7 @@
  * targeting a specific page.
  */
 
-import type {
-	WsMessage as SharedWsMessage,
-	WsStateMessage,
-} from "@maket/shared";
+import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
 import { composeCharteCss } from "../lib/charte-css.js";
@@ -32,9 +29,10 @@ import type { Store } from "./store.js";
 import type { WsBridge } from "./ws-bridge.js";
 import type { WsRegistry } from "./ws-registry.js";
 
-export type WsMessage = SharedWsMessage;
-
-export type WsMessageHandler = (msg: WsMessage, ws: WebSocket) => void;
+export type WorkspaceCommandHandler = (
+	msg: WorkspaceCommand,
+	ws: WebSocket,
+) => void;
 
 export interface WsHandlerDeps {
 	assets: AssetsService;
@@ -49,409 +47,486 @@ export interface WsHandlerDeps {
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
-export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
-	const { assets, bus, documents, pending, store, wsRegistry, wsBridge } = deps;
+interface WsHandlerContext extends WsHandlerDeps {
+	broadcastState(d: Document | null): void;
+	wsDoc(msg: { docName?: string }): Document | null;
+}
 
-	function wsDoc(msg: { docName?: string }): Document | null {
-		return msg.docName ? documents.resolve(msg.docName) : null;
-	}
-
-	function broadcastState(d: Document | null): void {
-		if (!d) return;
-		wsRegistry.broadcast({
-			type: "state",
-			doc: documents.lightView(d),
-			docList: documents.list(),
-			charteCss: documents.charteCss(d),
-		});
-	}
-
-	return (msg, ws) => {
-		switch (msg.type) {
-			case "load_document": {
-				let requested = documents.resolve(msg.name);
-				if (!requested) {
-					const loaded = store.loadOne(msg.name);
-					if (loaded) {
-						documents.all().set(loaded.name, loaded);
-						requested = loaded;
-					}
-				}
-				if (requested) {
-					const state: WsStateMessage = {
-						type: "state",
-						doc: documents.lightView(requested),
-						docList: documents.list(),
-						charteCss: documents.charteCss(requested),
-						addToWorkspace: true,
-						focus: true,
-					};
-					ws.send(JSON.stringify(state));
-				}
-				break;
-			}
-
-			case "sync_pending": {
-				pending.syncFromClient(msg.pending || []);
-				break;
-			}
-
-			case "workspace_update": {
-				const displayed = new Set<string>(msg.displayed || []);
-				for (const [name, doc] of documents.all()) {
-					doc._displayed = displayed.has(name);
-				}
-				break;
-			}
-
-			case "layout_report": {
-				const d = wsDoc(msg);
-				if (d) {
-					d._layout = {
-						overflow: msg.overflow ?? false,
-						containerHeight: msg.containerHeight ?? 0,
-						contentHeight: msg.contentHeight ?? 0,
-						overflowBy: msg.overflowBy ?? 0,
-						overflowing: msg.overflowing ?? [],
-					};
-				}
-				if (msg.measureId) wsBridge.resolveResponse(msg.measureId, msg);
-				break;
-			}
-
-			case "save_document": {
-				const d = wsDoc(msg);
-				if (d) {
-					documents.persist(d.name);
-					bus.emit("document:saved", { docName: d.name });
-					bus.emit("toast", {
-						text: `Document "${d.name}" saved`,
-						level: "success",
-					});
-					log(`Saved via UI: "${d.name}"`);
-				}
-				break;
-			}
-
-			case "update_canvas": {
-				const d = wsDoc(msg);
-				if (!d) break;
-				if (msg.format || msg.orientation != null) {
-					const fmt = msg.format || d.canvas.format;
-					const orient = msg.orientation ?? d.canvas.orientation ?? "portrait";
-					const { w, h } = computeCanvasDims(fmt, orient);
-					d.canvas.format = fmt;
-					d.canvas.w = w;
-					d.canvas.h = h;
-					d.canvas.orientation = orient;
-				}
-				if (msg.bg) d.canvas.bg = msg.bg;
-				bus.emit("canvas:changed", { docName: d.name });
-				break;
-			}
-
-			case "update_meta": {
-				const d = wsDoc(msg);
-				if (!d) break;
-				if (d.meta?.locked === true) {
-					bus.emit("toast", {
-						text: `"${d.name}" is locked — unlock it to edit metadata`,
-						level: "info",
-					});
-					break;
-				}
-				if (!d.meta) d.meta = {};
-				if (msg.designNotes !== undefined) d.meta.designNotes = msg.designNotes;
-				if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
-				if (msg.rating !== undefined)
-					d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
-				if (msg.charte !== undefined) d.meta.charte = msg.charte;
-				if (msg.category !== undefined) d.category = msg.category || "general";
-				documents.persist(d.name);
-				bus.emit("meta:updated", { docName: d.name });
-				break;
-			}
-
-			case "charte_save": {
-				const name = String(msg.name || "").trim();
-				if (!name) {
-					bus.emit("toast", {
-						text: "Charte name is required",
-						level: "error",
-					});
-					break;
-				}
-				const invalid = validateCharteSavePayload(msg);
-				if (invalid) {
-					bus.emit("toast", {
-						text: `Charte "${name}" rejected: ${invalid}`,
-						level: "error",
-					});
-					break;
-				}
-				const charte: Charte = {
-					name,
-					description: msg.description,
-					tokens: (msg.tokens ?? {}) as Charte["tokens"],
-				};
-				if (msg.voice) charte.voice = msg.voice;
-				if (msg.rules) charte.rules = msg.rules;
-				store.saveCharte(charte);
-				bus.emit("charte:updated", { name, css: composeCharteCss(charte) });
-				bus.emit("toast", {
-					text: `Charte "${name}" saved`,
-					level: "success",
-				});
-				break;
-			}
-
-			case "update_charte_meta": {
-				const name = String(msg.name || "").trim();
-				if (!name) {
-					bus.emit("toast", {
-						text: "Charte name is required",
-						level: "error",
-					});
-					break;
-				}
-				const existing = store.loadCharte(name);
-				if (!existing) {
-					bus.emit("toast", {
-						text: `Charte "${name}" not found`,
-						level: "error",
-					});
-					break;
-				}
-				const invalid = validateCharteSavePayload(msg);
-				if (invalid) {
-					bus.emit("toast", {
-						text: `Charte "${name}" rejected: ${invalid}`,
-						level: "error",
-					});
-					break;
-				}
-				const merged: Charte = { ...existing };
-				if (msg.description !== undefined) merged.description = msg.description;
-				if (msg.tokens !== undefined)
-					merged.tokens = msg.tokens as Charte["tokens"];
-				if (msg.voice !== undefined) merged.voice = msg.voice;
-				if (msg.rules !== undefined) merged.rules = msg.rules;
-				store.saveCharte(merged);
-				bus.emit("charte:updated", { name, css: composeCharteCss(merged) });
-				break;
-			}
-
-			case "delete_asset": {
-				if (!msg.filename) break;
-				const filename = String(msg.filename);
-				if (!assets.exists(filename)) break;
-				assets.remove(filename);
-				store.deleteAsset(filename);
-				bus.emit("assets:changed", {});
-				break;
-			}
-
-			case "update_asset_meta": {
-				const filename = String(msg.filename || "");
-				if (!filename) break;
-				if (!assets.exists(filename)) {
-					bus.emit("toast", {
-						text: `Asset "${filename}" not found`,
-						level: "error",
-					});
-					break;
-				}
-				const invalid = validateAssetMetaPayload(msg);
-				if (invalid) {
-					bus.emit("toast", {
-						text: `Asset "${filename}" rejected: ${invalid}`,
-						level: "error",
-					});
-					break;
-				}
-				store.saveAsset({
-					filename,
-					title: msg.title,
-					description: msg.description,
-					category: msg.category,
-					tags: msg.tags,
-					credit: msg.credit,
-					orientation: msg.orientation,
-				});
-				bus.emit("assets:changed", {});
-				break;
-			}
-
-			case "page_go": {
-				const d = wsDoc(msg);
-				if (
-					d &&
-					typeof msg.page === "number" &&
-					msg.page >= 1 &&
-					msg.page <= d.pages.length
-				) {
-					d.activePage = msg.page - 1;
-					bus.emit("document:loaded", { docName: d.name });
-				}
-				break;
-			}
-
-			case "clear_canvas": {
-				const d = wsDoc(msg);
-				if (d) {
-					const page = d.pages[d.activePage];
-					if (page) page.elements = [];
-					d.nextId = 1;
-					bus.emit("elements:cleared", { docName: d.name });
-				}
-				break;
-			}
-
-			case "delete_document": {
-				const name = msg.name;
-				const d = documents.resolve(name ?? "");
-				if (!name || !d) break;
-				if (documents.all().size <= 1) break;
-				if (d.meta?.locked === true) {
-					bus.emit("toast", {
-						text: `"${name}" is locked — unlock it to delete`,
-						level: "info",
-					});
-					break;
-				}
-				documents.delete(name);
-				pending.dropDoc(name);
-				bus.emit("document:deleted", { docName: name });
-				break;
-			}
-
-			case "rename_document": {
-				const { name, newName } = msg;
-				if (!name || !newName || name === newName) break;
-				const d = documents.resolve(name);
-				if (!d) break;
-				if (d.meta?.locked === true) {
-					bus.emit("toast", {
-						text: `"${name}" is locked — unlock it to rename`,
-						level: "info",
-					});
-					break;
-				}
-				if (documents.all().has(newName)) {
-					bus.emit("toast", {
-						text: `Name "${newName}" already exists`,
-						level: "error",
-					});
-					break;
-				}
-				documents.delete(name);
-				d.name = newName;
-				documents.all().set(newName, d);
-				documents.persist(newName);
-				wsRegistry.broadcast({ type: "doc_removed", name });
-				bus.emit("document:loaded", { docName: newName });
-				bus.emit("toast", {
-					text: `"${name}" → "${newName}"`,
-					level: "success",
-				});
-				break;
-			}
-
-			case "duplicate_document": {
-				const { name, newName } = msg;
-				if (!name || !newName) break;
-				const src = documents.resolve(name);
-				if (!src) break;
-				if (documents.all().has(newName)) {
-					bus.emit("toast", {
-						text: `Name "${newName}" already exists`,
-						level: "error",
-					});
-					break;
-				}
-				const cloneData = structuredClone({
-					name: newName,
-					category: src.category,
-					canvas: src.canvas,
-					meta: src.meta,
-					pages: src.pages,
-					activePage: src.activePage,
-					nextId: src.nextId,
-				});
-				if (cloneData.meta) cloneData.meta.locked = false;
-				const clone = createDocument(cloneData);
-				documents.all().set(clone.name, clone);
-				documents.persist(clone.name);
-				bus.emit("document:created", { docName: clone.name });
-				bus.emit("toast", {
-					text: `"${name}" cloned → "${clone.name}"`,
-					level: "success",
-				});
-				break;
-			}
-
-			case "lock_document": {
-				const { name, locked } = msg;
-				if (!name) break;
-				const d = documents.resolve(name);
-				if (!d) break;
-				if (!d.meta) d.meta = {};
-				d.meta.locked = locked === true;
-				documents.persist(d.name);
-				bus.emit("meta:updated", { docName: d.name });
-				bus.emit("toast", {
-					text: locked ? `"${d.name}" locked` : `"${d.name}" unlocked`,
-					level: "info",
-				});
-				break;
-			}
-
-			case "text_edit": {
-				if (!msg.docName || !msg.elementId || msg.html == null) {
-					log(
-						`[text_edit] FAIL: missing fields — docName:${msg.docName} elementId:${msg.elementId} html:${msg.html != null}`,
-					);
-					break;
-				}
-				const d = documents.resolve(msg.docName);
-				if (!d) {
-					log(`[text_edit] FAIL: doc not found: ${msg.docName}`);
-					break;
-				}
-				const pi =
-					typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
-				const page = d.pages[pi];
-				if (!page?.html) {
-					log(`[text_edit] FAIL: no page html for ${msg.docName} page ${pi}`);
-					break;
-				}
-				const { document: dom } = parseHTML(
-					`<html><body>${page.html}</body></html>`,
-				);
-				const el = dom.body.querySelector(`[data-id="${msg.elementId}"]`);
-				if (!el) {
-					log(`[text_edit] FAIL: element not found: ${msg.elementId}`);
-					break;
-				}
-				log(
-					`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
-				);
-				el.innerHTML = (msg.html as string).replace(
-					/<style[\s\S]*?<\/style>/gi,
-					"",
-				);
-				page.html = stripActiveHtml(dom.body.innerHTML);
-				log(`[text_edit] updated page.html length: ${page.html.length}`);
-				documents.persist(d.name);
-				broadcastState(d);
-				break;
-			}
-
-			case "check_layout_response":
-				if (msg._reqId) wsBridge.resolveResponse(msg._reqId, msg);
-				break;
-		}
+export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
+	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
+	const ctx: WsHandlerContext = {
+		assets,
+		bus,
+		documents,
+		pending,
+		store,
+		wsBridge,
+		wsRegistry,
+		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
+		broadcastState: (d) => {
+			if (!d) return;
+			wsRegistry.broadcast({
+				type: "state",
+				doc: documents.lightView(d),
+				docList: documents.list(),
+				charteCss: documents.charteCss(d),
+			});
+		},
 	};
+
+	return (msg, ws) => dispatchWorkspaceCommand(ctx, msg, ws);
+}
+
+function dispatchWorkspaceCommand(
+	ctx: WsHandlerContext,
+	msg: WorkspaceCommand,
+	ws: WebSocket,
+): void {
+	switch (msg.type) {
+		case "load_document":
+			handleLoadDocument(ctx, msg, ws);
+			break;
+		case "sync_pending":
+			ctx.pending.syncFromClient(msg.pending || []);
+			break;
+		case "workspace_update":
+			handleWorkspaceUpdate(ctx, msg);
+			break;
+		case "layout_report":
+			handleLayoutReport(ctx, msg);
+			break;
+		case "save_document":
+			handleSaveDocument(ctx, msg);
+			break;
+		case "update_canvas":
+			handleUpdateCanvas(ctx, msg);
+			break;
+		case "update_meta":
+			handleUpdateMeta(ctx, msg);
+			break;
+		case "charte_save":
+			handleCharteSave(ctx, msg);
+			break;
+		case "update_charte_meta":
+			handleUpdateCharteMeta(ctx, msg);
+			break;
+		case "delete_asset":
+			handleDeleteAsset(ctx, msg);
+			break;
+		case "update_asset_meta":
+			handleUpdateAssetMeta(ctx, msg);
+			break;
+		case "page_go":
+			handlePageGo(ctx, msg);
+			break;
+		case "clear_canvas":
+			handleClearCanvas(ctx, msg);
+			break;
+		case "delete_document":
+			handleDeleteDocument(ctx, msg);
+			break;
+		case "rename_document":
+			handleRenameDocument(ctx, msg);
+			break;
+		case "duplicate_document":
+			handleDuplicateDocument(ctx, msg);
+			break;
+		case "lock_document":
+			handleLockDocument(ctx, msg);
+			break;
+		case "text_edit":
+			handleTextEdit(ctx, msg);
+			break;
+		case "check_layout_response":
+			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);
+			break;
+	}
+}
+
+function handleLoadDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
+	ws: WebSocket,
+): void {
+	let requested = ctx.documents.resolve(msg.name);
+	if (!requested) {
+		const loaded = ctx.store.loadOne(msg.name);
+		if (loaded) {
+			ctx.documents.all().set(loaded.name, loaded);
+			requested = loaded;
+		}
+	}
+	if (!requested) return;
+	const state: WorkspaceStateSignal = {
+		type: "state",
+		doc: ctx.documents.lightView(requested),
+		docList: ctx.documents.list(),
+		charteCss: ctx.documents.charteCss(requested),
+		addToWorkspace: true,
+		focus: true,
+	};
+	ws.send(JSON.stringify(state));
+}
+
+function handleWorkspaceUpdate(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "workspace_update" }>,
+): void {
+	const displayed = new Set<string>(msg.displayed || []);
+	for (const [name, doc] of ctx.documents.all()) {
+		doc._displayed = displayed.has(name);
+	}
+}
+
+function handleLayoutReport(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "layout_report" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (d) {
+		d._layout = {
+			overflow: msg.overflow ?? false,
+			containerHeight: msg.containerHeight ?? 0,
+			contentHeight: msg.contentHeight ?? 0,
+			overflowBy: msg.overflowBy ?? 0,
+			overflowing: msg.overflowing ?? [],
+		};
+	}
+	if (msg.measureId) ctx.wsBridge.resolveResponse(msg.measureId, msg);
+}
+
+function handleSaveDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "save_document" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (!d) return;
+	ctx.documents.persist(d.name);
+	ctx.bus.emit("document:saved", { docName: d.name });
+	ctx.bus.emit("toast", {
+		text: `Document "${d.name}" saved`,
+		level: "success",
+	});
+	log(`Saved via UI: "${d.name}"`);
+}
+
+function handleUpdateCanvas(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "update_canvas" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (!d) return;
+	if (msg.format || msg.orientation != null) {
+		const fmt = msg.format || d.canvas.format;
+		const orient = msg.orientation ?? d.canvas.orientation ?? "portrait";
+		const { w, h } = computeCanvasDims(fmt, orient);
+		d.canvas.format = fmt;
+		d.canvas.w = w;
+		d.canvas.h = h;
+		d.canvas.orientation = orient;
+	}
+	if (msg.bg) d.canvas.bg = msg.bg;
+	ctx.bus.emit("canvas:changed", { docName: d.name });
+}
+
+function handleUpdateMeta(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "update_meta" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (!d) return;
+	if (d.meta?.locked === true) {
+		ctx.bus.emit("toast", {
+			text: `"${d.name}" is locked — unlock it to edit metadata`,
+			level: "info",
+		});
+		return;
+	}
+	if (!d.meta) d.meta = {};
+	if (msg.designNotes !== undefined) d.meta.designNotes = msg.designNotes;
+	if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
+	if (msg.rating !== undefined)
+		d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
+	if (msg.charte !== undefined) d.meta.charte = msg.charte;
+	if (msg.category !== undefined) d.category = msg.category || "general";
+	ctx.documents.persist(d.name);
+	ctx.bus.emit("meta:updated", { docName: d.name });
+}
+
+function handleCharteSave(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "charte_save" }>,
+): void {
+	const name = String(msg.name || "").trim();
+	if (!name) {
+		ctx.bus.emit("toast", { text: "Charte name is required", level: "error" });
+		return;
+	}
+	const invalid = validateCharteSavePayload(msg);
+	if (invalid) {
+		ctx.bus.emit("toast", {
+			text: `Charte "${name}" rejected: ${invalid}`,
+			level: "error",
+		});
+		return;
+	}
+	const charte: Charte = {
+		name,
+		description: msg.description,
+		tokens: (msg.tokens ?? {}) as Charte["tokens"],
+	};
+	if (msg.voice) charte.voice = msg.voice;
+	if (msg.rules) charte.rules = msg.rules;
+	ctx.store.saveCharte(charte);
+	ctx.bus.emit("charte:updated", { name, css: composeCharteCss(charte) });
+	ctx.bus.emit("toast", {
+		text: `Charte "${name}" saved`,
+		level: "success",
+	});
+}
+
+function handleUpdateCharteMeta(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "update_charte_meta" }>,
+): void {
+	const name = String(msg.name || "").trim();
+	if (!name) {
+		ctx.bus.emit("toast", { text: "Charte name is required", level: "error" });
+		return;
+	}
+	const existing = ctx.store.loadCharte(name);
+	if (!existing) {
+		ctx.bus.emit("toast", {
+			text: `Charte "${name}" not found`,
+			level: "error",
+		});
+		return;
+	}
+	const invalid = validateCharteSavePayload(msg);
+	if (invalid) {
+		ctx.bus.emit("toast", {
+			text: `Charte "${name}" rejected: ${invalid}`,
+			level: "error",
+		});
+		return;
+	}
+	const merged: Charte = { ...existing };
+	if (msg.description !== undefined) merged.description = msg.description;
+	if (msg.tokens !== undefined) merged.tokens = msg.tokens as Charte["tokens"];
+	if (msg.voice !== undefined) merged.voice = msg.voice;
+	if (msg.rules !== undefined) merged.rules = msg.rules;
+	ctx.store.saveCharte(merged);
+	ctx.bus.emit("charte:updated", { name, css: composeCharteCss(merged) });
+}
+
+function handleDeleteAsset(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "delete_asset" }>,
+): void {
+	if (!msg.filename) return;
+	const filename = String(msg.filename);
+	if (!ctx.assets.exists(filename)) return;
+	ctx.assets.remove(filename);
+	ctx.store.deleteAsset(filename);
+	ctx.bus.emit("assets:changed", {});
+}
+
+function handleUpdateAssetMeta(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "update_asset_meta" }>,
+): void {
+	const filename = String(msg.filename || "");
+	if (!filename) return;
+	if (!ctx.assets.exists(filename)) {
+		ctx.bus.emit("toast", {
+			text: `Asset "${filename}" not found`,
+			level: "error",
+		});
+		return;
+	}
+	const invalid = validateAssetMetaPayload(msg);
+	if (invalid) {
+		ctx.bus.emit("toast", {
+			text: `Asset "${filename}" rejected: ${invalid}`,
+			level: "error",
+		});
+		return;
+	}
+	ctx.store.saveAsset({
+		filename,
+		title: msg.title,
+		description: msg.description,
+		category: msg.category,
+		tags: msg.tags,
+		credit: msg.credit,
+		orientation: msg.orientation,
+	});
+	ctx.bus.emit("assets:changed", {});
+}
+
+function handlePageGo(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "page_go" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (!d || msg.page < 1 || msg.page > d.pages.length) return;
+	d.activePage = msg.page - 1;
+	ctx.bus.emit("document:loaded", { docName: d.name });
+}
+
+function handleClearCanvas(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "clear_canvas" }>,
+): void {
+	const d = ctx.wsDoc(msg);
+	if (!d) return;
+	const page = d.pages[d.activePage];
+	if (page) page.elements = [];
+	d.nextId = 1;
+	ctx.bus.emit("elements:cleared", { docName: d.name });
+}
+
+function handleDeleteDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "delete_document" }>,
+): void {
+	const name = msg.name;
+	const d = ctx.documents.resolve(name ?? "");
+	if (!name || !d || ctx.documents.all().size <= 1) return;
+	if (d.meta?.locked === true) {
+		ctx.bus.emit("toast", {
+			text: `"${name}" is locked — unlock it to delete`,
+			level: "info",
+		});
+		return;
+	}
+	ctx.documents.delete(name);
+	ctx.pending.dropDoc(name);
+	ctx.bus.emit("document:deleted", { docName: name });
+}
+
+function handleRenameDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "rename_document" }>,
+): void {
+	const { name, newName } = msg;
+	if (!name || !newName || name === newName) return;
+	const d = ctx.documents.resolve(name);
+	if (!d) return;
+	if (d.meta?.locked === true) {
+		ctx.bus.emit("toast", {
+			text: `"${name}" is locked — unlock it to rename`,
+			level: "info",
+		});
+		return;
+	}
+	if (ctx.documents.all().has(newName)) {
+		ctx.bus.emit("toast", {
+			text: `Name "${newName}" already exists`,
+			level: "error",
+		});
+		return;
+	}
+	ctx.documents.delete(name);
+	d.name = newName;
+	ctx.documents.all().set(newName, d);
+	ctx.documents.persist(newName);
+	ctx.wsRegistry.broadcast({ type: "doc_removed", name });
+	ctx.bus.emit("document:loaded", { docName: newName });
+	ctx.bus.emit("toast", {
+		text: `"${name}" → "${newName}"`,
+		level: "success",
+	});
+}
+
+function handleDuplicateDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "duplicate_document" }>,
+): void {
+	const { name, newName } = msg;
+	if (!name || !newName) return;
+	const src = ctx.documents.resolve(name);
+	if (!src) return;
+	if (ctx.documents.all().has(newName)) {
+		ctx.bus.emit("toast", {
+			text: `Name "${newName}" already exists`,
+			level: "error",
+		});
+		return;
+	}
+	const cloneData = structuredClone({
+		name: newName,
+		category: src.category,
+		canvas: src.canvas,
+		meta: src.meta,
+		pages: src.pages,
+		activePage: src.activePage,
+		nextId: src.nextId,
+	});
+	if (cloneData.meta) cloneData.meta.locked = false;
+	const clone = createDocument(cloneData);
+	ctx.documents.all().set(clone.name, clone);
+	ctx.documents.persist(clone.name);
+	ctx.bus.emit("document:created", { docName: clone.name });
+	ctx.bus.emit("toast", {
+		text: `"${name}" cloned → "${clone.name}"`,
+		level: "success",
+	});
+}
+
+function handleLockDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "lock_document" }>,
+): void {
+	const { name, locked } = msg;
+	if (!name) return;
+	const d = ctx.documents.resolve(name);
+	if (!d) return;
+	if (!d.meta) d.meta = {};
+	d.meta.locked = locked === true;
+	ctx.documents.persist(d.name);
+	ctx.bus.emit("meta:updated", { docName: d.name });
+	ctx.bus.emit("toast", {
+		text: locked ? `"${d.name}" locked` : `"${d.name}" unlocked`,
+		level: "info",
+	});
+}
+
+function handleTextEdit(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "text_edit" }>,
+): void {
+	if (!msg.docName || !msg.elementId || msg.html == null) {
+		log(
+			`[text_edit] FAIL: missing fields — docName:${msg.docName} elementId:${msg.elementId} html:${msg.html != null}`,
+		);
+		return;
+	}
+	const d = ctx.documents.resolve(msg.docName);
+	if (!d) {
+		log(`[text_edit] FAIL: doc not found: ${msg.docName}`);
+		return;
+	}
+	const pi = typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
+	const page = d.pages[pi];
+	if (!page?.html) {
+		log(`[text_edit] FAIL: no page html for ${msg.docName} page ${pi}`);
+		return;
+	}
+	const { document: dom } = parseHTML(`<html><body>${page.html}</body></html>`);
+	const el = dom.body.querySelector(`[data-id="${msg.elementId}"]`);
+	if (!el) {
+		log(`[text_edit] FAIL: element not found: ${msg.elementId}`);
+		return;
+	}
+	log(
+		`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
+	);
+	el.innerHTML = (msg.html as string).replace(/<style[\s\S]*?<\/style>/gi, "");
+	page.html = stripActiveHtml(dom.body.innerHTML);
+	log(`[text_edit] updated page.html length: ${page.html.length}`);
+	ctx.documents.persist(d.name);
+	ctx.broadcastState(d);
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

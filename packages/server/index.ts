@@ -11,7 +11,7 @@ import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { WsStateMessage } from "@maket/shared";
+import type { WorkspaceStateSignal } from "@maket/shared";
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createAppContainer } from "./src/bootstrap.js";
@@ -23,7 +23,7 @@ import type { Bus } from "./src/services/bus.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
 import type { Documents } from "./src/services/documents.js";
-import type { WsMessageHandler } from "./src/services/ws-handler.js";
+import type { WorkspaceCommandHandler } from "./src/services/ws-handler.js";
 import type { WsLike, WsRegistry } from "./src/services/ws-registry.js";
 import { assetsPack } from "./src/tools/assets.js";
 import { canvasPack } from "./src/tools/canvas.js";
@@ -82,7 +82,7 @@ const config = appContainer.resolve<Config>("config");
 const bus = appContainer.resolve<Bus>("bus");
 const documents = appContainer.resolve<Documents>("documents");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
-const wsHandler = appContainer.resolve<WsMessageHandler>("wsHandler");
+const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
 const assets = appContainer.resolve<AssetsService>("assets");
 
 const thumbMigration = assets.migrateLegacyThumbs();
@@ -322,7 +322,7 @@ wss.on("connection", (ws) => {
 	wsRegistry.add(ws as unknown as WsLike);
 	const docs = documents.all();
 	const firstDoc = docs.size > 0 ? (docs.values().next().value ?? null) : null;
-	const initialState: WsStateMessage = {
+	const initialState: WorkspaceStateSignal = {
 		type: "state",
 		doc: documents.lightView(firstDoc ?? null),
 		docList: documents.list(),

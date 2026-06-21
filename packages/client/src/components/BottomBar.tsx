@@ -16,6 +16,10 @@ import { getLang, toggleLang, useT } from "../i18n/useT";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { fitToView } from "../store/zoomBridge";
 
+type PanelName = "chartes" | "photos" | "docs" | "exchange";
+
+// code-moniker: ignore[smell-feature-envy-local]
+// BottomBar is the client shell adapter: it intentionally composes store selectors, i18n, and command controls without owning their state.
 export function BottomBar() {
 	const t = useT();
 	const connected = useStore((s) => s.connected);
@@ -29,85 +33,48 @@ export function BottomBar() {
 	const autoFocusFit = useStore((s) => s.autoFocusFit);
 	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
 
-	const togglePosition = () => {
-		setBarPosition(position === "bottom" ? "top" : "bottom");
-	};
-
 	const hasDoc = focusedDoc !== null;
-
-	const iconBtn = (
-		panel: "chartes" | "photos" | "docs" | "exchange",
-		icon: React.ReactNode,
-		title: string,
-		badge?: number,
-	) => (
-		<button
-			type="button"
-			onClick={() => togglePanel(panel)}
-			title={title}
-			className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors relative ${
-				activePanel === panel
-					? "bg-accent text-white"
-					: "text-text-3 hover:text-text-1 hover:bg-input"
-			}`}
-		>
-			{icon}
-			{badge != null && badge > 0 && (
-				<span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
-					{badge}
-				</span>
-			)}
-		</button>
-	);
+	const togglePosition = () =>
+		setBarPosition(position === "bottom" ? "top" : "bottom");
 
 	return (
 		<div
 			className={`fixed left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
 		>
 			{position === "top" && (
-				<button
-					type="button"
-					onClick={togglePosition}
-					title="Move to bottom"
-					className="w-5 h-4 rounded-full flex items-center justify-center text-text-1 bg-panel shadow-sm hover:shadow-md transition-shadow"
-				>
-					<ChevronDown size={12} />
-				</button>
+				<PositionToggle direction="bottom" onToggle={togglePosition} />
 			)}
 
 			<div className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1">
-				{iconBtn("chartes", <Palette size={16} />, t("chartes"))}
-				{iconBtn("photos", <Image size={16} />, t("photos"))}
-				{iconBtn("docs", <FileText size={16} />, t("documents"))}
+				<PanelButton
+					panel="chartes"
+					icon={<Palette size={16} />}
+					title={t("chartes")}
+					activePanel={activePanel}
+					onToggle={togglePanel}
+				/>
+				<PanelButton
+					panel="photos"
+					icon={<Image size={16} />}
+					title={t("photos")}
+					activePanel={activePanel}
+					onToggle={togglePanel}
+				/>
+				<PanelButton
+					panel="docs"
+					icon={<FileText size={16} />}
+					title={t("documents")}
+					activePanel={activePanel}
+					onToggle={togglePanel}
+				/>
 
-				<button
-					type="button"
-					onClick={fitToView}
-					title={t("fit")}
-					aria-label={t("fit")}
-					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
-				>
-					<Maximize size={16} />
-				</button>
-
-				<button
-					type="button"
-					onClick={toggleAutoFocusFit}
-					title={
-						autoFocusFit ? t("auto_focus_fit_on") : t("auto_focus_fit_off")
-					}
-					aria-label={
-						autoFocusFit ? t("auto_focus_fit_on") : t("auto_focus_fit_off")
-					}
-					aria-pressed={!autoFocusFit}
-					className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-						autoFocusFit
-							? "text-text-3 hover:text-text-1 hover:bg-input"
-							: "text-accent hover:bg-input"
-					}`}
-				>
-					{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
-				</button>
+				<FitControls
+					autoFocusFit={autoFocusFit}
+					onToggleAutoFocusFit={toggleAutoFocusFit}
+					fitLabel={t("fit")}
+					autoOnLabel={t("auto_focus_fit_on")}
+					autoOffLabel={t("auto_focus_fit_off")}
+				/>
 
 				<div className="flex items-center gap-1.5 px-2">
 					<div
@@ -118,12 +85,14 @@ export function BottomBar() {
 					</span>
 				</div>
 
-				{iconBtn(
-					"exchange",
-					<MessageCircle size={16} />,
-					t("exchanges"),
-					pendingCount,
-				)}
+				<PanelButton
+					panel="exchange"
+					icon={<MessageCircle size={16} />}
+					title={t("exchanges")}
+					badge={pendingCount}
+					activePanel={activePanel}
+					onToggle={togglePanel}
+				/>
 
 				{hasDoc && (
 					<a
@@ -161,15 +130,110 @@ export function BottomBar() {
 			</div>
 
 			{position === "bottom" && (
-				<button
-					type="button"
-					onClick={togglePosition}
-					title="Move to top"
-					className="w-5 h-4 rounded-full flex items-center justify-center text-text-1 bg-panel shadow-sm hover:shadow-md transition-shadow"
-				>
-					<ChevronUp size={12} />
-				</button>
+				<PositionToggle direction="top" onToggle={togglePosition} />
 			)}
 		</div>
+	);
+}
+
+function PanelButton({
+	panel,
+	icon,
+	title,
+	activePanel,
+	onToggle,
+	badge,
+}: {
+	panel: PanelName;
+	icon: React.ReactNode;
+	title: string;
+	activePanel: string | null;
+	onToggle: (panel: PanelName) => void;
+	badge?: number;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={() => onToggle(panel)}
+			title={title}
+			className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors relative ${
+				activePanel === panel
+					? "bg-accent text-white"
+					: "text-text-3 hover:text-text-1 hover:bg-input"
+			}`}
+		>
+			{icon}
+			{badge != null && badge > 0 && (
+				<span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+					{badge}
+				</span>
+			)}
+		</button>
+	);
+}
+
+function FitControls({
+	autoFocusFit,
+	onToggleAutoFocusFit,
+	fitLabel,
+	autoOnLabel,
+	autoOffLabel,
+}: {
+	autoFocusFit: boolean;
+	onToggleAutoFocusFit: () => void;
+	fitLabel: string;
+	autoOnLabel: string;
+	autoOffLabel: string;
+}) {
+	const autoLabel = autoFocusFit ? autoOnLabel : autoOffLabel;
+	return (
+		<>
+			<button
+				type="button"
+				onClick={fitToView}
+				title={fitLabel}
+				aria-label={fitLabel}
+				className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
+			>
+				<Maximize size={16} />
+			</button>
+			<button
+				type="button"
+				onClick={onToggleAutoFocusFit}
+				title={autoLabel}
+				aria-label={autoLabel}
+				aria-pressed={!autoFocusFit}
+				className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+					autoFocusFit
+						? "text-text-3 hover:text-text-1 hover:bg-input"
+						: "text-accent hover:bg-input"
+				}`}
+			>
+				{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
+			</button>
+		</>
+	);
+}
+
+function PositionToggle({
+	direction,
+	onToggle,
+}: {
+	direction: "top" | "bottom";
+	onToggle: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			title={direction === "top" ? "Move to top" : "Move to bottom"}
+			className="w-5 h-4 rounded-full flex items-center justify-center text-text-1 bg-panel shadow-sm hover:shadow-md transition-shadow"
+		>
+			{direction === "top" ? (
+				<ChevronUp size={12} />
+			) : (
+				<ChevronDown size={12} />
+			)}
+		</button>
 	);
 }

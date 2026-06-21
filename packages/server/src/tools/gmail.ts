@@ -442,6 +442,8 @@ function formatSize(bytes: number): string {
 	return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(0)}KB`;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Attachment fetch is a Gmail adapter workflow that coordinates grants, message lookup, asset storage, and document import decisions.
 async function runFetchAttachment(
 	args: Args,
 	deps: GmailDeps,
@@ -714,6 +716,8 @@ function buildMimeMessage(
 	return `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Draft creation is a Gmail adapter workflow spanning grants, document rendering, attachment assembly, and metadata mirroring.
 async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { documents, store, gmailClient, pdfService, config, assets } = deps;
 	if (!args.doc) return text("doc is required for action=draft", true);

@@ -1,4 +1,8 @@
-import type { ChartesListItem } from "@maket/shared";
+import {
+	type CharteRulesWire,
+	type ChartesListItem,
+	parseCharteRules,
+} from "@maket/shared";
 import { Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,7 +21,7 @@ interface CharteInput extends ChartesListItem {
 		dont?: string[];
 		vocabulary?: string[];
 	};
-	rules?: Record<string, string> | string;
+	rules?: CharteRulesWire;
 }
 
 interface TokenRow {
@@ -33,18 +37,6 @@ const TOKEN_GROUPS: TokenGroupKey[] = ["color", "font", "spacing", "radius"];
 
 function createTokenRow(key: string, value: string): TokenRow {
 	return { id: randomId(), key, value };
-}
-
-function parseRules(rules: CharteInput["rules"]): Record<string, string> {
-	if (!rules) return {};
-	if (typeof rules === "string") {
-		try {
-			return JSON.parse(rules) as Record<string, string>;
-		} catch {
-			return {};
-		}
-	}
-	return rules;
 }
 
 function toTokenState(tokens: CharteInput["tokens"]): TokenState {
@@ -92,39 +84,114 @@ interface Props {
 }
 
 export function CharteEditModal({ charte, onClose }: Props) {
-	const t = useT();
-	const [description, setDescription] = useState(charte.description ?? "");
-	const [tokens, setTokens] = useState<TokenState>(() =>
-		toTokenState(charte.tokens),
-	);
-	const [personality, setPersonality] = useState(
-		(charte.voice?.personality ?? []).join(", "),
-	);
-	const [formality, setFormality] = useState(charte.voice?.formality ?? "");
-	const [voiceDo, setVoiceDo] = useState((charte.voice?.do ?? []).join("\n"));
-	const [voiceDont, setVoiceDont] = useState(
-		(charte.voice?.dont ?? []).join("\n"),
-	);
-	const initialRules = useMemo(() => parseRules(charte.rules), [charte.rules]);
-	const [rTitles, setRTitles] = useState(initialRules.titles ?? "");
-	const [rPhotos, setRPhotos] = useState(initialRules.photos ?? "");
-	const [rLayout, setRLayout] = useState(initialRules.layout ?? "");
+	const model = useCharteEditForm(charte, onClose);
+	return createPortal(<CharteEditDialog model={model} />, document.body);
+}
 
+interface CharteEditForm {
+	name: string;
+	description: string;
+	setDescription: (value: string) => void;
+	tokens: TokenState;
+	tokenActions: TokenGroupActionsByGroup;
+	voice: VoiceFields;
+	rules: RuleFields;
+	onClose: () => void;
+	save: () => void;
+}
+
+interface VoiceFields {
+	personality: string;
+	setPersonality: (value: string) => void;
+	formality: string;
+	setFormality: (value: string) => void;
+	doText: string;
+	setDoText: (value: string) => void;
+	dontText: string;
+	setDontText: (value: string) => void;
+}
+
+interface RuleFields {
+	titles: string;
+	setTitles: (value: string) => void;
+	photos: string;
+	setPhotos: (value: string) => void;
+	layout: string;
+	setLayout: (value: string) => void;
+}
+
+interface TokenGroupActionsByGroup {
+	change: (
+		group: TokenGroupKey,
+		idx: number,
+		field: 0 | 1,
+		value: string,
+	) => void;
+	add: (group: TokenGroupKey) => void;
+	remove: (group: TokenGroupKey, idx: number) => void;
+}
+
+function useCharteEditForm(
+	charte: CharteInput,
+	onClose: () => void,
+): CharteEditForm {
+	const [description, setDescription] = useState(charte.description ?? "");
+	const tokenFields = useTokenFields(charte.tokens);
+	const voice = useVoiceFields(charte.voice);
+	const initialRules = useMemo(
+		() => parseCharteRules(charte.rules),
+		[charte.rules],
+	);
+	const rules = useRuleFields(initialRules);
+
+	useDismissOnEscape(onClose);
+
+	const save = () => {
+		wsSend(
+			buildCharteSavePayload(charte, {
+				description,
+				tokens: tokenFields.tokens,
+				voice,
+				rules,
+				initialRules,
+			}),
+		);
+		onClose();
+	};
+
+	return {
+		name: charte.name,
+		description,
+		setDescription,
+		tokens: tokenFields.tokens,
+		tokenActions: tokenFields.actions,
+		voice,
+		rules,
+		onClose,
+		save,
+	};
+}
+
+function useDismissOnEscape(onClose: () => void) {
 	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onClose();
 		};
 		document.addEventListener("keydown", onKey);
 		return () => document.removeEventListener("keydown", onKey);
 	}, [onClose]);
+}
 
-	const updateRow = (
+function useTokenFields(tokens: CharteInput["tokens"]) {
+	const [state, setState] = useState<TokenState>(() => toTokenState(tokens));
+
+	const change = (
 		group: TokenGroupKey,
 		idx: number,
 		field: 0 | 1,
 		value: string,
 	) => {
-		setTokens((prev) => {
+		setState((prev) => {
 			const next = { ...prev, [group]: [...prev[group]] };
 			const row = next[group][idx];
 			if (!row) return prev;
@@ -134,70 +201,124 @@ export function CharteEditModal({ charte, onClose }: Props) {
 		});
 	};
 
-	const addRow = (group: TokenGroupKey) => {
-		setTokens((prev) => ({
+	const add = (group: TokenGroupKey) => {
+		setState((prev) => ({
 			...prev,
 			[group]: [...prev[group], createTokenRow("", "")],
 		}));
 	};
 
-	const removeRow = (group: TokenGroupKey, idx: number) => {
-		setTokens((prev) => ({
+	const remove = (group: TokenGroupKey, idx: number) => {
+		setState((prev) => ({
 			...prev,
 			[group]: prev[group].filter((_, i) => i !== idx),
 		}));
 	};
 
-	const save = () => {
-		const personalityList = splitCsv(personality);
-		const doList = splitLines(voiceDo);
-		const dontList = splitLines(voiceDont);
+	return { tokens: state, actions: { change, add, remove } };
+}
 
-		const modeledTokens = serializeTokens(tokens);
-		const mergedTokens: Record<string, Record<string, string>> = {
-			...(charte.tokens ?? {}),
-		};
-		for (const group of TOKEN_GROUPS) {
-			if (modeledTokens[group]) mergedTokens[group] = modeledTokens[group];
-			else delete mergedTokens[group];
-		}
-
-		const originalVoice = charte.voice ?? {};
-		const mergedVoice: NonNullable<CharteInput["voice"]> = { ...originalVoice };
-		mergedVoice.personality = personalityList.length
-			? personalityList
-			: undefined;
-		mergedVoice.formality = formality.trim() || undefined;
-		mergedVoice.do = doList.length ? doList : undefined;
-		mergedVoice.dont = dontList.length ? dontList : undefined;
-		for (const key of Object.keys(
-			mergedVoice,
-		) as (keyof typeof mergedVoice)[]) {
-			if (mergedVoice[key] === undefined) delete mergedVoice[key];
-		}
-
-		const mergedRules: Record<string, string> = { ...initialRules };
-		const setOrDelete = (key: string, value: string) => {
-			const trimmed = value.trim();
-			if (trimmed) mergedRules[key] = trimmed;
-			else delete mergedRules[key];
-		};
-		setOrDelete("titles", rTitles);
-		setOrDelete("photos", rPhotos);
-		setOrDelete("layout", rLayout);
-
-		wsSend({
-			type: "charte_save",
-			name: charte.name,
-			description: description.trim() || undefined,
-			tokens: mergedTokens,
-			voice: Object.keys(mergedVoice).length ? mergedVoice : undefined,
-			rules: Object.keys(mergedRules).length ? mergedRules : undefined,
-		});
-		onClose();
+function useVoiceFields(voice: CharteInput["voice"]): VoiceFields {
+	const [personality, setPersonality] = useState(
+		(voice?.personality ?? []).join(", "),
+	);
+	const [formality, setFormality] = useState(voice?.formality ?? "");
+	const [doText, setDoText] = useState((voice?.do ?? []).join("\n"));
+	const [dontText, setDontText] = useState((voice?.dont ?? []).join("\n"));
+	return {
+		personality,
+		setPersonality,
+		formality,
+		setFormality,
+		doText,
+		setDoText,
+		dontText,
+		setDontText,
 	};
+}
 
-	return createPortal(
+function useRuleFields(initialRules: Record<string, string>): RuleFields {
+	const [titles, setTitles] = useState(initialRules.titles ?? "");
+	const [photos, setPhotos] = useState(initialRules.photos ?? "");
+	const [layout, setLayout] = useState(initialRules.layout ?? "");
+	return { titles, setTitles, photos, setPhotos, layout, setLayout };
+}
+
+interface CharteSaveFormState {
+	description: string;
+	tokens: TokenState;
+	voice: VoiceFields;
+	rules: RuleFields;
+	initialRules: Record<string, string>;
+}
+
+function buildCharteSavePayload(
+	charte: CharteInput,
+	form: CharteSaveFormState,
+) {
+	const mergedVoice = mergeVoice(charte.voice, form.voice);
+	const mergedRules = mergeRules(form.initialRules, form.rules);
+	return {
+		type: "charte_save" as const,
+		name: charte.name,
+		description: form.description.trim() || undefined,
+		tokens: mergeTokens(charte.tokens, form.tokens),
+		voice: Object.keys(mergedVoice).length ? mergedVoice : undefined,
+		rules: Object.keys(mergedRules).length ? mergedRules : undefined,
+	};
+}
+
+function mergeTokens(original: CharteInput["tokens"], state: TokenState) {
+	const modeledTokens = serializeTokens(state);
+	const mergedTokens: Record<string, Record<string, string>> = {
+		...(original ?? {}),
+	};
+	for (const group of TOKEN_GROUPS) {
+		if (modeledTokens[group]) mergedTokens[group] = modeledTokens[group];
+		else delete mergedTokens[group];
+	}
+	return mergedTokens;
+}
+
+function mergeVoice(original: CharteInput["voice"], voice: VoiceFields) {
+	const mergedVoice: NonNullable<CharteInput["voice"]> = {
+		...(original ?? {}),
+	};
+	const personality = splitCsv(voice.personality);
+	const doList = splitLines(voice.doText);
+	const dontList = splitLines(voice.dontText);
+	mergedVoice.personality = personality.length ? personality : undefined;
+	mergedVoice.formality = voice.formality.trim() || undefined;
+	mergedVoice.do = doList.length ? doList : undefined;
+	mergedVoice.dont = dontList.length ? dontList : undefined;
+	for (const key of Object.keys(mergedVoice) as (keyof typeof mergedVoice)[]) {
+		if (mergedVoice[key] === undefined) delete mergedVoice[key];
+	}
+	return mergedVoice;
+}
+
+function mergeRules(initialRules: Record<string, string>, rules: RuleFields) {
+	const mergedRules: Record<string, string> = { ...initialRules };
+	mergeRuleField(mergedRules, "titles", rules.titles);
+	mergeRuleField(mergedRules, "photos", rules.photos);
+	mergeRuleField(mergedRules, "layout", rules.layout);
+	return mergedRules;
+}
+
+function mergeRuleField(
+	rules: Record<string, string>,
+	key: string,
+	value: string,
+) {
+	const trimmed = value.trim();
+	if (trimmed) rules[key] = trimmed;
+	else delete rules[key];
+}
+
+function CharteEditDialog({ model }: { model: CharteEditForm }) {
+	const t = useT();
+
+	return (
 		<div
 			className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center p-4"
 			role="dialog"
@@ -207,147 +328,192 @@ export function CharteEditModal({ charte, onClose }: Props) {
 			<button
 				type="button"
 				aria-label={t("cancel")}
-				onClick={onClose}
+				onClick={model.onClose}
 				className="absolute inset-0 bg-black/30"
 			/>
 			<div className="relative bg-panel rounded-2xl shadow-[0_24px_80px_rgba(0,0,0,0.22)] border border-black/5 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
-				<header className="flex items-center gap-3 px-5 py-4 border-b border-black/5">
-					<div className="flex-1 min-w-0">
-						<div className="text-xs font-bold text-text-3 uppercase tracking-wider">
-							{t("charte_edit_title")}
-						</div>
-						<div className="text-base font-bold truncate">{charte.name}</div>
-					</div>
-					<button
-						type="button"
-						onClick={onClose}
-						aria-label={t("cancel")}
-						className="w-8 h-8 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
-					>
-						<X size={16} />
-					</button>
-				</header>
+				<CharteEditHeader model={model} />
 
 				<div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-5">
-					<Field label={t("charte_edit_description")}>
-						<input
-							value={description}
-							onChange={(e) => setDescription(e.target.value)}
-							placeholder={t("charte_edit_description_placeholder")}
-							className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
-						/>
-					</Field>
-
-					<section className="flex flex-col gap-3">
-						<SectionTitle>{t("charte_edit_tokens")}</SectionTitle>
-						{TOKEN_GROUPS.map((group) => (
-							<TokenGroup
-								key={group}
-								model={{
-									group,
-									label: t(`charte_edit_token_group_${group}`),
-									rows: tokens[group],
-								}}
-								actions={{
-									change: (idx, field, value) =>
-										updateRow(group, idx, field, value),
-									add: () => addRow(group),
-									remove: (idx) => removeRow(group, idx),
-								}}
-								labels={{
-									add: t("charte_edit_token_add"),
-									key: t("charte_edit_token_key"),
-									value: t("charte_edit_token_value"),
-									remove: t("charte_edit_token_remove"),
-								}}
-							/>
-						))}
-					</section>
-
-					<section className="flex flex-col gap-3">
-						<SectionTitle>{t("charte_edit_voice")}</SectionTitle>
-						<Field label={t("charte_edit_voice_personality")}>
-							<input
-								value={personality}
-								onChange={(e) => setPersonality(e.target.value)}
-								className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
-							/>
-						</Field>
-						<Field label={t("charte_edit_voice_formality")}>
-							<input
-								value={formality}
-								onChange={(e) => setFormality(e.target.value)}
-								className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
-							/>
-						</Field>
-						<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-							<Field label={t("charte_edit_voice_do")}>
-								<textarea
-									value={voiceDo}
-									onChange={(e) => setVoiceDo(e.target.value)}
-									rows={4}
-									className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
-								/>
-							</Field>
-							<Field label={t("charte_edit_voice_dont")}>
-								<textarea
-									value={voiceDont}
-									onChange={(e) => setVoiceDont(e.target.value)}
-									rows={4}
-									className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
-								/>
-							</Field>
-						</div>
-					</section>
-
-					<section className="flex flex-col gap-3">
-						<SectionTitle>{t("charte_edit_rules")}</SectionTitle>
-						<Field label={t("charte_edit_rules_titles")}>
-							<textarea
-								value={rTitles}
-								onChange={(e) => setRTitles(e.target.value)}
-								rows={2}
-								className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
-							/>
-						</Field>
-						<Field label={t("charte_edit_rules_photos")}>
-							<textarea
-								value={rPhotos}
-								onChange={(e) => setRPhotos(e.target.value)}
-								rows={2}
-								className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
-							/>
-						</Field>
-						<Field label={t("charte_edit_rules_layout")}>
-							<textarea
-								value={rLayout}
-								onChange={(e) => setRLayout(e.target.value)}
-								rows={2}
-								className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
-							/>
-						</Field>
-					</section>
+					<DescriptionField model={model} />
+					<TokenFields model={model} />
+					<VoiceFieldsSection voice={model.voice} />
+					<RulesFields rules={model.rules} />
 				</div>
 
-				<footer className="flex items-center justify-end gap-2 px-5 py-3 border-t border-black/5">
-					<button
-						type="button"
-						onClick={onClose}
-						className="px-4 py-2 rounded-lg text-sm font-semibold text-text-2 hover:bg-black/[0.05] transition"
-					>
-						{t("cancel")}
-					</button>
-					<button
-						type="button"
-						onClick={save}
-						className="px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:brightness-110 transition"
-					>
-						{t("save")}
-					</button>
-				</footer>
+				<CharteEditFooter model={model} />
 			</div>
-		</div>,
-		document.body,
+		</div>
+	);
+}
+
+function CharteEditHeader({ model }: { model: CharteEditForm }) {
+	const t = useT();
+	return (
+		<header className="flex items-center gap-3 px-5 py-4 border-b border-black/5">
+			<div className="flex-1 min-w-0">
+				<div className="text-xs font-bold text-text-3 uppercase tracking-wider">
+					{t("charte_edit_title")}
+				</div>
+				<div className="text-base font-bold truncate">{model.name}</div>
+			</div>
+			<button
+				type="button"
+				onClick={model.onClose}
+				aria-label={t("cancel")}
+				className="w-8 h-8 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
+			>
+				<X size={16} />
+			</button>
+		</header>
+	);
+}
+
+function DescriptionField({ model }: { model: CharteEditForm }) {
+	const t = useT();
+	return (
+		<Field label={t("charte_edit_description")}>
+			<input
+				value={model.description}
+				onChange={(event) => model.setDescription(event.target.value)}
+				placeholder={t("charte_edit_description_placeholder")}
+				className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
+			/>
+		</Field>
+	);
+}
+
+function TokenFields({ model }: { model: CharteEditForm }) {
+	const t = useT();
+	const labels = {
+		add: t("charte_edit_token_add"),
+		key: t("charte_edit_token_key"),
+		value: t("charte_edit_token_value"),
+		remove: t("charte_edit_token_remove"),
+	};
+	return (
+		<section className="flex flex-col gap-3">
+			<SectionTitle>{t("charte_edit_tokens")}</SectionTitle>
+			{TOKEN_GROUPS.map((group) => (
+				<TokenGroup
+					key={group}
+					model={{
+						group,
+						label: t(`charte_edit_token_group_${group}`),
+						rows: model.tokens[group],
+					}}
+					actions={tokenGroupActions(model.tokenActions, group)}
+					labels={labels}
+				/>
+			))}
+		</section>
+	);
+}
+
+function tokenGroupActions(
+	actions: TokenGroupActionsByGroup,
+	group: TokenGroupKey,
+): TokenGroupActions {
+	return {
+		change: (idx, field, value) => actions.change(group, idx, field, value),
+		add: () => actions.add(group),
+		remove: (idx) => actions.remove(group, idx),
+	};
+}
+
+function VoiceFieldsSection({ voice }: { voice: VoiceFields }) {
+	const t = useT();
+	return (
+		<section className="flex flex-col gap-3">
+			<SectionTitle>{t("charte_edit_voice")}</SectionTitle>
+			<Field label={t("charte_edit_voice_personality")}>
+				<input
+					value={voice.personality}
+					onChange={(event) => voice.setPersonality(event.target.value)}
+					className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
+				/>
+			</Field>
+			<Field label={t("charte_edit_voice_formality")}>
+				<input
+					value={voice.formality}
+					onChange={(event) => voice.setFormality(event.target.value)}
+					className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20"
+				/>
+			</Field>
+			<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+				<Field label={t("charte_edit_voice_do")}>
+					<textarea
+						value={voice.doText}
+						onChange={(event) => voice.setDoText(event.target.value)}
+						rows={4}
+						className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
+					/>
+				</Field>
+				<Field label={t("charte_edit_voice_dont")}>
+					<textarea
+						value={voice.dontText}
+						onChange={(event) => voice.setDontText(event.target.value)}
+						rows={4}
+						className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
+					/>
+				</Field>
+			</div>
+		</section>
+	);
+}
+
+function RulesFields({ rules }: { rules: RuleFields }) {
+	const t = useT();
+	return (
+		<section className="flex flex-col gap-3">
+			<SectionTitle>{t("charte_edit_rules")}</SectionTitle>
+			<Field label={t("charte_edit_rules_titles")}>
+				<textarea
+					value={rules.titles}
+					onChange={(event) => rules.setTitles(event.target.value)}
+					rows={2}
+					className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
+				/>
+			</Field>
+			<Field label={t("charte_edit_rules_photos")}>
+				<textarea
+					value={rules.photos}
+					onChange={(event) => rules.setPhotos(event.target.value)}
+					rows={2}
+					className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
+				/>
+			</Field>
+			<Field label={t("charte_edit_rules_layout")}>
+				<textarea
+					value={rules.layout}
+					onChange={(event) => rules.setLayout(event.target.value)}
+					rows={2}
+					className="w-full px-3 py-2 bg-input rounded-lg text-sm outline-none focus:ring-2 focus:ring-accent/20 resize-y"
+				/>
+			</Field>
+		</section>
+	);
+}
+
+function CharteEditFooter({ model }: { model: CharteEditForm }) {
+	const t = useT();
+	return (
+		<footer className="flex items-center justify-end gap-2 px-5 py-3 border-t border-black/5">
+			<button
+				type="button"
+				onClick={model.onClose}
+				className="px-4 py-2 rounded-lg text-sm font-semibold text-text-2 hover:bg-black/[0.05] transition"
+			>
+				{t("cancel")}
+			</button>
+			<button
+				type="button"
+				onClick={model.save}
+				className="px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:brightness-110 transition"
+			>
+				{t("save")}
+			</button>
+		</footer>
 	);
 }
 

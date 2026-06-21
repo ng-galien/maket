@@ -5,6 +5,14 @@ import { useStore } from "../store/useStore";
 import { randomId } from "../utils";
 
 export function Popover() {
+	const model = usePopoverModel();
+	if (!model) return null;
+	return <PopoverView {...model} />;
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// This hook is a DOM positioning adapter for the popover shell; it coordinates browser events and local UI state rather than domain behavior.
+function usePopoverModel() {
 	const t = useT();
 	const selectedId = useStore((s) =>
 		s.selectedIds.length === 1 ? s.selectedIds[0] : null,
@@ -31,51 +39,20 @@ export function Popover() {
 
 	useLayoutEffect(() => {
 		if (!selectedId) return;
-		const el = document.querySelector(
-			`[data-id="${selectedId}"]`,
-		) as HTMLElement | null;
+		const el = selectedElement(selectedId);
 		if (!el) return;
-
-		const rect = el.getBoundingClientRect();
-		const popW = 240;
-		const gap = 12;
-		const vw = window.innerWidth;
-		const vh = window.innerHeight;
-
-		let left: number;
-		if (rect.right + gap + popW < vw) {
-			left = rect.right + gap;
-		} else if (rect.left - gap - popW > 0) {
-			left = rect.left - gap - popW;
-		} else {
-			left = vw - popW - 20;
-		}
-
-		const popH = popRef.current?.offsetHeight || 200;
-		let top = rect.top;
-		top = Math.max(20, Math.min(top, vh - popH - 20));
-
-		console.log("[popover] position:", {
-			id: selectedId,
-			elRect: { top: rect.top, right: rect.right, left: rect.left },
-			popover: { top, left },
-		});
-		setPos({ top, left });
+		setPos(
+			positionPopover(selectedId, el, popRef.current?.offsetHeight || 200),
+		);
 	}, [selectedId]);
 
 	if (!selectedId || !showPopover || isEditing) return null;
 
-	const el = document.querySelector(
-		`[data-id="${selectedId}"]`,
-	) as HTMLElement | null;
+	const el = selectedElement(selectedId);
 	if (!el) return null;
 
-	const pageCanvas = el.closest(".page-canvas") as HTMLElement | null;
-	const pageIndex = pageCanvas
-		? Number.parseInt(pageCanvas.dataset.page ?? "0", 10)
-		: 0;
+	const pageIndex = selectedElementPageIndex(el);
 	const pageName = focusedDoc?.pages?.[pageIndex]?.name;
-
 	const isFlaggedDelete = pending.some(
 		(m) => m.type === "delete" && m.elementId === selectedId,
 	);
@@ -85,7 +62,6 @@ export function Popover() {
 	const elName = el.dataset.name || el.textContent?.slice(0, 20) || selectedId;
 
 	const deselect = () => useStore.getState().selectElement(null);
-
 	const submitNote = () => {
 		if (!note.trim()) return;
 		addPending({
@@ -120,6 +96,80 @@ export function Popover() {
 		}
 	};
 
+	return {
+		t,
+		popRef,
+		textareaRef,
+		pos,
+		focusedDocName,
+		focusedDoc,
+		pageName,
+		pageIndex,
+		elName,
+		existingNote,
+		isFlaggedDelete,
+		note,
+		setNote,
+		submitNote,
+		toggleDelete,
+	};
+}
+
+function selectedElement(selectedId: string): HTMLElement | null {
+	return document.querySelector(
+		`[data-id="${selectedId}"]`,
+	) as HTMLElement | null;
+}
+
+function selectedElementPageIndex(el: HTMLElement): number {
+	const pageCanvas = el.closest(".page-canvas") as HTMLElement | null;
+	return pageCanvas ? Number.parseInt(pageCanvas.dataset.page ?? "0", 10) : 0;
+}
+
+function positionPopover(
+	selectedId: string,
+	el: HTMLElement,
+	popoverHeight: number,
+): { top: number; left: number } {
+	const rect = el.getBoundingClientRect();
+	const popW = 240;
+	const gap = 12;
+	const vw = window.innerWidth;
+	const vh = window.innerHeight;
+	const rightSide = rect.right + gap + popW < vw;
+	const leftSide = rect.left - gap - popW > 0;
+	const left = rightSide
+		? rect.right + gap
+		: leftSide
+			? rect.left - gap - popW
+			: vw - popW - 20;
+	const top = Math.max(20, Math.min(rect.top, vh - popoverHeight - 20));
+	console.log("[popover] position:", {
+		id: selectedId,
+		elRect: { top: rect.top, right: rect.right, left: rect.left },
+		popover: { top, left },
+	});
+	return { top, left };
+}
+
+function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
+	const {
+		t,
+		popRef,
+		textareaRef,
+		pos,
+		focusedDocName,
+		focusedDoc,
+		pageName,
+		pageIndex,
+		elName,
+		existingNote,
+		isFlaggedDelete,
+		note,
+		setNote,
+		submitNote,
+		toggleDelete,
+	} = model;
 	return (
 		<div
 			ref={popRef}

@@ -1,4 +1,8 @@
-import type { WsLayoutReportMessage, WsMessage } from "@maket/shared";
+import type {
+	LayoutReportCommand,
+	WorkspaceCommand,
+	WorkspaceSignal,
+} from "@maket/shared";
 import en from "../i18n/en.json";
 
 import fr from "../i18n/fr.json";
@@ -121,7 +125,7 @@ function reportLayout(measureId?: string, docName?: string, pageIdx?: number) {
 	const page = findPageCanvas(docName, pageIdx);
 	if (!page) return;
 	const layout = measurePageLayout(page);
-	const msg: WsLayoutReportMessage = {
+	const msg: LayoutReportCommand = {
 		type: "layout_report",
 		...layout,
 	};
@@ -250,165 +254,182 @@ function connect(): void {
 		? `ws://${location.host}/ws`
 		: `ws://${location.host}`;
 	ws = new WebSocket(url);
-
-	ws.onopen = () => {
-		pendingLoadDoc = null;
-		initialStateReceived = false;
-		useStore.getState().setConnected(true);
-		wsSend({
-			type: "workspace_update",
-			displayed: useStore.getState().workspaceDocNames,
-		});
-		wsSend({
-			type: "sync_pending",
-			pending: useStore.getState().pending,
-		});
-	};
-
-	ws.onclose = () => {
-		useStore.getState().setConnected(false);
-		ws = null;
-		setTimeout(connect, 2000);
-	};
-
+	ws.onopen = handleWsOpen;
+	ws.onclose = handleWsClose;
 	ws.onerror = () => {};
-
-	ws.onmessage = (e) => {
-		let msg: WsMessage;
-		try {
-			msg = JSON.parse(e.data) as WsMessage;
-		} catch {
-			return;
-		}
-
-		if (msg.type === "state") {
-			const doc = msg.doc as Document | null;
-			const docList = (msg.docList ?? []) as DocSummary[];
-			if (msg.charteCss) ensureCharteFonts(msg.charteCss);
-			if (doc) {
-				if (!initialStateReceived) {
-					initialStateReceived = true;
-					useStore
-						.getState()
-						.upsertDoc(doc, docList, msg.charteCss || "", false, false);
-					const workspace = useStore.getState().workspaceDocNames;
-					for (const name of workspace) {
-						if (name !== doc.name) sendLoadDoc(name);
-						else
-							useStore
-								.getState()
-								.upsertDoc(doc, docList, msg.charteCss || "", true, true);
-					}
-				} else {
-					useStore
-						.getState()
-						.upsertDoc(
-							doc,
-							docList,
-							msg.charteCss || "",
-							msg.addToWorkspace ?? true,
-							msg.focus ?? false,
-						);
-				}
-				if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
-				const mid = msg.measureId;
-				const dn = doc.name;
-				const pi = doc.activePage ?? 0;
-				const shouldFit =
-					msg.focus === true && useStore.getState().autoFocusFit;
-				requestAnimationFrame(() =>
-					requestAnimationFrame(() => {
-						reportLayout(mid, dn, pi);
-						if (shouldFit) fitToDoc(dn, pi);
-					}),
-				);
-			} else {
-				useStore.setState({ docList });
-			}
-		}
-
-		if (msg.type === "charte_updated") {
-			ensureCharteFonts(msg.css);
-			const s = useStore.getState();
-			const chartesCss = new Map(s.chartesCss);
-			for (const [docName, doc] of s.docs) {
-				if (doc.meta?.charte === msg.name) chartesCss.set(docName, msg.css);
-			}
-			useStore.setState({
-				chartesCss,
-				chartesVersion: useStore.getState().chartesVersion + 1,
-			});
-		}
-
-		if (msg.type === "reload") {
-			location.reload();
-		}
-
-		if (msg.type === "doc_removed") {
-			console.log("[ws] doc_removed:", msg.name);
-			useStore.getState().removeDocFromWorkspace(msg.name);
-		}
-
-		if (msg.type === "charte_removed") {
-			const s = useStore.getState();
-			const chartesCss = new Map(s.chartesCss);
-			for (const [docName, doc] of s.docs) {
-				if (doc.meta?.charte === msg.name) chartesCss.set(docName, "");
-			}
-			useStore.setState({
-				chartesCss,
-				chartesVersion: s.chartesVersion + 1,
-			});
-		}
-
-		if (msg.type === "assets_changed") {
-			window.dispatchEvent(new Event("assets-changed"));
-		}
-
-		if (msg.type === "fit_view") {
-			requestAnimationFrame(() => fitToView());
-		}
-
-		if (msg.type === "activity") {
-			const text = translateBubble(msg.key, msg.params);
-			spawnBubble(text, msg.icon);
-		}
-
-		if (msg.type === "check_layout_request") {
-			const page = findPageCanvas(msg.docName, msg.pageIdx);
-			if (page) {
-				const layout = measurePageLayout(page);
-				wsSend({
-					type: "check_layout_response",
-					_reqId: msg._reqId,
-					...layout,
-				});
-			}
-		}
-
-		if (msg.type === "ack_messages") {
-			const ids = new Set(msg.ids as string[]);
-			const s = useStore.getState();
-			console.log(
-				"[ws] ack_messages received:",
-				msg.ids,
-				"pending before:",
-				s.pending.length,
-				"pending ids:",
-				s.pending.map((m) => m.id),
-			);
-			const filtered = s.pending.filter((m) => !ids.has(m.id));
-			if (filtered.length !== s.pending.length) {
-				useStore.setState({ pending: filtered });
-				console.log("[ws] pending after:", filtered.length);
-			} else {
-				console.log("[ws] no matching pending found for ack ids");
-			}
-		}
-	};
+	ws.onmessage = handleWsMessage;
 }
 
-export function wsSend(msg: WsMessage): void {
+function handleWsOpen(): void {
+	pendingLoadDoc = null;
+	initialStateReceived = false;
+	useStore.getState().setConnected(true);
+	wsSend({
+		type: "workspace_update",
+		displayed: useStore.getState().workspaceDocNames,
+	});
+	wsSend({
+		type: "sync_pending",
+		pending: useStore.getState().pending,
+	});
+}
+
+function handleWsClose(): void {
+	useStore.getState().setConnected(false);
+	ws = null;
+	setTimeout(connect, 2000);
+}
+
+function handleWsMessage(e: MessageEvent): void {
+	let msg: WorkspaceSignal;
+	try {
+		msg = JSON.parse(e.data) as WorkspaceSignal;
+	} catch {
+		return;
+	}
+	applyWorkspaceSignal(msg);
+}
+
+function applyWorkspaceSignal(msg: WorkspaceSignal): void {
+	switch (msg.type) {
+		case "state":
+			applyStateMessage(msg);
+			break;
+		case "charte_updated":
+			applyCharteUpdated(msg.name, msg.css);
+			break;
+		case "reload":
+			location.reload();
+			break;
+		case "doc_removed":
+			console.log("[ws] doc_removed:", msg.name);
+			useStore.getState().removeDocFromWorkspace(msg.name);
+			break;
+		case "charte_removed":
+			applyCharteUpdated(msg.name, "");
+			break;
+		case "assets_changed":
+			window.dispatchEvent(new Event("assets-changed"));
+			break;
+		case "fit_view":
+			requestAnimationFrame(() => fitToView());
+			break;
+		case "activity":
+			spawnBubble(translateBubble(msg.key, msg.params), msg.icon);
+			break;
+		case "check_layout_request":
+			replyToLayoutCheck(msg._reqId, msg.docName, msg.pageIdx);
+			break;
+		case "ack_messages":
+			applyAckMessages(msg.ids as string[]);
+			break;
+	}
+}
+
+function applyStateMessage(
+	msg: Extract<WorkspaceSignal, { type: "state" }>,
+): void {
+	const doc = msg.doc as Document | null;
+	const docList = (msg.docList ?? []) as DocSummary[];
+	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
+	if (!doc) {
+		useStore.setState({ docList });
+		return;
+	}
+	if (!initialStateReceived)
+		applyInitialState(doc, docList, msg.charteCss || "");
+	else {
+		useStore
+			.getState()
+			.upsertDoc(
+				doc,
+				docList,
+				msg.charteCss || "",
+				msg.addToWorkspace ?? true,
+				msg.focus ?? false,
+			);
+	}
+	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
+	schedulePostStateLayout(doc, msg.measureId, msg.focus === true);
+}
+
+function applyInitialState(
+	doc: Document,
+	docList: DocSummary[],
+	charteCss: string,
+): void {
+	initialStateReceived = true;
+	useStore.getState().upsertDoc(doc, docList, charteCss, false, false);
+	for (const name of useStore.getState().workspaceDocNames) {
+		if (name !== doc.name) sendLoadDoc(name);
+		else useStore.getState().upsertDoc(doc, docList, charteCss, true, true);
+	}
+}
+
+function schedulePostStateLayout(
+	doc: Document,
+	measureId: string | undefined,
+	focused: boolean,
+): void {
+	const docName = doc.name;
+	const pageIndex = doc.activePage ?? 0;
+	const shouldFit = focused && useStore.getState().autoFocusFit;
+	requestAnimationFrame(() =>
+		requestAnimationFrame(() => {
+			reportLayout(measureId, docName, pageIndex);
+			if (shouldFit) fitToDoc(docName, pageIndex);
+		}),
+	);
+}
+
+function applyCharteUpdated(name: string, css: string): void {
+	ensureCharteFonts(css);
+	const s = useStore.getState();
+	const chartesCss = new Map(s.chartesCss);
+	for (const [docName, doc] of s.docs) {
+		if (doc.meta?.charte === name) chartesCss.set(docName, css);
+	}
+	useStore.setState({
+		chartesCss,
+		chartesVersion: s.chartesVersion + 1,
+	});
+}
+
+function replyToLayoutCheck(
+	reqId: string,
+	docName: string,
+	pageIdx: number,
+): void {
+	const page = findPageCanvas(docName, pageIdx);
+	if (!page) return;
+	wsSend({
+		type: "check_layout_response",
+		_reqId: reqId,
+		...measurePageLayout(page),
+	});
+}
+
+function applyAckMessages(idsList: string[]): void {
+	const ids = new Set(idsList);
+	const s = useStore.getState();
+	console.log(
+		"[ws] ack_messages received:",
+		idsList,
+		"pending before:",
+		s.pending.length,
+		"pending ids:",
+		s.pending.map((m) => m.id),
+	);
+	const filtered = s.pending.filter((m) => !ids.has(m.id));
+	if (filtered.length !== s.pending.length) {
+		useStore.setState({ pending: filtered });
+		console.log("[ws] pending after:", filtered.length);
+	} else {
+		console.log("[ws] no matching pending found for ack ids");
+	}
+}
+
+export function wsSend(msg: WorkspaceCommand): void {
 	if (ws && ws.readyState === 1) {
 		ws.send(JSON.stringify(msg));
 	}

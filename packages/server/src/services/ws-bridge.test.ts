@@ -20,10 +20,14 @@ describe("ws-bridge", () => {
 		wsRegistry.add(client);
 		const bridge = createWsBridge({ wsRegistry });
 
-		const p = bridge.sendRequest("ping", { k: 1 }, 1000);
+		const p = bridge.sendRequest(
+			{ type: "check_layout_request", docName: "poster", pageIdx: 0 },
+			1000,
+		);
 		const msg = JSON.parse(client.sent[0] ?? "{}");
-		expect(msg.type).toBe("ping");
-		expect(msg.k).toBe(1);
+		expect(msg.type).toBe("check_layout_request");
+		expect(msg.docName).toBe("poster");
+		expect(msg.pageIdx).toBe(0);
 		expect(typeof msg._reqId).toBe("string");
 
 		bridge.resolveResponse(msg._reqId, { ok: true });
@@ -36,7 +40,10 @@ describe("ws-bridge", () => {
 		wsRegistry.add(openClient());
 		const bridge = createWsBridge({ wsRegistry });
 
-		const p = bridge.sendRequest("ping", {}, 50);
+		const p = bridge.sendRequest(
+			{ type: "check_layout_request", docName: "poster", pageIdx: 0 },
+			50,
+		);
 		vi.advanceTimersByTime(51);
 		await expect(p).resolves.toBeNull();
 		vi.useRealTimers();

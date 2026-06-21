@@ -1,4 +1,8 @@
-import type { ChartesListItem } from "@maket/shared";
+import {
+	type CharteRulesWire,
+	type ChartesListItem,
+	parseCharteRules,
+} from "@maket/shared";
 import {
 	ArrowLeft,
 	Check,
@@ -29,19 +33,7 @@ interface Charte extends ChartesListItem {
 		do?: string[];
 		dont?: string[];
 	};
-	rules?: Record<string, string> | string;
-}
-
-function parseRules(rules: any): Record<string, string> {
-	if (!rules) return {};
-	if (typeof rules === "string") {
-		try {
-			return JSON.parse(rules);
-		} catch {
-			return {};
-		}
-	}
-	return rules;
+	rules?: CharteRulesWire;
 }
 
 function parseVoice(voice: any): any {
@@ -78,6 +70,24 @@ function displayFontOf(c: Charte): string | null {
 }
 
 export function ChartesTab() {
+	const model = useChartesTabModel();
+	if (model.preview) {
+		return (
+			<>
+				<ChartePreviewInline
+					charte={model.preview}
+					onBack={() => model.setPreview(null)}
+					onEdit={() => model.setEditing(model.preview)}
+					barPosition={model.barPosition}
+				/>
+				{model.editModal}
+			</>
+		);
+	}
+	return <ChartesTabView model={model} />;
+}
+
+function useChartesTabModel() {
 	const t = useT();
 	const [chartes, setChartes] = useState<Charte[]>([]);
 	const [preview, setPreview] = useState<Charte | null>(null);
@@ -140,20 +150,6 @@ export function ChartesTab() {
 		<CharteEditModal charte={editing} onClose={() => setEditing(null)} />
 	) : null;
 
-	if (preview) {
-		return (
-			<>
-				<ChartePreviewInline
-					charte={preview}
-					onBack={() => setPreview(null)}
-					onEdit={() => setEditing(preview)}
-					barPosition={barPosition}
-				/>
-				{editModal}
-			</>
-		);
-	}
-
 	const q = search.trim().toLowerCase();
 	const filtered = q
 		? chartes.filter((c) => {
@@ -187,6 +183,47 @@ export function ChartesTab() {
 		menuOpen: menuFor === charte.name,
 	});
 
+	return {
+		t,
+		chartes,
+		preview,
+		setPreview,
+		editing,
+		setEditing,
+		loading,
+		search,
+		setSearch,
+		view,
+		setViewAndPersist,
+		barPosition,
+		activeCharte,
+		restCharte,
+		filtered,
+		charteItemFor,
+		editModal,
+	};
+}
+
+function ChartesTabView({
+	model,
+}: {
+	model: ReturnType<typeof useChartesTabModel>;
+}) {
+	const {
+		t,
+		chartes,
+		loading,
+		search,
+		setSearch,
+		view,
+		setViewAndPersist,
+		barPosition,
+		activeCharte,
+		restCharte,
+		filtered,
+		charteItemFor,
+		editModal,
+	} = model;
 	return (
 		<>
 			<div
@@ -740,7 +777,6 @@ function ChartePreviewInline({
 	onEdit: () => void;
 	barPosition: "top" | "bottom";
 }) {
-	const t = useT();
 	const colors = charte.tokens?.color
 		? Object.entries(charte.tokens.color)
 		: [];
@@ -749,166 +785,208 @@ function ChartePreviewInline({
 		? Object.entries(charte.tokens.spacing)
 		: [];
 	const voice = parseVoice(charte.voice);
-	const rules = parseRules(charte.rules);
+	const rules = parseCharteRules(charte.rules);
 
 	return (
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} p-3 gap-4`}
 		>
-			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={onBack}
-					className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-input transition"
-				>
-					<ArrowLeft size={16} />
-				</button>
-				<div className="flex-1 min-w-0">
-					<div className="text-md font-bold truncate">{charte.name}</div>
-					{charte.description && (
-						<div className="text-xs text-text-3 truncate">
-							{charte.description}
-						</div>
-					)}
-				</div>
-				<button
-					type="button"
-					onClick={onEdit}
-					className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-2 hover:text-text-1 hover:bg-input transition"
-				>
-					<Pencil size={13} />
-					{t("charte_edit")}
-				</button>
-			</div>
-
-			{colors.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						Couleurs
-					</h3>
-					<div className="flex flex-wrap gap-2">
-						{colors.map(([name, value]) => (
-							<div
-								key={name}
-								className="flex items-center gap-2 bg-input rounded-lg px-2.5 py-1.5"
-							>
-								<div
-									className="w-5 h-5 rounded-full border border-border/50"
-									style={{ background: value }}
-								/>
-								<div>
-									<div className="text-xs font-semibold">{name}</div>
-									<div className="text-2xs text-text-3 font-mono">{value}</div>
-								</div>
-							</div>
-						))}
-					</div>
-				</section>
-			)}
-
-			{fonts.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("fonts")}
-					</h3>
-					<div className="flex flex-col gap-1">
-						{fonts.map(([role, family]) => (
-							<div key={role} className="flex items-baseline gap-2">
-								<span className="text-xs text-text-3 min-w-[60px]">{role}</span>
-								<span
-									className="text-base font-medium"
-									style={{ fontFamily: family }}
-								>
-									{family.split(",")[0].replace(/'/g, "")}
-								</span>
-							</div>
-						))}
-					</div>
-				</section>
-			)}
-
-			{spacing.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						Espacements
-					</h3>
-					<div className="flex flex-wrap gap-2">
-						{spacing.map(([name, value]) => (
-							<span
-								key={name}
-								className="text-xs font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
-							>
-								{name}: {value}
-							</span>
-						))}
-					</div>
-				</section>
-			)}
-
-			{voice && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("voice_tone")}
-					</h3>
-					{voice.personality && (
-						<div className="flex flex-wrap gap-1.5 mb-2">
-							{voice.personality.map((p: string) => (
-								<span
-									key={p}
-									className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
-								>
-									{p}
-								</span>
-							))}
-						</div>
-					)}
-					{voice.formality && (
-						<div className="text-sm text-text-2 mb-2">
-							{t("voice_formality")} : {voice.formality}
-						</div>
-					)}
-					{voice.do && (
-						<div className="mb-2">
-							<div className="text-2xs font-bold text-green-600 mb-1">
-								{t("voice_do")}
-							</div>
-							{voice.do.map((d: string) => (
-								<div key={d} className="text-xs text-text-2 pl-3">
-									• {d}
-								</div>
-							))}
-						</div>
-					)}
-					{voice.dont && (
-						<div className="mb-2">
-							<div className="text-2xs font-bold text-danger mb-1">
-								{t("voice_dont")}
-							</div>
-							{voice.dont.map((d: string) => (
-								<div key={d} className="text-xs text-text-2 pl-3">
-									• {d}
-								</div>
-							))}
-						</div>
-					)}
-				</section>
-			)}
-
-			{Object.keys(rules).length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("rules")}
-					</h3>
-					{Object.entries(rules).map(([key, val]) => (
-						<div key={key} className="mb-2">
-							<div className="text-xs font-bold text-text-2 capitalize">
-								{key}
-							</div>
-							<div className="text-xs text-text-3">{val}</div>
-						</div>
-					))}
-				</section>
-			)}
+			<ChartePreviewHeader charte={charte} onBack={onBack} onEdit={onEdit} />
+			<CharteColorsSection colors={colors} />
+			<CharteFontsSection fonts={fonts} />
+			<CharteSpacingSection spacing={spacing} />
+			<CharteVoiceSection voice={voice} />
+			<CharteRulesSection rules={rules} />
 		</div>
+	);
+}
+
+function ChartePreviewHeader({
+	charte,
+	onBack,
+	onEdit,
+}: {
+	charte: Charte;
+	onBack: () => void;
+	onEdit: () => void;
+}) {
+	const t = useT();
+	return (
+		<div className="flex items-center gap-2">
+			<button
+				type="button"
+				onClick={onBack}
+				className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-input transition"
+			>
+				<ArrowLeft size={16} />
+			</button>
+			<div className="flex-1 min-w-0">
+				<div className="text-md font-bold truncate">{charte.name}</div>
+				{charte.description && (
+					<div className="text-xs text-text-3 truncate">
+						{charte.description}
+					</div>
+				)}
+			</div>
+			<button
+				type="button"
+				onClick={onEdit}
+				className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-2 hover:text-text-1 hover:bg-input transition"
+			>
+				<Pencil size={13} />
+				{t("charte_edit")}
+			</button>
+		</div>
+	);
+}
+
+function CharteColorsSection({ colors }: { colors: [string, string][] }) {
+	if (colors.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				Couleurs
+			</h3>
+			<div className="flex flex-wrap gap-2">
+				{colors.map(([name, value]) => (
+					<div
+						key={name}
+						className="flex items-center gap-2 bg-input rounded-lg px-2.5 py-1.5"
+					>
+						<div
+							className="w-5 h-5 rounded-full border border-border/50"
+							style={{ background: value }}
+						/>
+						<div>
+							<div className="text-xs font-semibold">{name}</div>
+							<div className="text-2xs text-text-3 font-mono">{value}</div>
+						</div>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteFontsSection({ fonts }: { fonts: [string, string][] }) {
+	const t = useT();
+	if (fonts.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("fonts")}
+			</h3>
+			<div className="flex flex-col gap-1">
+				{fonts.map(([role, family]) => (
+					<div key={role} className="flex items-baseline gap-2">
+						<span className="text-xs text-text-3 min-w-[60px]">{role}</span>
+						<span
+							className="text-base font-medium"
+							style={{ fontFamily: family }}
+						>
+							{family.split(",")[0].replace(/'/g, "")}
+						</span>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteSpacingSection({ spacing }: { spacing: [string, string][] }) {
+	if (spacing.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				Espacements
+			</h3>
+			<div className="flex flex-wrap gap-2">
+				{spacing.map(([name, value]) => (
+					<span
+						key={name}
+						className="text-xs font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
+					>
+						{name}: {value}
+					</span>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteVoiceSection({ voice }: { voice: any }) {
+	const t = useT();
+	if (!voice) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("voice_tone")}
+			</h3>
+			{voice.personality && (
+				<div className="flex flex-wrap gap-1.5 mb-2">
+					{voice.personality.map((p: string) => (
+						<span
+							key={p}
+							className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
+						>
+							{p}
+						</span>
+					))}
+				</div>
+			)}
+			{voice.formality && (
+				<div className="text-sm text-text-2 mb-2">
+					{t("voice_formality")} : {voice.formality}
+				</div>
+			)}
+			<VoiceList title={t("voice_do")} items={voice.do} kind="do" />
+			<VoiceList title={t("voice_dont")} items={voice.dont} kind="dont" />
+		</section>
+	);
+}
+
+function VoiceList({
+	title,
+	items,
+	kind,
+}: {
+	title: string;
+	items?: string[];
+	kind: "do" | "dont";
+}) {
+	if (!items) return null;
+	return (
+		<div className="mb-2">
+			<div
+				className={`text-2xs font-bold mb-1 ${
+					kind === "do" ? "text-green-600" : "text-danger"
+				}`}
+			>
+				{title}
+			</div>
+			{items.map((item) => (
+				<div key={item} className="text-xs text-text-2 pl-3">
+					• {item}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function CharteRulesSection({ rules }: { rules: Record<string, string> }) {
+	const t = useT();
+	if (Object.keys(rules).length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("rules")}
+			</h3>
+			{Object.entries(rules).map(([key, val]) => (
+				<div key={key} className="mb-2">
+					<div className="text-xs font-bold text-text-2 capitalize">{key}</div>
+					<div className="text-xs text-text-3">{val}</div>
+				</div>
+			))}
+		</section>
 	);
 }

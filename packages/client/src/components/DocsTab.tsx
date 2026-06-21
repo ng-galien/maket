@@ -216,11 +216,55 @@ function relativeTime(ts: string | undefined, lang: string): string {
 }
 
 export function DocsTab() {
+	const model = useDocsTabModel();
+	return <DocsTabView model={model} />;
+}
+
+interface DocsTabModel {
+	barPosition: "bottom" | "top";
+	toolbar: DocsToolbarModel;
+	categories: DocsCategoryModel[];
+	empty: boolean;
+	selected: Set<string>;
+	bulk: BulkActionBarProps;
+}
+
+interface DocsToolbarModel {
+	search: string;
+	setSearch: (value: string) => void;
+	chips: QueryChip[];
+	importInputRef: React.RefObject<HTMLInputElement | null>;
+	importError: string | null;
+	importDrag: boolean;
+	clearImportError: () => void;
+	startImport: () => void;
+	handleImportInput: (event: React.ChangeEvent<HTMLInputElement>) => void;
+	handleImportDragOver: (event: React.DragEvent) => void;
+	handleImportDragLeave: () => void;
+	handleImportDrop: (event: React.DragEvent) => void;
+	view: View;
+	setView: (view: View) => void;
+}
+
+interface DocsCategoryModel {
+	name: string;
+	docs: DocSummary[];
+	collapsed: boolean;
+	dropActive: boolean;
+	view: View;
+	toggle: () => void;
+	dragOver: (event: React.DragEvent) => void;
+	dragLeave: (event: React.DragEvent) => void;
+	drop: (event: React.DragEvent) => void;
+	itemFor: (doc: DocSummary) => DocItemProps;
+}
+
+function useDocsTabModel(): DocsTabModel {
 	const t = useT();
-	const docList = useStore((s) => s.docList);
+	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
-	const barPosition = useStore((s) => s.barPosition);
-	const removeDoc = useStore((s) => s.removeDocFromWorkspace);
+	const barPosition = useStore((state) => state.barPosition);
+	const removeDoc = useStore((state) => state.removeDocFromWorkspace);
 	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const [modeFor, setModeFor] = useState<{
@@ -232,55 +276,333 @@ export function DocsTab() {
 	);
 	const [dragOverCat, setDragOverCat] = useState<string | null>(null);
 	const [draggingName, setDraggingName] = useState<string | null>(null);
+	const [view, setView] = usePersistedDocsView();
+	const [selected, setSelected] = useState<Set<string>>(new Set());
+	const [lastClicked, setLastClicked] = useState<string | null>(null);
+	const importState = useMaketImport(t);
+	useClearSelectionOnEscape(selected.size, () => setSelected(new Set()));
+
+	const searching = search.trim().length > 0;
+	const query = parseQuery(search);
+	const filtered = docList.filter((doc) => matchesQuery(doc, query));
+	const grouped = groupDocs(filtered);
+	const flatOrder = visibleDocOrder(grouped, searching, collapsed);
+	const clearSelection = () => setSelected(new Set());
+	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
+	const openDoc = (name: string) =>
+		isOnWorkspace(name) ? removeDoc(name) : sendLoadDoc(name);
+
+	const selection = {
+		selected,
+		setSelected,
+		lastClicked,
+		setLastClicked,
+		flatOrder,
+		openDoc,
+		clearSelection,
+	};
+	const rowClick = (name: string, event: React.MouseEvent) =>
+		handleDocSelection(name, event, selection);
+
+	const bulkActions = createBulkActions(docList, selected, clearSelection);
+	return {
+		barPosition,
+		toolbar: createToolbarModel({
+			search,
+			setSearch,
+			query,
+			view,
+			setView,
+			importState,
+		}),
+		categories: buildCategoryModels({
+			grouped,
+			searching,
+			collapsed,
+			toggleCategory: (cat) => toggleCollapsedCategory(cat, setCollapsed),
+			dragOverCat,
+			setDragOverCat,
+			setDraggingName,
+			docList,
+			view,
+			itemFor: (doc) =>
+				createDocItemProps({
+					doc,
+					docList,
+					selected,
+					menuFor,
+					modeFor,
+					draggingName,
+					isOnWorkspace,
+					setMenuFor,
+					setModeFor,
+					setDraggingName,
+					setDragOverCat,
+					rowClick,
+				}),
+		}),
+		empty: filtered.length === 0,
+		selected,
+		bulk: {
+			model: { selected, docList },
+			actions: bulkActions,
+		},
+	};
+}
+
+function usePersistedDocsView() {
 	const [view, setView] = useState<View>(() => {
 		const stored = localStorage.getItem(VIEW_KEY);
 		return stored === "grid" ? "grid" : "list";
 	});
-	const [selected, setSelected] = useState<Set<string>>(new Set());
-	const [lastClicked, setLastClicked] = useState<string | null>(null);
+	const setViewAndPersist = (next: View) => {
+		setView(next);
+		try {
+			localStorage.setItem(VIEW_KEY, next);
+		} catch {}
+	};
+	return [view, setViewAndPersist] as const;
+}
 
+function useClearSelectionOnEscape(size: number, clear: () => void) {
+	useEffect(() => {
+		if (size === 0) return;
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") clear();
+		};
+		document.addEventListener("keydown", onKey);
+		return () => document.removeEventListener("keydown", onKey);
+	}, [clear, size]);
+}
+
+function useMaketImport(t: ReturnType<typeof useT>) {
 	const importInputRef = useRef<HTMLInputElement>(null);
 	const [importError, setImportError] = useState<string | null>(null);
 	const [importDrag, setImportDrag] = useState(false);
 
-	useEffect(() => {
-		if (selected.size === 0) return;
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") setSelected(new Set());
-		};
-		document.addEventListener("keydown", onKey);
-		return () => document.removeEventListener("keydown", onKey);
-	}, [selected.size]);
-
 	const handleImportFile = async (file: File) => {
 		setImportError(null);
 		const res = await importMaketBundle(file);
-		if (!res.ok)
+		if (!res.ok) {
 			setImportError(t("import_maket_error", { message: res.message }));
+		}
 	};
 
-	const setViewAndPersist = (v: View) => {
-		setView(v);
-		try {
-			localStorage.setItem(VIEW_KEY, v);
-		} catch {}
+	return {
+		importInputRef,
+		importError,
+		importDrag,
+		setImportError,
+		setImportDrag,
+		handleImportFile,
 	};
+}
 
-	const toggleCategory = (cat: string) => {
-		setCollapsed((prev) => {
-			const next = new Set(prev);
-			if (next.has(cat)) next.delete(cat);
-			else next.add(cat);
-			saveCollapsed(next);
-			return next;
-		});
+function groupDocs(docs: DocSummary[]): Map<string, DocSummary[]> {
+	const grouped = new Map<string, DocSummary[]>();
+	for (const doc of docs) {
+		const cat = doc.category || "general";
+		if (!grouped.has(cat)) grouped.set(cat, []);
+		grouped.get(cat)?.push(doc);
+	}
+	return grouped;
+}
+
+function visibleDocOrder(
+	grouped: Map<string, DocSummary[]>,
+	searching: boolean,
+	collapsed: Set<string>,
+): string[] {
+	return [...grouped.entries()]
+		.filter(([cat]) => searching || !collapsed.has(cat))
+		.flatMap(([, docs]) => docs.map((doc) => doc.name));
+}
+
+function toggleCollapsedCategory(
+	cat: string,
+	setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>,
+) {
+	setCollapsed((prev) => {
+		const next = new Set(prev);
+		if (next.has(cat)) next.delete(cat);
+		else next.add(cat);
+		saveCollapsed(next);
+		return next;
+	});
+}
+
+interface SelectionContext {
+	selected: Set<string>;
+	setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
+	lastClicked: string | null;
+	setLastClicked: (name: string) => void;
+	flatOrder: string[];
+	openDoc: (name: string) => void;
+	clearSelection: () => void;
+}
+
+function handleDocSelection(
+	name: string,
+	event: React.MouseEvent,
+	context: SelectionContext,
+) {
+	if (event.metaKey || event.ctrlKey) {
+		event.preventDefault();
+		toggleSelectedName(name, context);
+		return;
+	}
+	if (event.shiftKey && context.lastClicked) {
+		event.preventDefault();
+		selectRange(name, context);
+		return;
+	}
+	if (context.selected.size > 0) context.clearSelection();
+	context.setLastClicked(name);
+	context.openDoc(name);
+}
+
+function toggleSelectedName(name: string, context: SelectionContext) {
+	context.setSelected((prev) => {
+		const next = new Set(prev);
+		if (next.has(name)) next.delete(name);
+		else next.add(name);
+		return next;
+	});
+	context.setLastClicked(name);
+}
+
+function selectRange(name: string, context: SelectionContext) {
+	const from = context.flatOrder.indexOf(context.lastClicked ?? "");
+	const to = context.flatOrder.indexOf(name);
+	if (from < 0 || to < 0) return;
+	const [lo, hi] = from < to ? [from, to] : [to, from];
+	context.setSelected((prev) => {
+		const next = new Set(prev);
+		for (let index = lo; index <= hi; index++) {
+			const selectedName = context.flatOrder[index];
+			if (selectedName) next.add(selectedName);
+		}
+		return next;
+	});
+}
+
+function createBulkActions(
+	docList: DocSummary[],
+	selected: Set<string>,
+	clearSelection: () => void,
+): BulkActionBarActions {
+	return {
+		clear: clearSelection,
+		lock: () => applyBulkLock(docList, selected, true, clearSelection),
+		unlock: () => applyBulkLock(docList, selected, false, clearSelection),
+		recategorize: (cat) =>
+			applyBulkCategory(docList, selected, cat, clearSelection),
+		delete: () => applyBulkDelete(docList, selected, clearSelection),
+		export: () => {
+			exportMaketBundle([...selected]);
+			clearSelection();
+		},
 	};
+}
 
-	const searching = search.trim().length > 0;
+function applyBulkLock(
+	docList: DocSummary[],
+	selected: Set<string>,
+	locked: boolean,
+	clearSelection: () => void,
+) {
+	for (const name of selected) {
+		const doc = docList.find((item) => item.name === name);
+		if (doc && (doc.locked === true) !== locked) sendLockDoc(name, locked);
+	}
+	clearSelection();
+}
 
-	const query = parseQuery(search);
-	const filtered = docList.filter((d) => matchesQuery(d, query));
+function applyBulkCategory(
+	docList: DocSummary[],
+	selected: Set<string>,
+	cat: string,
+	clearSelection: () => void,
+) {
+	const trimmed = cat.trim();
+	if (!trimmed) return;
+	for (const name of selected) {
+		const doc = docList.find((item) => item.name === name);
+		if (!doc || doc.category === trimmed || doc.locked === true) continue;
+		wsSend({ type: "update_meta", docName: name, category: trimmed });
+	}
+	clearSelection();
+}
 
+function applyBulkDelete(
+	docList: DocSummary[],
+	selected: Set<string>,
+	clearSelection: () => void,
+) {
+	if (docList.length - selected.size < 1) return;
+	for (const name of selected) {
+		const doc = docList.find((item) => item.name === name);
+		if (doc && doc.locked !== true) sendDeleteDoc(name);
+	}
+	clearSelection();
+}
+
+interface ToolbarFactoryArgs {
+	search: string;
+	setSearch: (value: string) => void;
+	query: Query;
+	view: View;
+	setView: (view: View) => void;
+	importState: ReturnType<typeof useMaketImport>;
+}
+
+function createToolbarModel(args: ToolbarFactoryArgs): DocsToolbarModel {
+	const { importState } = args;
+	return {
+		search: args.search,
+		setSearch: args.setSearch,
+		chips: buildQueryChips(args.query, args.search, args.setSearch),
+		importInputRef: importState.importInputRef,
+		importError: importState.importError,
+		importDrag: importState.importDrag,
+		clearImportError: () => importState.setImportError(null),
+		startImport: () => importState.importInputRef.current?.click(),
+		handleImportInput: (event) => {
+			const file = event.target.files?.[0];
+			if (file) void importState.handleImportFile(file);
+			event.target.value = "";
+		},
+		handleImportDragOver: (event) => {
+			if (!event.dataTransfer.types.includes("Files")) return;
+			event.preventDefault();
+			event.dataTransfer.dropEffect = "copy";
+			if (!importState.importDrag) importState.setImportDrag(true);
+		},
+		handleImportDragLeave: () => importState.setImportDrag(false),
+		handleImportDrop: (event) => handleImportDrop(event, importState),
+		view: args.view,
+		setView: args.setView,
+	};
+}
+
+function handleImportDrop(
+	event: React.DragEvent,
+	importState: ReturnType<typeof useMaketImport>,
+) {
+	event.preventDefault();
+	importState.setImportDrag(false);
+	const file = Array.from(event.dataTransfer.files).find((item) =>
+		item.name.toLowerCase().endsWith(".maket"),
+	);
+	if (file) void importState.handleImportFile(file);
+	else importState.setImportError("Import failed: .maket");
+}
+
+function buildQueryChips(
+	query: Query,
+	search: string,
+	setSearch: (value: string) => void,
+): QueryChip[] {
 	const chips: QueryChip[] = [];
 	if (query.category) {
 		chips.push({
@@ -288,369 +610,385 @@ export function DocsTab() {
 			label: `@${query.category}`,
 			onRemove: () =>
 				setSearch(
-					stripToken(search, (t) => t.toLowerCase() === `@${query.category}`),
+					stripToken(
+						search,
+						(token) => token.toLowerCase() === `@${query.category}`,
+					),
 				),
 		});
 	}
 	if (query.locked !== null) {
-		const tok = query.locked ? "#locked" : "#unlocked";
+		const token = query.locked ? "#locked" : "#unlocked";
 		chips.push({
 			key: "lock",
-			label: tok,
-			onRemove: () => setSearch(stripToken(search, (t) => t === tok)),
+			label: token,
+			onRemove: () => setSearch(stripToken(search, (item) => item === token)),
 		});
 	}
 	if (query.minRating > 0) {
 		chips.push({
 			key: "rating",
 			label: `≥ ${"★".repeat(query.minRating)}`,
-			onRemove: () => setSearch(stripToken(search, (t) => /^:\d$/.test(t))),
+			onRemove: () =>
+				setSearch(stripToken(search, (token) => /^:\d$/.test(token))),
 		});
 	}
+	return chips;
+}
 
-	const grouped = new Map<string, typeof docList>();
-	for (const d of filtered) {
-		const cat = d.category || "general";
-		if (!grouped.has(cat)) grouped.set(cat, []);
-		grouped.get(cat)?.push(d);
+interface CategoryFactoryArgs {
+	grouped: Map<string, DocSummary[]>;
+	searching: boolean;
+	collapsed: Set<string>;
+	toggleCategory: (cat: string) => void;
+	dragOverCat: string | null;
+	setDragOverCat: React.Dispatch<React.SetStateAction<string | null>>;
+	setDraggingName: React.Dispatch<React.SetStateAction<string | null>>;
+	docList: DocSummary[];
+	view: View;
+	itemFor: (doc: DocSummary) => DocItemProps;
+}
+
+function buildCategoryModels(args: CategoryFactoryArgs): DocsCategoryModel[] {
+	return [...args.grouped.entries()].map(([cat, docs]) => ({
+		name: cat,
+		docs,
+		collapsed: !args.searching && args.collapsed.has(cat),
+		dropActive: args.dragOverCat === cat,
+		view: args.view,
+		toggle: () => args.toggleCategory(cat),
+		dragOver: (event) => handleCategoryDragOver(event, cat, args),
+		dragLeave: (event) => handleCategoryDragLeave(event, cat, args),
+		drop: (event) => handleCategoryDrop(event, cat, args),
+		itemFor: args.itemFor,
+	}));
+}
+
+function handleCategoryDragOver(
+	event: React.DragEvent,
+	cat: string,
+	args: CategoryFactoryArgs,
+) {
+	if (!event.dataTransfer.types.includes(DRAG_MIME)) return;
+	event.preventDefault();
+	event.dataTransfer.dropEffect = "move";
+	if (args.dragOverCat !== cat) args.setDragOverCat(cat);
+}
+
+function handleCategoryDragLeave(
+	event: React.DragEvent,
+	cat: string,
+	args: CategoryFactoryArgs,
+) {
+	const related = event.relatedTarget as Node | null;
+	if (!related || !event.currentTarget.contains(related)) {
+		args.setDragOverCat((current) => (current === cat ? null : current));
 	}
+}
 
-	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
+function handleCategoryDrop(
+	event: React.DragEvent,
+	cat: string,
+	args: CategoryFactoryArgs,
+) {
+	const name = event.dataTransfer.getData(DRAG_MIME);
+	args.setDragOverCat(null);
+	args.setDraggingName(null);
+	if (!name) return;
+	const src = args.docList.find((doc) => doc.name === name);
+	if (!src || src.category === cat) return;
+	wsSend({ type: "update_meta", docName: name, category: cat });
+}
 
-	const toggleDoc = (name: string) => {
-		if (isOnWorkspace(name)) {
-			removeDoc(name);
-		} else {
-			sendLoadDoc(name);
-		}
-	};
+interface DocItemFactoryArgs {
+	doc: DocSummary;
+	docList: DocSummary[];
+	selected: Set<string>;
+	menuFor: string | null;
+	modeFor: { name: string; mode: RowMode } | null;
+	draggingName: string | null;
+	isOnWorkspace: (name: string) => boolean;
+	setMenuFor: React.Dispatch<React.SetStateAction<string | null>>;
+	setModeFor: React.Dispatch<
+		React.SetStateAction<{ name: string; mode: RowMode } | null>
+	>;
+	setDraggingName: React.Dispatch<React.SetStateAction<string | null>>;
+	setDragOverCat: React.Dispatch<React.SetStateAction<string | null>>;
+	rowClick: (name: string, event: React.MouseEvent) => void;
+}
 
-	const flatOrder = [...grouped.entries()]
-		.filter(([cat]) => searching || !collapsed.has(cat))
-		.flatMap(([, docs]) => docs.map((d) => d.name));
-
-	const handleRowClick = (name: string, e: React.MouseEvent) => {
-		if (e.metaKey || e.ctrlKey) {
-			e.preventDefault();
-			setSelected((prev) => {
-				const next = new Set(prev);
-				if (next.has(name)) next.delete(name);
-				else next.add(name);
-				return next;
-			});
-			setLastClicked(name);
-			return;
-		}
-		if (e.shiftKey && lastClicked) {
-			e.preventDefault();
-			const from = flatOrder.indexOf(lastClicked);
-			const to = flatOrder.indexOf(name);
-			if (from >= 0 && to >= 0) {
-				const [lo, hi] = from < to ? [from, to] : [to, from];
-				setSelected((prev) => {
-					const next = new Set(prev);
-					for (let i = lo; i <= hi; i++) {
-						const n = flatOrder[i];
-						if (n) next.add(n);
-					}
-					return next;
-				});
-			}
-			return;
-		}
-		if (selected.size > 0) setSelected(new Set());
-		setLastClicked(name);
-		toggleDoc(name);
-	};
-
-	const clearSelection = () => setSelected(new Set());
-
-	const bulkLock = (locked: boolean) => {
-		for (const name of selected) {
-			const d = docList.find((x) => x.name === name);
-			if (!d) continue;
-			if ((d.locked === true) !== locked) sendLockDoc(name, locked);
-		}
-		clearSelection();
-	};
-
-	const bulkRecategorize = (cat: string) => {
-		const trimmed = cat.trim();
-		if (!trimmed) return;
-		for (const name of selected) {
-			const d = docList.find((x) => x.name === name);
-			if (!d || d.category === trimmed || d.locked === true) continue;
-			wsSend({ type: "update_meta", docName: name, category: trimmed });
-		}
-		clearSelection();
-	};
-
-	const bulkDelete = () => {
-		const remaining = docList.length - selected.size;
-		if (remaining < 1) {
-			return;
-		}
-		for (const name of selected) {
-			const d = docList.find((x) => x.name === name);
-			if (!d || d.locked === true) continue;
-			sendDeleteDoc(name);
-		}
-		clearSelection();
-	};
-	const docItemFor = (d: DocSummary): DocItemProps => ({
+function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
+	const { doc } = args;
+	return {
 		model: {
-			doc: d,
-			onWs: isOnWorkspace(d.name),
-			selected: selected.has(d.name),
-			menuOpen: menuFor === d.name,
+			doc,
+			onWs: args.isOnWorkspace(doc.name),
+			selected: args.selected.has(doc.name),
+			menuOpen: args.menuFor === doc.name,
 			mode:
-				modeFor?.name === d.name ? modeFor.mode : ({ kind: "idle" } as RowMode),
-			canDelete: docList.length > 1,
-			dragging: draggingName === d.name,
+				args.modeFor?.name === doc.name
+					? args.modeFor.mode
+					: ({ kind: "idle" } as RowMode),
+			canDelete: args.docList.length > 1,
+			dragging: args.draggingName === doc.name,
 		},
 		actions: {
-			click: (e) => handleRowClick(d.name, e),
-			openMenu: () => setMenuFor(d.name),
-			closeMenu: () => setMenuFor(null),
+			click: (event) => args.rowClick(doc.name, event),
+			openMenu: () => args.setMenuFor(doc.name),
+			closeMenu: () => args.setMenuFor(null),
 			changeMode: (mode) =>
-				setModeFor(mode.kind === "idle" ? null : { name: d.name, mode }),
-			dragStart: (e) => {
-				e.dataTransfer.effectAllowed = "move";
-				e.dataTransfer.setData(DRAG_MIME, d.name);
-				setDraggingName(d.name);
+				args.setModeFor(mode.kind === "idle" ? null : { name: doc.name, mode }),
+			dragStart: (event) => {
+				event.dataTransfer.effectAllowed = "move";
+				event.dataTransfer.setData(DRAG_MIME, doc.name);
+				args.setDraggingName(doc.name);
 			},
 			dragEnd: () => {
-				setDraggingName(null);
-				setDragOverCat(null);
+				args.setDraggingName(null);
+				args.setDragOverCat(null);
 			},
 		},
-	});
+	};
+}
 
+function DocsTabView({ model }: { model: DocsTabModel }) {
+	const t = useT();
 	return (
 		<div
-			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
+			className={`flex ${
+				model.barPosition === "bottom" ? "flex-col-reverse" : "flex-col"
+			} gap-2 p-3`}
 		>
-			<div className="px-1 flex flex-col gap-1.5">
-				<div className="flex items-center gap-1.5">
-					<input
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						placeholder={t("search_hint")}
-						className="flex-1 min-w-0 px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
-					/>
-					<input
-						ref={importInputRef}
-						type="file"
-						accept=".maket"
-						className="hidden"
-						onChange={(e) => {
-							const file = e.target.files?.[0];
-							if (file) void handleImportFile(file);
-							e.target.value = "";
-						}}
-					/>
-					<button
-						type="button"
-						onClick={() => importInputRef.current?.click()}
-						onDragOver={(e) => {
-							if (!e.dataTransfer.types.includes("Files")) return;
-							e.preventDefault();
-							e.dataTransfer.dropEffect = "copy";
-							if (!importDrag) setImportDrag(true);
-						}}
-						onDragLeave={() => setImportDrag(false)}
-						onDrop={(e) => {
-							e.preventDefault();
-							setImportDrag(false);
-							const file = Array.from(e.dataTransfer.files).find((f) =>
-								f.name.toLowerCase().endsWith(".maket"),
-							);
-							if (file) void handleImportFile(file);
-							else
-								setImportError(t("import_maket_error", { message: ".maket" }));
-						}}
-						aria-label={t("import_maket")}
-						title={t("import_maket")}
-						className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
-							importDrag
-								? "bg-accent-soft text-accent ring-2 ring-accent/40"
-								: "bg-input text-text-3 hover:text-text-1"
-						}`}
-					>
-						<Upload size={14} />
-					</button>
-					<div className="flex rounded-lg bg-input p-0.5">
-						<button
-							type="button"
-							onClick={() => setViewAndPersist("list")}
-							aria-label={t("view_list")}
-							title={t("view_list")}
-							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-								view === "list"
-									? "bg-panel shadow-sm text-text-1"
-									: "text-text-3 hover:text-text-1"
-							}`}
-						>
-							<List size={14} />
-						</button>
-						<button
-							type="button"
-							onClick={() => setViewAndPersist("grid")}
-							aria-label={t("view_grid")}
-							title={t("view_grid")}
-							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-								view === "grid"
-									? "bg-panel shadow-sm text-text-1"
-									: "text-text-3 hover:text-text-1"
-							}`}
-						>
-							<LayoutGrid size={14} />
-						</button>
-					</div>
-				</div>
-				{importError && (
-					<button
-						type="button"
-						onClick={() => setImportError(null)}
-						className="text-left text-2xs text-danger bg-danger-soft rounded-md px-2 py-1"
-					>
-						{importError} ×
-					</button>
-				)}
-				{chips.length > 0 && (
-					<div className="flex flex-wrap gap-1 px-1">
-						{chips.map((c) => (
-							<button
-								key={c.key}
-								type="button"
-								onClick={c.onRemove}
-								className="group flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-2xs font-semibold hover:bg-accent/15 transition"
-							>
-								<span>{c.label}</span>
-								<span
-									aria-hidden
-									className="opacity-60 group-hover:opacity-100 leading-none"
-								>
-									×
-								</span>
-							</button>
-						))}
-					</div>
-				)}
-			</div>
-
-			{[...grouped.entries()].map(([cat, docs]) => {
-				const isCollapsed = !searching && collapsed.has(cat);
-				const dropActive = dragOverCat === cat;
-				return (
-					<div key={cat}>
-						<button
-							type="button"
-							onClick={() => toggleCategory(cat)}
-							onDragOver={(e) => {
-								if (!e.dataTransfer.types.includes(DRAG_MIME)) return;
-								e.preventDefault();
-								e.dataTransfer.dropEffect = "move";
-								if (dragOverCat !== cat) setDragOverCat(cat);
-							}}
-							onDragLeave={(e) => {
-								const related = e.relatedTarget as Node | null;
-								if (!related || !e.currentTarget.contains(related))
-									setDragOverCat((c) => (c === cat ? null : c));
-							}}
-							onDrop={(e) => {
-								const name = e.dataTransfer.getData(DRAG_MIME);
-								setDragOverCat(null);
-								setDraggingName(null);
-								if (!name) return;
-								const src = docList.find((d) => d.name === name);
-								if (!src || src.category === cat) return;
-								wsSend({
-									type: "update_meta",
-									docName: name,
-									category: cat,
-								});
-							}}
-							className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition group/cat ${
-								dropActive
-									? "bg-accent/15 ring-2 ring-accent/40"
-									: "hover:bg-black/[0.03]"
-							}`}
-							aria-expanded={!isCollapsed}
-						>
-							<ChevronRight
-								size={11}
-								className={`text-text-3 flex-shrink-0 transition-transform duration-150 ${
-									isCollapsed ? "" : "rotate-90"
-								}`}
-							/>
-							<div
-								style={{
-									width: 8,
-									height: 8,
-									borderRadius: "50%",
-									background: catColor(cat),
-									flexShrink: 0,
-								}}
-							/>
-							<span
-								className={`text-xs font-bold uppercase tracking-wider flex-1 text-left ${
-									dropActive ? "text-accent" : "text-text-3"
-								}`}
-							>
-								{cat}
-							</span>
-							<span
-								className={`text-xs tabular-nums ${dropActive ? "text-accent" : "text-text-3"}`}
-							>
-								{dropActive ? t("doc_drop_here") : docs.length}
-							</span>
-						</button>
-
-						{!isCollapsed && (
-							<div
-								className={
-									view === "grid"
-										? "grid grid-cols-2 gap-2 mt-1"
-										: "flex flex-col gap-0.5 mt-0.5"
-								}
-							>
-								{docs.map((d) => {
-									const rowProps = docItemFor(d);
-									return view === "grid" ? (
-										<DocCard key={d.name} {...rowProps} />
-									) : (
-										<DocRow key={d.name} {...rowProps} />
-									);
-								})}
-							</div>
-						)}
-					</div>
-				);
-			})}
-
-			{filtered.length === 0 && (
+			<DocsToolbar model={model.toolbar} />
+			{model.categories.map((category) => (
+				<DocsCategory key={category.name} model={category} />
+			))}
+			{model.empty && (
 				<div className="px-4 py-6 text-center text-base text-text-3">
 					{t("no_document")}
 				</div>
 			)}
+			{model.selected.size > 0 && <BulkActionBar {...model.bulk} />}
+		</div>
+	);
+}
 
-			{selected.size > 0 && (
-				<BulkActionBar
-					model={{ selected, docList }}
-					actions={{
-						clear: clearSelection,
-						lock: () => bulkLock(true),
-						unlock: () => bulkLock(false),
-						recategorize: bulkRecategorize,
-						delete: bulkDelete,
-						export: () => {
-							exportMaketBundle([...selected]);
-							clearSelection();
-						},
-					}}
+function DocsToolbar({ model }: { model: DocsToolbarModel }) {
+	const t = useT();
+	return (
+		<div className="px-1 flex flex-col gap-1.5">
+			<div className="flex items-center gap-1.5">
+				<input
+					value={model.search}
+					onChange={(event) => model.setSearch(event.target.value)}
+					placeholder={t("search_hint")}
+					className="flex-1 min-w-0 px-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 				/>
+				<input
+					ref={model.importInputRef}
+					type="file"
+					accept=".maket"
+					className="hidden"
+					onChange={model.handleImportInput}
+				/>
+				<ImportButton model={model} />
+				<ViewToggle view={model.view} setView={model.setView} />
+			</div>
+			{model.importError && (
+				<button
+					type="button"
+					onClick={model.clearImportError}
+					className="text-left text-2xs text-danger bg-danger-soft rounded-md px-2 py-1"
+				>
+					{model.importError} ×
+				</button>
 			)}
+			<QueryChips chips={model.chips} />
+		</div>
+	);
+}
+
+function ImportButton({ model }: { model: DocsToolbarModel }) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			onClick={model.startImport}
+			onDragOver={model.handleImportDragOver}
+			onDragLeave={model.handleImportDragLeave}
+			onDrop={model.handleImportDrop}
+			aria-label={t("import_maket")}
+			title={t("import_maket")}
+			className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+				model.importDrag
+					? "bg-accent-soft text-accent ring-2 ring-accent/40"
+					: "bg-input text-text-3 hover:text-text-1"
+			}`}
+		>
+			<Upload size={14} />
+		</button>
+	);
+}
+
+function ViewToggle({
+	view,
+	setView,
+}: {
+	view: View;
+	setView: (view: View) => void;
+}) {
+	const t = useT();
+	return (
+		<div className="flex rounded-lg bg-input p-0.5">
+			<ViewToggleButton
+				active={view === "list"}
+				label={t("view_list")}
+				onClick={() => setView("list")}
+				icon={<List size={14} />}
+			/>
+			<ViewToggleButton
+				active={view === "grid"}
+				label={t("view_grid")}
+				onClick={() => setView("grid")}
+				icon={<LayoutGrid size={14} />}
+			/>
+		</div>
+	);
+}
+
+function ViewToggleButton({
+	active,
+	label,
+	onClick,
+	icon,
+}: {
+	active: boolean;
+	label: string;
+	onClick: () => void;
+	icon: React.ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			aria-label={label}
+			title={label}
+			className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+				active
+					? "bg-panel shadow-sm text-text-1"
+					: "text-text-3 hover:text-text-1"
+			}`}
+		>
+			{icon}
+		</button>
+	);
+}
+
+function QueryChips({ chips }: { chips: QueryChip[] }) {
+	if (chips.length === 0) return null;
+	return (
+		<div className="flex flex-wrap gap-1 px-1">
+			{chips.map((chip) => (
+				<button
+					key={chip.key}
+					type="button"
+					onClick={chip.onRemove}
+					className="group flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-2xs font-semibold hover:bg-accent/15 transition"
+				>
+					<span>{chip.label}</span>
+					<span
+						aria-hidden
+						className="opacity-60 group-hover:opacity-100 leading-none"
+					>
+						×
+					</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
+function DocsCategory({ model }: { model: DocsCategoryModel }) {
+	return (
+		<div>
+			<DocsCategoryHeader model={model} />
+			{!model.collapsed && <DocsCategoryItems model={model} />}
+		</div>
+	);
+}
+
+function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			onClick={model.toggle}
+			onDragOver={model.dragOver}
+			onDragLeave={model.dragLeave}
+			onDrop={model.drop}
+			className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition group/cat ${
+				model.dropActive
+					? "bg-accent/15 ring-2 ring-accent/40"
+					: "hover:bg-black/[0.03]"
+			}`}
+			aria-expanded={!model.collapsed}
+		>
+			<ChevronRight
+				size={11}
+				className={`text-text-3 flex-shrink-0 transition-transform duration-150 ${
+					model.collapsed ? "" : "rotate-90"
+				}`}
+			/>
+			<CategoryDot name={model.name} />
+			<span
+				className={`text-xs font-bold uppercase tracking-wider flex-1 text-left ${
+					model.dropActive ? "text-accent" : "text-text-3"
+				}`}
+			>
+				{model.name}
+			</span>
+			<span
+				className={`text-xs tabular-nums ${
+					model.dropActive ? "text-accent" : "text-text-3"
+				}`}
+			>
+				{model.dropActive ? t("doc_drop_here") : model.docs.length}
+			</span>
+		</button>
+	);
+}
+
+function CategoryDot({ name }: { name: string }) {
+	return (
+		<div
+			style={{
+				width: 8,
+				height: 8,
+				borderRadius: "50%",
+				background: catColor(name),
+				flexShrink: 0,
+			}}
+		/>
+	);
+}
+
+function DocsCategoryItems({ model }: { model: DocsCategoryModel }) {
+	return (
+		<div
+			className={
+				model.view === "grid"
+					? "grid grid-cols-2 gap-2 mt-1"
+					: "flex flex-col gap-0.5 mt-0.5"
+			}
+		>
+			{model.docs.map((doc) => {
+				const itemProps = model.itemFor(doc);
+				return model.view === "grid" ? (
+					<DocCard key={doc.name} {...itemProps} />
+				) : (
+					<DocRow key={doc.name} {...itemProps} />
+				);
+			})}
 		</div>
 	);
 }
@@ -675,157 +1013,23 @@ interface BulkActionBarProps {
 }
 
 function BulkActionBar({ model, actions }: BulkActionBarProps) {
-	const { selected, docList } = model;
+	const bar = useBulkActionBarModel(model, actions);
 	const t = useT();
-	const [showCatPicker, setShowCatPicker] = useState(false);
-	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
-	const [creatingCat, setCreatingCat] = useState(false);
-	const pickerRef = useRef<HTMLDivElement>(null);
-	const newCatInputRef = useRef<HTMLInputElement>(null);
-
-	useEffect(() => {
-		if (creatingCat) newCatInputRef.current?.focus();
-	}, [creatingCat]);
-
-	const categories = [
-		...new Set(docList.map((d) => d.category || "general")),
-	].sort();
-
-	const selectedDocs = docList.filter((d) => selected.has(d.name));
-	const anyUnlocked = selectedDocs.some((d) => d.locked !== true);
-	const anyLocked = selectedDocs.some((d) => d.locked === true);
-	const anyDeletable = selectedDocs.some((d) => d.locked !== true);
-	const wouldEmptyLibrary =
-		docList.length - selectedDocs.filter((d) => d.locked !== true).length < 1;
-
-	useEffect(() => {
-		if (!showCatPicker) return;
-		const onDocClick = (e: MouseEvent) => {
-			if (!pickerRef.current?.contains(e.target as Node)) {
-				setShowCatPicker(false);
-				setCreatingCat(false);
-			}
-		};
-		document.addEventListener("mousedown", onDocClick);
-		return () => document.removeEventListener("mousedown", onDocClick);
-	}, [showCatPicker]);
-
 	return (
 		<div className="sticky bottom-2 mx-1 mt-2 rounded-xl bg-panel shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 p-2 flex items-center gap-1.5 z-40">
 			<span className="px-2 text-2xs font-bold text-text-3 tabular-nums">
-				{t("bulk_selected", { count: String(selected.size) })}
+				{t("bulk_selected", { count: String(model.selected.size) })}
 			</span>
 			<div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
-				<div className="relative">
-					<button
-						type="button"
-						onClick={() => setShowCatPicker((s) => !s)}
-						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
-					>
-						{t("bulk_move_category")}
-					</button>
-					{showCatPicker && (
-						<div
-							ref={pickerRef}
-							className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-56 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
-						>
-							{!creatingCat &&
-								categories.map((cat) => (
-									<button
-										key={cat}
-										type="button"
-										onClick={() => {
-											setShowCatPicker(false);
-											actions.recategorize(cat);
-										}}
-										className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
-									>
-										{cat}
-									</button>
-								))}
-							{!creatingCat && <div className="h-px bg-black/[0.06] my-1" />}
-							{creatingCat ? (
-								<input
-									ref={newCatInputRef}
-									type="text"
-									placeholder={t("bulk_new_category")}
-									onKeyDown={(e) => {
-										if (e.key === "Enter") {
-											const value = e.currentTarget.value.trim();
-											setCreatingCat(false);
-											setShowCatPicker(false);
-											if (value) actions.recategorize(value);
-										} else if (e.key === "Escape") {
-											e.currentTarget.value = "";
-											setCreatingCat(false);
-										}
-									}}
-									onBlur={() => setCreatingCat(false)}
-									className="w-full px-3 py-1.5 text-sm bg-transparent outline-none placeholder:text-text-3 border-b border-accent/40"
-								/>
-							) : (
-								<button
-									type="button"
-									onClick={() => setCreatingCat(true)}
-									className="w-full text-left px-3 py-1.5 text-sm text-accent hover:bg-accent/5 transition font-semibold"
-								>
-									+ {t("bulk_new_category_cta")}
-								</button>
-							)}
-						</div>
-					)}
-				</div>
-				<button
-					type="button"
-					onClick={actions.export}
-					className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition inline-flex items-center gap-1"
-				>
-					<Download size={12} />
-					{t("bulk_export_maket")}
-				</button>
-				{anyUnlocked && (
-					<button
-						type="button"
-						onClick={actions.lock}
-						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
-					>
-						{t("doc_lock")}
-					</button>
+				<BulkCategoryPicker model={bar.categoryPicker} />
+				<BulkExportButton onClick={actions.export} />
+				{bar.anyUnlocked && (
+					<BulkTextButton onClick={actions.lock} label={t("doc_lock")} />
 				)}
-				{anyLocked && (
-					<button
-						type="button"
-						onClick={actions.unlock}
-						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
-					>
-						{t("doc_unlock")}
-					</button>
+				{bar.anyLocked && (
+					<BulkTextButton onClick={actions.unlock} label={t("doc_unlock")} />
 				)}
-				{showConfirmDelete ? (
-					<button
-						type="button"
-						onClick={() => {
-							setShowConfirmDelete(false);
-							actions.delete();
-						}}
-						className="px-2 py-1 rounded-md text-xs font-bold bg-danger text-white hover:brightness-110 transition"
-					>
-						{t("bulk_confirm_delete")}
-					</button>
-				) : (
-					<button
-						type="button"
-						disabled={!anyDeletable || wouldEmptyLibrary}
-						onClick={() => setShowConfirmDelete(true)}
-						className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
-							!anyDeletable || wouldEmptyLibrary
-								? "text-text-3 cursor-not-allowed"
-								: "text-danger hover:bg-danger-soft"
-						}`}
-					>
-						{t("doc_delete")}
-					</button>
-				)}
+				<BulkDeleteButton model={bar.deleteButton} />
 			</div>
 			<button
 				type="button"
@@ -838,6 +1042,305 @@ function BulkActionBar({ model, actions }: BulkActionBarProps) {
 				</span>
 			</button>
 		</div>
+	);
+}
+
+interface BulkActionBarViewModel {
+	anyUnlocked: boolean;
+	anyLocked: boolean;
+	categoryPicker: BulkCategoryPickerModel;
+	deleteButton: BulkDeleteButtonModel;
+}
+
+interface BulkCategoryPickerModel {
+	categories: string[];
+	show: boolean;
+	creating: boolean;
+	pickerRef: React.RefObject<HTMLDivElement | null>;
+	newInputRef: React.RefObject<HTMLInputElement | null>;
+	toggle: () => void;
+	startCreating: () => void;
+	cancelCreating: () => void;
+	commit: (cat: string) => void;
+	recategorize: (cat: string) => void;
+}
+
+interface BulkDeleteButtonModel {
+	confirming: boolean;
+	disabled: boolean;
+	request: () => void;
+	confirm: () => void;
+}
+
+function useBulkActionBarModel(
+	model: BulkActionBarModel,
+	actions: BulkActionBarActions,
+): BulkActionBarViewModel {
+	const { selected, docList } = model;
+	const [showCatPicker, setShowCatPicker] = useState(false);
+	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+	const [creatingCat, setCreatingCat] = useState(false);
+	const pickerRef = useRef<HTMLDivElement>(null);
+	const newCatInputRef = useRef<HTMLInputElement>(null);
+	useFocusNewCategoryInput(creatingCat, newCatInputRef);
+	useCloseCategoryPicker(showCatPicker, pickerRef, () => {
+		setShowCatPicker(false);
+		setCreatingCat(false);
+	});
+	const selectedDocs = docList.filter((doc) => selected.has(doc.name));
+	return {
+		anyUnlocked: selectedDocs.some((doc) => doc.locked !== true),
+		anyLocked: selectedDocs.some((doc) => doc.locked === true),
+		categoryPicker: createBulkCategoryPickerModel({
+			docList,
+			actions,
+			showCatPicker,
+			setShowCatPicker,
+			creatingCat,
+			setCreatingCat,
+			pickerRef,
+			newCatInputRef,
+		}),
+		deleteButton: createBulkDeleteButtonModel({
+			docList,
+			selectedDocs,
+			showConfirmDelete,
+			setShowConfirmDelete,
+			deleteSelected: actions.delete,
+		}),
+	};
+}
+
+function useFocusNewCategoryInput(
+	creatingCat: boolean,
+	inputRef: React.RefObject<HTMLInputElement | null>,
+) {
+	useEffect(() => {
+		if (creatingCat) inputRef.current?.focus();
+	}, [creatingCat, inputRef]);
+}
+
+function useCloseCategoryPicker(
+	showCatPicker: boolean,
+	pickerRef: React.RefObject<HTMLDivElement | null>,
+	close: () => void,
+) {
+	useEffect(() => {
+		if (!showCatPicker) return;
+		const onDocClick = (event: MouseEvent) => {
+			if (!pickerRef.current?.contains(event.target as Node)) close();
+		};
+		document.addEventListener("mousedown", onDocClick);
+		return () => document.removeEventListener("mousedown", onDocClick);
+	}, [close, pickerRef, showCatPicker]);
+}
+
+interface BulkCategoryPickerFactoryArgs {
+	docList: DocSummary[];
+	actions: BulkActionBarActions;
+	showCatPicker: boolean;
+	setShowCatPicker: React.Dispatch<React.SetStateAction<boolean>>;
+	creatingCat: boolean;
+	setCreatingCat: React.Dispatch<React.SetStateAction<boolean>>;
+	pickerRef: React.RefObject<HTMLDivElement | null>;
+	newCatInputRef: React.RefObject<HTMLInputElement | null>;
+}
+
+function createBulkCategoryPickerModel(
+	args: BulkCategoryPickerFactoryArgs,
+): BulkCategoryPickerModel {
+	return {
+		categories: [
+			...new Set(args.docList.map((doc) => doc.category || "general")),
+		].sort(),
+		show: args.showCatPicker,
+		creating: args.creatingCat,
+		pickerRef: args.pickerRef,
+		newInputRef: args.newCatInputRef,
+		toggle: () => args.setShowCatPicker((show) => !show),
+		startCreating: () => args.setCreatingCat(true),
+		cancelCreating: () => args.setCreatingCat(false),
+		commit: (cat) => commitNewCategory(cat, args),
+		recategorize: (cat) => {
+			args.setShowCatPicker(false);
+			args.actions.recategorize(cat);
+		},
+	};
+}
+
+function commitNewCategory(cat: string, args: BulkCategoryPickerFactoryArgs) {
+	const value = cat.trim();
+	args.setCreatingCat(false);
+	args.setShowCatPicker(false);
+	if (value) args.actions.recategorize(value);
+}
+
+interface BulkDeleteFactoryArgs {
+	docList: DocSummary[];
+	selectedDocs: DocSummary[];
+	showConfirmDelete: boolean;
+	setShowConfirmDelete: React.Dispatch<React.SetStateAction<boolean>>;
+	deleteSelected: () => void;
+}
+
+function createBulkDeleteButtonModel(
+	args: BulkDeleteFactoryArgs,
+): BulkDeleteButtonModel {
+	const anyDeletable = args.selectedDocs.some((doc) => doc.locked !== true);
+	const unlockedCount = args.selectedDocs.filter(
+		(doc) => doc.locked !== true,
+	).length;
+	return {
+		confirming: args.showConfirmDelete,
+		disabled: !anyDeletable || args.docList.length - unlockedCount < 1,
+		request: () => args.setShowConfirmDelete(true),
+		confirm: () => {
+			args.setShowConfirmDelete(false);
+			args.deleteSelected();
+		},
+	};
+}
+
+function BulkCategoryPicker({ model }: { model: BulkCategoryPickerModel }) {
+	const t = useT();
+	return (
+		<div className="relative">
+			<button
+				type="button"
+				onClick={model.toggle}
+				className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
+			>
+				{t("bulk_move_category")}
+			</button>
+			{model.show && <BulkCategoryMenu model={model} />}
+		</div>
+	);
+}
+
+function BulkCategoryMenu({ model }: { model: BulkCategoryPickerModel }) {
+	return (
+		<div
+			ref={model.pickerRef}
+			className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-56 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
+		>
+			{!model.creating &&
+				model.categories.map((cat) => (
+					<button
+						key={cat}
+						type="button"
+						onClick={() => model.recategorize(cat)}
+						className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+					>
+						{cat}
+					</button>
+				))}
+			{!model.creating && <div className="h-px bg-black/[0.06] my-1" />}
+			{model.creating ? (
+				<NewCategoryInput model={model} />
+			) : (
+				<NewCategoryButton onClick={model.startCreating} />
+			)}
+		</div>
+	);
+}
+
+function NewCategoryInput({ model }: { model: BulkCategoryPickerModel }) {
+	const t = useT();
+	return (
+		<input
+			ref={model.newInputRef}
+			type="text"
+			placeholder={t("bulk_new_category")}
+			onKeyDown={(event) => handleNewCategoryKey(event, model)}
+			onBlur={model.cancelCreating}
+			className="w-full px-3 py-1.5 text-sm bg-transparent outline-none placeholder:text-text-3 border-b border-accent/40"
+		/>
+	);
+}
+
+function handleNewCategoryKey(
+	event: React.KeyboardEvent<HTMLInputElement>,
+	model: BulkCategoryPickerModel,
+) {
+	if (event.key === "Enter") {
+		model.commit(event.currentTarget.value);
+	} else if (event.key === "Escape") {
+		event.currentTarget.value = "";
+		model.cancelCreating();
+	}
+}
+
+function NewCategoryButton({ onClick }: { onClick: () => void }) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="w-full text-left px-3 py-1.5 text-sm text-accent hover:bg-accent/5 transition font-semibold"
+		>
+			+ {t("bulk_new_category_cta")}
+		</button>
+	);
+}
+
+function BulkExportButton({ onClick }: { onClick: () => void }) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition inline-flex items-center gap-1"
+		>
+			<Download size={12} />
+			{t("bulk_export_maket")}
+		</button>
+	);
+}
+
+function BulkTextButton({
+	onClick,
+	label,
+}: {
+	onClick: () => void;
+	label: string;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
+		>
+			{label}
+		</button>
+	);
+}
+
+function BulkDeleteButton({ model }: { model: BulkDeleteButtonModel }) {
+	const t = useT();
+	if (model.confirming) {
+		return (
+			<button
+				type="button"
+				onClick={model.confirm}
+				className="px-2 py-1 rounded-md text-xs font-bold bg-danger text-white hover:brightness-110 transition"
+			>
+				{t("bulk_confirm_delete")}
+			</button>
+		);
+	}
+	return (
+		<button
+			type="button"
+			disabled={model.disabled}
+			onClick={model.request}
+			className={`px-2 py-1 rounded-md text-xs font-semibold transition ${
+				model.disabled
+					? "text-text-3 cursor-not-allowed"
+					: "text-danger hover:bg-danger-soft"
+			}`}
+		>
+			{t("doc_delete")}
+		</button>
 	);
 }
 
@@ -866,358 +1369,501 @@ interface DocItemProps {
 }
 
 function DocCard({ model, actions }: DocItemProps) {
-	const { doc, onWs, selected, menuOpen, mode, canDelete, dragging } = model;
-	const t = useT();
-	const locked = doc.locked === true;
-	const editing = mode.kind === "rename" || mode.kind === "duplicate";
-	const confirming = mode.kind === "confirm-delete";
-	const dragEnabled = mode.kind === "idle";
-	const aspect = docAspectRatio(doc);
+	const meta = useDocItemMeta(model);
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
-	const cacheToken = doc.updatedAt ?? String(Date.now());
-	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
 
 	return (
 		<div
-			className={`relative group/card ${dragging ? "opacity-40" : ""}`}
-			draggable={dragEnabled}
-			onDragStart={(e) => {
-				if (!dragEnabled) {
-					e.preventDefault();
-					return;
-				}
-				actions.dragStart(e);
-			}}
+			className={`relative group/card ${model.dragging ? "opacity-40" : ""}`}
+			draggable={meta.dragEnabled}
+			onDragStart={(event) => handleItemDragStart(event, meta, actions)}
 			onDragEnd={actions.dragEnd}
 		>
-			<button
-				type="button"
-				onClick={actions.click}
-				className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${
-					selected
-						? "border-accent ring-4 ring-accent/30 shadow-[0_8px_24px_rgba(16,185,129,0.18)]"
-						: onWs
-							? "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]"
-							: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
-				}`}
-				style={{ aspectRatio: `1 / ${aspect}` }}
-			>
-				<img
-					src={thumbSrc}
-					alt={doc.name}
-					loading="lazy"
-					className="absolute inset-0 w-full h-full object-cover"
-					style={{ background: "#fff" }}
-					draggable={false}
-				/>
-				{selected && (
-					<span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
-						✓
-					</span>
-				)}
-				{locked && (
-					<span className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center">
-						<Lock size={10} />
-					</span>
-				)}
-				<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
-					{(doc.rating ?? 0) > 0 && (
-						<span className="px-1.5 py-0.5 rounded-md bg-amber-100/95 text-amber-600 text-2xs font-bold backdrop-blur">
-							★{doc.rating}
-						</span>
-					)}
-					{onWs && (
-						<span className="w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
-							✓
-						</span>
-					)}
-				</span>
-			</button>
-
-			{editing ? (
-				<div className="mt-1">
-					<InlineNameEditor
-						initial={mode.kind === "rename" ? doc.name : `${doc.name} copy`}
-						placeholder={
-							mode.kind === "rename"
-								? t("doc_rename_prompt")
-								: t("doc_duplicate_prompt")
-						}
-						onCommit={(value) => {
-							const trimmed = value.trim();
-							actions.changeMode({ kind: "idle" });
-							if (!trimmed) return;
-							if (mode.kind === "rename") {
-								if (trimmed === doc.name) return;
-								sendRenameDoc(doc.name, trimmed);
-							} else {
-								sendDuplicateDoc(doc.name, trimmed);
-							}
-						}}
-						onCancel={() => actions.changeMode({ kind: "idle" })}
-					/>
-				</div>
-			) : confirming ? (
-				<div className="mt-1">
-					<HoldToDelete
-						label={t("doc_delete_hold", { name: doc.name })}
-						onConfirm={() => {
-							actions.changeMode({ kind: "idle" });
-							sendDeleteDoc(doc.name);
-						}}
-						onCancel={() => actions.changeMode({ kind: "idle" })}
-					/>
-				</div>
-			) : (
-				<div className="mt-1 px-1 flex items-center gap-1.5">
-					{doc.charteColor && (
-						<span
-							className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
-							style={{ background: doc.charteColor }}
-							title={doc.charte || ""}
-						/>
-					)}
-					<div className="flex-1 min-w-0">
-						<div
-							className={`text-xs truncate ${onWs ? "font-bold text-accent" : "font-semibold text-text-1"}`}
-						>
-							{doc.name}
-						</div>
-						<div className="flex items-center gap-1 text-2xs text-text-3">
-							<span className="font-bold">{doc.format}</span>
-							<span>{doc.pageCount ?? 1}p</span>
-							{(doc.rating ?? 0) > 0 && (
-								<span className="text-amber-500">★{doc.rating}</span>
-							)}
-							{doc.emailDraftUrl && (
-								<span className="ml-auto">
-									<DraftPill
-										kind={doc.emailDraftRole ?? "body"}
-										url={doc.emailDraftUrl}
-									/>
-								</span>
-							)}
-						</div>
-					</div>
-					<button
-						ref={menuButtonRef}
-						type="button"
-						aria-label={t("doc_menu")}
-						onClick={(e) => {
-							e.stopPropagation();
-							if (menuOpen) actions.closeMenu();
-							else actions.openMenu();
-						}}
-						className={`w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
-							menuOpen
-								? "bg-black/[0.06]"
-								: "opacity-0 group-hover/card:opacity-100 focus:opacity-100"
-						}`}
-					>
-						<MoreVertical size={13} />
-					</button>
-				</div>
-			)}
-
-			{menuOpen && (
-				<DocMenu
-					model={{ doc, canDelete, locked }}
-					actions={{
-						close: actions.closeMenu,
-						rename: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "rename" });
-						},
-						duplicate: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "duplicate" });
-						},
-						requestDelete: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "confirm-delete" });
-						},
-					}}
-					anchorRef={menuButtonRef}
-				/>
-			)}
+			<DocCardThumb model={model} meta={meta} actions={actions} />
+			<DocCardFooter
+				model={model}
+				meta={meta}
+				actions={actions}
+				anchorRef={menuButtonRef}
+			/>
+			<DocItemMenu
+				model={model}
+				meta={meta}
+				actions={actions}
+				anchorRef={menuButtonRef}
+			/>
 		</div>
 	);
 }
 
 function DocRow({ model, actions }: DocItemProps) {
-	const { doc, onWs, selected, menuOpen, mode, canDelete, dragging } = model;
-	const t = useT();
-	const locked = doc.locked === true;
-	const editing = mode.kind === "rename" || mode.kind === "duplicate";
-	const dragEnabled = mode.kind === "idle";
+	const meta = useDocItemMeta(model);
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
 
 	return (
 		<div
-			className={`relative group ${dragging ? "opacity-40" : ""}`}
-			draggable={dragEnabled}
-			onDragStart={(e) => {
-				if (!dragEnabled) {
-					e.preventDefault();
-					return;
-				}
-				actions.dragStart(e);
-			}}
+			className={`relative group ${model.dragging ? "opacity-40" : ""}`}
+			draggable={meta.dragEnabled}
+			onDragStart={(event) => handleItemDragStart(event, meta, actions)}
 			onDragEnd={actions.dragEnd}
 		>
-			{editing ? (
-				<InlineNameEditor
-					initial={mode.kind === "rename" ? doc.name : `${doc.name} copy`}
-					placeholder={
-						mode.kind === "rename"
-							? t("doc_rename_prompt")
-							: t("doc_duplicate_prompt")
-					}
-					onCommit={(value) => {
-						const trimmed = value.trim();
-						actions.changeMode({ kind: "idle" });
-						if (!trimmed) return;
-						if (mode.kind === "rename") {
-							if (trimmed === doc.name) return;
-							sendRenameDoc(doc.name, trimmed);
-						} else {
-							sendDuplicateDoc(doc.name, trimmed);
-						}
-					}}
-					onCancel={() => actions.changeMode({ kind: "idle" })}
-				/>
-			) : (
-				<button
-					type="button"
-					onClick={actions.click}
-					className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${
-						selected
-							? "bg-accent/10 ring-2 ring-accent/30"
-							: onWs
-								? "bg-accent/5"
-								: "hover:bg-black/[0.03]"
-					}`}
-				>
-					<div
-						className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-							onWs ? "bg-accent/10" : "bg-input"
-						}`}
-					>
-						<FileText
-							size={14}
-							className={onWs ? "text-accent" : "text-text-3"}
-						/>
-					</div>
-					<div className="flex-1 min-w-0">
-						<div
-							className={`text-base truncate flex items-center gap-1.5 ${onWs ? "font-bold text-accent" : "font-medium text-text-1"}`}
-						>
-							{locked && (
-								<Lock
-									size={11}
-									className="text-text-3 flex-shrink-0"
-									aria-label={t("doc_locked")}
-								/>
-							)}
-							{doc.charteColor && (
-								<span
-									className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
-									style={{ background: doc.charteColor }}
-									title={doc.charte || ""}
-								/>
-							)}
-							<span className="truncate">{doc.name}</span>
-						</div>
-						<div className="flex items-center gap-1.5 mt-0.5 text-2xs text-text-3">
-							<span className="font-bold">{doc.format}</span>
-							<span>{doc.pageCount ?? 1}p</span>
-							{(doc.rating ?? 0) > 0 && (
-								<span
-									className="flex items-center gap-0.5 text-amber-500"
-									title={`rating ${doc.rating}`}
-								>
-									<span className="leading-none">★</span>
-									<span className="tabular-nums">{doc.rating}</span>
-								</span>
-							)}
-							{doc.emailDraftUrl && (
-								<span className="ml-auto">
-									<DraftPill
-										kind={doc.emailDraftRole ?? "body"}
-										url={doc.emailDraftUrl}
-									/>
-								</span>
-							)}
-							{doc.updatedAt && (
-								<span
-									className={`${doc.emailDraftUrl ? "" : "ml-auto"} text-text-3/80 tabular-nums`}
-									title={doc.updatedAt}
-								>
-									{relativeTime(doc.updatedAt, navigator.language)}
-								</span>
-							)}
-						</div>
-					</div>
-					{onWs && !menuOpen && mode.kind !== "confirm-delete" && (
-						<span className="text-2xs font-bold text-accent mr-6">✓</span>
-					)}
-				</button>
-			)}
-
-			{mode.kind === "confirm-delete" && (
-				<HoldToDelete
-					label={t("doc_delete_hold", { name: doc.name })}
-					onConfirm={() => {
-						actions.changeMode({ kind: "idle" });
-						sendDeleteDoc(doc.name);
-					}}
-					onCancel={() => actions.changeMode({ kind: "idle" })}
-				/>
-			)}
-
-			{!editing && mode.kind !== "confirm-delete" && (
-				<button
-					ref={menuButtonRef}
-					type="button"
-					aria-label={t("doc_menu")}
-					onClick={(e) => {
-						e.stopPropagation();
-						if (menuOpen) actions.closeMenu();
-						else actions.openMenu();
-					}}
-					className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
-						menuOpen
-							? "bg-black/[0.06]"
-							: "opacity-0 group-hover:opacity-100 focus:opacity-100"
-					}`}
-				>
-					<MoreVertical size={14} />
-				</button>
-			)}
-
-			{menuOpen && (
-				<DocMenu
-					model={{ doc, canDelete, locked }}
-					actions={{
-						close: actions.closeMenu,
-						rename: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "rename" });
-						},
-						duplicate: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "duplicate" });
-						},
-						requestDelete: () => {
-							actions.closeMenu();
-							actions.changeMode({ kind: "confirm-delete" });
-						},
-					}}
-					anchorRef={menuButtonRef}
-				/>
-			)}
+			<DocRowMain model={model} meta={meta} actions={actions} />
+			<DocRowMenuButton
+				model={model}
+				meta={meta}
+				actions={actions}
+				anchorRef={menuButtonRef}
+			/>
+			<DocItemMenu
+				model={model}
+				meta={meta}
+				actions={actions}
+				anchorRef={menuButtonRef}
+			/>
 		</div>
 	);
+}
+
+interface DocItemMeta {
+	locked: boolean;
+	editing: boolean;
+	confirming: boolean;
+	dragEnabled: boolean;
+}
+
+function useDocItemMeta(model: DocItemModel): DocItemMeta {
+	return {
+		locked: model.doc.locked === true,
+		editing: model.mode.kind === "rename" || model.mode.kind === "duplicate",
+		confirming: model.mode.kind === "confirm-delete",
+		dragEnabled: model.mode.kind === "idle",
+	};
+}
+
+function handleItemDragStart(
+	event: React.DragEvent,
+	meta: DocItemMeta,
+	actions: DocItemActions,
+) {
+	if (!meta.dragEnabled) {
+		event.preventDefault();
+		return;
+	}
+	actions.dragStart(event);
+}
+
+interface DocItemRenderProps extends DocItemProps {
+	meta: DocItemMeta;
+}
+
+function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
+	const doc = model.doc;
+	const cacheToken = doc.updatedAt ?? String(Date.now());
+	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
+	return (
+		<button
+			type="button"
+			onClick={actions.click}
+			className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${cardBorderClass(model)}`}
+			style={{ aspectRatio: `1 / ${docAspectRatio(doc)}` }}
+		>
+			<img
+				src={thumbSrc}
+				alt={doc.name}
+				loading="lazy"
+				className="absolute inset-0 w-full h-full object-cover"
+				style={{ background: "#fff" }}
+				draggable={false}
+			/>
+			{model.selected && (
+				<DocSelectedMark className="absolute top-1.5 right-1.5" />
+			)}
+			{meta.locked && <DocLockedMark className="absolute top-1.5 left-1.5" />}
+			<DocCardBadges doc={doc} onWs={model.onWs} />
+		</button>
+	);
+}
+
+function cardBorderClass(model: DocItemModel): string {
+	if (model.selected) {
+		return "border-accent ring-4 ring-accent/30 shadow-[0_8px_24px_rgba(16,185,129,0.18)]";
+	}
+	if (model.onWs) {
+		return "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]";
+	}
+	return "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]";
+}
+
+function DocSelectedMark({ className }: { className: string }) {
+	return (
+		<span
+			className={`${className} w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold`}
+		>
+			✓
+		</span>
+	);
+}
+
+function DocLockedMark({ className }: { className: string }) {
+	return (
+		<span
+			className={`${className} w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center`}
+		>
+			<Lock size={10} />
+		</span>
+	);
+}
+
+function DocCardBadges({ doc, onWs }: { doc: DocSummary; onWs: boolean }) {
+	return (
+		<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
+			{(doc.rating ?? 0) > 0 && (
+				<span className="px-1.5 py-0.5 rounded-md bg-amber-100/95 text-amber-600 text-2xs font-bold backdrop-blur">
+					★{doc.rating}
+				</span>
+			)}
+			{onWs && <DocSelectedMark className="" />}
+		</span>
+	);
+}
+
+interface DocCardFooterProps extends DocItemRenderProps {
+	anchorRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+function DocCardFooter({
+	model,
+	meta,
+	actions,
+	anchorRef,
+}: DocCardFooterProps) {
+	if (meta.editing) {
+		return (
+			<div className="mt-1">
+				<DocInlineNameEditor model={model} actions={actions} />
+			</div>
+		);
+	}
+	if (meta.confirming) {
+		return (
+			<div className="mt-1">
+				<DocDeleteHold model={model} actions={actions} />
+			</div>
+		);
+	}
+	return (
+		<DocCardSummary model={model} actions={actions} anchorRef={anchorRef} />
+	);
+}
+
+function DocCardSummary({
+	model,
+	actions,
+	anchorRef,
+}: {
+	model: DocItemModel;
+	actions: DocItemActions;
+	anchorRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+	return (
+		<div className="mt-1 px-1 flex items-center gap-1.5">
+			<CharteDot doc={model.doc} />
+			<div className="flex-1 min-w-0">
+				<div
+					className={`text-xs truncate ${model.onWs ? "font-bold text-accent" : "font-semibold text-text-1"}`}
+				>
+					{model.doc.name}
+				</div>
+				<DocCardMetadata doc={model.doc} />
+			</div>
+			<DocMenuButton
+				model={model}
+				actions={actions}
+				anchorRef={anchorRef}
+				size="card"
+			/>
+		</div>
+	);
+}
+
+function DocCardMetadata({ doc }: { doc: DocSummary }) {
+	return (
+		<div className="flex items-center gap-1 text-2xs text-text-3">
+			<span className="font-bold">{doc.format}</span>
+			<span>{doc.pageCount ?? 1}p</span>
+			{(doc.rating ?? 0) > 0 && (
+				<span className="text-amber-500">★{doc.rating}</span>
+			)}
+			<DocDraftPill doc={doc} />
+		</div>
+	);
+}
+
+function DocRowMain({ model, meta, actions }: DocItemRenderProps) {
+	if (meta.editing)
+		return <DocInlineNameEditor model={model} actions={actions} />;
+	if (meta.confirming) return <DocDeleteHold model={model} actions={actions} />;
+	return <DocRowButton model={model} meta={meta} actions={actions} />;
+}
+
+function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
+	return (
+		<button
+			type="button"
+			onClick={actions.click}
+			className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${rowBackgroundClass(model)}`}
+		>
+			<DocRowIcon onWs={model.onWs} />
+			<div className="flex-1 min-w-0">
+				<DocRowTitle model={model} meta={meta} />
+				<DocRowMetadata doc={model.doc} />
+			</div>
+			{model.onWs && !model.menuOpen && !meta.confirming && (
+				<span className="text-2xs font-bold text-accent mr-6">✓</span>
+			)}
+		</button>
+	);
+}
+
+function rowBackgroundClass(model: DocItemModel): string {
+	if (model.selected) return "bg-accent/10 ring-2 ring-accent/30";
+	return model.onWs ? "bg-accent/5" : "hover:bg-black/[0.03]";
+}
+
+function DocRowIcon({ onWs }: { onWs: boolean }) {
+	return (
+		<div
+			className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
+				onWs ? "bg-accent/10" : "bg-input"
+			}`}
+		>
+			<FileText size={14} className={onWs ? "text-accent" : "text-text-3"} />
+		</div>
+	);
+}
+
+function DocRowTitle({
+	model,
+	meta,
+}: {
+	model: DocItemModel;
+	meta: DocItemMeta;
+}) {
+	const t = useT();
+	return (
+		<div
+			className={`text-base truncate flex items-center gap-1.5 ${
+				model.onWs ? "font-bold text-accent" : "font-medium text-text-1"
+			}`}
+		>
+			{meta.locked && (
+				<Lock
+					size={11}
+					className="text-text-3 flex-shrink-0"
+					aria-label={t("doc_locked")}
+				/>
+			)}
+			<CharteDot doc={model.doc} />
+			<span className="truncate">{model.doc.name}</span>
+		</div>
+	);
+}
+
+function CharteDot({ doc }: { doc: DocSummary }) {
+	if (!doc.charteColor) return null;
+	return (
+		<span
+			className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
+			style={{ background: doc.charteColor }}
+			title={doc.charte || ""}
+		/>
+	);
+}
+
+function DocRowMetadata({ doc }: { doc: DocSummary }) {
+	return (
+		<div className="flex items-center gap-1.5 mt-0.5 text-2xs text-text-3">
+			<span className="font-bold">{doc.format}</span>
+			<span>{doc.pageCount ?? 1}p</span>
+			{(doc.rating ?? 0) > 0 && <DocRating rating={doc.rating ?? 0} />}
+			<DocDraftPill doc={doc} />
+			{doc.updatedAt && <DocUpdatedAt doc={doc} />}
+		</div>
+	);
+}
+
+function DocRating({ rating }: { rating: number }) {
+	return (
+		<span
+			className="flex items-center gap-0.5 text-amber-500"
+			title={`rating ${rating}`}
+		>
+			<span className="leading-none">★</span>
+			<span className="tabular-nums">{rating}</span>
+		</span>
+	);
+}
+
+function DocDraftPill({ doc }: { doc: DocSummary }) {
+	if (!doc.emailDraftUrl) return null;
+	return (
+		<span className="ml-auto">
+			<DraftPill kind={doc.emailDraftRole ?? "body"} url={doc.emailDraftUrl} />
+		</span>
+	);
+}
+
+function DocUpdatedAt({ doc }: { doc: DocSummary }) {
+	return (
+		<span
+			className={`${doc.emailDraftUrl ? "" : "ml-auto"} text-text-3/80 tabular-nums`}
+			title={doc.updatedAt}
+		>
+			{relativeTime(doc.updatedAt, navigator.language)}
+		</span>
+	);
+}
+
+interface DocRowMenuButtonProps extends DocItemRenderProps {
+	anchorRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+function DocRowMenuButton({
+	model,
+	meta,
+	actions,
+	anchorRef,
+}: DocRowMenuButtonProps) {
+	if (meta.editing || meta.confirming) return null;
+	return (
+		<DocMenuButton
+			model={model}
+			actions={actions}
+			anchorRef={anchorRef}
+			size="row"
+		/>
+	);
+}
+
+function DocMenuButton({
+	model,
+	actions,
+	anchorRef,
+	size,
+}: {
+	model: DocItemModel;
+	actions: DocItemActions;
+	anchorRef: React.RefObject<HTMLButtonElement | null>;
+	size: "card" | "row";
+}) {
+	const t = useT();
+	const rowPosition = "absolute right-1.5 top-1/2 -translate-y-1/2";
+	const buttonSize = size === "card" ? "w-6 h-6" : `w-7 h-7 ${rowPosition}`;
+	const hover =
+		size === "card"
+			? "group-hover/card:opacity-100"
+			: "group-hover:opacity-100";
+	return (
+		<button
+			ref={anchorRef}
+			type="button"
+			aria-label={t("doc_menu")}
+			onClick={(event) => toggleDocMenu(event, model, actions)}
+			className={`${buttonSize} rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
+				model.menuOpen
+					? "bg-black/[0.06]"
+					: `opacity-0 ${hover} focus:opacity-100`
+			}`}
+		>
+			<MoreVertical size={size === "card" ? 13 : 14} />
+		</button>
+	);
+}
+
+function toggleDocMenu(
+	event: React.MouseEvent,
+	model: DocItemModel,
+	actions: DocItemActions,
+) {
+	event.stopPropagation();
+	if (model.menuOpen) actions.closeMenu();
+	else actions.openMenu();
+}
+
+function DocInlineNameEditor({ model, actions }: DocItemProps) {
+	const t = useT();
+	return (
+		<InlineNameEditor
+			initial={
+				model.mode.kind === "rename" ? model.doc.name : `${model.doc.name} copy`
+			}
+			placeholder={
+				model.mode.kind === "rename"
+					? t("doc_rename_prompt")
+					: t("doc_duplicate_prompt")
+			}
+			onCommit={(value) => commitDocName(value, model, actions)}
+			onCancel={() => actions.changeMode({ kind: "idle" })}
+		/>
+	);
+}
+
+function commitDocName(
+	value: string,
+	model: DocItemModel,
+	actions: DocItemActions,
+) {
+	const trimmed = value.trim();
+	actions.changeMode({ kind: "idle" });
+	if (!trimmed) return;
+	if (model.mode.kind === "rename") {
+		if (trimmed !== model.doc.name) sendRenameDoc(model.doc.name, trimmed);
+	} else {
+		sendDuplicateDoc(model.doc.name, trimmed);
+	}
+}
+
+function DocDeleteHold({ model, actions }: DocItemProps) {
+	const t = useT();
+	return (
+		<HoldToDelete
+			label={t("doc_delete_hold", { name: model.doc.name })}
+			onConfirm={() => {
+				actions.changeMode({ kind: "idle" });
+				sendDeleteDoc(model.doc.name);
+			}}
+			onCancel={() => actions.changeMode({ kind: "idle" })}
+		/>
+	);
+}
+
+interface DocItemMenuProps extends DocItemRenderProps {
+	anchorRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+function DocItemMenu({ model, meta, actions, anchorRef }: DocItemMenuProps) {
+	if (!model.menuOpen) return null;
+	return (
+		<DocMenu
+			model={{
+				doc: model.doc,
+				canDelete: model.canDelete,
+				locked: meta.locked,
+			}}
+			actions={{
+				close: actions.closeMenu,
+				rename: () => changeDocMenuMode(actions, "rename"),
+				duplicate: () => changeDocMenuMode(actions, "duplicate"),
+				requestDelete: () => changeDocMenuMode(actions, "confirm-delete"),
+			}}
+			anchorRef={anchorRef}
+		/>
+	);
+}
+
+function changeDocMenuMode(actions: DocItemActions, kind: RowMode["kind"]) {
+	actions.closeMenu();
+	actions.changeMode({ kind } as RowMode);
 }
 
 interface InlineNameEditorProps {
@@ -1290,8 +1936,27 @@ interface DocMenuProps {
 }
 
 function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
-	const { doc, canDelete, locked } = model;
-	const t = useT();
+	const menu = useDocMenuModel(model, actions, anchorRef);
+	if (!menu.pos) return null;
+	return createPortal(<DocMenuView menu={menu} />, document.body);
+}
+
+interface DocMenuViewModel {
+	doc: DocSummary;
+	canDelete: boolean;
+	locked: boolean;
+	ref: React.RefObject<HTMLDivElement | null>;
+	pos: { top: number; right: number } | null;
+	actions: DocMenuActions;
+	copy: () => Promise<void>;
+	toggleLock: () => void;
+}
+
+function useDocMenuModel(
+	model: DocMenuModel,
+	actions: DocMenuActions,
+	anchorRef: React.RefObject<HTMLElement | null>,
+): DocMenuViewModel {
 	const ref = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
@@ -1334,63 +1999,67 @@ function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
 		};
 	}, [actions, anchorRef]);
 
-	const handleCopy = async () => {
-		await copyToClipboard(doc.name);
+	const copy = async () => {
+		await copyToClipboard(model.doc.name);
 		actions.close();
 	};
 
-	const handleLock = () => {
-		sendLockDoc(doc.name, !locked);
+	const toggleLock = () => {
+		sendLockDoc(model.doc.name, !model.locked);
 		actions.close();
 	};
 
-	if (!pos) return null;
+	return { ...model, ref, pos, actions, copy, toggleLock };
+}
 
-	return createPortal(
+// code-moniker: ignore[smell-feature-envy-local]
+// Pure React view: composing menu items is the component's adapter role, not misplaced domain behavior.
+function DocMenuView({ menu }: { menu: DocMenuViewModel }) {
+	const t = useT();
+	return (
 		<div
-			ref={ref}
+			ref={menu.ref}
 			className="fixed z-[210] w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
-			style={{ top: pos.top, right: pos.right }}
+			style={{ top: menu.pos?.top, right: menu.pos?.right }}
 		>
-			<MenuItem icon={<Copy size={13} />} onClick={handleCopy}>
+			<MenuItem icon={<Copy size={13} />} onClick={menu.copy}>
 				{t("doc_copy_name")}
 			</MenuItem>
 			<MenuItem
 				icon={<Pencil size={13} />}
-				onClick={actions.rename}
-				disabled={locked}
+				onClick={menu.actions.rename}
+				disabled={menu.locked}
 			>
 				{t("doc_rename")}
 			</MenuItem>
-			<MenuItem icon={<Files size={13} />} onClick={actions.duplicate}>
+			<MenuItem icon={<Files size={13} />} onClick={menu.actions.duplicate}>
 				{t("doc_duplicate")}
 			</MenuItem>
 			<MenuItem
 				icon={<Download size={13} />}
 				onClick={() => {
-					exportMaketBundle([doc.name]);
-					actions.close();
+					exportMaketBundle([menu.doc.name]);
+					menu.actions.close();
 				}}
 			>
 				{t("doc_export_maket")}
 			</MenuItem>
 			<MenuItem
-				icon={locked ? <Unlock size={13} /> : <Lock size={13} />}
-				onClick={handleLock}
+				icon={menu.locked ? <Unlock size={13} /> : <Lock size={13} />}
+				onClick={menu.toggleLock}
 			>
-				{locked ? t("doc_unlock") : t("doc_lock")}
+				{menu.locked ? t("doc_unlock") : t("doc_lock")}
 			</MenuItem>
 			<div className="h-px bg-black/[0.06] my-1" />
 			<MenuItem
 				icon={<Trash2 size={13} />}
-				onClick={actions.requestDelete}
-				disabled={locked || !canDelete}
+				onClick={menu.actions.requestDelete}
+				disabled={menu.locked || !menu.canDelete}
 				danger
 			>
 				{t("doc_delete")}
 			</MenuItem>
-		</div>,
-		document.body,
+		</div>
 	);
 }
 
