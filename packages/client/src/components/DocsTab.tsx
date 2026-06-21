@@ -27,6 +27,7 @@ import {
 	sendRenameDoc,
 	wsSend,
 } from "../store/ws";
+import { copyToClipboard } from "../utils";
 import { DraftPill } from "./shared/DraftPill";
 import { HoldToDelete } from "./shared/HoldToDelete";
 
@@ -95,28 +96,6 @@ async function importMaketBundle(file: File): Promise<{
 		return { ok: true, message: "", count: json.documents?.length ?? 0 };
 	} catch (e) {
 		return { ok: false, message: (e as Error).message, count: 0 };
-	}
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-	try {
-		if (navigator.clipboard?.writeText) {
-			await navigator.clipboard.writeText(text);
-			return true;
-		}
-	} catch {}
-	try {
-		const ta = document.createElement("textarea");
-		ta.value = text;
-		ta.style.position = "fixed";
-		ta.style.opacity = "0";
-		document.body.appendChild(ta);
-		ta.select();
-		const ok = document.execCommand("copy");
-		ta.remove();
-		return ok;
-	} catch {
-		return false;
 	}
 }
 

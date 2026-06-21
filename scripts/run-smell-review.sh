@@ -19,6 +19,5 @@ fi
 exec "$BIN" check "$ROOT" \
   --rules "$RULES" \
   --default-rules off \
-  --profile smells \
   --report \
   --max-violations "${CODE_MONIKER_MAX_VIOLATIONS:-80}"

@@ -70,11 +70,14 @@ export interface DocMeta {
 }
 
 export interface Page {
+	id: string;
 	name?: string;
 	elements: unknown[];
 	html?: string;
 	canvas?: Partial<Canvas>;
 }
+
+export type PageInit = Page | Omit<Page, "id">;
 
 export interface LayoutReport {
 	overflow: boolean;
@@ -109,10 +112,17 @@ export interface DocumentInit {
 	category?: string;
 	canvas: Canvas;
 	meta?: DocMeta;
-	pages?: Page[];
+	pages?: PageInit[];
 	elements?: unknown[];
 	activePage?: number;
 	nextId?: number;
+}
+
+function pageWithIdentity(page: PageInit): Page {
+	return {
+		...page,
+		id: "id" in page && page.id ? page.id : crypto.randomUUID(),
+	};
 }
 
 /** Factory — produces a plain Document with sane defaults. */
@@ -123,7 +133,9 @@ export function createDocument(init: DocumentInit): Document {
 		category: init.category || "general",
 		canvas: init.canvas,
 		meta: init.meta || {},
-		pages: init.pages || [{ name: "Page 1", elements: init.elements || [] }],
+		pages: (
+			init.pages || [{ name: "Page 1", elements: init.elements || [] }]
+		).map(pageWithIdentity),
 		activePage: init.activePage || 0,
 		nextId: init.nextId || 1,
 	};

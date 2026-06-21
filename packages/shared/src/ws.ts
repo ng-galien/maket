@@ -6,22 +6,19 @@
  * `documents.lightView()` emits — that projection diverges between server
  * persistence and client UI, so we deliberately keep it `unknown` here.
  *
- * Naming convention:
- *   - client → server: `verb_resource` — the client asks the server to
- *     perform an action (`load_document`, `update_meta`, `delete_asset`).
- *     Partial-update messages (`update_meta`, `update_charte_meta`,
- *     `update_asset_meta`) carry only fields to merge; omitted fields are
- *     preserved server-side. Full-record writes use a different verb
- *     (`charte_save`).
- *   - server → client: notification names — the server announces a fact.
- *     Either a noun (`state`, `toast`, `activity`) or `noun_pastVerb`
- *     (`charte_updated`, `charte_removed`, `assets_changed`, `doc_removed`).
- *   - RPC pairs use `<name>_request` / `<name>_response` (see
- *     `check_layout_*`).
+ * `WsMessage` is the single protocol union. The discriminant describes the
+ * protocol role, not a compile-time sender boundary: commands use
+ * `verb_resource`, notifications announce facts, and paired exchanges use
+ * `<name>_request` / `<name>_response`.
+ *
+ * Partial-update messages (`update_meta`, `update_charte_meta`,
+ * `update_asset_meta`) carry only fields to merge; omitted fields are
+ * preserved server-side. Full-record writes use a different verb
+ * (`charte_save`).
  */
 
 // ============================================================
-// Server → Client
+// Protocol notifications and requests
 // ============================================================
 
 export interface WsStateMessage {
@@ -95,7 +92,7 @@ export interface WsCheckLayoutRequest {
 }
 
 // ============================================================
-// Client-authored messages
+// Protocol commands and responses
 // ============================================================
 
 export interface WsLoadDocumentMessage {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { wsSend } from "../store/ws";
+import { randomId } from "../utils";
 
 /** Same loose envelope the `ChartesTab` builds from `/api/chartes`. */
 interface CharteInput extends ChartesListItem {
@@ -29,11 +30,9 @@ type TokenGroupKey = "color" | "font" | "spacing" | "radius";
 type TokenState = Record<TokenGroupKey, TokenRow[]>;
 
 const TOKEN_GROUPS: TokenGroupKey[] = ["color", "font", "spacing", "radius"];
-let tokenRowSeq = 0;
 
 function createTokenRow(key: string, value: string): TokenRow {
-	tokenRowSeq += 1;
-	return { id: `token-row-${tokenRowSeq}`, key, value };
+	return { id: randomId(), key, value };
 }
 
 function parseRules(rules: CharteInput["rules"]): Record<string, string> {

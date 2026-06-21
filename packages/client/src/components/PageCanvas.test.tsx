@@ -131,7 +131,7 @@ function makeDoc(html: string, marginUniform?: number): Document {
 					}
 				: {}),
 		},
-		pages: [{ name: "p1", elements: [], html }],
+		pages: [{ id: `${name}-page-1`, name: "p1", elements: [], html }],
 		activePage: 0,
 	};
 }

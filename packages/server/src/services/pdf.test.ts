@@ -134,7 +134,14 @@ describe("PdfService.render", () => {
 	it("propagates browser-launch failures", async () => {
 		const { service, browserLaunch, cleanup } = fixture();
 		const doc = makeDoc({
-			pages: [{ name: "P", elements: [], html: `<div data-id="x">x</div>` }],
+			pages: [
+				{
+					id: "page-p",
+					name: "P",
+					elements: [],
+					html: `<div data-id="x">x</div>`,
+				},
+			],
 		});
 		await expect(service.render(doc)).rejects.toThrow(/no browser in tests/);
 		expect(browserLaunch).toHaveBeenCalled();

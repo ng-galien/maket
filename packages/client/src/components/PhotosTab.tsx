@@ -20,21 +20,12 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
+import { copyToClipboard } from "../utils";
 import { HoldToDelete } from "./shared/HoldToDelete";
 
 type ImageAsset = AssetsListItem;
 
 type RowMode = { kind: "idle" } | { kind: "confirm-delete" };
-
-async function copyToClipboard(text: string): Promise<boolean> {
-	try {
-		if (navigator.clipboard?.writeText) {
-			await navigator.clipboard.writeText(text);
-			return true;
-		}
-	} catch {}
-	return false;
-}
 
 export function PhotosTab() {
 	const t = useT();

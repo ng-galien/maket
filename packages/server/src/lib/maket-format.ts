@@ -65,6 +65,7 @@ export function snapshotDocument(doc: Document): BundleDocument {
 		canvas,
 		meta: meta ? { ...meta } : {},
 		pages: pages.map((p) => ({
+			id: p.id,
 			name: p.name,
 			elements: p.elements,
 			html: p.html,

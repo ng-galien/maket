@@ -86,6 +86,12 @@ npm run dev
 
 Starts the server on `:24843` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24843/mcp`.
 
+### Code quality and architecture rules
+
+Maket uses `code-moniker` for structural rules and code-smell review. The versioned rule source is `.code-moniker.toml`; run `npm run smell:rules` to inspect the default rules and `npm run smell:review` to review the repository. The quality gate runs this review through `npm run quality`.
+
+Do not add enforceable architecture or boundary rules to `AGENTS.md`, and do not add ad-hoc checker scripts in parallel with `code-moniker`. `AGENTS.md` is operator guidance for agents working in the repository; it is not the project's rule engine. If a boundary rule cannot be expressed with `code-moniker` yet, document that as a `code-moniker` evolution instead of creating another local rule system.
+
 ### Option C — Package as a desktop extension (.mcpb)
 
 ```bash

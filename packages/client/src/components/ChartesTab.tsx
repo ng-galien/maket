@@ -16,6 +16,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
+import { copyToClipboard } from "../utils";
 import { CharteEditModal } from "./CharteEditModal";
 
 /** Shared envelope (`{ name }`) plus the fields this panel actually renders. */
@@ -74,16 +75,6 @@ function displayFontOf(c: Charte): string | null {
 	const f = c.tokens?.font;
 	if (!f) return null;
 	return f.heading || f.display || f.title || Object.values(f)[0] || null;
-}
-
-async function copyToClipboard(text: string): Promise<boolean> {
-	try {
-		if (navigator.clipboard?.writeText) {
-			await navigator.clipboard.writeText(text);
-			return true;
-		}
-	} catch {}
-	return false;
 }
 
 export function ChartesTab() {

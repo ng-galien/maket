@@ -14,7 +14,7 @@ import { createDocument } from "../types.js";
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
   CREATE TABLE documents (
@@ -31,6 +31,7 @@ const SCHEMA_SQL = `
   CREATE TABLE pages (
     doc_name   TEXT NOT NULL REFERENCES documents(name) ON DELETE CASCADE,
     idx        INTEGER NOT NULL,
+    id         TEXT NOT NULL,
     name       TEXT NOT NULL DEFAULT 'Page 1',
     html       TEXT,
     elements   TEXT NOT NULL DEFAULT '[]',
@@ -71,9 +72,10 @@ const DOC_UPSERT_SQL = `
 `;
 
 const PAGE_UPSERT_SQL = `
-  INSERT INTO pages (doc_name, idx, name, html, elements, canvas)
-  VALUES ($doc_name, $idx, $name, $html, $elements, $canvas)
+  INSERT INTO pages (doc_name, idx, id, name, html, elements, canvas)
+  VALUES ($doc_name, $idx, $id, $name, $html, $elements, $canvas)
   ON CONFLICT(doc_name, idx) DO UPDATE SET
+    id       = coalesce(excluded.id, pages.id),
     name     = excluded.name,
     html     = excluded.html,
     elements = excluded.elements,
@@ -177,6 +179,7 @@ export class DocumentStore implements Store {
 		this.db.exec("PRAGMA journal_mode = WAL;");
 		this.initializeSchema();
 		this.backfillDocumentIds();
+		this.backfillPageIds();
 		this.prepareStatements();
 	}
 
@@ -216,6 +219,23 @@ export class DocumentStore implements Store {
 		log(
 			`SQLite: added id column to documents (backfilled ${rows.length} rows)`,
 		);
+	}
+
+	private backfillPageIds(): void {
+		const cols = this.db.prepare("PRAGMA table_info(pages)").all() as {
+			name: string;
+		}[];
+		if (cols.length === 0 || cols.some((c) => c.name === "id")) return;
+		this.db.exec("ALTER TABLE pages ADD COLUMN id TEXT;");
+		const rows = this.db
+			.prepare("SELECT doc_name, idx FROM pages")
+			.all() as Array<{ doc_name: string; idx: number }>;
+		const stmt = this.db.prepare(
+			"UPDATE pages SET id = $id WHERE doc_name = $doc_name AND idx = $idx",
+		);
+		for (const row of rows) stmt.run({ ...row, id: crypto.randomUUID() });
+		this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+		log(`SQLite: added id column to pages (backfilled ${rows.length} rows)`);
 	}
 
 	private prepareStatements(): void {
@@ -293,6 +313,7 @@ export class DocumentStore implements Store {
 			this.stmtPageUpsert.run({
 				doc_name: d.name,
 				idx: i,
+				id: p.id,
 				name: p.name || `Page ${i + 1}`,
 				html: p.html || null,
 				elements: JSON.stringify(p.elements || []),
@@ -436,13 +457,14 @@ export class DocumentStore implements Store {
 			doc_name: row.name,
 		}) as any[];
 		const pages: Page[] = pageRows.map((pr) => ({
+			id: pr.id || crypto.randomUUID(),
 			name: pr.name,
 			html: pr.html || undefined,
 			elements: JSON.parse(pr.elements || "[]"),
 			canvas: pr.canvas ? JSON.parse(pr.canvas) : undefined,
 		}));
 		if (pages.length === 0) {
-			pages.push({ name: "Page 1", elements: [] });
+			pages.push({ id: crypto.randomUUID(), name: "Page 1", elements: [] });
 		}
 		return createDocument({
 			id: row.id || crypto.randomUUID(),

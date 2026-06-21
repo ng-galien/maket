@@ -25,6 +25,7 @@ export interface Element {
 }
 
 export interface Page {
+	id: string;
 	name: string;
 	elements: Element[];
 	html?: string;
