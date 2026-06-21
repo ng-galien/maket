@@ -94,21 +94,8 @@ export interface WsCheckLayoutRequest {
 	pageIdx: number;
 }
 
-export type WsServerMessage =
-	| WsStateMessage
-	| WsToastMessage
-	| WsCharteUpdatedMessage
-	| WsCharteRemovedMessage
-	| WsDocRemovedMessage
-	| WsAckMessagesMessage
-	| WsReloadMessage
-	| WsActivityMessage
-	| WsAssetsChangedMessage
-	| WsFitViewMessage
-	| WsCheckLayoutRequest;
-
 // ============================================================
-// Client → Server
+// Client-authored messages
 // ============================================================
 
 export interface WsLoadDocumentMessage {
@@ -317,7 +304,18 @@ export interface WsCheckLayoutResponse {
 	elements?: unknown[];
 }
 
-export type WsClientMessage =
+export type WsMessage =
+	| WsStateMessage
+	| WsToastMessage
+	| WsCharteUpdatedMessage
+	| WsCharteRemovedMessage
+	| WsDocRemovedMessage
+	| WsAckMessagesMessage
+	| WsReloadMessage
+	| WsActivityMessage
+	| WsAssetsChangedMessage
+	| WsFitViewMessage
+	| WsCheckLayoutRequest
 	| WsLoadDocumentMessage
 	| WsSaveDocumentMessage
 	| WsDeleteDocumentMessage

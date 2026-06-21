@@ -10,7 +10,10 @@
  * targeting a specific page.
  */
 
-import type { WsClientMessage, WsStateMessage } from "@maket/shared";
+import type {
+	WsMessage as SharedWsMessage,
+	WsStateMessage,
+} from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
 import { composeCharteCss } from "../lib/charte-css.js";
@@ -29,7 +32,7 @@ import type { Store } from "./store.js";
 import type { WsBridge } from "./ws-bridge.js";
 import type { WsRegistry } from "./ws-registry.js";
 
-export type WsMessage = WsClientMessage;
+export type WsMessage = SharedWsMessage;
 
 export type WsMessageHandler = (msg: WsMessage, ws: WebSocket) => void;
 

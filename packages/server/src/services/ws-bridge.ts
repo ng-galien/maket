@@ -12,7 +12,7 @@
  */
 
 import crypto from "node:crypto";
-import type { WsServerMessage } from "@maket/shared";
+import type { WsMessage } from "@maket/shared";
 import type { WsRegistry } from "./ws-registry.js";
 
 interface PendingRequest {
@@ -60,7 +60,7 @@ export function createWsBridge({ wsRegistry }: WsBridgeDeps): WsBridge {
 				type,
 				_reqId: reqId,
 				...payload,
-			} as unknown as WsServerMessage);
+			} as unknown as WsMessage);
 			return registerPending(reqId, timeoutMs);
 		},
 		waitForResponse(id, timeoutMs = 3000) {

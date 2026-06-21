@@ -1,8 +1,4 @@
-import type {
-	WsCheckLayoutResponse,
-	WsClientMessage,
-	WsServerMessage,
-} from "@maket/shared";
+import type { WsCheckLayoutResponse, WsMessage } from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -45,14 +41,14 @@ class MockWebSocket {
 		this.readyState = 1;
 		this.onopen?.();
 	}
-	emit(msg: WsServerMessage) {
+	emit(msg: WsMessage) {
 		this.onmessage?.({ data: JSON.stringify(msg) } as MessageEvent);
 	}
-	lastSent<T extends WsClientMessage>(): T {
+	lastSent<T extends WsMessage>(): T {
 		return JSON.parse(this.sent[this.sent.length - 1]) as T;
 	}
-	sentPayloads(): WsClientMessage[] {
-		return this.sent.map((s) => JSON.parse(s) as WsClientMessage);
+	sentPayloads(): WsMessage[] {
+		return this.sent.map((s) => JSON.parse(s) as WsMessage);
 	}
 }
 

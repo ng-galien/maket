@@ -1,8 +1,4 @@
-import type {
-	WsClientMessage,
-	WsLayoutReportMessage,
-	WsServerMessage,
-} from "@maket/shared";
+import type { WsLayoutReportMessage, WsMessage } from "@maket/shared";
 import en from "../i18n/en.json";
 
 import fr from "../i18n/fr.json";
@@ -278,9 +274,9 @@ function connect(): void {
 	ws.onerror = () => {};
 
 	ws.onmessage = (e) => {
-		let msg: WsServerMessage;
+		let msg: WsMessage;
 		try {
-			msg = JSON.parse(e.data) as WsServerMessage;
+			msg = JSON.parse(e.data) as WsMessage;
 		} catch {
 			return;
 		}
@@ -412,7 +408,7 @@ function connect(): void {
 	};
 }
 
-export function wsSend(msg: WsClientMessage): void {
+export function wsSend(msg: WsMessage): void {
 	if (ws && ws.readyState === 1) {
 		ws.send(JSON.stringify(msg));
 	}
