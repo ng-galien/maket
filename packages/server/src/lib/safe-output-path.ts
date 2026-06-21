@@ -20,8 +20,6 @@ export function resolveSafeOutputPath(
 	const candidate = isAbsolute(requested)
 		? resolve(requested)
 		: resolve(root, requested);
-	// Reject anything that escapes the allowed root, including `..` traversal
-	// and absolute paths in unrelated trees.
 	if (candidate !== root && !candidate.startsWith(root + sep)) {
 		throw new Error(
 			`Refusing to write outside ${allowedRoot}: ${requested}. ` +

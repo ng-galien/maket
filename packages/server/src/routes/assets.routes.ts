@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 // read at runtime — removed.
 import { extname, join, resolve, sep } from "node:path";
 import type { AssetsListResponse, UploadResponse } from "@maket/shared";
-import type { Response } from "express";
+import type { Request, Response } from "express";
 import express, { Router as createRouter, type Router } from "express";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import { rasterizeSvg } from "../lib/svg-rasterize.js";
@@ -60,165 +60,255 @@ export function createAssetsRouter({
 	const router = createRouter();
 	const { ASSETS_DIR } = config;
 
-	// Image variants — thumb/preview served at reduced resolution.
-	router.get("/assets/:variant(thumb|preview)/:file", async (req: any, res) => {
-		const { variant, file } = req.params as { variant: string; file: string };
-		const original = resolve(join(ASSETS_DIR, file));
-		if (!original.startsWith(resolve(ASSETS_DIR) + sep))
-			return res.status(400).end();
-		if (!existsSync(original)) return res.status(404).end();
+	router.get("/assets/:variant(thumb|preview)/:file", (req, res) =>
+		handleAssetVariant(req, res, ASSETS_DIR),
+	);
 
-		const cfg = VARIANTS[variant];
-		if (!cfg) return res.status(400).end();
-		const cacheDir = join(ASSETS_DIR, cfg.subdir);
-		const srcExt = extname(file).toLowerCase();
-		const isSvg = srcExt === ".svg";
-		const cacheExt = isSvg ? ".png" : ".jpg";
-		const contentType = isSvg ? "image/png" : "image/jpeg";
-		const cached = join(cacheDir, file.replace(/\.[^.]+$/, cacheExt));
-
-		if (existsSync(cached)) {
-			res.setHeader("Content-Type", contentType);
-			res.setHeader("Cache-Control", "public, max-age=86400");
-			return res.sendFile(cached);
-		}
-
-		try {
-			if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
-			let buf: Buffer;
-			if (isSvg) {
-				buf = await rasterizeSvg(readFileSync(original), cfg.maxPx);
-			} else {
-				const { Jimp } = await import("jimp");
-				const image = await Jimp.read(original);
-				if (image.width <= cfg.maxPx && image.height <= cfg.maxPx) {
-					res.setHeader("Cache-Control", "public, max-age=86400");
-					return res.sendFile(original);
-				}
-				image.scaleToFit({ w: cfg.maxPx, h: cfg.maxPx });
-				buf = Buffer.from(
-					await image.getBuffer("image/jpeg", { quality: cfg.quality }),
-				);
-			}
-			writeFileSync(cached, buf);
-			res.setHeader("Content-Type", contentType);
-			res.setHeader("Cache-Control", "public, max-age=86400");
-			res.sendFile(cached);
-		} catch (err: any) {
-			log(`[variant] ${variant}/${file} failed: ${err.message}`);
-			res.sendFile(original);
-		}
-	});
-
-	// maxAge 0 keeps the browser's copy revalidated by ETag on every request,
-	// so `maket_image import --overwrite` takes effect without a hard-refresh.
 	router.use("/assets", express.static(ASSETS_DIR, { maxAge: 0, etag: true }));
 
-	router.get("/api/assets", (_req, res: Response<AssetsListResponse>) => {
-		const files = assets.listFilenames();
-		const dbAssets = store.loadAllAssets();
-		const images = files.map((f) => {
-			const meta = dbAssets.find((a) => a.filename === f);
-			return meta ? { file: f, ...meta } : { file: f };
-		});
-		res.json({ images });
-	});
-
-	router.post("/api/upload", async (req, res: Response<UploadResponse>) => {
-		try {
-			const contentType = req.headers["content-type"] || "";
-
-			let cleanName: string;
-			let buf: Buffer;
-
-			if (contentType.includes("multipart/form-data")) {
-				let body: Buffer;
-				try {
-					body = await readBoundedBody(req, MAX_UPLOAD_BYTES);
-				} catch (e) {
-					if (e instanceof BodyTooLargeError) {
-						return res.status(413).json({ error: e.message });
-					}
-					throw e;
-				}
-				const boundary = contentType.split("boundary=")[1];
-				if (!boundary)
-					return res.status(400).json({ error: "Missing boundary" });
-
-				const partSep = `--${boundary}`;
-				const raw = body.toString("latin1");
-				const parts = raw
-					.split(partSep)
-					.filter((p) => p.includes("Content-Disposition"));
-				if (parts.length === 0)
-					return res.status(400).json({ error: "No file in upload" });
-
-				const part = parts[0];
-				if (!part) return res.status(400).json({ error: "No file part" });
-				const headerEnd = part.indexOf("\r\n\r\n");
-				if (headerEnd === -1)
-					return res.status(400).json({ error: "Malformed multipart" });
-
-				const headers = part.slice(0, headerEnd);
-				const filenameMatch = headers.match(/filename="([^"]+)"/);
-				if (!filenameMatch)
-					return res.status(400).json({ error: "No filename in upload" });
-
-				const rawName = filenameMatch[1];
-				if (!rawName) return res.status(400).json({ error: "No filename" });
-				cleanName = rawName.replace(/[^a-zA-Z0-9._-]/g, "_");
-				const bodyOffset = body.indexOf("\r\n\r\n", body.indexOf(partSep)) + 4;
-				const nextBoundary = body.indexOf(
-					Buffer.from(`\r\n${partSep}`),
-					bodyOffset,
-				);
-				buf = body.subarray(bodyOffset, nextBoundary);
-			} else {
-				let bodyBuf: Buffer;
-				try {
-					bodyBuf = await readBoundedBody(req, MAX_UPLOAD_BYTES);
-				} catch (e) {
-					if (e instanceof BodyTooLargeError) {
-						return res.status(413).json({ error: e.message });
-					}
-					throw e;
-				}
-				let jsonBody: any;
-				try {
-					jsonBody = JSON.parse(bodyBuf.toString("utf-8"));
-				} catch {
-					return res.status(400).json({ error: "Invalid JSON" });
-				}
-				if (!jsonBody.filename || !jsonBody.data)
-					return res.status(400).json({ error: "filename and data required" });
-				cleanName = jsonBody.filename.replace(/[^a-zA-Z0-9._-]/g, "_");
-				buf = Buffer.from(jsonBody.data, "base64");
-			}
-
-			const ext = extname(cleanName).toLowerCase();
-			if (!ALLOWED_IMG_EXTS.has(ext))
-				return res
-					.status(400)
-					.json({ error: `Extension "${ext}" not allowed` });
-			if (RESERVED_NAMES.has(cleanName.toLowerCase()))
-				return res.status(400).json({ error: "Reserved filename" });
-
-			const replaced = assets.exists(cleanName);
-			await assets.importBuffer(buf, cleanName, true);
-
-			setTimeout(() => {
-				void assets.optimize(cleanName);
-			}, 0);
-			bus.emit("assets:changed", {});
-
-			log(
-				`${replaced ? "Replaced" : "Uploaded"}: ${cleanName} (${buf.length} bytes)`,
-			);
-			res.json({ ok: true, file: cleanName, replaced });
-		} catch (e: any) {
-			res.status(500).json({ error: e.message });
-		}
-	});
+	router.get("/api/assets", (_req, res) => listAssets(res, store, assets));
+	router.post("/api/upload", (req, res) => handleUpload(req, res, assets, bus));
 
 	return router;
+}
+
+async function handleAssetVariant(
+	req: Request,
+	res: Response,
+	assetsDir: string,
+): Promise<void> {
+	const { variant, file } = req.params as { variant: string; file: string };
+	const original = resolve(join(assetsDir, file));
+	if (!original.startsWith(resolve(assetsDir) + sep)) {
+		res.status(400).end();
+		return;
+	}
+	if (!existsSync(original)) {
+		res.status(404).end();
+		return;
+	}
+	const cfg = VARIANTS[variant];
+	if (!cfg) {
+		res.status(400).end();
+		return;
+	}
+	await sendAssetVariant(res, original, file, variant, assetsDir, cfg);
+}
+
+async function sendAssetVariant(
+	res: Response,
+	original: string,
+	file: string,
+	variant: string,
+	assetsDir: string,
+	cfg: { maxPx: number; quality: number; subdir: string },
+): Promise<void> {
+	const cacheDir = join(assetsDir, cfg.subdir);
+	const isSvg = extname(file).toLowerCase() === ".svg";
+	const contentType = isSvg ? "image/png" : "image/jpeg";
+	const cached = join(
+		cacheDir,
+		file.replace(/\.[^.]+$/, isSvg ? ".png" : ".jpg"),
+	);
+	if (existsSync(cached)) {
+		sendCachedAsset(res, cached, contentType);
+		return;
+	}
+	try {
+		const buf = await renderVariantBuffer(
+			original,
+			cfg.maxPx,
+			cfg.quality,
+			isSvg,
+		);
+		if (!buf) {
+			sendCachedAsset(res, original, "");
+			return;
+		}
+		if (!existsSync(cacheDir)) mkdirSync(cacheDir, { recursive: true });
+		writeFileSync(cached, buf);
+		sendCachedAsset(res, cached, contentType);
+	} catch (err: any) {
+		log(`[variant] ${variant}/${file} failed: ${err.message}`);
+		res.sendFile(original);
+	}
+}
+
+function sendCachedAsset(
+	res: Response,
+	file: string,
+	contentType: string,
+): void {
+	if (contentType) res.setHeader("Content-Type", contentType);
+	res.setHeader("Cache-Control", "public, max-age=86400");
+	res.sendFile(file);
+}
+
+async function renderVariantBuffer(
+	original: string,
+	maxPx: number,
+	quality: number,
+	isSvg: boolean,
+): Promise<Buffer | null> {
+	if (isSvg) return rasterizeSvg(readFileSync(original), maxPx);
+	const { Jimp } = await import("jimp");
+	const image = await Jimp.read(original);
+	if (image.width <= maxPx && image.height <= maxPx) return null;
+	image.scaleToFit({ w: maxPx, h: maxPx });
+	return Buffer.from(await image.getBuffer("image/jpeg", { quality }));
+}
+
+function listAssets(
+	res: Response<AssetsListResponse>,
+	store: Store,
+	assets: AssetsService,
+): void {
+	const files = assets.listFilenames();
+	const dbAssets = store.loadAllAssets();
+	const images = files.map((f) => {
+		const meta = dbAssets.find((a) => a.filename === f);
+		return meta ? { file: f, ...meta } : { file: f };
+	});
+	res.json({ images });
+}
+
+async function handleUpload(
+	req: Request,
+	res: Response<UploadResponse>,
+	assets: AssetsService,
+	bus: Bus,
+): Promise<void> {
+	try {
+		const upload = await readUpload(req, res);
+		if (!upload) return;
+		const invalid = validateUploadName(upload.cleanName);
+		if (invalid) {
+			res.status(400).json({ error: invalid });
+			return;
+		}
+		const replaced = assets.exists(upload.cleanName);
+		await assets.importBuffer(upload.buf, upload.cleanName, true);
+		setTimeout(() => void assets.optimize(upload.cleanName), 0);
+		bus.emit("assets:changed", {});
+		log(
+			`${replaced ? "Replaced" : "Uploaded"}: ${upload.cleanName} (${upload.buf.length} bytes)`,
+		);
+		res.json({ ok: true, file: upload.cleanName, replaced });
+	} catch (e: any) {
+		res.status(500).json({ error: e.message });
+	}
+}
+
+async function readUpload(
+	req: Request,
+	res: Response<UploadResponse>,
+): Promise<{ cleanName: string; buf: Buffer } | null> {
+	const contentType = req.headers["content-type"] || "";
+	if (contentType.includes("multipart/form-data"))
+		return readMultipartUpload(req, res, contentType);
+	return readJsonUpload(req, res);
+}
+
+async function readBoundedUploadBody(
+	req: Request,
+	res: Response<UploadResponse>,
+): Promise<Buffer | null> {
+	try {
+		return await readBoundedBody(req, MAX_UPLOAD_BYTES);
+	} catch (e) {
+		if (e instanceof BodyTooLargeError) {
+			res.status(413).json({ error: e.message });
+			return null;
+		}
+		throw e;
+	}
+}
+
+async function readMultipartUpload(
+	req: Request,
+	res: Response<UploadResponse>,
+	contentType: string,
+): Promise<{ cleanName: string; buf: Buffer } | null> {
+	const body = await readBoundedUploadBody(req, res);
+	if (!body) return null;
+	const boundary = contentType.split("boundary=")[1];
+	if (!boundary) {
+		res.status(400).json({ error: "Missing boundary" });
+		return null;
+	}
+	return parseMultipartUpload(body, boundary, res);
+}
+
+function parseMultipartUpload(
+	body: Buffer,
+	boundary: string,
+	res: Response<UploadResponse>,
+): { cleanName: string; buf: Buffer } | null {
+	const partSep = `--${boundary}`;
+	const parts = body
+		.toString("latin1")
+		.split(partSep)
+		.filter((p) => p.includes("Content-Disposition"));
+	if (parts.length === 0) {
+		res.status(400).json({ error: "No file in upload" });
+		return null;
+	}
+	const part = parts[0];
+	if (!part) {
+		res.status(400).json({ error: "No file part" });
+		return null;
+	}
+	return parseMultipartPart(body, part, partSep, res);
+}
+
+function parseMultipartPart(
+	body: Buffer,
+	part: string,
+	partSep: string,
+	res: Response<UploadResponse>,
+): { cleanName: string; buf: Buffer } | null {
+	const headerEnd = part.indexOf("\r\n\r\n");
+	if (headerEnd === -1) {
+		res.status(400).json({ error: "Malformed multipart" });
+		return null;
+	}
+	const filenameMatch = part.slice(0, headerEnd).match(/filename="([^"]+)"/);
+	if (!filenameMatch?.[1]) {
+		res.status(400).json({ error: "No filename in upload" });
+		return null;
+	}
+	const cleanName = filenameMatch[1].replace(/[^a-zA-Z0-9._-]/g, "_");
+	const bodyOffset = body.indexOf("\r\n\r\n", body.indexOf(partSep)) + 4;
+	const nextBoundary = body.indexOf(Buffer.from(`\r\n${partSep}`), bodyOffset);
+	return { cleanName, buf: body.subarray(bodyOffset, nextBoundary) };
+}
+
+async function readJsonUpload(
+	req: Request,
+	res: Response<UploadResponse>,
+): Promise<{ cleanName: string; buf: Buffer } | null> {
+	const bodyBuf = await readBoundedUploadBody(req, res);
+	if (!bodyBuf) return null;
+	let jsonBody: any;
+	try {
+		jsonBody = JSON.parse(bodyBuf.toString("utf-8"));
+	} catch {
+		res.status(400).json({ error: "Invalid JSON" });
+		return null;
+	}
+	if (!jsonBody.filename || !jsonBody.data) {
+		res.status(400).json({ error: "filename and data required" });
+		return null;
+	}
+	return {
+		cleanName: jsonBody.filename.replace(/[^a-zA-Z0-9._-]/g, "_"),
+		buf: Buffer.from(jsonBody.data, "base64"),
+	};
+}
+
+function validateUploadName(cleanName: string): string | null {
+	const ext = extname(cleanName).toLowerCase();
+	if (!ALLOWED_IMG_EXTS.has(ext)) return `Extension "${ext}" not allowed`;
+	if (RESERVED_NAMES.has(cleanName.toLowerCase())) return "Reserved filename";
+	return null;
 }

@@ -229,8 +229,6 @@ export const PageCanvas = memo(function PageCanvas({
 			const newHtml = target.innerHTML;
 			if (newHtml !== originalHtml) {
 				sendTextEdit(doc.name, pageIndex, id, newHtml);
-				// Don't clear editing here — wait for server broadcast to arrive
-				// (stableHtmlRef keeps DOM frozen until rawHtml changes)
 			} else {
 				useStore.getState().setEditingElement(null);
 			}
@@ -282,7 +280,6 @@ export const PageCanvas = memo(function PageCanvas({
 				toolbar?.id,
 			);
 
-			// Clear previous selection
 			const docRoot = el.closest("[data-doc]");
 			if (docRoot) {
 				docRoot.querySelectorAll("[data-id].selected").forEach((e) => {
@@ -290,14 +287,12 @@ export const PageCanvas = memo(function PageCanvas({
 				});
 			}
 
-			// Toggle: click same element again = deselect + dismiss toolbar
 			if (toolbar?.id === id) {
 				useStore.getState().selectElement(null);
 				setToolbar(null);
 				return;
 			}
 
-			// Pin toolbar on this element
 			target.classList.add("selected");
 			useStore.getState().selectElement(id);
 			const rect = target.getBoundingClientRect();

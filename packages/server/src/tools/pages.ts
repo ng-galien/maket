@@ -8,6 +8,7 @@
  * re-fetches the doc tree after structural changes).
  */
 
+import crypto from "node:crypto";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
@@ -116,6 +117,7 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=add", true);
 	if (args.html == null) return text("html is required for action=add", true);
 	const page: Page = {
+		id: crypto.randomUUID(),
 		name: args.name,
 		elements: [],
 		html: stripActiveHtml(normalizeImageSrc(args.html)),

@@ -1,7 +1,7 @@
 import type {
-	WsCheckLayoutResponse,
-	WsClientMessage,
-	WsServerMessage,
+	LayoutCheckResult,
+	WorkspaceCommand,
+	WorkspaceSignal,
 } from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
@@ -45,14 +45,14 @@ class MockWebSocket {
 		this.readyState = 1;
 		this.onopen?.();
 	}
-	emit(msg: WsServerMessage) {
+	emit(msg: WorkspaceSignal) {
 		this.onmessage?.({ data: JSON.stringify(msg) } as MessageEvent);
 	}
-	lastSent<T extends WsClientMessage>(): T {
+	lastSent<T extends WorkspaceCommand>(): T {
 		return JSON.parse(this.sent[this.sent.length - 1]) as T;
 	}
-	sentPayloads(): WsClientMessage[] {
-		return this.sent.map((s) => JSON.parse(s) as WsClientMessage);
+	sentPayloads(): WorkspaceCommand[] {
+		return this.sent.map((s) => JSON.parse(s) as WorkspaceCommand);
 	}
 }
 
@@ -62,7 +62,7 @@ function doc(name: string, charte?: string): Document {
 		name,
 		category: "flyer",
 		canvas: { w: 210, h: 297, background: "#fff" },
-		pages: [{ name: "p1", elements: [] }],
+		pages: [{ id: `${name}-page-1`, name: "p1", elements: [] }],
 		activePage: 0,
 		meta: charte ? { charte } : undefined,
 	};
@@ -372,7 +372,7 @@ describe("check_layout_request", () => {
 			pageIdx: 0,
 		});
 
-		const payload = MockWebSocket.last().lastSent<WsCheckLayoutResponse>();
+		const payload = MockWebSocket.last().lastSent<LayoutCheckResult>();
 		expect(payload.type).toBe("check_layout_response");
 		expect(payload._reqId).toBe("r-42");
 

@@ -472,7 +472,12 @@ describe("ws-handler — file and document mutations", () => {
 		const src = makeDoc("source");
 		src.meta.locked = true;
 		src.pages = [
-			{ name: "P1", elements: [{ id: "a" }], html: '<p data-id="a">A</p>' },
+			{
+				id: "page-source",
+				name: "P1",
+				elements: [{ id: "a" }],
+				html: '<p data-id="a">A</p>',
+			},
 		];
 		store.saveDoc(src);
 		documents.loadAll();

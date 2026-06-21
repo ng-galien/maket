@@ -3,11 +3,11 @@
  *
  * Exposes an abstract `WsLike` shape so tests can use plain objects with
  * `readyState` + `send()` instead of a real `ws` socket. Broadcast takes a
- * typed `WsServerMessage` and serialises to JSON internally so callers can't
- * accidentally ship a mis-shaped envelope.
+ * typed `WorkspaceSignal` and serialises to JSON internally so callers can't
+ * accidentally broadcast a browser command.
  */
 
-import type { WsServerMessage } from "@maket/shared";
+import type { WorkspaceSignal } from "@maket/shared";
 
 /** Minimal contract a connection must satisfy to join the registry. */
 export interface WsLike {
@@ -24,7 +24,7 @@ export interface WsRegistry {
 	 * JSON-stringifies `msg` and sends it to every OPEN client. Non-open
 	 * clients are skipped, not removed.
 	 */
-	broadcast(msg: WsServerMessage): void;
+	broadcast(msg: WorkspaceSignal): void;
 }
 
 const WS_OPEN = 1;

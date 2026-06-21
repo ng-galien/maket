@@ -28,17 +28,17 @@ function isPrivateIPv4(ip: string): boolean {
 		parts.length !== 4 ||
 		parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)
 	) {
-		return true; // unparseable → treat as hostile
+		return true;
 	}
 	const [a, b] = parts as [number, number, number, number];
-	if (a === 10) return true; // 10.0.0.0/8
-	if (a === 127) return true; // 127.0.0.0/8 loopback
-	if (a === 0) return true; // 0.0.0.0/8
-	if (a === 169 && b === 254) return true; // 169.254.0.0/16 link-local + AWS IMDS
-	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
-	if (a === 192 && b === 168) return true; // 192.168.0.0/16
-	if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
-	if (a >= 224) return true; // 224+ multicast & reserved
+	if (a === 10) return true;
+	if (a === 127) return true;
+	if (a === 0) return true;
+	if (a === 169 && b === 254) return true;
+	if (a === 172 && b >= 16 && b <= 31) return true;
+	if (a === 192 && b === 168) return true;
+	if (a === 100 && b >= 64 && b <= 127) return true;
+	if (a >= 224) return true;
 	return false;
 }
 
@@ -46,10 +46,9 @@ function isPrivateIPv4(ip: string): boolean {
 function isPrivateIPv6(ip: string): boolean {
 	const lower = ip.toLowerCase();
 	if (lower === "::1" || lower === "::") return true;
-	if (lower.startsWith("fe80:")) return true; // link-local
-	if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local fc00::/7
-	if (lower.startsWith("ff")) return true; // multicast
-	// IPv4-mapped IPv6 → check the embedded IPv4
+	if (lower.startsWith("fe80:")) return true;
+	if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+	if (lower.startsWith("ff")) return true;
 	const v4mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
 	if (v4mapped?.[1]) return isPrivateIPv4(v4mapped[1]);
 	return false;
@@ -65,10 +64,8 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		throw new Error(`Refusing non-http(s) URL: ${url.protocol}`);
 	}
-	// `url.hostname` carries IPv6 with surrounding brackets — strip for IP / DNS.
 	const host = url.hostname.replace(/^\[|\]$/g, "");
 
-	// IP literals: skip DNS, check directly. IPv4 returns 4, IPv6 returns 6.
 	const ipFamily = isIP(host);
 	if (ipFamily) {
 		const bad = ipFamily === 6 ? isPrivateIPv6(host) : isPrivateIPv4(host);
@@ -80,8 +77,6 @@ export async function assertSafeUrl(rawUrl: string): Promise<void> {
 		return;
 	}
 
-	// Hostname: resolve all addresses (could be IPv4 + IPv6); reject if any
-	// resolves to a private/loopback address (DNS-rebinding-resistant).
 	let addrs: { address: string; family: number }[];
 	try {
 		addrs = await dnsLookup(host, { all: true, verbatim: true });
@@ -118,7 +113,6 @@ export async function boundedFetch(
 	let response: Response | null = null;
 	for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
 		response = await fetch(current, { redirect: "manual" });
-		// 3xx responses with a Location header — re-validate before following.
 		if (response.status >= 300 && response.status < 400) {
 			const next = response.headers.get("location");
 			if (!next) {

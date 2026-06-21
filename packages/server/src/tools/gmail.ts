@@ -199,13 +199,9 @@ function openBrowser(url: string): void {
 						detached: true,
 						stdio: "ignore",
 					});
-		child.on("error", () => {
-			/* headless host or missing helper — handled by the manual paste fallback */
-		});
+		child.on("error", () => {});
 		child.unref();
-	} catch {
-		/* noop — see comment above */
-	}
+	} catch {}
 }
 
 async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
@@ -217,8 +213,6 @@ async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 			const grants = gmailClient.grants();
 			const gmail = await gmailClient.getGmail();
 			const profile = await gmail.users.getProfile({ userId: "me" });
-			// If the caller asked for read but the existing grant doesn't cover it,
-			// fall through to a fresh OAuth round so the user can consent to it.
 			if (!withRead || grants.read) {
 				const features = grants.read ? "draft + read" : "draft only";
 				return text(
@@ -229,9 +223,6 @@ async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		const redirectUri = `http://localhost:${config.PORT}/auth/google/callback`;
 		const authUrl = await gmailClient.getAuthUrl(redirectUri, { withRead });
 
-		// Best-effort — if we can't launch a browser (headless box, missing
-		// xdg-open, Windows `start` quirks), the user can still copy the URL
-		// from the OAuth flow; don't let a launch failure abort connect.
 		openBrowser(authUrl);
 
 		await gmailClient.startAuth();
@@ -451,6 +442,8 @@ function formatSize(bytes: number): string {
 	return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(0)}KB`;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Attachment fetch is a Gmail adapter workflow that coordinates grants, message lookup, asset storage, and document import decisions.
 async function runFetchAttachment(
 	args: Args,
 	deps: GmailDeps,
@@ -516,9 +509,6 @@ async function runFetchAttachment(
 	)
 		return text("Gmail returned an invalid attachment size", true);
 	if (declaredSize > MAX_ATTACHMENT_BYTES) return tooLarge(declaredSize);
-	// Reject via the base64url payload length too — this upper-bounds the
-	// decoded size without allocating, so a dishonest `size` field can't get
-	// us to allocate an oversized Buffer.
 	const estimatedDecoded = Math.floor((b64.length * 3) / 4);
 	if (estimatedDecoded > MAX_ATTACHMENT_BYTES)
 		return tooLarge(estimatedDecoded);
@@ -726,6 +716,8 @@ function buildMimeMessage(
 	return `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Draft creation is a Gmail adapter workflow spanning grants, document rendering, attachment assembly, and metadata mirroring.
 async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { documents, store, gmailClient, pdfService, config, assets } = deps;
 	if (!args.doc) return text("doc is required for action=draft", true);
@@ -810,9 +802,6 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		requestBody: { message: { raw } },
 	});
 	const draftId = draft.data.id || "";
-	// Gmail's draft deep link uses the underlying message id, not the draft id.
-	// Falling back to the Drafts folder if the message id is missing keeps the
-	// link useful even when the API response shape drifts.
 	const messageId = draft.data.message?.id || "";
 	const draftUrl = messageId
 		? `https://mail.google.com/mail/u/0/#drafts/${messageId}`
@@ -827,8 +816,6 @@ async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
 		documents.persist(doc.name);
 	}
 
-	// Mirror the draft URL onto each attached doc so it surfaces alongside every
-	// artefact that ended up in the email, not just the body.
 	for (const name of attachmentNames) {
 		const attDoc = documents.resolveOrLoad(name);
 		if (!attDoc?.meta) continue;

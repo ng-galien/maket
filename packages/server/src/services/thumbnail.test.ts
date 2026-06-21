@@ -71,7 +71,9 @@ function fixture() {
 describe("createThumbnailService", () => {
 	it("renders an empty page as a blank canvas (no HTML, no throw)", async () => {
 		const { service, snapshot, cleanup } = fixture();
-		const doc = makeDoc({ pages: [{ name: "empty", elements: [] }] });
+		const doc = makeDoc({
+			pages: [{ id: "page-empty", name: "empty", elements: [] }],
+		});
 		const buf = await service.render(doc);
 		expect(Buffer.isBuffer(buf)).toBe(true);
 		expect(snapshot).toHaveBeenCalledOnce();

@@ -43,7 +43,7 @@ function makeDoc(name: string, category = "flyer"): Document {
 		name,
 		category,
 		canvas: { w: 210, h: 297, background: "#fff" },
-		pages: [{ name: "p1", elements: [] }],
+		pages: [{ id: `${name}-page-1`, name: "p1", elements: [] }],
 		activePage: 0,
 	};
 }

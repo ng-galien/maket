@@ -18,7 +18,6 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 /** True if the given Host: or origin host (with optional port) is loopback. */
 export function isLoopbackHost(value: string | undefined | null): boolean {
 	if (!value) return false;
-	// Strip ":port" suffix (handles IPv6 brackets first).
 	let host = value.trim();
 	if (host.startsWith("[")) {
 		const closeIdx = host.indexOf("]");

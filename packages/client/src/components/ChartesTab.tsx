@@ -1,4 +1,8 @@
-import type { ChartesListItem } from "@maket/shared";
+import {
+	type CharteRulesWire,
+	type ChartesListItem,
+	parseCharteRules,
+} from "@maket/shared";
 import {
 	ArrowLeft,
 	Check,
@@ -16,6 +20,7 @@ import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
+import { copyToClipboard } from "../utils";
 import { CharteEditModal } from "./CharteEditModal";
 
 /** Shared envelope (`{ name }`) plus the fields this panel actually renders. */
@@ -28,19 +33,7 @@ interface Charte extends ChartesListItem {
 		do?: string[];
 		dont?: string[];
 	};
-	rules?: Record<string, string> | string;
-}
-
-function parseRules(rules: any): Record<string, string> {
-	if (!rules) return {};
-	if (typeof rules === "string") {
-		try {
-			return JSON.parse(rules);
-		} catch {
-			return {};
-		}
-	}
-	return rules;
+	rules?: CharteRulesWire;
 }
 
 function parseVoice(voice: any): any {
@@ -76,19 +69,25 @@ function displayFontOf(c: Charte): string | null {
 	return f.heading || f.display || f.title || Object.values(f)[0] || null;
 }
 
-async function copyToClipboard(text: string): Promise<boolean> {
-	try {
-		if (navigator.clipboard?.writeText) {
-			await navigator.clipboard.writeText(text);
-			return true;
-		}
-	} catch {
-		/* fall through */
+export function ChartesTab() {
+	const model = useChartesTabModel();
+	if (model.preview) {
+		return (
+			<>
+				<ChartePreviewInline
+					charte={model.preview}
+					onBack={() => model.setPreview(null)}
+					onEdit={() => model.setEditing(model.preview)}
+					barPosition={model.barPosition}
+				/>
+				{model.editModal}
+			</>
+		);
 	}
-	return false;
+	return <ChartesTabView model={model} />;
 }
 
-export function ChartesTab() {
+function useChartesTabModel() {
 	const t = useT();
 	const [chartes, setChartes] = useState<Charte[]>([]);
 	const [preview, setPreview] = useState<Charte | null>(null);
@@ -123,9 +122,7 @@ export function ChartesTab() {
 		setView(v);
 		try {
 			localStorage.setItem(VIEW_KEY, v);
-		} catch {
-			/* private mode */
-		}
+		} catch {}
 	};
 
 	const applyCharte = (name: string) => {
@@ -138,9 +135,6 @@ export function ChartesTab() {
 	};
 
 	useEffect(() => {
-		// If a charte is being previewed/edited and the list refreshes (after a
-		// save), re-hydrate from the fresh data so the UI reflects persisted
-		// state.
 		if (!chartes.length) return;
 		if (preview) {
 			const next = chartes.find((c) => c.name === preview.name);
@@ -156,21 +150,6 @@ export function ChartesTab() {
 		<CharteEditModal charte={editing} onClose={() => setEditing(null)} />
 	) : null;
 
-	// Preview mode — inline, replaces the list
-	if (preview) {
-		return (
-			<>
-				<ChartePreviewInline
-					charte={preview}
-					onBack={() => setPreview(null)}
-					onEdit={() => setEditing(preview)}
-					barPosition={barPosition}
-				/>
-				{editModal}
-			</>
-		);
-	}
-
 	const q = search.trim().toLowerCase();
 	const filtered = q
 		? chartes.filter((c) => {
@@ -185,17 +164,71 @@ export function ChartesTab() {
 			})
 		: chartes;
 
-	// Active charte pinned to the top when one is applied on the focused doc.
 	const activeCharte =
 		currentCharte && filtered.find((c) => c.name === currentCharte);
 	const restCharte = filtered.filter((c) => c.name !== currentCharte);
+	const charteItemFor = (
+		charte: Charte,
+		isActive: boolean,
+	): CharteItemProps => ({
+		model: { charte, isActive, hasDoc },
+		actions: {
+			open: () => setPreview(charte),
+			edit: () => setEditing(charte),
+			apply: () => applyCharte(charte.name),
+			unapply: unapplyCharte,
+			openMenu: () => setMenuFor(charte.name),
+			closeMenu: () => setMenuFor(null),
+		},
+		menuOpen: menuFor === charte.name,
+	});
 
+	return {
+		t,
+		chartes,
+		preview,
+		setPreview,
+		editing,
+		setEditing,
+		loading,
+		search,
+		setSearch,
+		view,
+		setViewAndPersist,
+		barPosition,
+		activeCharte,
+		restCharte,
+		filtered,
+		charteItemFor,
+		editModal,
+	};
+}
+
+function ChartesTabView({
+	model,
+}: {
+	model: ReturnType<typeof useChartesTabModel>;
+}) {
+	const {
+		t,
+		chartes,
+		loading,
+		search,
+		setSearch,
+		view,
+		setViewAndPersist,
+		barPosition,
+		activeCharte,
+		restCharte,
+		filtered,
+		charteItemFor,
+		editModal,
+	} = model;
 	return (
 		<>
 			<div
 				className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
 			>
-				{/* Header — search + view toggle */}
 				<div className="px-1 flex items-center gap-1.5">
 					<div className="relative flex-1 min-w-0">
 						<Search
@@ -273,31 +306,9 @@ export function ChartesTab() {
 									</span>
 								</div>
 								{view === "grid" ? (
-									<CharteCard
-										charte={activeCharte}
-										isActive
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(activeCharte)}
-										onEdit={() => setEditing(activeCharte)}
-										onApply={() => applyCharte(activeCharte.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === activeCharte.name}
-										onMenuOpen={() => setMenuFor(activeCharte.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteCard {...charteItemFor(activeCharte, true)} />
 								) : (
-									<CharteRow
-										charte={activeCharte}
-										isActive
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(activeCharte)}
-										onEdit={() => setEditing(activeCharte)}
-										onApply={() => applyCharte(activeCharte.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === activeCharte.name}
-										onMenuOpen={() => setMenuFor(activeCharte.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteRow {...charteItemFor(activeCharte, true)} />
 								)}
 								<div className="h-px bg-black/[0.06] my-1" />
 							</section>
@@ -305,37 +316,13 @@ export function ChartesTab() {
 						{view === "grid" ? (
 							<div className="grid grid-cols-1 gap-2">
 								{restCharte.map((c) => (
-									<CharteCard
-										key={c.name}
-										charte={c}
-										isActive={false}
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(c)}
-										onEdit={() => setEditing(c)}
-										onApply={() => applyCharte(c.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === c.name}
-										onMenuOpen={() => setMenuFor(c.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteCard key={c.name} {...charteItemFor(c, false)} />
 								))}
 							</div>
 						) : (
 							<div className="flex flex-col gap-1">
 								{restCharte.map((c) => (
-									<CharteRow
-										key={c.name}
-										charte={c}
-										isActive={false}
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(c)}
-										onEdit={() => setEditing(c)}
-										onApply={() => applyCharte(c.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === c.name}
-										onMenuOpen={() => setMenuFor(c.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteRow key={c.name} {...charteItemFor(c, false)} />
 								))}
 							</div>
 						)}
@@ -362,31 +349,29 @@ function EmptyState() {
 	);
 }
 
-interface CharteCommonProps {
+interface CharteItemModel {
 	charte: Charte;
 	isActive: boolean;
 	hasDoc: boolean;
-	onOpen: () => void;
-	onEdit: () => void;
-	onApply: () => void;
-	onUnapply: () => void;
-	menuOpen: boolean;
-	onMenuOpen: () => void;
-	onMenuClose: () => void;
 }
 
-function CharteRow({
-	charte,
-	isActive,
-	hasDoc,
-	onOpen,
-	onEdit,
-	onApply,
-	onUnapply,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-}: CharteCommonProps) {
+interface CharteItemActions {
+	open: () => void;
+	edit: () => void;
+	apply: () => void;
+	unapply: () => void;
+	openMenu: () => void;
+	closeMenu: () => void;
+}
+
+interface CharteItemProps {
+	model: CharteItemModel;
+	actions: CharteItemActions;
+	menuOpen: boolean;
+}
+
+function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -397,14 +382,13 @@ function CharteRow({
 		<div className="relative group">
 			<button
 				type="button"
-				onClick={onOpen}
+				onClick={actions.open}
 				className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all ${
 					isActive
 						? "bg-accent/10 ring-2 ring-accent/30"
 						: "bg-panel hover:bg-black/[0.03]"
 				}`}
 			>
-				{/* Swatch + display-font pill */}
 				<div
 					className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-black/5 overflow-hidden relative"
 					style={{
@@ -461,13 +445,13 @@ function CharteRow({
 					<span
 						onClick={(e) => {
 							e.stopPropagation();
-							onApply();
+							actions.apply();
 						}}
 						onKeyDown={(e) => {
 							if (e.key === "Enter" || e.key === " ") {
 								e.stopPropagation();
 								e.preventDefault();
-								onApply();
+								actions.apply();
 							}
 						}}
 						role="button"
@@ -484,8 +468,8 @@ function CharteRow({
 				aria-label={t("charte_menu")}
 				onClick={(e) => {
 					e.stopPropagation();
-					if (menuOpen) onMenuClose();
-					else onMenuOpen();
+					if (menuOpen) actions.closeMenu();
+					else actions.openMenu();
 				}}
 				className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
 					menuOpen
@@ -496,34 +480,14 @@ function CharteRow({
 				<MoreVertical size={14} />
 			</button>
 			{menuOpen && (
-				<CharteMenu
-					charte={charte}
-					isActive={isActive}
-					hasDoc={hasDoc}
-					onClose={onMenuClose}
-					onApply={onApply}
-					onUnapply={onUnapply}
-					onOpen={onOpen}
-					onEdit={onEdit}
-					anchorRef={menuBtnRef}
-				/>
+				<CharteMenu model={model} actions={actions} anchorRef={menuBtnRef} />
 			)}
 		</div>
 	);
 }
 
-function CharteCard({
-	charte,
-	isActive,
-	hasDoc,
-	onOpen,
-	onEdit,
-	onApply,
-	onUnapply,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-}: CharteCommonProps) {
+function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -536,14 +500,13 @@ function CharteCard({
 		<div className="relative group/card">
 			<button
 				type="button"
-				onClick={onOpen}
+				onClick={actions.open}
 				className={`w-full rounded-xl overflow-hidden border text-left transition ${
 					isActive
 						? "border-accent ring-4 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.15)]"
 						: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] bg-panel"
 				}`}
 			>
-				{/* Hero — display-font sample over the primary swatch */}
 				<div
 					className="h-24 flex items-center justify-center relative"
 					style={{ background: primary }}
@@ -567,7 +530,6 @@ function CharteCard({
 					)}
 				</div>
 
-				{/* Palette strip */}
 				{colors.length > 0 && (
 					<div className="flex h-3">
 						{colors.slice(0, 8).map(([k, v]) => (
@@ -576,7 +538,6 @@ function CharteCard({
 					</div>
 				)}
 
-				{/* Meta */}
 				<div className="p-3 flex items-start gap-2">
 					<div className="flex-1 min-w-0">
 						<div
@@ -599,13 +560,13 @@ function CharteCard({
 						<span
 							onClick={(e) => {
 								e.stopPropagation();
-								onApply();
+								actions.apply();
 							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") {
 									e.stopPropagation();
 									e.preventDefault();
-									onApply();
+									actions.apply();
 								}
 							}}
 							role="button"
@@ -624,8 +585,8 @@ function CharteCard({
 				aria-label={t("charte_menu")}
 				onClick={(e) => {
 					e.stopPropagation();
-					if (menuOpen) onMenuClose();
-					else onMenuOpen();
+					if (menuOpen) actions.closeMenu();
+					else actions.openMenu();
 				}}
 				className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-md flex items-center justify-center transition backdrop-blur-sm ${
 					menuOpen
@@ -636,45 +597,20 @@ function CharteCard({
 				<MoreVertical size={14} />
 			</button>
 			{menuOpen && (
-				<CharteMenu
-					charte={charte}
-					isActive={isActive}
-					hasDoc={hasDoc}
-					onClose={onMenuClose}
-					onApply={onApply}
-					onUnapply={onUnapply}
-					onOpen={onOpen}
-					onEdit={onEdit}
-					anchorRef={menuBtnRef}
-				/>
+				<CharteMenu model={model} actions={actions} anchorRef={menuBtnRef} />
 			)}
 		</div>
 	);
 }
 
 interface CharteMenuProps {
-	charte: Charte;
-	isActive: boolean;
-	hasDoc: boolean;
-	onClose: () => void;
-	onApply: () => void;
-	onUnapply: () => void;
-	onOpen: () => void;
-	onEdit: () => void;
+	model: CharteItemModel;
+	actions: CharteItemActions;
 	anchorRef: React.RefObject<HTMLElement | null>;
 }
 
-function CharteMenu({
-	charte,
-	isActive,
-	hasDoc,
-	onClose,
-	onApply,
-	onUnapply,
-	onOpen,
-	onEdit,
-	anchorRef,
-}: CharteMenuProps) {
+function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const ref = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -697,12 +633,12 @@ function CharteMenu({
 		const onDocClick = (e: MouseEvent) => {
 			if (ref.current?.contains(e.target as Node)) return;
 			if (anchorRef.current?.contains(e.target as Node)) return;
-			onClose();
+			actions.closeMenu();
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
+			if (e.key === "Escape") actions.closeMenu();
 		};
-		const onScroll = () => onClose();
+		const onScroll = () => actions.closeMenu();
 		document.addEventListener("mousedown", onDocClick);
 		document.addEventListener("keydown", onKey);
 		window.addEventListener("scroll", onScroll, true);
@@ -713,13 +649,13 @@ function CharteMenu({
 			window.removeEventListener("scroll", onScroll, true);
 			window.removeEventListener("resize", onScroll);
 		};
-	}, [onClose, anchorRef]);
+	}, [actions, anchorRef]);
 
 	if (!pos) return null;
 
 	const handleCopyName = async () => {
 		await copyToClipboard(charte.name);
-		onClose();
+		actions.closeMenu();
 	};
 
 	return createPortal(
@@ -731,8 +667,8 @@ function CharteMenu({
 			<MenuItem
 				icon={<Search size={13} />}
 				onClick={() => {
-					onOpen();
-					onClose();
+					actions.open();
+					actions.closeMenu();
 				}}
 			>
 				{t("charte_details")}
@@ -740,8 +676,8 @@ function CharteMenu({
 			<MenuItem
 				icon={<Pencil size={13} />}
 				onClick={() => {
-					onEdit();
-					onClose();
+					actions.edit();
+					actions.closeMenu();
 				}}
 			>
 				{t("charte_edit")}
@@ -750,8 +686,8 @@ function CharteMenu({
 				<MenuItem
 					icon={<Check size={13} />}
 					onClick={() => {
-						onApply();
-						onClose();
+						actions.apply();
+						actions.closeMenu();
 					}}
 				>
 					{t("apply")}
@@ -761,8 +697,8 @@ function CharteMenu({
 				<MenuItem
 					icon={<X size={13} />}
 					onClick={() => {
-						onUnapply();
-						onClose();
+						actions.unapply();
+						actions.closeMenu();
 					}}
 				>
 					{t("charte_unapply")}
@@ -826,7 +762,6 @@ function isReadableOnDark(color: string | undefined): boolean {
 	const g = parseInt(h.slice(2, 4), 16);
 	const b = parseInt(h.slice(4, 6), 16);
 	if ([r, g, b].some((n) => Number.isNaN(n))) return false;
-	// Rec. 709 luma
 	const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 	return luma < 0.55;
 }
@@ -842,7 +777,6 @@ function ChartePreviewInline({
 	onEdit: () => void;
 	barPosition: "top" | "bottom";
 }) {
-	const t = useT();
 	const colors = charte.tokens?.color
 		? Object.entries(charte.tokens.color)
 		: [];
@@ -851,172 +785,208 @@ function ChartePreviewInline({
 		? Object.entries(charte.tokens.spacing)
 		: [];
 	const voice = parseVoice(charte.voice);
-	const rules = parseRules(charte.rules);
+	const rules = parseCharteRules(charte.rules);
 
 	return (
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} p-3 gap-4`}
 		>
-			{/* Back button + title */}
-			<div className="flex items-center gap-2">
-				<button
-					type="button"
-					onClick={onBack}
-					className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-input transition"
-				>
-					<ArrowLeft size={16} />
-				</button>
-				<div className="flex-1 min-w-0">
-					<div className="text-md font-bold truncate">{charte.name}</div>
-					{charte.description && (
-						<div className="text-xs text-text-3 truncate">
-							{charte.description}
-						</div>
-					)}
-				</div>
-				<button
-					type="button"
-					onClick={onEdit}
-					className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-2 hover:text-text-1 hover:bg-input transition"
-				>
-					<Pencil size={13} />
-					{t("charte_edit")}
-				</button>
-			</div>
-
-			{/* Colors */}
-			{colors.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						Couleurs
-					</h3>
-					<div className="flex flex-wrap gap-2">
-						{colors.map(([name, value]) => (
-							<div
-								key={name}
-								className="flex items-center gap-2 bg-input rounded-lg px-2.5 py-1.5"
-							>
-								<div
-									className="w-5 h-5 rounded-full border border-border/50"
-									style={{ background: value }}
-								/>
-								<div>
-									<div className="text-xs font-semibold">{name}</div>
-									<div className="text-2xs text-text-3 font-mono">{value}</div>
-								</div>
-							</div>
-						))}
-					</div>
-				</section>
-			)}
-
-			{/* Fonts */}
-			{fonts.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("fonts")}
-					</h3>
-					<div className="flex flex-col gap-1">
-						{fonts.map(([role, family]) => (
-							<div key={role} className="flex items-baseline gap-2">
-								<span className="text-xs text-text-3 min-w-[60px]">{role}</span>
-								<span
-									className="text-base font-medium"
-									style={{ fontFamily: family }}
-								>
-									{family.split(",")[0].replace(/'/g, "")}
-								</span>
-							</div>
-						))}
-					</div>
-				</section>
-			)}
-
-			{/* Spacing */}
-			{spacing.length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						Espacements
-					</h3>
-					<div className="flex flex-wrap gap-2">
-						{spacing.map(([name, value]) => (
-							<span
-								key={name}
-								className="text-xs font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
-							>
-								{name}: {value}
-							</span>
-						))}
-					</div>
-				</section>
-			)}
-
-			{/* Voice */}
-			{voice && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("voice_tone")}
-					</h3>
-					{voice.personality && (
-						<div className="flex flex-wrap gap-1.5 mb-2">
-							{voice.personality.map((p: string) => (
-								<span
-									key={p}
-									className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
-								>
-									{p}
-								</span>
-							))}
-						</div>
-					)}
-					{voice.formality && (
-						<div className="text-sm text-text-2 mb-2">
-							{t("voice_formality")} : {voice.formality}
-						</div>
-					)}
-					{voice.do && (
-						<div className="mb-2">
-							<div className="text-2xs font-bold text-green-600 mb-1">
-								{t("voice_do")}
-							</div>
-							{voice.do.map((d: string) => (
-								<div key={d} className="text-xs text-text-2 pl-3">
-									• {d}
-								</div>
-							))}
-						</div>
-					)}
-					{voice.dont && (
-						<div className="mb-2">
-							<div className="text-2xs font-bold text-danger mb-1">
-								{t("voice_dont")}
-							</div>
-							{voice.dont.map((d: string) => (
-								<div key={d} className="text-xs text-text-2 pl-3">
-									• {d}
-								</div>
-							))}
-						</div>
-					)}
-				</section>
-			)}
-
-			{/* Rules */}
-			{Object.keys(rules).length > 0 && (
-				<section>
-					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-						{t("rules")}
-					</h3>
-					{Object.entries(rules).map(([key, val]) => (
-						<div key={key} className="mb-2">
-							<div className="text-xs font-bold text-text-2 capitalize">
-								{key}
-							</div>
-							<div className="text-xs text-text-3">{val}</div>
-						</div>
-					))}
-				</section>
-			)}
+			<ChartePreviewHeader charte={charte} onBack={onBack} onEdit={onEdit} />
+			<CharteColorsSection colors={colors} />
+			<CharteFontsSection fonts={fonts} />
+			<CharteSpacingSection spacing={spacing} />
+			<CharteVoiceSection voice={voice} />
+			<CharteRulesSection rules={rules} />
 		</div>
+	);
+}
+
+function ChartePreviewHeader({
+	charte,
+	onBack,
+	onEdit,
+}: {
+	charte: Charte;
+	onBack: () => void;
+	onEdit: () => void;
+}) {
+	const t = useT();
+	return (
+		<div className="flex items-center gap-2">
+			<button
+				type="button"
+				onClick={onBack}
+				className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-input transition"
+			>
+				<ArrowLeft size={16} />
+			</button>
+			<div className="flex-1 min-w-0">
+				<div className="text-md font-bold truncate">{charte.name}</div>
+				{charte.description && (
+					<div className="text-xs text-text-3 truncate">
+						{charte.description}
+					</div>
+				)}
+			</div>
+			<button
+				type="button"
+				onClick={onEdit}
+				className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-text-2 hover:text-text-1 hover:bg-input transition"
+			>
+				<Pencil size={13} />
+				{t("charte_edit")}
+			</button>
+		</div>
+	);
+}
+
+function CharteColorsSection({ colors }: { colors: [string, string][] }) {
+	if (colors.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				Couleurs
+			</h3>
+			<div className="flex flex-wrap gap-2">
+				{colors.map(([name, value]) => (
+					<div
+						key={name}
+						className="flex items-center gap-2 bg-input rounded-lg px-2.5 py-1.5"
+					>
+						<div
+							className="w-5 h-5 rounded-full border border-border/50"
+							style={{ background: value }}
+						/>
+						<div>
+							<div className="text-xs font-semibold">{name}</div>
+							<div className="text-2xs text-text-3 font-mono">{value}</div>
+						</div>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteFontsSection({ fonts }: { fonts: [string, string][] }) {
+	const t = useT();
+	if (fonts.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("fonts")}
+			</h3>
+			<div className="flex flex-col gap-1">
+				{fonts.map(([role, family]) => (
+					<div key={role} className="flex items-baseline gap-2">
+						<span className="text-xs text-text-3 min-w-[60px]">{role}</span>
+						<span
+							className="text-base font-medium"
+							style={{ fontFamily: family }}
+						>
+							{family.split(",")[0].replace(/'/g, "")}
+						</span>
+					</div>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteSpacingSection({ spacing }: { spacing: [string, string][] }) {
+	if (spacing.length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				Espacements
+			</h3>
+			<div className="flex flex-wrap gap-2">
+				{spacing.map(([name, value]) => (
+					<span
+						key={name}
+						className="text-xs font-medium px-2.5 py-1 rounded-full bg-input text-text-2"
+					>
+						{name}: {value}
+					</span>
+				))}
+			</div>
+		</section>
+	);
+}
+
+function CharteVoiceSection({ voice }: { voice: any }) {
+	const t = useT();
+	if (!voice) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("voice_tone")}
+			</h3>
+			{voice.personality && (
+				<div className="flex flex-wrap gap-1.5 mb-2">
+					{voice.personality.map((p: string) => (
+						<span
+							key={p}
+							className="text-xs font-semibold px-2.5 py-1 rounded-full bg-accent-soft text-accent"
+						>
+							{p}
+						</span>
+					))}
+				</div>
+			)}
+			{voice.formality && (
+				<div className="text-sm text-text-2 mb-2">
+					{t("voice_formality")} : {voice.formality}
+				</div>
+			)}
+			<VoiceList title={t("voice_do")} items={voice.do} kind="do" />
+			<VoiceList title={t("voice_dont")} items={voice.dont} kind="dont" />
+		</section>
+	);
+}
+
+function VoiceList({
+	title,
+	items,
+	kind,
+}: {
+	title: string;
+	items?: string[];
+	kind: "do" | "dont";
+}) {
+	if (!items) return null;
+	return (
+		<div className="mb-2">
+			<div
+				className={`text-2xs font-bold mb-1 ${
+					kind === "do" ? "text-green-600" : "text-danger"
+				}`}
+			>
+				{title}
+			</div>
+			{items.map((item) => (
+				<div key={item} className="text-xs text-text-2 pl-3">
+					• {item}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function CharteRulesSection({ rules }: { rules: Record<string, string> }) {
+	const t = useT();
+	if (Object.keys(rules).length === 0) return null;
+	return (
+		<section>
+			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
+				{t("rules")}
+			</h3>
+			{Object.entries(rules).map(([key, val]) => (
+				<div key={key} className="mb-2">
+					<div className="text-xs font-bold text-text-2 capitalize">{key}</div>
+					<div className="text-xs text-text-3">{val}</div>
+				</div>
+			))}
+		</section>
 	);
 }

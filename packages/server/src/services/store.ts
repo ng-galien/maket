@@ -7,14 +7,102 @@
  */
 
 import crypto from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "node:sqlite";
 import type { Charte, Document, Page } from "../types.js";
 import { createDocument } from "../types.js";
 
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
+
+const SCHEMA_SQL = `
+  CREATE TABLE documents (
+    name       TEXT PRIMARY KEY,
+    id         TEXT NOT NULL UNIQUE,
+    category   TEXT NOT NULL DEFAULT 'general',
+    canvas     TEXT NOT NULL,
+    meta       TEXT NOT NULL DEFAULT '{}',
+    active_page INTEGER NOT NULL DEFAULT 0,
+    next_id    INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE pages (
+    doc_name   TEXT NOT NULL REFERENCES documents(name) ON DELETE CASCADE,
+    idx        INTEGER NOT NULL,
+    id         TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT 'Page 1',
+    html       TEXT,
+    elements   TEXT NOT NULL DEFAULT '[]',
+    canvas     TEXT,
+    PRIMARY KEY (doc_name, idx)
+  );
+  CREATE TABLE chartes (
+    name       TEXT PRIMARY KEY,
+    data       TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE assets (
+    filename    TEXT PRIMARY KEY,
+    title       TEXT,
+    description TEXT,
+    category    TEXT,
+    tags        TEXT NOT NULL DEFAULT '[]',
+    credit      TEXT,
+    width       INTEGER,
+    height      INTEGER,
+    orientation TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+`;
+
+const DOC_UPSERT_SQL = `
+  INSERT INTO documents (name, id, category, canvas, meta, active_page, next_id, created_at, updated_at)
+  VALUES ($name, $id, $category, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
+  ON CONFLICT(name) DO UPDATE SET
+    id          = coalesce(excluded.id, documents.id),
+    category    = excluded.category,
+    canvas      = excluded.canvas,
+    meta        = excluded.meta,
+    active_page = excluded.active_page,
+    next_id     = excluded.next_id,
+    updated_at  = datetime('now')
+`;
+
+const PAGE_UPSERT_SQL = `
+  INSERT INTO pages (doc_name, idx, id, name, html, elements, canvas)
+  VALUES ($doc_name, $idx, $id, $name, $html, $elements, $canvas)
+  ON CONFLICT(doc_name, idx) DO UPDATE SET
+    id       = coalesce(excluded.id, pages.id),
+    name     = excluded.name,
+    html     = excluded.html,
+    elements = excluded.elements,
+    canvas   = excluded.canvas
+`;
+
+const CHARTE_UPSERT_SQL = `
+  INSERT INTO chartes (name, data, created_at, updated_at)
+  VALUES (?, ?, datetime('now'), datetime('now'))
+  ON CONFLICT(name) DO UPDATE SET
+    data       = excluded.data,
+    updated_at = datetime('now')
+`;
+
+const ASSET_UPSERT_SQL = `
+  INSERT INTO assets (filename, title, description, category, tags, credit, width, height, orientation, created_at)
+  VALUES ($filename, $title, $description, $category, $tags, $credit, $width, $height, $orientation, datetime('now'))
+  ON CONFLICT(filename) DO UPDATE SET
+    title = coalesce(excluded.title, assets.title),
+    description = coalesce(excluded.description, assets.description),
+    category = coalesce(excluded.category, assets.category),
+    tags = CASE WHEN $tags_set = 1 THEN excluded.tags ELSE assets.tags END,
+    credit = coalesce(excluded.credit, assets.credit),
+    width = coalesce(excluded.width, assets.width),
+    height = coalesce(excluded.height, assets.height),
+    orientation = coalesce(excluded.orientation, assets.orientation)
+`;
 
 export interface AssetInput {
 	filename: string;
@@ -70,26 +158,33 @@ export interface Store {
 
 export class DocumentStore implements Store {
 	private db: DatabaseSync;
-	private stmtDocUpsert;
-	private stmtDocSelectAll;
-	private stmtDocSelectOne;
-	private stmtDocDelete;
-	private stmtPageUpsert;
-	private stmtPageDeleteByDoc;
-	private stmtPageSelectByDoc;
-	private stmtCharteUpsert;
-	private stmtCharteSelectAll;
-	private stmtCharteSelectOne;
-	private stmtCharteDelete;
-	private stmtAssetUpsert;
-	private stmtAssetSelectAll;
-	private stmtAssetSelectOne;
-	private stmtAssetDelete;
+	private stmtDocUpsert!: StatementSync;
+	private stmtDocSelectAll!: StatementSync;
+	private stmtDocSelectOne!: StatementSync;
+	private stmtDocDelete!: StatementSync;
+	private stmtPageUpsert!: StatementSync;
+	private stmtPageDeleteByDoc!: StatementSync;
+	private stmtPageSelectByDoc!: StatementSync;
+	private stmtCharteUpsert!: StatementSync;
+	private stmtCharteSelectAll!: StatementSync;
+	private stmtCharteSelectOne!: StatementSync;
+	private stmtCharteDelete!: StatementSync;
+	private stmtAssetUpsert!: StatementSync;
+	private stmtAssetSelectAll!: StatementSync;
+	private stmtAssetSelectOne!: StatementSync;
+	private stmtAssetDelete!: StatementSync;
 
 	constructor(dbPath: string) {
 		this.db = new DatabaseSync(dbPath);
 		this.db.exec("PRAGMA journal_mode = WAL;");
+		this.initializeSchema();
+		this.backfillDocumentIds();
+		this.backfillPageIds();
+		this.assertPageIdsBackfilled();
+		this.prepareStatements();
+	}
 
+	private initializeSchema(): void {
 		const version =
 			(
 				this.db.prepare("PRAGMA user_version").get() as unknown as {
@@ -97,90 +192,82 @@ export class DocumentStore implements Store {
 				} | null
 			)?.user_version ?? 0;
 
-		// v5: clean schema — drop everything and recreate
-		if (version < 5) {
-			this.db.exec("DROP TABLE IF EXISTS documents;");
-			this.db.exec("DROP TABLE IF EXISTS pages;");
-			this.db.exec("DROP TABLE IF EXISTS chartes;");
-			this.db.exec("DROP TABLE IF EXISTS assets;");
+		if (version >= 5) return;
+		this.db.exec("DROP TABLE IF EXISTS documents;");
+		this.db.exec("DROP TABLE IF EXISTS pages;");
+		this.db.exec("DROP TABLE IF EXISTS chartes;");
+		this.db.exec("DROP TABLE IF EXISTS assets;");
+		this.db.exec(SCHEMA_SQL);
+		this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+		log(`SQLite: schema v${SCHEMA_VERSION} created (clean)`);
+	}
 
-			this.db.exec(`
-        CREATE TABLE documents (
-          name       TEXT PRIMARY KEY,
-          id         TEXT NOT NULL UNIQUE,
-          category   TEXT NOT NULL DEFAULT 'general',
-          canvas     TEXT NOT NULL,
-          meta       TEXT NOT NULL DEFAULT '{}',
-          active_page INTEGER NOT NULL DEFAULT 0,
-          next_id    INTEGER NOT NULL DEFAULT 1,
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE pages (
-          doc_name   TEXT NOT NULL REFERENCES documents(name) ON DELETE CASCADE,
-          idx        INTEGER NOT NULL,
-          name       TEXT NOT NULL DEFAULT 'Page 1',
-          html       TEXT,
-          elements   TEXT NOT NULL DEFAULT '[]',
-          canvas     TEXT,
-          PRIMARY KEY (doc_name, idx)
-        );
-        CREATE TABLE chartes (
-          name       TEXT PRIMARY KEY,
-          data       TEXT NOT NULL DEFAULT '{}',
-          created_at TEXT NOT NULL DEFAULT (datetime('now')),
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE TABLE assets (
-          filename    TEXT PRIMARY KEY,
-          title       TEXT,
-          description TEXT,
-          category    TEXT,
-          tags        TEXT NOT NULL DEFAULT '[]',
-          credit      TEXT,
-          width       INTEGER,
-          height      INTEGER,
-          orientation TEXT,
-          created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-      `);
-			this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
-			log(`SQLite: schema v${SCHEMA_VERSION} created (clean)`);
-		}
-
-		// v6: add id column to documents (check by column existence, not version)
+	private backfillDocumentIds(): void {
 		const cols = this.db.prepare("PRAGMA table_info(documents)").all() as {
 			name: string;
 		}[];
-		if (cols.length > 0 && !cols.some((c) => c.name === "id")) {
-			this.db.exec("ALTER TABLE documents ADD COLUMN id TEXT;");
-			const rows = this.db.prepare("SELECT name FROM documents").all() as {
-				name: string;
-			}[];
-			const stmt = this.db.prepare(
-				"UPDATE documents SET id = $id WHERE name = $name",
-			);
-			for (const row of rows)
-				stmt.run({ id: crypto.randomUUID(), name: row.name });
-			this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
-			log(
-				`SQLite: added id column to documents (backfilled ${rows.length} rows)`,
+		if (cols.length === 0 || cols.some((c) => c.name === "id")) return;
+		this.db.exec("ALTER TABLE documents ADD COLUMN id TEXT;");
+		const rows = this.db.prepare("SELECT name FROM documents").all() as {
+			name: string;
+		}[];
+		const stmt = this.db.prepare(
+			"UPDATE documents SET id = $id WHERE name = $name",
+		);
+		for (const row of rows)
+			stmt.run({ id: crypto.randomUUID(), name: row.name });
+		this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+		log(
+			`SQLite: added id column to documents (backfilled ${rows.length} rows)`,
+		);
+	}
+
+	private backfillPageIds(): void {
+		const cols = this.db.prepare("PRAGMA table_info(pages)").all() as {
+			name: string;
+		}[];
+		if (cols.length === 0 || cols.some((c) => c.name === "id")) return;
+		this.db.exec("ALTER TABLE pages ADD COLUMN id TEXT;");
+		const rows = this.db
+			.prepare("SELECT doc_name, idx FROM pages")
+			.all() as Array<{ doc_name: string; idx: number }>;
+		const stmt = this.db.prepare(
+			"UPDATE pages SET id = $id WHERE doc_name = $doc_name AND idx = $idx",
+		);
+		for (const row of rows) stmt.run({ ...row, id: crypto.randomUUID() });
+		this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+		log(`SQLite: added id column to pages (backfilled ${rows.length} rows)`);
+	}
+
+	private assertPageIdsBackfilled(): void {
+		const cols = this.db.prepare("PRAGMA table_info(pages)").all() as {
+			name: string;
+		}[];
+		if (cols.length === 0) return;
+		if (!cols.some((c) => c.name === "id")) {
+			throw new Error("SQLite migration failed: pages.id column is missing");
+		}
+		const row = this.db
+			.prepare(
+				"SELECT count(*) AS count FROM pages WHERE id IS NULL OR id = ''",
+			)
+			.get() as { count: number };
+		if (row.count > 0) {
+			throw new Error(
+				`SQLite migration failed: ${row.count} page row(s) still have no id`,
 			);
 		}
+	}
 
-		// Documents
-		this.stmtDocUpsert = this.db.prepare(`
-      INSERT INTO documents (name, id, category, canvas, meta, active_page, next_id, created_at, updated_at)
-      VALUES ($name, $id, $category, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
-      ON CONFLICT(name) DO UPDATE SET
-        id          = coalesce(excluded.id, documents.id),
-        category    = excluded.category,
-        canvas      = excluded.canvas,
-        meta        = excluded.meta,
-        active_page = excluded.active_page,
-        next_id     = excluded.next_id,
-        updated_at  = datetime('now')
-    `);
+	private prepareStatements(): void {
+		this.prepareDocumentStatements();
+		this.preparePageStatements();
+		this.prepareCharteStatements();
+		this.prepareAssetStatements();
+	}
+
+	private prepareDocumentStatements(): void {
+		this.stmtDocUpsert = this.db.prepare(DOC_UPSERT_SQL);
 		this.stmtDocSelectAll = this.db.prepare(
 			"SELECT * FROM documents ORDER BY updated_at ASC",
 		);
@@ -190,32 +277,20 @@ export class DocumentStore implements Store {
 		this.stmtDocDelete = this.db.prepare(
 			"DELETE FROM documents WHERE name = $name",
 		);
+	}
 
-		// Pages
-		this.stmtPageUpsert = this.db.prepare(`
-      INSERT INTO pages (doc_name, idx, name, html, elements, canvas)
-      VALUES ($doc_name, $idx, $name, $html, $elements, $canvas)
-      ON CONFLICT(doc_name, idx) DO UPDATE SET
-        name     = excluded.name,
-        html     = excluded.html,
-        elements = excluded.elements,
-        canvas   = excluded.canvas
-    `);
+	private preparePageStatements(): void {
+		this.stmtPageUpsert = this.db.prepare(PAGE_UPSERT_SQL);
 		this.stmtPageDeleteByDoc = this.db.prepare(
 			"DELETE FROM pages WHERE doc_name = $doc_name",
 		);
 		this.stmtPageSelectByDoc = this.db.prepare(
 			"SELECT * FROM pages WHERE doc_name = $doc_name ORDER BY idx ASC",
 		);
+	}
 
-		// Chartes
-		this.stmtCharteUpsert = this.db.prepare(`
-      INSERT INTO chartes (name, data, created_at, updated_at)
-      VALUES (?, ?, datetime('now'), datetime('now'))
-      ON CONFLICT(name) DO UPDATE SET
-        data       = excluded.data,
-        updated_at = datetime('now')
-    `);
+	private prepareCharteStatements(): void {
+		this.stmtCharteUpsert = this.db.prepare(CHARTE_UPSERT_SQL);
 		this.stmtCharteSelectAll = this.db.prepare(
 			"SELECT * FROM chartes ORDER BY name ASC",
 		);
@@ -225,29 +300,10 @@ export class DocumentStore implements Store {
 		this.stmtCharteDelete = this.db.prepare(
 			"DELETE FROM chartes WHERE name = ?",
 		);
+	}
 
-		// Assets — partial-update UPSERT.
-		//
-		// `coalesce(excluded.X, assets.X)` is the "preserve on null" pattern for
-		// nullable text/integer columns: pass NULL to keep the prior value, any
-		// real value (including `''`) to write. The `tags` column is NOT NULL,
-		// so it cannot use that pattern; instead `$tags_set = 1` flags an
-		// explicit write and `0` flags preserve. With this split, every field
-		// follows the rule "only `undefined` from the JS caller preserves" —
-		// `''` and `[]` clear, matching the partial-update WS verb contract.
-		this.stmtAssetUpsert = this.db.prepare(`
-      INSERT INTO assets (filename, title, description, category, tags, credit, width, height, orientation, created_at)
-      VALUES ($filename, $title, $description, $category, $tags, $credit, $width, $height, $orientation, datetime('now'))
-      ON CONFLICT(filename) DO UPDATE SET
-        title = coalesce(excluded.title, assets.title),
-        description = coalesce(excluded.description, assets.description),
-        category = coalesce(excluded.category, assets.category),
-        tags = CASE WHEN $tags_set = 1 THEN excluded.tags ELSE assets.tags END,
-        credit = coalesce(excluded.credit, assets.credit),
-        width = coalesce(excluded.width, assets.width),
-        height = coalesce(excluded.height, assets.height),
-        orientation = coalesce(excluded.orientation, assets.orientation)
-    `);
+	private prepareAssetStatements(): void {
+		this.stmtAssetUpsert = this.db.prepare(ASSET_UPSERT_SQL);
 		this.stmtAssetSelectAll = this.db.prepare(
 			"SELECT * FROM assets ORDER BY created_at DESC",
 		);
@@ -278,6 +334,7 @@ export class DocumentStore implements Store {
 			this.stmtPageUpsert.run({
 				doc_name: d.name,
 				idx: i,
+				id: p.id,
 				name: p.name || `Page ${i + 1}`,
 				html: p.html || null,
 				elements: JSON.stringify(p.elements || []),
@@ -373,10 +430,6 @@ export class DocumentStore implements Store {
 	// ---- Assets CRUD ----
 
 	saveAsset(a: AssetInput): void {
-		// `?? null` (not `|| null`) so that empty string / 0 / `[]` reach the
-		// SQL layer as themselves and clear the column, instead of collapsing
-		// to NULL which the COALESCE would then preserve. Only `undefined`
-		// preserves — that is the partial-update contract.
 		const tagsSet = a.tags !== undefined ? 1 : 0;
 		const tagsValue =
 			typeof a.tags === "string" ? a.tags : JSON.stringify(a.tags ?? []);
@@ -425,13 +478,14 @@ export class DocumentStore implements Store {
 			doc_name: row.name,
 		}) as any[];
 		const pages: Page[] = pageRows.map((pr) => ({
+			id: pr.id || crypto.randomUUID(),
 			name: pr.name,
 			html: pr.html || undefined,
 			elements: JSON.parse(pr.elements || "[]"),
 			canvas: pr.canvas ? JSON.parse(pr.canvas) : undefined,
 		}));
 		if (pages.length === 0) {
-			pages.push({ name: "Page 1", elements: [] });
+			pages.push({ id: crypto.randomUUID(), name: "Page 1", elements: [] });
 		}
 		return createDocument({
 			id: row.id || crypto.randomUUID(),

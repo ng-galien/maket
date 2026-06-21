@@ -16,15 +16,12 @@ export interface CharteViolation {
 function normalizeColor(raw: string): string | null {
 	const v = raw.trim().toLowerCase();
 
-	// #rgb → #rrggbb
 	if (/^#[0-9a-f]{3}$/.test(v)) {
 		return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`;
 	}
-	// #rrggbb or #rrggbbaa → #rrggbb
 	if (/^#[0-9a-f]{6,8}$/.test(v)) {
 		return v.slice(0, 7);
 	}
-	// rgb(r, g, b) or rgba(r, g, b, a)
 	const rgbMatch = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
 	if (rgbMatch) {
 		const [, r = "0", g = "0", b = "0"] = rgbMatch;
@@ -81,21 +78,18 @@ function checkColors(
 	const violations: CharteViolation[] = [];
 
 	for (const [prop, value] of styleMap) {
-		// Skip values already using var()
 		if (value.includes("var(--charte-")) continue;
 
 		let propsToCheck: string[] = [];
 		if (COLOR_PROPERTIES.has(prop)) {
 			propsToCheck = [prop];
 		} else if (prop === "background") {
-			// background shorthand — only check if it looks like a plain color (not gradient/url)
 			if (value.includes("gradient") || value.includes("url(")) continue;
 			propsToCheck = ["background"];
 		} else {
 			continue;
 		}
 
-		// Extract color tokens from the value (split on whitespace, try each)
 		for (const token of value.split(/\s+/)) {
 			const norm = normalizeColor(token);
 			const varName = norm ? colorMap.get(norm) : undefined;
@@ -108,7 +102,7 @@ function checkColors(
 						suggestion: `Use ${varName} instead of ${token}`,
 					});
 				}
-				break; // one violation per property is enough
+				break;
 			}
 		}
 	}
@@ -127,7 +121,6 @@ function checkFont(
 
 	const value = styleMap.get("font-family");
 	if (!value) return [];
-	// Already using a charte var → OK
 	if (value.includes("var(--charte-font-")) return [];
 
 	const available = Object.keys(fonts)
@@ -154,7 +147,6 @@ function checkShadow(
 
 	const value = styleMap.get("box-shadow");
 	if (!value) return [];
-	// Already using a charte var, or explicitly none → OK
 	if (value.includes("var(--charte-shadow-")) return [];
 	if (value === "none" || value === "unset" || value === "initial") return [];
 

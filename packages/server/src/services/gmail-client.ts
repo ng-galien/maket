@@ -86,10 +86,73 @@ export interface GmailClientInputs {
 	env?: Record<string, string | undefined>;
 }
 
+interface SavedToken {
+	refreshToken: string;
+	withRead: boolean;
+}
+
+function createOAuthStateStore(): {
+	newState(): string;
+	consumeState(state: string): boolean;
+} {
+	const pendingStates = new Map<string, number>();
+	return {
+		newState() {
+			const state = randomBytes(32).toString("base64url");
+			const now = Date.now();
+			pendingStates.set(state, now + STATE_TTL_MS);
+			for (const [k, t] of pendingStates) {
+				if (t < now) pendingStates.delete(k);
+			}
+			return state;
+		},
+		consumeState(state) {
+			const expiresAt = pendingStates.get(state);
+			if (!expiresAt || expiresAt < Date.now()) {
+				pendingStates.delete(state);
+				return false;
+			}
+			pendingStates.delete(state);
+			return true;
+		},
+	};
+}
+
+function readSavedToken(tokenPath: string): SavedToken | null {
+	if (!existsSync(tokenPath)) return null;
+	let data: unknown;
+	try {
+		data = JSON.parse(readFileSync(tokenPath, "utf-8"));
+	} catch {
+		return null;
+	}
+	if (!data || typeof data !== "object") return null;
+	const payload = data as { refresh_token?: unknown; with_read?: unknown };
+	const refreshToken =
+		typeof payload.refresh_token === "string" ? payload.refresh_token : null;
+	if (!refreshToken) return null;
+	return { refreshToken, withRead: payload.with_read === true };
+}
+
+function writeSavedToken(
+	tokenPath: string,
+	refreshToken: string,
+	withRead: boolean,
+): void {
+	const payload = JSON.stringify({
+		refresh_token: refreshToken,
+		with_read: withRead,
+	});
+	const tmpPath = `${tokenPath}.tmp`;
+	writeFileSync(tmpPath, payload, { mode: 0o600 });
+	renameSync(tmpPath, tokenPath);
+}
+
 export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 	const env = inputs.env ?? process.env;
 	const credentialsPath = join(inputs.dataDir, "google-credentials.json");
 	const tokenPath = join(inputs.dataDir, "google-token.json");
+	const oauthStates = createOAuthStateStore();
 
 	let auth: any = null;
 	let connected = false;
@@ -105,71 +168,21 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			credentialsPath,
 		});
 
-	// Pending OAuth state nonces — used to bind a browser session to its callback.
-	// Without this, anyone who can reach `/auth/google/callback` (e.g. via DNS
-	// rebinding or a top-level navigation from a hostile site) could swap in a
-	// different account's authorization code.
-	const pendingStates = new Map<string, number>();
-	function newState(): string {
-		const s = randomBytes(32).toString("base64url");
-		pendingStates.set(s, Date.now() + STATE_TTL_MS);
-		// Lazy GC of expired entries.
-		const now = Date.now();
-		for (const [k, t] of pendingStates) {
-			if (t < now) pendingStates.delete(k);
-		}
-		return s;
-	}
-	function consumeState(s: string): boolean {
-		const t = pendingStates.get(s);
-		if (!t || t < Date.now()) {
-			pendingStates.delete(s);
-			return false;
-		}
-		pendingStates.delete(s);
-		return true;
-	}
-
-	function saveToken(refreshToken: string, withRead: boolean): void {
-		// Only the refresh token is persisted; client_id/client_secret stay in
-		// env or the credentials file. This keeps `google-token.json` from
-		// being a one-stop credential dump if the data dir leaks.
-		const payload = JSON.stringify({
-			refresh_token: refreshToken,
-			with_read: withRead,
-		});
-		const tmpPath = `${tokenPath}.tmp`;
-		writeFileSync(tmpPath, payload, { mode: 0o600 });
-		renameSync(tmpPath, tokenPath);
-	}
-
 	const client: GmailClient = {
 		async tryRestore() {
 			if (connected) return true;
-			if (!existsSync(tokenPath)) return false;
-			let data: unknown;
-			try {
-				data = JSON.parse(readFileSync(tokenPath, "utf-8"));
-			} catch {
-				return false;
-			}
-			if (!data || typeof data !== "object") return false;
-			const payload = data as { refresh_token?: unknown; with_read?: unknown };
-			const refreshToken =
-				typeof payload.refresh_token === "string"
-					? payload.refresh_token
-					: null;
-			if (!refreshToken) return false;
+			const saved = readSavedToken(tokenPath);
+			if (!saved) return false;
 			const { google } = await import("googleapis");
 			const creds = resolveCreds();
 			const oauth2 = new google.auth.OAuth2(
 				creds.client_id,
 				creds.client_secret,
 			);
-			oauth2.setCredentials({ refresh_token: refreshToken });
+			oauth2.setCredentials({ refresh_token: saved.refreshToken });
 			auth = oauth2;
 			connected = true;
-			readGranted = payload.with_read === true;
+			readGranted = saved.withRead;
 			return true;
 		},
 
@@ -186,7 +199,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 				access_type: "offline",
 				scope: buildScopes(withRead),
 				prompt: "consent",
-				state: newState(),
+				state: oauthStates.newState(),
 			});
 		},
 
@@ -209,7 +222,7 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		},
 
 		async handleCallback(code: string, state: string, redirectUri: string) {
-			if (!consumeState(state)) {
+			if (!oauthStates.consumeState(state)) {
 				throw new Error(
 					"Invalid or expired OAuth state — restart the connect flow",
 				);
@@ -223,14 +236,11 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			);
 			const { tokens } = await oauth2.getToken(code);
 			oauth2.setCredentials(tokens);
-			// Google echoes the exact scopes the user agreed to in tokens.scope;
-			// trust that over what we asked for (user can shrink the grant in the
-			// consent screen).
 			const grantedScopes =
 				typeof tokens.scope === "string" ? tokens.scope.split(" ") : [];
 			readGranted = grantedScopes.includes(READ_SCOPE);
 			if (tokens.refresh_token) {
-				saveToken(tokens.refresh_token, readGranted);
+				writeSavedToken(tokenPath, tokens.refresh_token, readGranted);
 			}
 			auth = oauth2;
 			connected = true;
@@ -265,7 +275,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		},
 	};
 
-	// Testing hatch — exposed as `any` for unit tests, never used in production.
 	(client as any)._testForceConnected = (withRead = false) => {
 		connected = true;
 		readGranted = withRead;

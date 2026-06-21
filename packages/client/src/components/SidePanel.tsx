@@ -12,7 +12,6 @@ export function SidePanel({ open, onClose, side = "left", children }: Props) {
 
 	const barSide = 68;
 	const freeSide = 8;
-	// Panel anchored to bar side, max height but not forced full height
 	const panelStyle =
 		barPosition === "top"
 			? { top: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` }

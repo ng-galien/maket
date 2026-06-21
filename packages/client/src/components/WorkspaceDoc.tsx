@@ -38,7 +38,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			style={{ gap: PAGE_GAP }}
 		>
 			{doc.pages.map((_page, i) => (
-				<div key={`${docName}-${i}`} className="flex flex-col items-center">
+				<div key={_page.id} className="flex flex-col items-center">
 					<PageCanvas
 						doc={doc}
 						pageIndex={i}

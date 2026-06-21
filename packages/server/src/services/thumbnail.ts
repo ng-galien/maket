@@ -102,7 +102,6 @@ export function createThumbnailService(
 	const maxEntries = opts.maxCacheEntries ?? DEFAULT_CACHE_ENTRIES;
 	const snapshot = opts.snapshot ?? defaultSnapshot;
 
-	// FIFO cache: insertion-ordered Map, evict the oldest entry when full.
 	const cache = new Map<string, Buffer>();
 
 	function cacheKey(
@@ -134,7 +133,6 @@ export function createThumbnailService(
 			const key = cacheKey(doc.id, page, widthPx, renderOpts.updatedAt);
 			const cached = cache.get(key);
 			if (cached) {
-				// LRU bump — re-insert to keep fresh.
 				cache.delete(key);
 				cache.set(key, cached);
 				return cached;
@@ -170,11 +168,6 @@ export function createThumbnailService(
 <body><div class="page">${resolved}</div></body>
 </html>`;
 
-			// Canvas renders at its natural mm→px size; CSS transform scales it
-			// down to the target width. The viewport matches the final PNG so
-			// `page.screenshot()` captures exactly the scaled content, clipped
-			// by `body { overflow:hidden }`. `deviceScaleFactor: 2` keeps the
-			// raster crisp on HiDPI consumers.
 			const canvasPxW = Math.round(doc.canvas.w * MM_TO_PX);
 			const pxH = Math.round((doc.canvas.h / doc.canvas.w) * widthPx);
 			const scale = widthPx / canvasPxW;

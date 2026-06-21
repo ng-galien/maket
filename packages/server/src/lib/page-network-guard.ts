@@ -55,8 +55,6 @@ function isAllowedFontRequest(u: URL, hostname: string): boolean {
 		return true;
 	}
 	if (hostname === "fonts.gstatic.com") {
-		// gstatic serves font binaries under `/s/...`. Anything else (or any
-		// query string) is suspicious — block.
 		if (!u.pathname.startsWith("/s/")) return false;
 		if (u.search !== "") return false;
 		return true;
@@ -71,7 +69,6 @@ export async function installNetworkGuard(
 	await page.setRequestInterception(true);
 	page.on("request", (req) => {
 		const url = req.url();
-		// Always allow data: and about: (no network round-trip).
 		if (url.startsWith("data:") || url.startsWith("about:")) {
 			req.continue().catch(() => {});
 			return;
@@ -89,9 +86,7 @@ export async function installNetworkGuard(
 					return;
 				}
 			}
-		} catch {
-			// Malformed URL — block.
-		}
+		} catch {}
 		req.abort("blockedbyclient").catch(() => {});
 	});
 }

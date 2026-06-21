@@ -16,7 +16,7 @@ import {
 } from "../store/zoomBridge";
 import { WorkspaceDoc } from "./WorkspaceDoc";
 
-const DOC_GAP = 80; // px gap between docs
+const DOC_GAP = 80;
 
 function Watermark() {
 	const t = useT();
@@ -52,222 +52,21 @@ export function Board({ locked }: { locked: boolean }) {
 	const workspaceDocNames = useWorkspaceDocNames();
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const boardRef = useRef<HTMLDivElement>(null);
-	const zoomRef = useRef<ZoomBehavior<Element, unknown> | null>(null);
-	const lockedRef = useRef(locked);
 	const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
 	const [boardVisible, setBoardVisible] = useState(
 		workspaceDocNames.length === 0,
 	);
+	const spaceRef = useSpacePanCursor(wrapRef);
 
-	// Mirror `locked` into a ref so the d3-zoom filter (created once) reads the
-	// live value without re-instantiating the behavior on every toggle.
-	useEffect(() => {
-		lockedRef.current = locked;
-	}, [locked]);
+	useBoardZoom({
+		locked,
+		spaceRef,
+		wrapRef,
+		boardRef,
+		setBoardVisible,
+		setTransform,
+	});
 
-	// Space key = pan mode (like Figma)
-	const spaceRef = useRef(false);
-	useEffect(() => {
-		const down = (e: KeyboardEvent) => {
-			if (
-				e.code === "Space" &&
-				!e.repeat &&
-				!(e.target as HTMLElement).matches("input,textarea,[contenteditable]")
-			) {
-				e.preventDefault();
-				spaceRef.current = true;
-				if (wrapRef.current) wrapRef.current.style.cursor = "grab";
-			}
-		};
-		const up = (e: KeyboardEvent) => {
-			if (e.code === "Space") {
-				spaceRef.current = false;
-				if (wrapRef.current) wrapRef.current.style.cursor = "";
-			}
-		};
-		window.addEventListener("keydown", down);
-		window.addEventListener("keyup", up);
-		return () => {
-			window.removeEventListener("keydown", down);
-			window.removeEventListener("keyup", up);
-		};
-	}, []);
-
-	// d3-zoom: instantiated ONCE. Previously re-ran on every `locked` toggle and
-	// every workspace add/remove — that wiped the user's pan/zoom. Now the filter
-	// reads `lockedRef` live and adding/removing docs no longer touches the
-	// transform.
-	useEffect(() => {
-		if (!wrapRef.current) return;
-		const wrap = wrapRef.current;
-		const el = select(wrap as Element);
-
-		const zoomBehavior = d3Zoom<Element, unknown>()
-			.scaleExtent([0.05, 3])
-			.filter((e) => {
-				if (e.type === "wheel") return true;
-				if (lockedRef.current) return true;
-				if (e.type === "mousedown" && (e as MouseEvent).button === 1)
-					return true;
-				// Space held = pan mode, ignore data-id
-				if (e.type === "mousedown" && (e as MouseEvent).button === 0) {
-					if (spaceRef.current) return true;
-					const target = e.target as HTMLElement;
-					return !target.closest("[data-id]");
-				}
-				return false;
-			})
-			.on("zoom", (e) => {
-				setTransform({ x: e.transform.x, y: e.transform.y, k: e.transform.k });
-				useStore.getState().setZoom(Math.round(e.transform.k * 100));
-			});
-
-		zoomRef.current = zoomBehavior;
-		// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-		el.call(zoomBehavior as any);
-
-		registerZoomTo((pct) => {
-			const rect = wrap.getBoundingClientRect();
-			// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-			(el as any).call(zoomBehavior.scaleTo, pct / 100, [
-				rect.width / 2,
-				rect.height / 2,
-			]);
-		});
-
-		const fit = () => {
-			if (!boardRef.current || !wrap) return;
-			const wrapRect = wrap.getBoundingClientRect();
-			const vw = wrapRect.width;
-			const vh = wrapRect.height;
-			const boardRect = boardRef.current.getBoundingClientRect();
-			const k = zoomTransform(wrap as unknown as Element).k || 1;
-			const cw = boardRect.width / k || 400;
-			const ch = boardRect.height / k || 400;
-			const scale = Math.min((vw * 0.85) / cw, (vh * 0.85) / ch, 2);
-			const tx = (vw - cw * scale) / 2;
-			const ty = Math.max(20, (vh - ch * scale) / 2);
-			el.call(
-				// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-				(zoomBehavior as any).transform,
-				zoomIdentity.translate(tx, ty).scale(scale),
-			);
-		};
-		registerFitToView(fit);
-
-		const fitToDoc = (docName: string, pageIndex?: number) => {
-			if (!boardRef.current || !wrap) return;
-			const docSelector = `[data-doc="${CSS.escape(docName)}"]`;
-			const pageSel =
-				pageIndex != null ? `${docSelector} [data-page="${pageIndex}"]` : null;
-			// Prefer the targeted page's canvas — same selector as the whole-doc
-			// wrapper falls back if the page isn't rendered yet (e.g. single-page docs).
-			const target = pageSel
-				? boardRef.current.querySelector<HTMLElement>(pageSel)
-				: null;
-			const docEl =
-				target ?? boardRef.current.querySelector<HTMLElement>(docSelector);
-			if (!docEl) return;
-			const wrapRect = wrap.getBoundingClientRect();
-			const docRect = docEl.getBoundingClientRect();
-			const t = zoomTransform(wrap as unknown as Element);
-			const k = t.k || 1;
-			// Translate viewport-space doc bounds into board-space (pre-zoom).
-			const boardLeft = (docRect.left - wrapRect.left - t.x) / k;
-			const boardTop = (docRect.top - wrapRect.top - t.y) / k;
-			const cw = docRect.width / k;
-			const ch = docRect.height / k;
-			const scale = Math.min(
-				(wrapRect.width * 0.85) / cw,
-				(wrapRect.height * 0.85) / ch,
-				2,
-			);
-			const tx = wrapRect.width / 2 - (boardLeft + cw / 2) * scale;
-			const ty = wrapRect.height / 2 - (boardTop + ch / 2) * scale;
-			el.transition()
-				.duration(300)
-				.call(
-					// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-					(zoomBehavior as any).transform,
-					zoomIdentity.translate(tx, ty).scale(scale),
-				);
-		};
-		registerFitToDoc(fitToDoc);
-
-		// Initial fit: when the first [data-doc] renders, the board's bounding box
-		// grows and this fires. Runs once per mount.
-		let initialFitDone = false;
-		const boardRo = new ResizeObserver(() => {
-			if (!initialFitDone && boardRef.current?.querySelector("[data-doc]")) {
-				initialFitDone = true;
-				fit();
-				setBoardVisible(true);
-			}
-		});
-		if (boardRef.current) boardRo.observe(boardRef.current);
-
-		// Viewport changes (window resize, sidebar toggle, etc.): preserve scale,
-		// shift pan by half the size delta so the visual center stays anchored on
-		// the same board coordinate. Never calls fit() — user's pan/zoom is sacred.
-		let lastW = 0;
-		let lastH = 0;
-		const wrapRo = new ResizeObserver((entries) => {
-			const entry = entries[0];
-			if (!entry) return;
-			const { width: w, height: h } = entry.contentRect;
-			if (lastW === 0 && lastH === 0) {
-				lastW = w;
-				lastH = h;
-				return;
-			}
-			const dx = (w - lastW) / 2;
-			const dy = (h - lastH) / 2;
-			lastW = w;
-			lastH = h;
-			if (dx === 0 && dy === 0) return;
-			const current = zoomTransform(wrap as unknown as Element);
-			el.call(
-				// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-				(zoomBehavior as any).transform,
-				zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k),
-			);
-		});
-		wrapRo.observe(wrap);
-
-		// iOS Safari: orientationchange can fire before the ResizeObserver reflects
-		// the rotated dimensions. Take a measurement next frame as a safety net.
-		const onOrientation = () => {
-			requestAnimationFrame(() => {
-				const rect = wrap.getBoundingClientRect();
-				const dx = (rect.width - lastW) / 2;
-				const dy = (rect.height - lastH) / 2;
-				lastW = rect.width;
-				lastH = rect.height;
-				if (dx === 0 && dy === 0) return;
-				const current = zoomTransform(wrap as unknown as Element);
-				el.call(
-					// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-					(zoomBehavior as any).transform,
-					zoomIdentity
-						.translate(current.x + dx, current.y + dy)
-						.scale(current.k),
-				);
-			});
-		};
-		window.addEventListener("orientationchange", onOrientation);
-
-		return () => {
-			el.on(".zoom", null);
-			boardRo.disconnect();
-			wrapRo.disconnect();
-			window.removeEventListener("orientationchange", onOrientation);
-			registerFitToView(() => {});
-			registerFitToDoc(() => {});
-			registerZoomTo(() => {});
-		};
-	}, []);
-
-	// Background click → deselect
 	const handleBgClick = useCallback((e: React.MouseEvent) => {
 		if (e.target === wrapRef.current || e.target === boardRef.current) {
 			useStore.getState().selectElement(null);
@@ -277,8 +76,6 @@ export function Board({ locked }: { locked: boolean }) {
 		}
 	}, []);
 
-	// Always render wrapRef + boardRef so the zoom effect can bind on mount and
-	// survive empty→populated workspace transitions without re-instantiating.
 	return (
 		<div
 			ref={wrapRef}
@@ -306,4 +103,298 @@ export function Board({ locked }: { locked: boolean }) {
 			</div>
 		</div>
 	);
+}
+
+function useSpacePanCursor(wrapRef: React.RefObject<HTMLDivElement | null>) {
+	const spaceRef = useRef(false);
+	useEffect(() => {
+		const down = (e: KeyboardEvent) => {
+			if (!isSpacePanStart(e)) return;
+			e.preventDefault();
+			spaceRef.current = true;
+			if (wrapRef.current) wrapRef.current.style.cursor = "grab";
+		};
+		const up = (e: KeyboardEvent) => {
+			if (e.code !== "Space") return;
+			spaceRef.current = false;
+			if (wrapRef.current) wrapRef.current.style.cursor = "";
+		};
+		window.addEventListener("keydown", down);
+		window.addEventListener("keyup", up);
+		return () => {
+			window.removeEventListener("keydown", down);
+			window.removeEventListener("keyup", up);
+		};
+	}, [wrapRef]);
+	return spaceRef;
+}
+
+function isSpacePanStart(e: KeyboardEvent): boolean {
+	if (e.code !== "Space" || e.repeat) return false;
+	return !(e.target as HTMLElement).matches("input,textarea,[contenteditable]");
+}
+
+interface BoardZoomInputs {
+	locked: boolean;
+	spaceRef: React.RefObject<boolean>;
+	wrapRef: React.RefObject<HTMLDivElement | null>;
+	boardRef: React.RefObject<HTMLDivElement | null>;
+	setBoardVisible: (visible: boolean) => void;
+	setTransform: (transform: { x: number; y: number; k: number }) => void;
+}
+
+function useBoardZoom({
+	locked,
+	spaceRef,
+	wrapRef,
+	boardRef,
+	setBoardVisible,
+	setTransform,
+}: BoardZoomInputs): void {
+	const lockedRef = useRef(locked);
+	useEffect(() => {
+		lockedRef.current = locked;
+	}, [locked]);
+	useEffect(
+		runBoardZoomEffect.bind(null, {
+			boardRef,
+			lockedRef,
+			setBoardVisible,
+			setTransform,
+			spaceRef,
+			wrapRef,
+		}),
+		[boardRef, lockedRef, setBoardVisible, setTransform, spaceRef, wrapRef],
+	);
+}
+
+interface BoardZoomEffectContext {
+	lockedRef: React.RefObject<boolean>;
+	spaceRef: React.RefObject<boolean>;
+	wrapRef: React.RefObject<HTMLDivElement | null>;
+	boardRef: React.RefObject<HTMLDivElement | null>;
+	setBoardVisible: (visible: boolean) => void;
+	setTransform: (transform: { x: number; y: number; k: number }) => void;
+}
+
+function runBoardZoomEffect(context: BoardZoomEffectContext) {
+	if (!context.wrapRef.current) return;
+	const wrap = context.wrapRef.current;
+	const el = select(wrap as Element);
+	const zoomBehavior = createBoardZoomBehavior(
+		context.lockedRef,
+		context.spaceRef,
+		context.setTransform,
+	);
+	el.call(zoomBehavior);
+	registerBoardZoomCommands(el, zoomBehavior, wrap, context.boardRef);
+	const fit = createFitToView(el, zoomBehavior, wrap, context.boardRef);
+	registerFitToView(fit);
+	registerFitToDoc(createFitToDoc(el, zoomBehavior, wrap, context.boardRef));
+	const boardRo = observeInitialBoardFit(
+		context.boardRef,
+		fit,
+		context.setBoardVisible,
+	);
+	const wrapResize = observeWrapResize(wrap, el, zoomBehavior);
+	return () => cleanupBoardZoom(el, boardRo, wrapResize);
+}
+
+function createBoardZoomBehavior(
+	lockedRef: React.RefObject<boolean>,
+	spaceRef: React.RefObject<boolean>,
+	setTransform: (transform: { x: number; y: number; k: number }) => void,
+): ZoomBehavior<Element, unknown> {
+	return d3Zoom<Element, unknown>()
+		.scaleExtent([0.05, 3])
+		.filter(canStartBoardZoomFromRefs.bind(null, lockedRef, spaceRef))
+		.on("zoom", applyBoardZoomTransform.bind(null, setTransform));
+}
+
+function canStartBoardZoomFromRefs(
+	lockedRef: React.RefObject<boolean>,
+	spaceRef: React.RefObject<boolean>,
+	event: { type: string; target: EventTarget | null },
+): boolean {
+	return canStartBoardZoom(event, lockedRef.current, spaceRef.current);
+}
+
+function applyBoardZoomTransform(
+	setTransform: (transform: { x: number; y: number; k: number }) => void,
+	event: { transform: { x: number; y: number; k: number } },
+) {
+	const transform = event.transform;
+	setTransform({ x: transform.x, y: transform.y, k: transform.k });
+	useStore.getState().setZoom(Math.round(transform.k * 100));
+}
+
+function canStartBoardZoom(
+	e: { type: string; target: EventTarget | null },
+	locked: boolean,
+	spacePressed: boolean,
+): boolean {
+	if (e.type === "wheel") return true;
+	if (locked) return true;
+	if (e.type !== "mousedown") return false;
+	const mouse = e as MouseEvent;
+	if (mouse.button === 1) return true;
+	if (mouse.button !== 0) return false;
+	if (spacePressed) return true;
+	return !(e.target as HTMLElement).closest("[data-id]");
+}
+
+function registerBoardZoomCommands(
+	el: ReturnType<typeof select<Element, unknown>>,
+	zoomBehavior: ZoomBehavior<Element, unknown>,
+	wrap: HTMLDivElement,
+	boardRef: React.RefObject<HTMLDivElement | null>,
+): void {
+	registerZoomTo((pct) => {
+		const rect = wrap.getBoundingClientRect();
+		el.call(zoomBehavior.scaleTo, pct / 100, [rect.width / 2, rect.height / 2]);
+	});
+	registerFitToView(createFitToView(el, zoomBehavior, wrap, boardRef));
+}
+
+function createFitToView(
+	el: ReturnType<typeof select<Element, unknown>>,
+	zoomBehavior: ZoomBehavior<Element, unknown>,
+	wrap: HTMLDivElement,
+	boardRef: React.RefObject<HTMLDivElement | null>,
+) {
+	return () => {
+		if (!boardRef.current) return;
+		const wrapRect = wrap.getBoundingClientRect();
+		const boardRect = boardRef.current.getBoundingClientRect();
+		const k = zoomTransform(wrap as unknown as Element).k || 1;
+		const cw = boardRect.width / k || 400;
+		const ch = boardRect.height / k || 400;
+		const scale = Math.min(
+			(wrapRect.width * 0.85) / cw,
+			(wrapRect.height * 0.85) / ch,
+			2,
+		);
+		const tx = (wrapRect.width - cw * scale) / 2;
+		const ty = Math.max(20, (wrapRect.height - ch * scale) / 2);
+		el.call(
+			zoomBehavior.transform,
+			zoomIdentity.translate(tx, ty).scale(scale),
+		);
+	};
+}
+
+function createFitToDoc(
+	el: ReturnType<typeof select<Element, unknown>>,
+	zoomBehavior: ZoomBehavior<Element, unknown>,
+	wrap: HTMLDivElement,
+	boardRef: React.RefObject<HTMLDivElement | null>,
+) {
+	return (docName: string, pageIndex?: number) => {
+		const docEl = findBoardDocElement(boardRef.current, docName, pageIndex);
+		if (!docEl) return;
+		const frame = boardDocFrame(wrap, docEl);
+		const scale = Math.min(
+			(wrap.clientWidth * 0.85) / frame.width,
+			(wrap.clientHeight * 0.85) / frame.height,
+			2,
+		);
+		const tx = wrap.clientWidth / 2 - (frame.left + frame.width / 2) * scale;
+		const ty = wrap.clientHeight / 2 - (frame.top + frame.height / 2) * scale;
+		el.transition()
+			.duration(300)
+			.call(
+				zoomBehavior.transform,
+				zoomIdentity.translate(tx, ty).scale(scale),
+			);
+	};
+}
+
+function findBoardDocElement(
+	board: HTMLDivElement | null,
+	docName: string,
+	pageIndex?: number,
+): HTMLElement | null {
+	if (!board) return null;
+	const docSelector = `[data-doc="${CSS.escape(docName)}"]`;
+	const pageSel =
+		pageIndex != null ? `${docSelector} [data-page="${pageIndex}"]` : null;
+	const target = pageSel ? board.querySelector<HTMLElement>(pageSel) : null;
+	return target ?? board.querySelector<HTMLElement>(docSelector);
+}
+
+function boardDocFrame(wrap: HTMLDivElement, docEl: HTMLElement) {
+	const wrapRect = wrap.getBoundingClientRect();
+	const docRect = docEl.getBoundingClientRect();
+	const t = zoomTransform(wrap as unknown as Element);
+	const k = t.k || 1;
+	return {
+		left: (docRect.left - wrapRect.left - t.x) / k,
+		top: (docRect.top - wrapRect.top - t.y) / k,
+		width: docRect.width / k,
+		height: docRect.height / k,
+	};
+}
+
+function observeInitialBoardFit(
+	boardRef: React.RefObject<HTMLDivElement | null>,
+	fit: () => void,
+	setBoardVisible: (visible: boolean) => void,
+): ResizeObserver {
+	let initialFitDone = false;
+	const boardRo = new ResizeObserver(() => {
+		if (initialFitDone || !boardRef.current?.querySelector("[data-doc]"))
+			return;
+		initialFitDone = true;
+		fit();
+		setBoardVisible(true);
+	});
+	if (boardRef.current) boardRo.observe(boardRef.current);
+	return boardRo;
+}
+
+function observeWrapResize(
+	wrap: HTMLDivElement,
+	el: ReturnType<typeof select<Element, unknown>>,
+	zoomBehavior: ZoomBehavior<Element, unknown>,
+): { observer: ResizeObserver; onOrientation: () => void } {
+	let lastW = 0;
+	let lastH = 0;
+	const recenter = (w: number, h: number) => {
+		const dx = lastW === 0 ? 0 : (w - lastW) / 2;
+		const dy = lastH === 0 ? 0 : (h - lastH) / 2;
+		lastW = w;
+		lastH = h;
+		if (dx === 0 && dy === 0) return;
+		const current = zoomTransform(wrap as unknown as Element);
+		el.call(
+			zoomBehavior.transform,
+			zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k),
+		);
+	};
+	const observer = new ResizeObserver((entries) => {
+		const entry = entries[0];
+		if (entry) recenter(entry.contentRect.width, entry.contentRect.height);
+	});
+	const onOrientation = () =>
+		requestAnimationFrame(() => {
+			const rect = wrap.getBoundingClientRect();
+			recenter(rect.width, rect.height);
+		});
+	observer.observe(wrap);
+	window.addEventListener("orientationchange", onOrientation);
+	return { observer, onOrientation };
+}
+
+function cleanupBoardZoom(
+	el: ReturnType<typeof select<Element, unknown>>,
+	boardRo: ResizeObserver,
+	wrapResize: { observer: ResizeObserver; onOrientation: () => void },
+): void {
+	el.on(".zoom", null);
+	boardRo.disconnect();
+	wrapResize.observer.disconnect();
+	window.removeEventListener("orientationchange", wrapResize.onOrientation);
+	registerFitToView(() => {});
+	registerFitToDoc(() => {});
+	registerZoomTo(() => {});
 }

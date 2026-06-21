@@ -174,7 +174,6 @@ async function main(): Promise<void> {
 
   console.log(`\n[harness] child exitCode=${child.exitCode}`);
 
-  // Cleanup
   rmSync(dataDir, { recursive: true, force: true });
 
   if (!response || !response.includes('"result"')) {

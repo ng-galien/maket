@@ -12,7 +12,7 @@
  */
 
 import crypto from "node:crypto";
-import type { WsServerMessage } from "@maket/shared";
+import type { LayoutCheckRequestDraft } from "@maket/shared";
 import type { WsRegistry } from "./ws-registry.js";
 
 interface PendingRequest {
@@ -23,8 +23,7 @@ interface PendingRequest {
 export interface WsBridge {
 	/** Send a request to every connected client and wait for a correlated reply. */
 	sendRequest(
-		type: string,
-		payload?: Record<string, unknown>,
+		request: LayoutCheckRequestDraft,
 		timeoutMs?: number,
 	): Promise<unknown | null>;
 	/** Wait for a reply tagged with a pre-computed correlation id (e.g. measureId). */
@@ -54,17 +53,12 @@ export function createWsBridge({ wsRegistry }: WsBridgeDeps): WsBridge {
 	}
 
 	return {
-		sendRequest(type, payload = {}, timeoutMs = 2000) {
+		sendRequest(request, timeoutMs = 2000) {
 			const reqId = crypto.randomUUID();
-			// Cast: sendRequest is the generic RPC primitive — the shared union lists
-			// only the request types actually in use today (`check_layout_request`),
-			// but the primitive itself is deliberately open so new tool-pack RPCs
-			// don't require a shared contract edit to compile.
 			wsRegistry.broadcast({
-				type,
+				...request,
 				_reqId: reqId,
-				...payload,
-			} as unknown as WsServerMessage);
+			});
 			return registerPending(reqId, timeoutMs);
 		},
 		waitForResponse(id, timeoutMs = 3000) {

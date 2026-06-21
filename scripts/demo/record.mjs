@@ -89,15 +89,12 @@ async function cleanWorkspace() {
 	const res = await call("maket_doc", { action: "list" });
 	const text = res.content?.[0]?.text ?? "";
 	const names = [];
-	// Names may themselves contain parens (e.g. "foo (imported)"), so anchor on
-	// the canvas-info block: "(<format> <orientation>, <N> el.)"
 	const LINE_RE =
 		/^\s*-\s+(.+?)\s+\((?:A[0-9]|DESKTOP|TABLET|MOBILE)\s+(?:portrait|landscape),\s*\d+\s*el\.\)/;
 	for (const line of text.split("\n")) {
 		const m = line.match(LINE_RE);
 		if (m) names.push(m[1]);
 	}
-	// Protect decks we're NOT rebuilding right now (if --only is set).
 	const preservedDecks = new Set(
 		decks.filter((d) => !selected.includes(d)).map((d) => d.name),
 	);
@@ -147,9 +144,6 @@ async function recordDeck(deck) {
 	});
 	await sleep(stepMs);
 
-	// A visible "blank page" placeholder the audience sees *before* the real
-	// composition — solid charte-bg, no content, so the set call is a clear
-	// before/after beat on camera.
 	const BLANK = `<div data-id="page" style="width:${deck.orientation === "landscape" ? "297mm;height:210mm" : "210mm;height:297mm"};background:var(--charte-color-bg);"></div>`;
 
 	for (let i = 0; i < deck.pages.length; i++) {
@@ -158,8 +152,6 @@ async function recordDeck(deck) {
 		console.log(`  · page ${pageNum}: ${page.name}`);
 
 		if (i !== 0) {
-			// Add the page blank, focus it so the viewport fits the empty canvas,
-			// dwell, then set the real content.
 			await call("maket_page", {
 				action: "add",
 				doc: deck.name,
@@ -174,7 +166,6 @@ async function recordDeck(deck) {
 			await sleep(stepMs);
 		}
 
-		// Set the real HTML — audience sees the page fill in.
 		await call("maket_html", {
 			action: "set",
 			doc: deck.name,
@@ -204,7 +195,6 @@ async function recordDeck(deck) {
 		await sleep(dwellMs);
 	}
 
-	// Zoom out to show the whole deck at the end of the run.
 	await call("maket_workspace", { action: "fit_view" });
 	await sleep(dwellMs);
 }

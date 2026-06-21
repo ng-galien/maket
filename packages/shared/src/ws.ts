@@ -6,25 +6,22 @@
  * `documents.lightView()` emits — that projection diverges between server
  * persistence and client UI, so we deliberately keep it `unknown` here.
  *
- * Naming convention:
- *   - client → server: `verb_resource` — the client asks the server to
- *     perform an action (`load_document`, `update_meta`, `delete_asset`).
- *     Partial-update messages (`update_meta`, `update_charte_meta`,
- *     `update_asset_meta`) carry only fields to merge; omitted fields are
- *     preserved server-side. Full-record writes use a different verb
- *     (`charte_save`).
- *   - server → client: notification names — the server announces a fact.
- *     Either a noun (`state`, `toast`, `activity`) or `noun_pastVerb`
- *     (`charte_updated`, `charte_removed`, `assets_changed`, `doc_removed`).
- *   - RPC pairs use `<name>_request` / `<name>_response` (see
- *     `check_layout_*`).
+ * `WorkspaceCommand` is what the browser asks Maket to do. `WorkspaceSignal`
+ * is what Maket announces back to the browser. Keep those directional types
+ * on public send/broadcast APIs; `WorkspaceMessage` exists only for parsing
+ * or dispatch code that intentionally handles the complete wire vocabulary.
+ *
+ * Partial-update messages (`update_meta`, `update_charte_meta`,
+ * `update_asset_meta`) carry only fields to merge; omitted fields are
+ * preserved server-side. Full-record writes use a different verb
+ * (`charte_save`).
  */
 
 // ============================================================
-// Server → Client
+// Protocol notifications and requests
 // ============================================================
 
-export interface WsStateMessage {
+export interface WorkspaceStateSignal {
 	type: "state";
 	doc: unknown;
 	docList: unknown[];
@@ -35,14 +32,14 @@ export interface WsStateMessage {
 	measureId?: string;
 }
 
-export interface WsToastMessage {
+export interface ToastSignal {
 	type: "toast";
 	text: string;
 	level: string;
 	duration: number;
 }
 
-export interface WsCharteUpdatedMessage {
+export interface CharteUpdatedSignal {
 	type: "charte_updated";
 	name: string;
 	css: string;
@@ -50,26 +47,26 @@ export interface WsCharteUpdatedMessage {
 
 /** Distinct from `charte_updated`: announces deletion. Replaces the legacy
  * overload where `charte_updated` with `css: ""` signalled removal. */
-export interface WsCharteRemovedMessage {
+export interface CharteRemovedSignal {
 	type: "charte_removed";
 	name: string;
 }
 
-export interface WsDocRemovedMessage {
+export interface DocumentRemovedSignal {
 	type: "doc_removed";
 	name: string;
 }
 
-export interface WsAckMessagesMessage {
+export interface PendingAcknowledgedSignal {
 	type: "ack_messages";
 	ids: unknown[];
 }
 
-export interface WsReloadMessage {
+export interface WorkspaceReloadSignal {
 	type: "reload";
 }
 
-export interface WsActivityMessage {
+export interface ActivitySignal {
 	type: "activity";
 	key: string;
 	params: Record<string, string>;
@@ -77,74 +74,61 @@ export interface WsActivityMessage {
 }
 
 /** Signals the browser that `/api/assets` should be re-fetched. */
-export interface WsAssetsChangedMessage {
+export interface AssetsChangedSignal {
 	type: "assets_changed";
 }
 
 /** Asks the client to fit the whole workspace to view (like the Maximize button). */
-export interface WsFitViewMessage {
+export interface FitViewSignal {
 	type: "fit_view";
 }
 
 /** Server-initiated RPC awaited via `wsBridge.sendRequest`. */
-export interface WsCheckLayoutRequest {
+export interface LayoutCheckRequest {
 	type: "check_layout_request";
 	_reqId: string;
 	docName: string;
 	pageIdx: number;
 }
 
-export type WsServerMessage =
-	| WsStateMessage
-	| WsToastMessage
-	| WsCharteUpdatedMessage
-	| WsCharteRemovedMessage
-	| WsDocRemovedMessage
-	| WsAckMessagesMessage
-	| WsReloadMessage
-	| WsActivityMessage
-	| WsAssetsChangedMessage
-	| WsFitViewMessage
-	| WsCheckLayoutRequest;
-
 // ============================================================
-// Client → Server
+// Protocol commands and responses
 // ============================================================
 
-export interface WsLoadDocumentMessage {
+export interface LoadDocumentCommand {
 	type: "load_document";
 	name: string;
 }
 
-export interface WsSaveDocumentMessage {
+export interface SaveDocumentCommand {
 	type: "save_document";
 	docName: string;
 }
 
-export interface WsDeleteDocumentMessage {
+export interface DeleteDocumentCommand {
 	type: "delete_document";
 	name: string;
 }
 
-export interface WsRenameDocumentMessage {
+export interface RenameDocumentCommand {
 	type: "rename_document";
 	name: string;
 	newName: string;
 }
 
-export interface WsDuplicateDocumentMessage {
+export interface DuplicateDocumentCommand {
 	type: "duplicate_document";
 	name: string;
 	newName: string;
 }
 
-export interface WsLockDocumentMessage {
+export interface LockDocumentCommand {
 	type: "lock_document";
 	name: string;
 	locked: boolean;
 }
 
-export interface WsUpdateCanvasMessage {
+export interface UpdateCanvasCommand {
 	type: "update_canvas";
 	docName: string;
 	format?: string;
@@ -152,7 +136,7 @@ export interface WsUpdateCanvasMessage {
 	bg?: string;
 }
 
-export interface WsUpdateMetaMessage {
+export interface UpdateDocumentMetadataCommand {
 	type: "update_meta";
 	docName: string;
 	designNotes?: string;
@@ -164,7 +148,7 @@ export interface WsUpdateMetaMessage {
 	category?: string;
 }
 
-export interface WsDeleteAssetMessage {
+export interface DeleteAssetCommand {
 	type: "delete_asset";
 	filename: string;
 }
@@ -175,7 +159,7 @@ export interface WsDeleteAssetMessage {
  * the three: only `undefined` preserves; `""` clears a string field, `[]`
  * clears tags. Identity is `filename` (renames are out of envelope).
  */
-export interface WsUpdateAssetMetaMessage {
+export interface UpdateAssetMetadataCommand {
 	type: "update_asset_meta";
 	filename: string;
 	title?: string;
@@ -193,7 +177,7 @@ export interface WsUpdateAssetMetaMessage {
  * fully replace the stored values (no partial merge — use
  * `update_charte_meta` for partial edits).
  */
-export interface WsCharteSaveMessage {
+export interface SaveCharteCommand {
 	type: "charte_save";
 	name: string;
 	description?: string;
@@ -214,7 +198,7 @@ export interface WsCharteSaveMessage {
  * omitted fields are preserved server-side. Use this for editing
  * description/voice/rules without rebuilding tokens, or vice versa.
  */
-export interface WsUpdateCharteMetaMessage {
+export interface UpdateCharteMetadataCommand {
 	type: "update_charte_meta";
 	name: string;
 	description?: string;
@@ -229,18 +213,18 @@ export interface WsUpdateCharteMetaMessage {
 	rules?: Record<string, string>;
 }
 
-export interface WsPageGoMessage {
+export interface ShowPageCommand {
 	type: "page_go";
 	docName: string;
 	page: number;
 }
 
-export interface WsClearCanvasMessage {
+export interface ClearCanvasCommand {
 	type: "clear_canvas";
 	docName: string;
 }
 
-export interface WsTextEditMessage {
+export interface EditTextCommand {
 	type: "text_edit";
 	docName: string;
 	elementId: string;
@@ -272,12 +256,12 @@ export interface PendingMessage {
  * with the matching subset — client is the single source of truth between
  * syncs, so the envelope itself carries no `docName`.
  */
-export interface WsSyncPendingMessage {
+export interface SyncPendingMessagesCommand {
 	type: "sync_pending";
 	pending: PendingMessage[];
 }
 
-export interface WsWorkspaceUpdateMessage {
+export interface UpdateWorkspaceCommand {
 	type: "workspace_update";
 	displayed: string[];
 }
@@ -287,7 +271,7 @@ export interface WsWorkspaceUpdateMessage {
  * may measure the focused canvas without a targeted doc context; the server
  * resolves it best-effort via `wsDoc(msg)`.
  */
-export interface WsLayoutReportMessage {
+export interface LayoutReportCommand {
 	type: "layout_report";
 	docName?: string;
 	measureId?: string;
@@ -303,7 +287,7 @@ export interface WsLayoutReportMessage {
 }
 
 /** Reply to a server-initiated `check_layout_request`. */
-export interface WsCheckLayoutResponse {
+export interface LayoutCheckResult {
 	type: "check_layout_response";
 	_reqId: string;
 	overflow?: boolean;
@@ -317,23 +301,40 @@ export interface WsCheckLayoutResponse {
 	elements?: unknown[];
 }
 
-export type WsClientMessage =
-	| WsLoadDocumentMessage
-	| WsSaveDocumentMessage
-	| WsDeleteDocumentMessage
-	| WsRenameDocumentMessage
-	| WsDuplicateDocumentMessage
-	| WsLockDocumentMessage
-	| WsUpdateCanvasMessage
-	| WsUpdateMetaMessage
-	| WsDeleteAssetMessage
-	| WsUpdateAssetMetaMessage
-	| WsCharteSaveMessage
-	| WsUpdateCharteMetaMessage
-	| WsPageGoMessage
-	| WsClearCanvasMessage
-	| WsTextEditMessage
-	| WsSyncPendingMessage
-	| WsWorkspaceUpdateMessage
-	| WsLayoutReportMessage
-	| WsCheckLayoutResponse;
+export type WorkspaceSignal =
+	| WorkspaceStateSignal
+	| ToastSignal
+	| CharteUpdatedSignal
+	| CharteRemovedSignal
+	| DocumentRemovedSignal
+	| PendingAcknowledgedSignal
+	| WorkspaceReloadSignal
+	| ActivitySignal
+	| AssetsChangedSignal
+	| FitViewSignal
+	| LayoutCheckRequest;
+
+export type WorkspaceCommand =
+	| LoadDocumentCommand
+	| SaveDocumentCommand
+	| DeleteDocumentCommand
+	| RenameDocumentCommand
+	| DuplicateDocumentCommand
+	| LockDocumentCommand
+	| UpdateCanvasCommand
+	| UpdateDocumentMetadataCommand
+	| DeleteAssetCommand
+	| UpdateAssetMetadataCommand
+	| SaveCharteCommand
+	| UpdateCharteMetadataCommand
+	| ShowPageCommand
+	| ClearCanvasCommand
+	| EditTextCommand
+	| SyncPendingMessagesCommand
+	| UpdateWorkspaceCommand
+	| LayoutReportCommand
+	| LayoutCheckResult;
+
+export type WorkspaceMessage = WorkspaceSignal | WorkspaceCommand;
+
+export type LayoutCheckRequestDraft = Omit<LayoutCheckRequest, "_reqId">;

@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    projects: ["packages/server", "packages/client", "packages/stdio-bridge"],
+    projects: ["packages/server", "packages/client", "packages/shared", "packages/stdio-bridge"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "clover", "json-summary"],

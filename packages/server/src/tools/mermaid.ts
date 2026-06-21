@@ -121,109 +121,130 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 			description: DESCRIPTION,
 			schema: MermaidSchema,
 		},
-		handler: async (rawArgs) => {
-			const args = MermaidSchema.parse(rawArgs);
-
-			const doc = documents.resolve(args.doc);
-			if (!doc) return text(`Document "${args.doc}" not found`, true);
-			const locked = lockGuard(doc);
-			if (locked) return locked;
-
-			const pageIdx = args.page - 1;
-			const page = doc.pages[pageIdx];
-			if (!page)
-				return text(
-					`Page ${args.page} not found (${doc.pages.length} pages)`,
-					true,
-				);
-			if (!page.html) page.html = "";
-
-			// Render SVG via beautiful-mermaid (lazy import — avoids paying the cost
-			// on every server boot when mermaid isn't used).
-			let svg: string;
-			try {
-				const { renderMermaidSVG, THEMES } = await import("beautiful-mermaid");
-				let themeObj: Record<string, string> | undefined;
-				if (args.theme && args.theme in THEMES) {
-					// beautiful-mermaid's `DiagramColors` type is structural but not indexable;
-					// cast through `unknown` so we can pass a mutable copy plus our overrides.
-					const base = (
-						THEMES as unknown as Record<string, Record<string, string>>
-					)[args.theme];
-					themeObj = { ...base };
-				}
-				if (args.bg || args.fg || args.line || args.accent) {
-					themeObj = themeObj || {};
-					if (args.bg) themeObj.bg = args.bg;
-					if (args.fg) themeObj.fg = args.fg;
-					if (args.line) themeObj.line = args.line;
-					if (args.accent) themeObj.accent = args.accent;
-				}
-				svg = renderMermaidSVG(args.code, themeObj);
-			} catch (e) {
-				const msg = e instanceof Error ? e.message : String(e);
-				return text(`Mermaid render failed: ${msg}`, true);
-			}
-
-			// Pick a dataId that doesn't clash with existing data-ids on the page
-			const existingIds = [
-				...page.html.matchAll(/data-id=["']([^"']+)["']/g),
-			].map((m) => m[1] ?? "");
-			const dataId = args.dataId || generateId(existingIds);
-
-			// Strip fixed width/height from the SVG so it scales with its container
-			svg = svg
-				.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1 width="100%"')
-				.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1 height="100%"');
-
-			const styleParts: string[] = ["overflow:hidden"];
-			if (args.width) styleParts.push(`width:${args.width}`);
-			if (args.height) styleParts.push(`height:${args.height}`);
-			const wrapper = `<div data-id="${dataId}" style="${styleParts.join(";")}">${svg}</div>`;
-
-			// Inject into page HTML
-			const { document } = parseHTML(`<html><body>${page.html}</body></html>`);
-			const root = document.body;
-
-			const existing = root.querySelector(`[data-id="${cssEscape(dataId)}"]`);
-			if (existing) {
-				existing.outerHTML = wrapper;
-			} else if (args.targetId) {
-				const target = root.querySelector(
-					`[data-id="${cssEscape(args.targetId)}"]`,
-				);
-				const pos = args.position || "beforeend";
-				if (target) {
-					target.insertAdjacentHTML(pos, wrapper);
-				} else {
-					root.insertAdjacentHTML("beforeend", wrapper);
-				}
-			} else {
-				root.insertAdjacentHTML("beforeend", wrapper);
-			}
-
-			// stripActiveHtml on the way out — beautiful-mermaid is trusted but
-			// the surrounding page may already contain agent content; keep one
-			// pass on every persistence path.
-			page.html = stripActiveHtml(root.innerHTML);
-			documents.persist(doc.name);
-
-			// Surface every page-level data-id that an agent can target with
-			// maket_html patch. Exclude data-ids that live *inside* an SVG — those
-			// are mermaid's internal node auto-labels (`A`, `B`, …) and patching
-			// them makes no sense.
-			const addressableIds = Array.from(root.querySelectorAll("[data-id]"))
-				.filter((el) => !el.closest("svg"))
-				.map((el) => el.getAttribute("data-id") ?? "")
-				.filter(Boolean);
-
-			bus.emit("element:updated", { docName: doc.name, id: "html" });
-
-			return text(
-				`Mermaid diagram injected as "${dataId}"\npage data-ids (${addressableIds.length}): ${addressableIds.join(", ")}`,
-			);
-		},
+		handler: (rawArgs) => handleMaketMermaidTool(rawArgs, { documents, bus }),
 	};
+}
+
+interface MermaidToolDeps {
+	documents: Documents;
+	bus: Bus;
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP Mermaid insertion is an adapter workflow over rendering, HTML parsing, document persistence, and bus notification.
+async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
+	const args = MermaidSchema.parse(rawArgs);
+	const doc = deps.documents.resolve(args.doc);
+	if (!doc) return text(`Document "${args.doc}" not found`, true);
+	const locked = lockGuard(doc);
+	if (locked) return locked;
+
+	const pageIdx = args.page - 1;
+	const page = doc.pages[pageIdx];
+	if (!page) {
+		return text(
+			`Page ${args.page} not found (${doc.pages.length} pages)`,
+			true,
+		);
+	}
+	if (!page.html) page.html = "";
+
+	const rendered = await renderMermaid(args);
+	if (typeof rendered !== "string") return rendered;
+	const result = insertMermaidSvg(page.html, args, rendered);
+	page.html = stripActiveHtml(result.html);
+	deps.documents.persist(doc.name);
+	deps.bus.emit("element:updated", { docName: doc.name, id: "html" });
+	return text(
+		`Mermaid diagram injected as "${result.dataId}"\npage data-ids (${result.addressableIds.length}): ${result.addressableIds.join(", ")}`,
+	);
+}
+
+async function renderMermaid(args: z.infer<typeof MermaidSchema>) {
+	try {
+		const { renderMermaidSVG, THEMES } = await import("beautiful-mermaid");
+		const themeObj = buildMermaidTheme(args, THEMES);
+		return renderMermaidSVG(args.code, themeObj);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return text(`Mermaid render failed: ${msg}`, true);
+	}
+}
+
+function buildMermaidTheme(
+	args: z.infer<typeof MermaidSchema>,
+	themes: unknown,
+): Record<string, string> | undefined {
+	let themeObj: Record<string, string> | undefined;
+	if (args.theme && args.theme in (themes as Record<string, unknown>)) {
+		const base = (themes as Record<string, Record<string, string>>)[args.theme];
+		themeObj = { ...base };
+	}
+	if (args.bg || args.fg || args.line || args.accent) {
+		themeObj = themeObj || {};
+		if (args.bg) themeObj.bg = args.bg;
+		if (args.fg) themeObj.fg = args.fg;
+		if (args.line) themeObj.line = args.line;
+		if (args.accent) themeObj.accent = args.accent;
+	}
+	return themeObj;
+}
+
+function insertMermaidSvg(
+	html: string,
+	args: z.infer<typeof MermaidSchema>,
+	svg: string,
+) {
+	const existingIds = [...html.matchAll(/data-id=["']([^"']+)["']/g)].map(
+		(match) => match[1] ?? "",
+	);
+	const dataId = args.dataId || generateId(existingIds);
+	const wrapper = createMermaidWrapper(dataId, args, normalizeMermaidSvg(svg));
+	const { document } = parseHTML(`<html><body>${html}</body></html>`);
+	const root = document.body;
+	insertMermaidWrapper(root, dataId, args, wrapper);
+	const addressableIds = Array.from(root.querySelectorAll("[data-id]"))
+		.filter((el) => !el.closest("svg"))
+		.map((el) => el.getAttribute("data-id") ?? "")
+		.filter(Boolean);
+	return { html: root.innerHTML, dataId, addressableIds };
+}
+
+function normalizeMermaidSvg(svg: string): string {
+	return svg
+		.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1 width="100%"')
+		.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1 height="100%"');
+}
+
+function createMermaidWrapper(
+	dataId: string,
+	args: z.infer<typeof MermaidSchema>,
+	svg: string,
+): string {
+	const styleParts: string[] = ["overflow:hidden"];
+	if (args.width) styleParts.push(`width:${args.width}`);
+	if (args.height) styleParts.push(`height:${args.height}`);
+	return `<div data-id="${dataId}" style="${styleParts.join(";")}">${svg}</div>`;
+}
+
+function insertMermaidWrapper(
+	root: HTMLElement,
+	dataId: string,
+	args: z.infer<typeof MermaidSchema>,
+	wrapper: string,
+) {
+	const existing = root.querySelector(`[data-id="${cssEscape(dataId)}"]`);
+	if (existing) {
+		existing.outerHTML = wrapper;
+		return;
+	}
+	if (!args.targetId) {
+		root.insertAdjacentHTML("beforeend", wrapper);
+		return;
+	}
+	const target = root.querySelector(`[data-id="${cssEscape(args.targetId)}"]`);
+	target?.insertAdjacentHTML(args.position || "beforeend", wrapper);
+	if (!target) root.insertAdjacentHTML("beforeend", wrapper);
 }
 
 export const mermaidPack: ToolPack = {

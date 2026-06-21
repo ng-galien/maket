@@ -47,9 +47,6 @@ export function createThumbnailRouter({
 			});
 
 			res.setHeader("Content-Type", "image/png");
-			// When `t` is included in the URL it acts as a cache-buster on the
-			// client side — so we can set aggressive caching without serving
-			// stale content after a save.
 			if (req.query.t) {
 				res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
 			} else {

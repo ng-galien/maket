@@ -98,7 +98,7 @@ async function forwardOne(
 		writeError(stdout, id, -32000, `http ${res.status}: ${text.slice(0, 200)}`);
 		return;
 	}
-	if (!text.trim()) return; // notification — no response expected
+	if (!text.trim()) return;
 	writeLine(stdout, text);
 }
 

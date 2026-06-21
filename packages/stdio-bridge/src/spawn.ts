@@ -107,9 +107,6 @@ export async function ensureServer(opts: EnsureServerOpts): Promise<{
 	}
 
 	let cmd = opts.cmd ?? defaultServerCmd();
-	// When the bridge runs under a non-Node host (Claude Desktop's Electron
-	// helper), spawning the server with the same binary triggers slow/flaky
-	// Electron cold starts. Swap to a real system Node — instant boot.
 	if (isNonNodeHost() && cmd[0] === process.execPath) {
 		const sysNode = findSystemNode();
 		if (!sysNode) {
@@ -129,12 +126,8 @@ export async function ensureServer(opts: EnsureServerOpts): Promise<{
 		MAKET_PORT: String(port),
 		MAKET_DATA_DIR: dataDir,
 	};
-	// When the child is real Node (not Electron), drop ELECTRON_RUN_AS_NODE —
-	// it's harmless on Node but signals intent more clearly.
 	if (bin !== process.execPath) delete env.ELECTRON_RUN_AS_NODE;
 
-	// Capture the detached server's stdio to disk — Desktop drops it otherwise,
-	// and we need to see boot errors when the child crashes before listening.
 	const outPath = join(dataDir, "server-spawn.log");
 	const outFd = openSync(outPath, "a");
 
@@ -146,9 +139,6 @@ export async function ensureServer(opts: EnsureServerOpts): Promise<{
 	child.on("error", () => {});
 	child.unref();
 
-	// Electron cold start (under ELECTRON_RUN_AS_NODE) is slow: helper-app
-	// FATALs + crashpad warnings consume ~10-15s before the Node server gets
-	// to bind the port. Give it plenty of headroom.
 	const ready = await waitForServer(port, host, opts.readyTimeoutMs ?? 45_000);
 	if (!ready) {
 		throw new Error(
@@ -158,9 +148,7 @@ export async function ensureServer(opts: EnsureServerOpts): Promise<{
 	if (opts.pidFile && child.pid) {
 		try {
 			writeFileSync(opts.pidFile, `${child.pid}\n`, "utf-8");
-		} catch {
-			// PID file is best-effort — failing to write it shouldn't break boot.
-		}
+		} catch {}
 	}
 	return { started: true, alreadyRunning: false, pid: child.pid };
 }

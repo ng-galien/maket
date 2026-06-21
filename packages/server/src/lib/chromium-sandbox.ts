@@ -16,10 +16,6 @@
 export function shouldDisableSandbox(env = process.env): boolean {
 	if (env.MAKET_FORCE_NO_SANDBOX === "1") return true;
 	if (process.platform !== "linux") return false;
-	// On Linux, the namespace sandbox refuses to start as uid 0. There is no
-	// general way to make it work — running as root is itself a smell, but if
-	// the user is doing it (typical Docker), fall back to no-sandbox so the
-	// service boots at all. Non-root Linux keeps the sandbox.
 	if (typeof process.getuid === "function" && process.getuid() === 0) {
 		return true;
 	}

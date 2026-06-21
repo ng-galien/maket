@@ -1,0 +1,126 @@
+default_rules = false
+
+[exclude]
+uris = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/coverage/**",
+  "**/public/**",
+  "**/.maket/**",
+  "**/.e2e-maket/**",
+  "**/docs/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+]
+
+[aliases]
+maket_import_ref = "kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'reexports'"
+client_source = "source ~ '**/dir:packages/dir:client/dir:src/**'"
+server_source = "source ~ '**/dir:packages/dir:server/dir:src/**'"
+shared_source = "source ~ '**/dir:packages/dir:shared/dir:src/**'"
+shared_target = "target ~ '**/dir:packages/dir:shared/dir:src/**'"
+client_target = "target ~ '**/dir:packages/dir:client/dir:src/**'"
+server_target = "target ~ '**/dir:packages/dir:server/dir:src/**'"
+stdio_bridge_target = "target ~ '**/dir:packages/dir:stdio-bridge/dir:src/**'"
+client_runtime_target = """
+  target ~ '**/external_pkg:react/**'
+  OR target ~ '**/external_pkg:react-dom/**'
+  OR target ~ '**/external_pkg:zustand/**'
+"""
+server_runtime_target = """
+  target ~ '**/external_pkg:express/**'
+  OR target ~ '**/external_pkg:ws/**'
+  OR target ~ '**/external_pkg:node*/**'
+"""
+application_call_ref = """
+  (kind = 'calls' OR kind = 'method_call')
+  AND target ~ '**/dir:packages/**'
+"""
+
+[[refs.where]]
+id        = "architecture-shared-has-no-adapter-dependencies"
+severity  = "error"
+rationale = "Shared contracts must remain pure data and protocol definitions. They are consumed by both client and server, so importing adapters, framework runtimes, or Node APIs collapses the boundary."
+expr      = """
+  $shared_source AND $maket_import_ref
+  => NOT ($client_target OR $server_target OR $stdio_bridge_target OR $client_runtime_target OR $server_runtime_target)
+"""
+message   = "`packages/shared` must not import client, server, stdio-bridge, browser framework, or server runtime code."
+
+[[refs.where]]
+id        = "architecture-client-does-not-import-server"
+severity  = "error"
+rationale = "The client mirrors server state through shared WS/HTTP contracts. Direct imports from server code couple the browser bundle to server implementation details and bypass the shared boundary."
+expr      = "$client_source AND $maket_import_ref => NOT ($server_target OR $stdio_bridge_target)"
+message   = "`packages/client` must depend on shared contracts, not server or stdio-bridge implementation code."
+
+[[refs.where]]
+id        = "architecture-server-does-not-import-client"
+severity  = "error"
+rationale = "Server services, routes, and tools may publish state through shared contracts, but they must not depend on UI components or client store implementation."
+expr      = "$server_source AND $maket_import_ref => NOT $client_target"
+message   = "`packages/server` must not import client implementation code."
+
+[[refs.where]]
+id        = "architecture-client-server-crossing-goes-through-shared"
+severity  = "error"
+rationale = "Client and server are separate adapters. The allowed compile-time contract between them is `packages/shared`; everything else should be reached through WS, HTTP, or MCP tool boundaries."
+expr      = """
+  ($client_source OR $server_source) AND $maket_import_ref
+  => NOT (($client_source AND $server_target) OR ($server_source AND $client_target))
+"""
+message   = "Client/server compile-time crossings must go through `packages/shared`."
+
+[[shape.callable.where]]
+id        = "smell-long-callable"
+severity  = "error"
+rationale = "Large functions make changes harder to review safely and usually hide multiple responsibilities. Extract named steps, move behavior to the right collaborator, or add a local code-moniker ignore with the design reason."
+expr      = "lines <= 140"
+message   = "Long callable: `{name}` spans more than 140 lines."
+
+[[shape.callable.where]]
+id        = "smell-long-parameter-list"
+severity  = "error"
+rationale = "Long parameter lists make call sites brittle and often indicate a missing options object or domain value."
+expr      = "count(param) <= 7"
+message   = "Long parameter list: `{name}` has more than 7 parameters."
+
+[[shape.callable.where]]
+id        = "smell-feature-envy-local"
+severity  = "error"
+rationale = "Feature envy is about behavior that mostly talks to another application owner. Runtime, framework, and standard-library calls are ignored; remaining hits should move behavior closer to the owner or introduce a narrower collaborator."
+expr      = """
+  count(out_refs, $application_call_ref AND source.parent != target.parent) < 8
+  OR count(out_refs, $application_call_ref AND source.parent != target.parent)
+     <= count(out_refs, $application_call_ref AND source.parent = target.parent)
+"""
+message   = "Feature envy candidate: `{name}` calls external owners more than local ones."
+
+[[shape.annotation.where]]
+id        = "smell-comment-inside-callable"
+severity  = "error"
+rationale = "Comments inside functions tend to narrate implementation steps that should be expressed through names, extraction, or clearer structure."
+expr      = "parent.shape != 'callable'"
+message   = "Comment inside callable: remove the narrative comment or extract a named step."
+
+[[shape.type.where]]
+id        = "smell-large-type"
+severity  = "error"
+rationale = "Large types concentrate responsibility. In Maket this is a review prompt for services, UI components, and contracts that may need splitting."
+expr      = "count(shape:callable) <= 35 AND count(shape:value) <= 40"
+message   = "Large type: `{name}` has many direct callables or values."
+
+[[shape.type.where]]
+id        = "smell-method-size-disharmony"
+severity  = "error"
+rationale = "A type with one or two dominant methods is often hiding a workflow that wants named steps."
+expr      = "count(shape:callable) >= 6 => cv(shape:callable, lines) <= 1.1"
+message   = "Method-size disharmony: `{name}` has an uneven method-size distribution."
+
+[[shape.type.where]]
+id        = "smell-duplicate-callable-names"
+severity  = "error"
+rationale = "Duplicate callable names inside one type make moniker queries and reviews harder to reason about."
+expr      = "size(unique(shape:callable.name)) = size(shape:callable.name)"
+message   = "Duplicate callable names under `{name}`."

@@ -174,8 +174,6 @@ async function runView(
 			true,
 		);
 	}
-	// SVGs are rejected by the vision API. Ensure a rasterized thumb exists
-	// (legacy SVGs imported before the rasterizer landed won't have one).
 	if (
 		extname(args.filename).toLowerCase() === ".svg" &&
 		!assets.hasThumb(args.filename)
@@ -206,7 +204,6 @@ async function runView(
 	const token = assets.imageToken(args.filename);
 	if (token) lines.push(`context_token: ${token}`);
 
-	// Suggest the follow-up: meta (if data missing) always benefits from the token.
 	const suggestion = !entry
 		? `maket_image meta filename=${args.filename} context_token=${token} title=... description=...`
 		: `maket_image meta filename=${args.filename} context_token=${token} <field=new_value>`;

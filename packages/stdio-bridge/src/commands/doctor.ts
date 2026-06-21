@@ -67,9 +67,6 @@ function isPortFree(port: number, host: string): Promise<boolean> {
 }
 
 function checkDataDir(dataDir: string): Check {
-	// Mirror what `ensureServer` does on boot: create the dir if missing,
-	// then verify it's writable. Otherwise a fresh install fails doctor
-	// even though the server would have created ~/.maket itself.
 	try {
 		mkdirSync(dataDir, { recursive: true });
 		const probe = join(dataDir, `.doctor-${Date.now()}`);
@@ -87,7 +84,6 @@ function checkDataDir(dataDir: string): Check {
 function checkChromium(): Check {
 	try {
 		const require = createRequire(fileURLToPath(import.meta.url));
-		// `executablePath()` is a synchronous path lookup — doesn't launch.
 		const puppeteer = require("puppeteer") as {
 			executablePath?: () => string;
 			default?: { executablePath?: () => string };
@@ -144,7 +140,6 @@ function checkServerEntry(): Check {
 		require.resolve("@maket/server/package.json");
 		return { level: "ok", line: "Server entry — @maket/server resolvable" };
 	} catch {
-		// Bundled install: sibling server.js is the canonical entry.
 		const here = fileURLToPath(new URL(".", import.meta.url));
 		const sibling = join(here, "server.js");
 		if (existsSync(sibling)) {
@@ -194,8 +189,6 @@ export async function runDoctor(
 ): Promise<void> {
 	const env = readEnv(overrides);
 
-	// Port probe and npm fetch are the only async checks. Run them in
-	// parallel with the sync checks interleaved — saves ~300-500 ms.
 	const [portCheck, npmCheck] = await Promise.all([
 		checkPort(env.port, env.host),
 		checkNpmLatest(),

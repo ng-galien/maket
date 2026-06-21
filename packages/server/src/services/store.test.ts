@@ -34,6 +34,22 @@ describe("SQLiteStore", () => {
 		store.close();
 	});
 
+	it("preserves page ids across save and load", () => {
+		const store = createSQLiteStore(":memory:");
+		const d = createDocument({
+			...makeDoc("pages"),
+			pages: [
+				{ id: "page-a", name: "A", elements: [], html: "<p>A</p>" },
+				{ id: "page-b", name: "B", elements: [], html: "<p>B</p>" },
+			],
+		});
+		store.saveDoc(d);
+
+		const loaded = store.loadOne("pages");
+		expect(loaded?.pages.map((p) => p.id)).toEqual(["page-a", "page-b"]);
+		store.close();
+	});
+
 	it("loadAll returns every saved document", () => {
 		const store = createSQLiteStore(":memory:");
 		store.saveDocs([makeDoc("a"), makeDoc("b"), makeDoc("c")]);

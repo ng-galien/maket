@@ -78,7 +78,6 @@ export function registerToolPacks(
 		}
 	}
 
-	// Cross-check: every declared tool must be in the resolved registry.
 	const missing = declaredByAllPacks.filter((t) => !toolRegistry.has(t));
 	if (missing.length > 0) {
 		throw new Error(
@@ -87,7 +86,6 @@ export function registerToolPacks(
 	}
 
 	if (container.hasRegistration("toolRegistry")) {
-		// Replace in-place so existing resolutions pick up new tools.
 		const existing =
 			container.resolve<Map<string, ToolHandler>>("toolRegistry");
 		existing.clear();

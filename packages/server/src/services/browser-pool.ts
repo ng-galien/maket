@@ -43,7 +43,6 @@ export function createBrowserPool(
 	return {
 		async get() {
 			if (current?.connected) return current;
-			// Coalesce concurrent first-launches so we only fire one launch().
 			if (!pending) {
 				pending = (async () => {
 					const b = await launch();
@@ -62,9 +61,7 @@ export function createBrowserPool(
 			const b = current;
 			current = null;
 			if (b?.connected) {
-				await b.close().catch(() => {
-					/* browser may already be gone */
-				});
+				await b.close().catch(() => {});
 			}
 		},
 	};
