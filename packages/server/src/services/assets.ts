@@ -144,339 +144,405 @@ export interface AssetsServiceInputs {
 	secret?: string;
 }
 
+type SafePath = (filename: string) => string | null;
+
+interface AssetPaths {
+	thumbDir: () => string;
+	safePath: SafePath;
+	listFilenames: () => string[];
+}
+
+function createAssetPaths(assetsDir: string): AssetPaths {
+	return {
+		thumbDir: () => join(assetsDir, "thumbs"),
+		safePath(filename) {
+			const abs = resolve(join(assetsDir, filename));
+			return abs.startsWith(resolve(assetsDir) + sep) ? abs : null;
+		},
+		listFilenames() {
+			if (!existsSync(assetsDir)) return [];
+			return readdirSync(assetsDir, { withFileTypes: true })
+				.filter((d) => d.isFile())
+				.map((d) => d.name)
+				.filter((f) => IMAGE_EXTS.has(extname(f).toLowerCase()));
+		},
+	};
+}
+
+function importDestination(
+	safePath: SafePath,
+	dest: string,
+	overwrite: boolean,
+): string {
+	const absDest = safePath(dest);
+	if (!absDest) throw new Error(`Invalid destination: ${dest}`);
+	if (existsSync(absDest) && !overwrite) {
+		throw new Error(
+			`Asset "${dest}" already exists. Use overwrite to replace.`,
+		);
+	}
+	return absDest;
+}
+
+async function importAssetFromLocal(
+	safePath: SafePath,
+	source: string,
+	dest: string,
+	overwrite: boolean,
+): Promise<void> {
+	const absDest = importDestination(safePath, dest, overwrite);
+	if (!existsSync(source)) throw new Error(`Source not found: ${source}`);
+	copyFileSync(source, absDest);
+}
+
+async function importAssetFromUrl(
+	safePath: SafePath,
+	url: string,
+	dest: string,
+	overwrite: boolean,
+): Promise<void> {
+	const absDest = importDestination(safePath, dest, overwrite);
+	await assertSafeUrl(url);
+	const buffer = await boundedFetch(url);
+	writeFileSync(absDest, buffer);
+}
+
+async function importAssetBuffer(
+	safePath: SafePath,
+	buffer: Buffer,
+	dest: string,
+	overwrite: boolean,
+): Promise<void> {
+	writeFileSync(importDestination(safePath, dest, overwrite), buffer);
+}
+
+function removeAsset(safePath: SafePath, filename: string): void {
+	const abs = safePath(filename);
+	if (abs && existsSync(abs)) unlinkSync(abs);
+	const thumbAbs = safePath(join("thumbs", thumbFilename(filename)));
+	if (thumbAbs && existsSync(thumbAbs)) unlinkSync(thumbAbs);
+}
+
+function readAssetBase64(
+	safePath: SafePath,
+	filename: string,
+	preferThumb = true,
+): ReadResult | null {
+	const abs = safePath(filename);
+	if (!abs || !existsSync(abs)) return null;
+	const thumb = preferThumb
+		? safePath(join("thumbs", thumbFilename(filename)))
+		: null;
+	const src = thumb && existsSync(thumb) ? thumb : abs;
+	return {
+		data: readFileSync(src).toString("base64"),
+		mime: MIME_MAP[extname(src).toLowerCase()] ?? "image/png",
+	};
+}
+
+function validateImageFile(
+	safePath: SafePath,
+	filename: string,
+): { valid: boolean; reason?: string } {
+	const abs = safePath(filename);
+	if (!abs || !existsSync(abs))
+		return { valid: false, reason: "File not found" };
+	if (statSync(abs).size === 0) return { valid: false, reason: "Empty file" };
+	const ext = extname(filename).toLowerCase();
+	const head = readFileSync(abs, { flag: "r" }).subarray(0, 32);
+	switch (ext) {
+		case ".png":
+			return validatePngHeader(head);
+		case ".jpg":
+		case ".jpeg":
+			return validateJpegHeader(head);
+		case ".gif":
+			return validateGifHeader(head);
+		case ".webp":
+			return validateWebpHeader(head);
+		case ".svg":
+			return validateSvgFile(abs, head);
+		default:
+			return {
+				valid: false,
+				reason: `Unsupported format: ${ext || "(no extension)"} — supported: ${[...IMAGE_EXTS].sort().join(", ")}`,
+			};
+	}
+}
+
+function validatePngHeader(head: Buffer): { valid: boolean; reason?: string } {
+	const valid =
+		head[0] === 0x89 &&
+		head[1] === 0x50 &&
+		head[2] === 0x4e &&
+		head[3] === 0x47 &&
+		head[4] === 0x0d &&
+		head[5] === 0x0a &&
+		head[6] === 0x1a &&
+		head[7] === 0x0a;
+	return valid
+		? { valid: true }
+		: { valid: false, reason: "Not a valid PNG (bad magic bytes)" };
+}
+
+function validateJpegHeader(head: Buffer): { valid: boolean; reason?: string } {
+	const valid = head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+	return valid
+		? { valid: true }
+		: { valid: false, reason: "Not a valid JPEG (bad magic bytes)" };
+}
+
+function validateGifHeader(head: Buffer): { valid: boolean; reason?: string } {
+	const magic = head.subarray(0, 6).toString("ascii");
+	const valid = magic === "GIF87a" || magic === "GIF89a";
+	return valid
+		? { valid: true }
+		: { valid: false, reason: "Not a valid GIF (bad magic bytes)" };
+}
+
+function validateWebpHeader(head: Buffer): { valid: boolean; reason?: string } {
+	const riff = head.subarray(0, 4).toString("ascii");
+	const webp = head.subarray(8, 12).toString("ascii");
+	return riff === "RIFF" && webp === "WEBP"
+		? { valid: true }
+		: { valid: false, reason: "Not a valid WebP (bad RIFF/WEBP header)" };
+}
+
+function validateSvgFile(
+	abs: string,
+	head: Buffer,
+): { valid: boolean; reason?: string } {
+	const prefix = head.toString("utf8").trimStart().slice(0, 5).toLowerCase();
+	if (
+		!prefix.startsWith("<") ||
+		(!prefix.startsWith("<?xml") && !prefix.startsWith("<svg"))
+	) {
+		return { valid: false, reason: "Not a valid SVG (missing <?xml or <svg)" };
+	}
+	const body = readFileSync(abs, "utf8");
+	const dangerous =
+		/<script[\s>]/i.test(body) ||
+		/\son[a-z]+\s*=/i.test(body) ||
+		/javascript:/i.test(body) ||
+		/<foreignobject\b[^>]*?(?<!\/)>[\s\S]*?\S[\s\S]*?<\/foreignobject\s*>/i.test(
+			body,
+		);
+	return dangerous
+		? {
+				valid: false,
+				reason:
+					"SVG contains active content (<script>, on* handler, javascript: URL, or non-empty <foreignObject>) — refused.",
+			}
+		: { valid: true };
+}
+
+function imageToken(
+	safePath: SafePath,
+	hmac: (payload: string) => string,
+	filename: string,
+): string | null {
+	const abs = safePath(filename);
+	if (!abs || !existsSync(abs)) return null;
+	const stat = statSync(abs);
+	return hmac(`image:${filename}|${stat.size}|${stat.mtimeMs}`);
+}
+
+function charteToken(
+	hmac: (payload: string) => string,
+	charte: { name: string } | null | undefined,
+): string | null {
+	if (!charte) return null;
+	const content = JSON.stringify(charte);
+	const hash = crypto.createHash("md5").update(content).digest("hex");
+	return hmac(`charte:${charte.name}|${hash}`);
+}
+
+function getImageDimensions(
+	safePath: SafePath,
+	filename: string,
+): Dimensions | null {
+	const abs = safePath(filename);
+	if (!abs || !existsSync(abs)) return null;
+	try {
+		const buf = readFileSync(abs);
+		if (buf[0] === 0x89 && buf[1] === 0x50) {
+			return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+		}
+		let i = 2;
+		while (i < buf.length - 9) {
+			if (buf[i] === 0xff && (buf[i + 1] === 0xc0 || buf[i + 1] === 0xc2)) {
+				return { w: buf.readUInt16BE(i + 7), h: buf.readUInt16BE(i + 5) };
+			}
+			i += buf[i + 1] === 0xff ? 1 : 2 + buf.readUInt16BE(i + 2);
+		}
+	} catch {}
+	return null;
+}
+
+async function optimizeAsset(
+	paths: AssetPaths,
+	filename: string,
+): Promise<Dimensions | null> {
+	const ext = extname(filename).toLowerCase();
+	if (ext === ".gif") return null;
+	const abs = paths.safePath(filename);
+	if (!abs || !existsSync(abs)) return null;
+	const td = paths.thumbDir();
+	if (!existsSync(td)) mkdirSync(td, { recursive: true });
+	const thumbPath = join(td, thumbFilename(filename));
+	return ext === ".svg"
+		? optimizeSvg(abs, thumbPath)
+		: optimizeRaster(abs, thumbPath, ext);
+}
+
+async function optimizeSvg(
+	abs: string,
+	thumbPath: string,
+): Promise<Dimensions | null> {
+	try {
+		const svg = readFileSync(abs);
+		writeFileSync(thumbPath, await rasterizeSvg(svg, THUMB_PX));
+		return svgNaturalDims(svg);
+	} catch {
+		return null;
+	}
+}
+
+async function optimizeRaster(
+	abs: string,
+	thumbPath: string,
+	ext: string,
+): Promise<Dimensions | null> {
+	try {
+		const { Jimp } = await import("jimp");
+		const image = await Jimp.read(abs);
+		const { width, height } = image;
+		if (width > MAX_PX || height > MAX_PX) {
+			image.scaleToFit({ w: MAX_PX, h: MAX_PX });
+		}
+		if (ext !== ".png") {
+			const buf = await image.getBuffer("image/jpeg", { quality: 85 });
+			writeFileSync(abs, buf);
+		}
+		const thumb = image.clone();
+		thumb.scaleToFit({ w: THUMB_PX, h: THUMB_PX * 4 });
+		const thumbBuf = await thumb.getBuffer("image/jpeg", { quality: 75 });
+		writeFileSync(thumbPath, thumbBuf);
+		return { w: image.width, h: image.height };
+	} catch {
+		return null;
+	}
+}
+
+function migrateLegacyThumbs(paths: AssetPaths): {
+	migrated: number;
+	orphansDeleted: number;
+	ambiguous: number;
+} {
+	const td = paths.thumbDir();
+	if (!existsSync(td)) return { migrated: 0, orphansDeleted: 0, ambiguous: 0 };
+	const result = { migrated: 0, orphansDeleted: 0, ambiguous: 0 };
+	const sourcesByBase = sourcesGroupedByBase(paths.listFilenames());
+	for (const entry of readdirSync(td, { withFileTypes: true })) {
+		if (!entry.isFile() || !entry.name.endsWith(".jpg")) continue;
+		if (isNewConventionThumb(entry.name)) continue;
+		migrateLegacyThumb(entry.name, td, sourcesByBase, paths.safePath, result);
+	}
+	return result;
+}
+
+function sourcesGroupedByBase(sources: string[]): Map<string, string[]> {
+	const sourcesByBase = new Map<string, string[]>();
+	for (const f of sources) {
+		const base = f.replace(/\.[^.]+$/, "");
+		const list = sourcesByBase.get(base) ?? [];
+		list.push(f);
+		sourcesByBase.set(base, list);
+	}
+	return sourcesByBase;
+}
+
+function isNewConventionThumb(name: string): boolean {
+	if (!name.endsWith(".thumb.jpg")) return false;
+	const sourceName = name.slice(0, -".thumb.jpg".length);
+	return IMAGE_EXTS.has(extname(sourceName).toLowerCase());
+}
+
+function migrateLegacyThumb(
+	name: string,
+	thumbDirPath: string,
+	sourcesByBase: Map<string, string[]>,
+	safePath: SafePath,
+	result: { migrated: number; orphansDeleted: number; ambiguous: number },
+): void {
+	const base = name.slice(0, -".jpg".length);
+	const matching = sourcesByBase.get(base) ?? [];
+	const legacyPath = join(thumbDirPath, name);
+	try {
+		if (matching.length === 0) {
+			unlinkSync(legacyPath);
+			result.orphansDeleted += 1;
+			return;
+		}
+		if (matching.length > 1) {
+			result.ambiguous += 1;
+			return;
+		}
+		const onlyMatch = matching[0];
+		if (!onlyMatch) return;
+		const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
+		if (!targetPath) return;
+		if (existsSync(targetPath)) {
+			unlinkSync(legacyPath);
+			result.orphansDeleted += 1;
+		} else {
+			renameSync(legacyPath, targetPath);
+			result.migrated += 1;
+		}
+	} catch {}
+}
+
 export function createAssetsService(
 	inputs: AssetsServiceInputs,
 ): AssetsService {
-	const { assetsDir } = inputs;
+	const paths = createAssetPaths(inputs.assetsDir);
 	const secret = inputs.secret ?? crypto.randomUUID();
-	const thumbDir = () => join(assetsDir, "thumbs");
-
-	function hmac(payload: string): string {
-		return crypto
+	const hmac = (payload: string) =>
+		crypto
 			.createHmac("sha256", secret)
 			.update(payload)
 			.digest("hex")
 			.slice(0, 16);
-	}
-
-	function safePath(filename: string): string | null {
-		const abs = resolve(join(assetsDir, filename));
-		return abs.startsWith(resolve(assetsDir) + sep) ? abs : null;
-	}
-
-	function listFilenames(): string[] {
-		if (!existsSync(assetsDir)) return [];
-		return readdirSync(assetsDir, { withFileTypes: true })
-			.filter((d) => d.isFile())
-			.map((d) => d.name)
-			.filter((f) => IMAGE_EXTS.has(extname(f).toLowerCase()));
-	}
 
 	return {
-		resolveSafePath: safePath,
-
+		resolveSafePath: paths.safePath,
 		exists(filename) {
-			const p = safePath(filename);
+			const p = paths.safePath(filename);
 			return !!p && existsSync(p);
 		},
-
-		listFilenames,
-
-		async importFromLocal(source, dest, overwrite) {
-			const absDest = safePath(dest);
-			if (!absDest) throw new Error(`Invalid destination: ${dest}`);
-			if (existsSync(absDest) && !overwrite) {
-				throw new Error(
-					`Asset "${dest}" already exists. Use overwrite to replace.`,
-				);
-			}
-			if (!existsSync(source)) throw new Error(`Source not found: ${source}`);
-			copyFileSync(source, absDest);
-		},
-
-		async importFromUrl(url, dest, overwrite) {
-			const absDest = safePath(dest);
-			if (!absDest) throw new Error(`Invalid destination: ${dest}`);
-			if (existsSync(absDest) && !overwrite) {
-				throw new Error(
-					`Asset "${dest}" already exists. Use overwrite to replace.`,
-				);
-			}
-			await assertSafeUrl(url);
-			const buffer = await boundedFetch(url);
-			writeFileSync(absDest, buffer);
-		},
-
-		async importBuffer(buffer, dest, overwrite) {
-			const absDest = safePath(dest);
-			if (!absDest) throw new Error(`Invalid destination: ${dest}`);
-			if (existsSync(absDest) && !overwrite) {
-				throw new Error(
-					`Asset "${dest}" already exists. Use overwrite to replace.`,
-				);
-			}
-			writeFileSync(absDest, buffer);
-		},
-
-		remove(filename) {
-			const abs = safePath(filename);
-			if (abs && existsSync(abs)) unlinkSync(abs);
-			const thumbAbs = safePath(join("thumbs", thumbFilename(filename)));
-			if (thumbAbs && existsSync(thumbAbs)) unlinkSync(thumbAbs);
-		},
-
-		readBase64(filename, preferThumb = true) {
-			const abs = safePath(filename);
-			if (!abs || !existsSync(abs)) return null;
-			const thumb = preferThumb
-				? safePath(join("thumbs", thumbFilename(filename)))
-				: null;
-			const src = thumb && existsSync(thumb) ? thumb : abs;
-			return {
-				data: readFileSync(src).toString("base64"),
-				mime: MIME_MAP[extname(src).toLowerCase()] ?? "image/png",
-			};
-		},
-
+		listFilenames: paths.listFilenames,
+		importFromLocal: (source, dest, overwrite) =>
+			importAssetFromLocal(paths.safePath, source, dest, overwrite),
+		importFromUrl: (url, dest, overwrite) =>
+			importAssetFromUrl(paths.safePath, url, dest, overwrite),
+		importBuffer: (buffer, dest, overwrite) =>
+			importAssetBuffer(paths.safePath, buffer, dest, overwrite),
+		remove: (filename) => removeAsset(paths.safePath, filename),
+		readBase64: (filename, preferThumb = true) =>
+			readAssetBase64(paths.safePath, filename, preferThumb),
 		hasThumb(filename) {
-			const thumb = safePath(join("thumbs", thumbFilename(filename)));
+			const thumb = paths.safePath(join("thumbs", thumbFilename(filename)));
 			return !!thumb && existsSync(thumb);
 		},
-
-		mimeFromExt(pathOrFilename) {
-			return MIME_MAP[extname(pathOrFilename).toLowerCase()] ?? "image/png";
-		},
-
-		validateImageFile(filename) {
-			const abs = safePath(filename);
-			if (!abs || !existsSync(abs)) {
-				return { valid: false, reason: "File not found" };
-			}
-			const stat = statSync(abs);
-			if (stat.size === 0) {
-				return { valid: false, reason: "Empty file" };
-			}
-			const ext = extname(filename).toLowerCase();
-			const head = readFileSync(abs, { flag: "r" }).subarray(0, 32);
-			switch (ext) {
-				case ".png":
-					if (
-						head[0] !== 0x89 ||
-						head[1] !== 0x50 ||
-						head[2] !== 0x4e ||
-						head[3] !== 0x47 ||
-						head[4] !== 0x0d ||
-						head[5] !== 0x0a ||
-						head[6] !== 0x1a ||
-						head[7] !== 0x0a
-					) {
-						return {
-							valid: false,
-							reason: "Not a valid PNG (bad magic bytes)",
-						};
-					}
-					return { valid: true };
-				case ".jpg":
-				case ".jpeg":
-					if (head[0] !== 0xff || head[1] !== 0xd8 || head[2] !== 0xff) {
-						return {
-							valid: false,
-							reason: "Not a valid JPEG (bad magic bytes)",
-						};
-					}
-					return { valid: true };
-				case ".gif": {
-					const magic = head.subarray(0, 6).toString("ascii");
-					if (magic !== "GIF87a" && magic !== "GIF89a") {
-						return {
-							valid: false,
-							reason: "Not a valid GIF (bad magic bytes)",
-						};
-					}
-					return { valid: true };
-				}
-				case ".webp": {
-					const riff = head.subarray(0, 4).toString("ascii");
-					const webp = head.subarray(8, 12).toString("ascii");
-					if (riff !== "RIFF" || webp !== "WEBP") {
-						return {
-							valid: false,
-							reason: "Not a valid WebP (bad RIFF/WEBP header)",
-						};
-					}
-					return { valid: true };
-				}
-				case ".svg": {
-					const prefix = head
-						.toString("utf8")
-						.trimStart()
-						.slice(0, 5)
-						.toLowerCase();
-					if (
-						!prefix.startsWith("<") ||
-						(!prefix.startsWith("<?xml") && !prefix.startsWith("<svg"))
-					) {
-						return {
-							valid: false,
-							reason: "Not a valid SVG (missing <?xml or <svg)",
-						};
-					}
-					const body = readFileSync(abs, "utf8");
-					const dangerous =
-						/<script[\s>]/i.test(body) ||
-						/\son[a-z]+\s*=/i.test(body) ||
-						/javascript:/i.test(body) ||
-						/<foreignobject\b[^>]*?(?<!\/)>[\s\S]*?\S[\s\S]*?<\/foreignobject\s*>/i.test(
-							body,
-						);
-					if (dangerous) {
-						return {
-							valid: false,
-							reason:
-								"SVG contains active content (<script>, on* handler, javascript: URL, or non-empty <foreignObject>) — refused.",
-						};
-					}
-					return { valid: true };
-				}
-				default:
-					return {
-						valid: false,
-						reason: `Unsupported format: ${ext || "(no extension)"} — supported: ${[...IMAGE_EXTS].sort().join(", ")}`,
-					};
-			}
-		},
-
-		imageToken(filename) {
-			const abs = safePath(filename);
-			if (!abs || !existsSync(abs)) return null;
-			const stat = statSync(abs);
-			return hmac(`image:${filename}|${stat.size}|${stat.mtimeMs}`);
-		},
-
-		charteToken(charte) {
-			if (!charte) return null;
-			const content = JSON.stringify(charte);
-			const hash = crypto.createHash("md5").update(content).digest("hex");
-			return hmac(`charte:${charte.name}|${hash}`);
-		},
-
-		getDimensions(filename) {
-			const abs = safePath(filename);
-			if (!abs || !existsSync(abs)) return null;
-			try {
-				const buf = readFileSync(abs);
-				if (buf[0] === 0x89 && buf[1] === 0x50) {
-					return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
-				}
-				let i = 2;
-				while (i < buf.length - 9) {
-					if (buf[i] === 0xff && (buf[i + 1] === 0xc0 || buf[i + 1] === 0xc2)) {
-						return {
-							w: buf.readUInt16BE(i + 7),
-							h: buf.readUInt16BE(i + 5),
-						};
-					}
-					i += buf[i + 1] === 0xff ? 1 : 2 + buf.readUInt16BE(i + 2);
-				}
-			} catch {}
-			return null;
-		},
-
-		async optimize(filename) {
-			const ext = extname(filename).toLowerCase();
-			if (ext === ".gif") return null;
-			const abs = safePath(filename);
-			if (!abs || !existsSync(abs)) return null;
-			const td = thumbDir();
-			if (!existsSync(td)) mkdirSync(td, { recursive: true });
-			const thumbPath = join(td, thumbFilename(filename));
-
-			if (ext === ".svg") {
-				try {
-					const svg = readFileSync(abs);
-					writeFileSync(thumbPath, await rasterizeSvg(svg, THUMB_PX));
-					return svgNaturalDims(svg);
-				} catch {
-					return null;
-				}
-			}
-
-			try {
-				const { Jimp } = await import("jimp");
-				const image = await Jimp.read(abs);
-				const { width, height } = image;
-				if (width > MAX_PX || height > MAX_PX) {
-					image.scaleToFit({ w: MAX_PX, h: MAX_PX });
-				}
-				const isPng = ext === ".png";
-				if (!isPng) {
-					const buf = await image.getBuffer("image/jpeg", { quality: 85 });
-					writeFileSync(abs, buf);
-				}
-				const thumb = image.clone();
-				thumb.scaleToFit({ w: THUMB_PX, h: THUMB_PX * 4 });
-				const thumbBuf = await thumb.getBuffer("image/jpeg", { quality: 75 });
-				writeFileSync(thumbPath, thumbBuf);
-				return { w: image.width, h: image.height };
-			} catch {
-				return null;
-			}
-		},
-
-		migrateLegacyThumbs() {
-			const td = thumbDir();
-			if (!existsSync(td))
-				return { migrated: 0, orphansDeleted: 0, ambiguous: 0 };
-			let migrated = 0;
-			let orphansDeleted = 0;
-			let ambiguous = 0;
-			const sources = listFilenames();
-			const sourcesByBase = new Map<string, string[]>();
-			for (const f of sources) {
-				const base = f.replace(/\.[^.]+$/, "");
-				const list = sourcesByBase.get(base) ?? [];
-				list.push(f);
-				sourcesByBase.set(base, list);
-			}
-			const isNewConventionThumb = (name: string) => {
-				if (!name.endsWith(".thumb.jpg")) return false;
-				const sourceName = name.slice(0, -".thumb.jpg".length);
-				return IMAGE_EXTS.has(extname(sourceName).toLowerCase());
-			};
-			const entries = readdirSync(td, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.isFile()) continue;
-				const name = entry.name;
-				if (!name.endsWith(".jpg")) continue;
-				if (isNewConventionThumb(name)) continue;
-				const base = name.slice(0, -".jpg".length);
-				const matching = sourcesByBase.get(base) ?? [];
-				const legacyPath = join(td, name);
-				try {
-					if (matching.length === 0) {
-						unlinkSync(legacyPath);
-						orphansDeleted += 1;
-						continue;
-					}
-					if (matching.length > 1) {
-						ambiguous += 1;
-						continue;
-					}
-					const onlyMatch = matching[0];
-					if (!onlyMatch) continue;
-					const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
-					if (!targetPath) continue;
-					if (existsSync(targetPath)) {
-						unlinkSync(legacyPath);
-						orphansDeleted += 1;
-					} else {
-						renameSync(legacyPath, targetPath);
-						migrated += 1;
-					}
-				} catch {}
-			}
-			return { migrated, orphansDeleted, ambiguous };
-		},
+		mimeFromExt: (pathOrFilename) =>
+			MIME_MAP[extname(pathOrFilename).toLowerCase()] ?? "image/png",
+		validateImageFile: (filename) =>
+			validateImageFile(paths.safePath, filename),
+		imageToken: (filename) => imageToken(paths.safePath, hmac, filename),
+		charteToken: (charte) => charteToken(hmac, charte),
+		getDimensions: (filename) => getImageDimensions(paths.safePath, filename),
+		optimize: (filename) => optimizeAsset(paths, filename),
+		migrateLegacyThumbs: () => migrateLegacyThumbs(paths),
 	};
 }
 
