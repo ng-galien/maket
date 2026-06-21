@@ -1,0 +1,80 @@
+default_rules = false
+
+[exclude]
+uris = [
+  "**/node_modules/**",
+  "**/dist/**",
+  "**/coverage/**",
+  "**/public/**",
+  "**/.maket/**",
+  "**/.e2e-maket/**",
+  "**/docs/**",
+  "**/*.test.ts",
+  "**/*.test.tsx",
+  "**/*.spec.ts",
+]
+
+[[shape.callable.where]]
+id        = "smell-long-callable"
+severity  = "warn"
+rationale = "Large functions make agent-driven changes harder to review safely. Treat this as an Extract Function candidate, not a hard gate."
+expr      = "lines <= 140"
+message   = "Long callable: `{name}` spans more than 140 lines."
+
+[[shape.callable.where]]
+id        = "smell-long-parameter-list"
+severity  = "warn"
+rationale = "Long parameter lists make call sites brittle and often indicate a missing options object or domain value."
+expr      = "count(param) <= 7"
+message   = "Long parameter list: `{name}` has more than 7 parameters."
+
+[[shape.callable.where]]
+id        = "smell-feature-envy-local"
+severity  = "warn"
+rationale = "When a callable mostly talks to another owner, it may belong closer to that owner or need a narrower collaborator."
+expr      = """
+  count(out_refs, kind = 'calls' OR kind = 'method_call') < 8
+  OR count(out_refs, (kind = 'calls' OR kind = 'method_call') AND source.parent != target.parent)
+     <= count(out_refs, (kind = 'calls' OR kind = 'method_call') AND source.parent = target.parent)
+"""
+message   = "Feature envy candidate: `{name}` calls external owners more than local ones."
+
+[[shape.annotation.where]]
+id        = "smell-comment-inside-callable"
+severity  = "warn"
+rationale = "Comments inside functions tend to narrate implementation steps that should be expressed through names, extraction, or clearer structure."
+expr      = "parent.shape != 'callable'"
+message   = "Comment inside callable: remove the narrative comment or extract a named step."
+
+[[shape.type.where]]
+id        = "smell-large-type"
+severity  = "warn"
+rationale = "Large types concentrate responsibility. In Maket this is a review prompt for services, UI components, and contracts that may need splitting."
+expr      = "count(shape:callable) <= 35 AND count(shape:value) <= 40"
+message   = "Large type: `{name}` has many direct callables or values."
+
+[[shape.type.where]]
+id        = "smell-method-size-disharmony"
+severity  = "warn"
+rationale = "A type with one or two dominant methods is often hiding a workflow that wants named steps."
+expr      = "count(shape:callable) >= 6 => cv(shape:callable, lines) <= 1.1"
+message   = "Method-size disharmony: `{name}` has an uneven method-size distribution."
+
+[[shape.type.where]]
+id        = "smell-duplicate-callable-names"
+severity  = "warn"
+rationale = "Duplicate callable names inside one type make moniker queries and reviews harder to reason about."
+expr      = "size(unique(shape:callable.name)) = size(shape:callable.name)"
+message   = "Duplicate callable names under `{name}`."
+
+[profiles.smells]
+enable = [
+  "^shape\\.annotation\\.smell-",
+  "^shape\\.callable\\.smell-long-",
+  "^shape\\.type\\.smell-",
+]
+
+[profiles.smells-experimental]
+enable = [
+  "^shape\\.callable\\.smell-feature-envy-local$",
+]

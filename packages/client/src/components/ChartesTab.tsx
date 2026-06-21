@@ -82,9 +82,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 			await navigator.clipboard.writeText(text);
 			return true;
 		}
-	} catch {
-		/* fall through */
-	}
+	} catch {}
 	return false;
 }
 
@@ -123,9 +121,7 @@ export function ChartesTab() {
 		setView(v);
 		try {
 			localStorage.setItem(VIEW_KEY, v);
-		} catch {
-			/* private mode */
-		}
+		} catch {}
 	};
 
 	const applyCharte = (name: string) => {
@@ -138,9 +134,6 @@ export function ChartesTab() {
 	};
 
 	useEffect(() => {
-		// If a charte is being previewed/edited and the list refreshes (after a
-		// save), re-hydrate from the fresh data so the UI reflects persisted
-		// state.
 		if (!chartes.length) return;
 		if (preview) {
 			const next = chartes.find((c) => c.name === preview.name);
@@ -156,7 +149,6 @@ export function ChartesTab() {
 		<CharteEditModal charte={editing} onClose={() => setEditing(null)} />
 	) : null;
 
-	// Preview mode — inline, replaces the list
 	if (preview) {
 		return (
 			<>
@@ -185,7 +177,6 @@ export function ChartesTab() {
 			})
 		: chartes;
 
-	// Active charte pinned to the top when one is applied on the focused doc.
 	const activeCharte =
 		currentCharte && filtered.find((c) => c.name === currentCharte);
 	const restCharte = filtered.filter((c) => c.name !== currentCharte);
@@ -195,7 +186,6 @@ export function ChartesTab() {
 			<div
 				className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
 			>
-				{/* Header — search + view toggle */}
 				<div className="px-1 flex items-center gap-1.5">
 					<div className="relative flex-1 min-w-0">
 						<Search
@@ -404,7 +394,6 @@ function CharteRow({
 						: "bg-panel hover:bg-black/[0.03]"
 				}`}
 			>
-				{/* Swatch + display-font pill */}
 				<div
 					className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border border-black/5 overflow-hidden relative"
 					style={{
@@ -543,7 +532,6 @@ function CharteCard({
 						: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] bg-panel"
 				}`}
 			>
-				{/* Hero — display-font sample over the primary swatch */}
 				<div
 					className="h-24 flex items-center justify-center relative"
 					style={{ background: primary }}
@@ -567,7 +555,6 @@ function CharteCard({
 					)}
 				</div>
 
-				{/* Palette strip */}
 				{colors.length > 0 && (
 					<div className="flex h-3">
 						{colors.slice(0, 8).map(([k, v]) => (
@@ -576,7 +563,6 @@ function CharteCard({
 					</div>
 				)}
 
-				{/* Meta */}
 				<div className="p-3 flex items-start gap-2">
 					<div className="flex-1 min-w-0">
 						<div
@@ -826,7 +812,6 @@ function isReadableOnDark(color: string | undefined): boolean {
 	const g = parseInt(h.slice(2, 4), 16);
 	const b = parseInt(h.slice(4, 6), 16);
 	if ([r, g, b].some((n) => Number.isNaN(n))) return false;
-	// Rec. 709 luma
 	const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 	return luma < 0.55;
 }
@@ -857,7 +842,6 @@ function ChartePreviewInline({
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} p-3 gap-4`}
 		>
-			{/* Back button + title */}
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
@@ -884,7 +868,6 @@ function ChartePreviewInline({
 				</button>
 			</div>
 
-			{/* Colors */}
 			{colors.length > 0 && (
 				<section>
 					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
@@ -910,7 +893,6 @@ function ChartePreviewInline({
 				</section>
 			)}
 
-			{/* Fonts */}
 			{fonts.length > 0 && (
 				<section>
 					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
@@ -932,7 +914,6 @@ function ChartePreviewInline({
 				</section>
 			)}
 
-			{/* Spacing */}
 			{spacing.length > 0 && (
 				<section>
 					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
@@ -951,7 +932,6 @@ function ChartePreviewInline({
 				</section>
 			)}
 
-			{/* Voice */}
 			{voice && (
 				<section>
 					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
@@ -1001,7 +981,6 @@ function ChartePreviewInline({
 				</section>
 			)}
 
-			{/* Rules */}
 			{Object.keys(rules).length > 0 && (
 				<section>
 					<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">

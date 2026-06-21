@@ -33,9 +33,6 @@ export function writeBundleAssets(
 	let skipped = 0;
 	const rejected: string[] = [];
 	for (const a of assets) {
-		// `decodeV2` already strips unsafe entries, but a second check here
-		// keeps this module independently safe for callers that might pass
-		// assets from another source.
 		if (
 			!a.relPath ||
 			a.relPath.includes("..") ||

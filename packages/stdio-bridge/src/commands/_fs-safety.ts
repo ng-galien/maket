@@ -10,13 +10,9 @@ export function backup(path: string): void {
 	if (!existsSync(path)) return;
 	const dest = `${path}.bak.${Date.now()}`;
 	copyFileSync(path, dest);
-	// The original may have been world-readable, but the backup carries auth
-	// tokens (~/.claude.json includes them) — pin it owner-only regardless.
 	try {
 		chmodSync(dest, 0o600);
-	} catch {
-		/* best-effort — Windows / unusual FS */
-	}
+	} catch {}
 	process.stdout.write(`maket: backed up ${path} → ${dest}\n`);
 }
 
@@ -35,8 +31,6 @@ export function refuseSymlink(path: string): boolean {
 			process.exitCode = 1;
 			return true;
 		}
-	} catch {
-		/* lstat may fail on weird FS — fall through */
-	}
+	} catch {}
 	return false;
 }

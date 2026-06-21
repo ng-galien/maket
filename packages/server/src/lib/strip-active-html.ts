@@ -72,8 +72,6 @@ function scrubAttributes(el: any): void {
 				el.removeAttribute(a.name);
 			}
 		}
-		// `srcdoc` on <iframe> is moot once we strip the iframe tag itself,
-		// but cleanse defensively if it sneaks in elsewhere.
 		if (name === "srcdoc") el.removeAttribute(a.name);
 	}
 }
@@ -84,14 +82,11 @@ export function stripActiveHtml(html: string): string {
 	const body = dom.body;
 	if (!body) return html;
 
-	// Remove forbidden tags wholesale (depth-first; querySelectorAll returns
-	// a snapshot so live mutation is safe).
 	for (const tag of FORBIDDEN_TAGS) {
 		const matches = body.querySelectorAll(tag);
 		for (const node of Array.from(matches)) node.remove();
 	}
 
-	// Walk every remaining element and scrub event handlers + dangerous URLs.
 	const all = body.querySelectorAll("*");
 	for (const el of Array.from(all)) scrubAttributes(el);
 

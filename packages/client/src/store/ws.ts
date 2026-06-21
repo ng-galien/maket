@@ -19,8 +19,6 @@ export function translateBubble(
 ): string {
 	if (!key) return "";
 	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
-	// Try the fully-qualified key (bubble_<tool>_<action>); if absent, fall back
-	// to the tool-level key (bubble_<tool>); then the empty default.
 	const toolKey = key.replace(/(bubble_[^_]+(?:_[^_]+)?)_.*/, "$1");
 	let text = dict[key] ?? dict[toolKey] ?? dict.bubble_default ?? "";
 	if (params) {
@@ -252,7 +250,6 @@ export function initWs(): void {
 }
 
 function connect(): void {
-	// In dev, route through Vite proxy /ws → ws://localhost:${MAKET_PORT}; in prod, same host
 	const url = import.meta.env.DEV
 		? `ws://${location.host}/ws`
 		: `ws://${location.host}`;
@@ -266,9 +263,6 @@ function connect(): void {
 			type: "workspace_update",
 			displayed: useStore.getState().workspaceDocNames,
 		});
-		// Server holds `_pending` in memory only — on restart (or first
-		// connect after a reload) it has nothing. Re-push client-side
-		// pending so maket_workspace list_messages sees them.
 		wsSend({
 			type: "sync_pending",
 			pending: useStore.getState().pending,
@@ -292,15 +286,12 @@ function connect(): void {
 		}
 
 		if (msg.type === "state") {
-			// `doc` / `docList` are opaque on the wire — narrow to the client's
-			// domain shape here and let the rest of the store stay strict.
 			const doc = msg.doc as Document | null;
 			const docList = (msg.docList ?? []) as DocSummary[];
 			if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 			if (doc) {
 				if (!initialStateReceived) {
 					initialStateReceived = true;
-					// Don't add server's active doc — restore saved workspace instead
 					useStore
 						.getState()
 						.upsertDoc(doc, docList, msg.charteCss || "", false, false);

@@ -89,10 +89,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 			}
 
 			case "sync_pending": {
-				// Client is authoritative — it holds the whole queue and pushes
-				// the snapshot on every mutation (and on ws.onopen to survive a
-				// server restart). The service buckets by docName and routes
-				// entries without one to its workspace bucket.
 				pending.syncFromClient(msg.pending || []);
 				break;
 			}
@@ -162,10 +158,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					break;
 				}
 				if (!d.meta) d.meta = {};
-				// Use `!== undefined` (not `!= null`) so `""` reaches the assignment
-				// and clears the field — partial-update contract: only `undefined`
-				// preserves. Category falls back to "general" when cleared because
-				// docs cannot be category-less in this schema.
 				if (msg.designNotes !== undefined) d.meta.designNotes = msg.designNotes;
 				if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
 				if (msg.rating !== undefined)
@@ -186,9 +178,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// Runtime shape check — the MCP tool path is zod-validated; this
-				// WS path was not, so a malformed client message could persist
-				// `tokens: "oops"` and break everything that reads the charte.
 				const invalid = validateCharteSavePayload(msg);
 				if (invalid) {
 					bus.emit("toast", {
@@ -238,8 +227,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// Partial merge: only fields present in msg overwrite existing ones.
-				// Tokens replace the whole map when provided; omit to keep palette.
 				const merged: Charte = { ...existing };
 				if (msg.description !== undefined) merged.description = msg.description;
 				if (msg.tokens !== undefined)
@@ -271,9 +258,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// Runtime shape check — without it a `tags: "oops"` (string)
-				// would persist as literal text and crash the next loadAsset on
-				// `JSON.parse(row.tags)`. Mirrors validateCharteSavePayload.
 				const invalid = validateAssetMetaPayload(msg);
 				if (invalid) {
 					bus.emit("toast", {
@@ -282,9 +266,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// store.saveAsset preserves fields whose value is `undefined`
-				// and writes everything else (including `""` / `[]` for
-				// explicit clear). Forwarding msg.* directly is the contract.
 				store.saveAsset({
 					filename,
 					title: msg.title,
@@ -360,10 +341,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 					});
 					break;
 				}
-				// Rename path: the cache key moves, so we delete the old record from
-				// the store + cache, mutate d.name, and re-insert. A subsequent
-				// `document:loaded` broadcasts the new state; `doc_removed` for the
-				// old name clears it from every connected client.
 				documents.delete(name);
 				d.name = newName;
 				documents.all().set(newName, d);
@@ -456,11 +433,6 @@ export function createWsHandler(deps: WsHandlerDeps): WsMessageHandler {
 				log(
 					`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
 				);
-				// Strip <style> first (stripActiveHtml doesn't touch styles —
-				// they are not executable), then run the centralised active-html
-				// scrub on the result. The two-step keeps the existing UX of
-				// rejecting <style> in inline edits while sharing the
-				// script/iframe/on*/javascript: filter with every other write.
 				el.innerHTML = (msg.html as string).replace(
 					/<style[\s\S]*?<\/style>/gi,
 					"",

@@ -135,11 +135,6 @@ export function CharteEditModal({ charte, onClose }: Props) {
 		const doList = splitLines(voiceDo);
 		const dontList = splitLines(voiceDont);
 
-		// WS `charte_save` is a full replace (see packages/shared/src/ws.ts).
-		// The modal only surfaces a subset of the charte shape, so we overlay
-		// our edits on top of the original and ship the merged record —
-		// otherwise `tokens.shadow`, `voice.vocabulary`, custom groups, and
-		// any rule key outside titles/photos/layout silently get wiped.
 		const modeledTokens = serializeTokens(tokens);
 		const mergedTokens: Record<string, Record<string, string>> = {
 			...(charte.tokens ?? {}),
@@ -403,7 +398,6 @@ function TokenGroup({
 			) : (
 				<div className="flex flex-col gap-1.5">
 					{rows.map((row, idx) => (
-						// biome-ignore lint/suspicious/noArrayIndexKey: token rows are order-stable within an edit session
 						<div key={idx} className="flex items-center gap-1.5">
 							<input
 								value={row[0]}
@@ -554,9 +548,6 @@ const LENGTH_UNITS = [
 type LengthUnit = (typeof LENGTH_UNITS)[number];
 
 function parseLength(raw: string): { num: string; unit: LengthUnit } | null {
-	// Number part allows zero digits so an in-progress edit like "px" (user
-	// wiped the digits before retyping) or "1." stays in the num+unit UI
-	// instead of collapsing to the plain-text fallback and losing the unit.
 	const m = raw.trim().match(/^(-?\d*\.?\d*)(mm|cm|px|rem|em|%|vh|vw|pt|in)$/i);
 	if (!m) return null;
 	const unit = m[2].toLowerCase() as LengthUnit;

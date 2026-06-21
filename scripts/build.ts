@@ -58,7 +58,6 @@ function buildBinary(target: Target) {
     stdio: "inherit",
   });
 
-  // Copy runtime assets that the binary needs alongside it
   const assetsToBundle = ["public"];
   for (const dir of assetsToBundle) {
     const src = join(ROOT, dir);

@@ -60,7 +60,6 @@ export function createAssetsRouter({
 	const router = createRouter();
 	const { ASSETS_DIR } = config;
 
-	// Image variants — thumb/preview served at reduced resolution.
 	router.get("/assets/:variant(thumb|preview)/:file", async (req: any, res) => {
 		const { variant, file } = req.params as { variant: string; file: string };
 		const original = resolve(join(ASSETS_DIR, file));
@@ -110,8 +109,6 @@ export function createAssetsRouter({
 		}
 	});
 
-	// maxAge 0 keeps the browser's copy revalidated by ETag on every request,
-	// so `maket_image import --overwrite` takes effect without a hard-refresh.
 	router.use("/assets", express.static(ASSETS_DIR, { maxAge: 0, etag: true }));
 
 	router.get("/api/assets", (_req, res: Response<AssetsListResponse>) => {

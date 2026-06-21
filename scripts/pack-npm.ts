@@ -48,7 +48,6 @@ function stage(): void {
   if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
 
-  // Wipe stale client builds so the tarball only carries the fresh assets.
   const publicDir = join(ROOT, "public");
   if (existsSync(publicDir)) rmSync(publicDir, { recursive: true, force: true });
 
@@ -68,7 +67,6 @@ function stage(): void {
     { cwd: ROOT, stdio: "inherit" },
   );
 
-  // Make index.js shebang-friendly so the bin entry is directly executable.
   const bridge = readFileSync(join(DIST, "index.js"), "utf-8");
   if (!bridge.startsWith("#!")) {
     writeFileSync(join(DIST, "index.js"), `#!/usr/bin/env node\n${bridge}`);
@@ -105,9 +103,6 @@ function stage(): void {
   };
   writeFileSync(join(DIST, "package.json"), `${JSON.stringify(npmPkg, null, 2)}\n`);
 
-  // chmod +x the bin so `npx` runs it directly on UNIX-like systems. Skip on
-  // Windows — its filesystem has no executable bit, and npm sets the bin entry
-  // up via cmd shims regardless.
   if (process.platform !== "win32") {
     chmodSync(join(DIST, "index.js"), 0o755);
   }

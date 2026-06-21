@@ -25,12 +25,10 @@ export function Popover() {
 		left: 0,
 	});
 
-	// Reset note when selection changes
 	useEffect(() => {
 		setNote("");
 	}, [selectedId]);
 
-	// Position popover near the selected element
 	useLayoutEffect(() => {
 		if (!selectedId) return;
 		const el = document.querySelector(
@@ -44,7 +42,6 @@ export function Popover() {
 		const vw = window.innerWidth;
 		const vh = window.innerHeight;
 
-		// Prefer right side, fall back to left
 		let left: number;
 		if (rect.right + gap + popW < vw) {
 			left = rect.right + gap;
@@ -54,7 +51,6 @@ export function Popover() {
 			left = vw - popW - 20;
 		}
 
-		// Vertical: align with element top, clamp to viewport
 		const popH = popRef.current?.offsetHeight || 200;
 		let top = rect.top;
 		top = Math.max(20, Math.min(top, vh - popH - 20));
@@ -74,7 +70,6 @@ export function Popover() {
 	) as HTMLElement | null;
 	if (!el) return null;
 
-	// Find which page this element is on (from closest .page-canvas[data-page])
 	const pageCanvas = el.closest(".page-canvas") as HTMLElement | null;
 	const pageIndex = pageCanvas
 		? Number.parseInt(pageCanvas.dataset.page ?? "0", 10)
@@ -135,7 +130,6 @@ export function Popover() {
 				animation: "popoverIn 250ms cubic-bezier(0.16, 1, 0.3, 1)",
 			}}
 		>
-			{/* Header — doc context + element name + delete icon */}
 			{focusedDocName && (
 				<div className="px-3 pt-2 text-2xs text-text-3 truncate">
 					{focusedDocName}
@@ -160,9 +154,7 @@ export function Popover() {
 				</button>
 			</div>
 
-			{/* Annotation */}
 			<div className="px-3 pb-3 flex flex-col gap-2">
-				{/* Existing note indicator */}
 				{existingNote && (
 					<div className="flex items-center gap-2 px-2 py-1.5 bg-amber-50 rounded-lg text-xs text-amber-700">
 						<svg
@@ -183,7 +175,6 @@ export function Popover() {
 					</div>
 				)}
 
-				{/* Note textarea — Shift+Enter to submit */}
 				<div className="flex gap-1.5">
 					<textarea
 						ref={textareaRef}

@@ -20,7 +20,6 @@ export async function readBoundedBody(
 	req: IncomingMessage,
 	maxBytes: number,
 ): Promise<Buffer> {
-	// Trust the Content-Length when present — fail fast.
 	const declared = Number(req.headers["content-length"] ?? "0");
 	if (declared && declared > maxBytes) {
 		throw new BodyTooLargeError(maxBytes);

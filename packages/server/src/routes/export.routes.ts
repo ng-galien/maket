@@ -57,11 +57,8 @@ export function createExportRouter({
 }: ExportRouterDeps): Router {
 	const router = createRouter();
 
-	// All export endpoints leak document data — gate them behind the Referer
-	// check so a hostile site can't drive a top-level navigation.
 	router.use(requireBrowserContextLoopback);
 
-	// Print-ready HTML — opens in the user's browser, auto-triggers print dialog.
 	router.get("/print", async (req, res) => {
 		const name = req.query.name as string | undefined;
 		if (!name) return res.status(400).send("Missing ?name= parameter");
@@ -113,8 +110,6 @@ export function createExportRouter({
 		}
 	});
 
-	// .maket bundle export — ?name=foo for a single doc, ?names=a,b for a list,
-	// omit both to export every document. Referenced chartes are embedded.
 	router.get("/api/export-maket", async (req, res) => {
 		try {
 			const single = req.query.name as string | undefined;
@@ -146,9 +141,7 @@ export function createExportRouter({
 				try {
 					const c = store.loadCharte(cn);
 					if (c) chartes.push(c);
-				} catch {
-					/* best-effort */
-				}
+				} catch {}
 			}
 
 			const refs = collectAssetFilenames(docs);
@@ -166,8 +159,6 @@ export function createExportRouter({
 		}
 	});
 
-	// .maket bundle import — raw gzipped body (application/gzip or
-	// application/octet-stream). Returns { documents: string[], chartes: string[] }.
 	router.post("/api/import-maket", async (req, res) => {
 		try {
 			let body: Buffer;
@@ -195,9 +186,6 @@ export function createExportRouter({
 			const all = documents.all();
 			for (const snap of bundle.documents) {
 				const finalName = uniqueName(snap.name, (n) => all.has(n));
-				// A `.maket` bundle can come from anywhere — treat its pages as
-				// untrusted input and run the same active-html scrub we apply
-				// to every other write into page.html.
 				const sanitisedPages = snap.pages?.length
 					? snap.pages.map((p) => ({
 							...p,
@@ -232,9 +220,7 @@ export function createExportRouter({
 					store.saveCharte(c);
 					bus.emit("charte:updated", { name: c.name, css: c.css || "" });
 					chartesAdded.push(c.name);
-				} catch {
-					/* best-effort */
-				}
+				} catch {}
 			}
 
 			const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);

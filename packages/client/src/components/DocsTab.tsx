@@ -63,7 +63,6 @@ function exportMaketBundle(names: string[]): void {
 		names.length === 1
 			? `name=${encodeURIComponent(names[0] ?? "")}`
 			: `names=${encodeURIComponent(names.join(","))}`;
-	// Content-Disposition on the server does the rest.
 	const a = document.createElement("a");
 	a.href = `/api/export-maket?${qs}`;
 	a.rel = "noopener";
@@ -105,9 +104,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 			await navigator.clipboard.writeText(text);
 			return true;
 		}
-	} catch {
-		/* fall through to execCommand */
-	}
+	} catch {}
 	try {
 		const ta = document.createElement("textarea");
 		ta.value = text;
@@ -145,9 +142,7 @@ function loadCollapsed(): Set<string> {
 function saveCollapsed(set: Set<string>): void {
 	try {
 		localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...set]));
-	} catch {
-		/* localStorage may be unavailable (private mode) */
-	}
+	} catch {}
 }
 
 /**
@@ -269,7 +264,6 @@ export function DocsTab() {
 	const [importError, setImportError] = useState<string | null>(null);
 	const [importDrag, setImportDrag] = useState(false);
 
-	// Escape clears the selection.
 	useEffect(() => {
 		if (selected.size === 0) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -290,9 +284,7 @@ export function DocsTab() {
 		setView(v);
 		try {
 			localStorage.setItem(VIEW_KEY, v);
-		} catch {
-			/* private mode */
-		}
+		} catch {}
 	};
 
 	const toggleCategory = (cat: string) => {
@@ -305,8 +297,6 @@ export function DocsTab() {
 		});
 	};
 
-	// Auto-expand a category when the search narrows the list down to just
-	// that one — collapsed state is only meaningful when you're browsing.
 	const searching = search.trim().length > 0;
 
 	const query = parseQuery(search);
@@ -339,7 +329,6 @@ export function DocsTab() {
 		});
 	}
 
-	// Group by category
 	const grouped = new Map<string, typeof docList>();
 	for (const d of filtered) {
 		const cat = d.category || "general";
@@ -357,10 +346,6 @@ export function DocsTab() {
 		}
 	};
 
-	// Flat ORDER OF VISIBLE docs across categories — drives shift-range
-	// selection. A search query forces every category open (same logic as
-	// `isCollapsed` below); otherwise we skip docs inside a collapsed
-	// category so a shift-click never silently selects off-screen rows.
 	const flatOrder = [...grouped.entries()]
 		.filter(([cat]) => searching || !collapsed.has(cat))
 		.flatMap(([, docs]) => docs.map((d) => d.name));
@@ -394,7 +379,6 @@ export function DocsTab() {
 			}
 			return;
 		}
-		// Plain click: clear any selection and do the default workspace toggle.
 		if (selected.size > 0) setSelected(new Set());
 		setLastClicked(name);
 		toggleDoc(name);
@@ -423,11 +407,8 @@ export function DocsTab() {
 	};
 
 	const bulkDelete = () => {
-		// Unselect the doc we're about to delete, one by one. Server refuses
-		// deleting the last doc, so we stop once only one would remain.
 		const remaining = docList.length - selected.size;
 		if (remaining < 1) {
-			// Would empty the workspace — bail and let the user narrow down.
 			return;
 		}
 		for (const name of selected) {
@@ -442,7 +423,6 @@ export function DocsTab() {
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
 		>
-			{/* Search + view toggle */}
 			<div className="px-1 flex flex-col gap-1.5">
 				<div className="flex items-center gap-1.5">
 					<input
@@ -552,13 +532,11 @@ export function DocsTab() {
 				)}
 			</div>
 
-			{/* Categories */}
 			{[...grouped.entries()].map(([cat, docs]) => {
 				const isCollapsed = !searching && collapsed.has(cat);
 				const dropActive = dragOverCat === cat;
 				return (
 					<div key={cat}>
-						{/* Category header — click toggles collapse, drop reassigns doc */}
 						<button
 							type="button"
 							onClick={() => toggleCategory(cat)}
@@ -622,7 +600,6 @@ export function DocsTab() {
 							</span>
 						</button>
 
-						{/* Docs — rows or thumbnail cards */}
 						{!isCollapsed && (
 							<div
 								className={
@@ -729,8 +706,6 @@ function BulkActionBar({
 		if (creatingCat) newCatInputRef.current?.focus();
 	}, [creatingCat]);
 
-	// All known categories, deduped + sorted. A bulk "change to" picker is
-	// most useful when it lists what already exists plus a free-form input.
 	const categories = [
 		...new Set(docList.map((d) => d.category || "general")),
 	].sort();
@@ -742,7 +717,6 @@ function BulkActionBar({
 	const wouldEmptyLibrary =
 		docList.length - selectedDocs.filter((d) => d.locked !== true).length < 1;
 
-	// Close the category picker on outside click.
 	useEffect(() => {
 		if (!showCatPicker) return;
 		const onDocClick = (e: MouseEvent) => {
@@ -929,11 +903,6 @@ function DocCard({
 	const dragEnabled = mode.kind === "idle";
 	const aspect = docAspectRatio(doc);
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
-	// Real page snapshot served by the server. `t=<updatedAt>` acts both as
-	// a cache-key on the ThumbnailService and as a cache-buster in the
-	// browser: when the doc changes, updatedAt changes, url changes, the
-	// browser refetches. Missing updatedAt falls back to Date.now() so a
-	// stale server-side snapshot never survives a hot-reload.
 	const cacheToken = doc.updatedAt ?? String(Date.now());
 	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
 
@@ -994,7 +963,6 @@ function DocCard({
 				</span>
 			</button>
 
-			{/* Caption */}
 			{editing ? (
 				<div className="mt-1">
 					<InlineNameEditor
@@ -1314,8 +1282,6 @@ function InlineNameEditor({
 		const el = inputRef.current;
 		if (!el) return;
 		el.focus();
-		// Select the base name without the trailing " copy" so the user can
-		// type straight over the default while keeping the suffix visible.
 		const base = initial.replace(/ copy$/, "");
 		el.setSelectionRange(0, base.length);
 	}, [initial]);
@@ -1374,8 +1340,6 @@ function DocMenu({
 	const ref = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
 
-	// Measure anchor once — use layoutEffect so the menu mounts at the right
-	// coordinates and doesn't flash at (0,0).
 	useLayoutEffect(() => {
 		const a = anchorRef.current;
 		if (!a) return;
@@ -1384,8 +1348,6 @@ function DocMenu({
 		const GAP = 4;
 		const top = rect.bottom + GAP;
 		const right = Math.max(8, window.innerWidth - rect.right);
-		// Keep the menu fully on-screen vertically — flip above if there's no
-		// room below.
 		const ESTIMATED_H = 210;
 		const flipped =
 			top + ESTIMATED_H > window.innerHeight - 8
@@ -1404,8 +1366,6 @@ function DocMenu({
 		const onKey = (e: KeyboardEvent) => {
 			if (e.key === "Escape") onClose();
 		};
-		// Any scroll in an ancestor invalidates our fixed position — just
-		// close. Users re-open fast enough that recomputing is not worth it.
 		const onScroll = () => onClose();
 		document.addEventListener("mousedown", onDocClick);
 		document.addEventListener("keydown", onKey);

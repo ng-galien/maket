@@ -142,12 +142,8 @@ export function createGmailRouter({
 }: GmailRouterDeps): Router {
 	const router = createRouter();
 
-	// The credentials endpoint writes a secret file to disk — gate the whole
-	// router behind the same Referer check the export routes use so a hostile
-	// site can't drive a top-level navigation to overwrite `google-credentials.json`.
 	router.use(requireBrowserContextLoopback);
 
-	// The form uses url-encoded POST so it works without JS.
 	router.use(express.urlencoded({ extended: false, limit: "64kb" }));
 
 	router.get("/setup/gmail", (_req, res) => {

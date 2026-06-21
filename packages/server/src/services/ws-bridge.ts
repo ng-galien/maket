@@ -56,10 +56,6 @@ export function createWsBridge({ wsRegistry }: WsBridgeDeps): WsBridge {
 	return {
 		sendRequest(type, payload = {}, timeoutMs = 2000) {
 			const reqId = crypto.randomUUID();
-			// Cast: sendRequest is the generic RPC primitive — the shared union lists
-			// only the request types actually in use today (`check_layout_request`),
-			// but the primitive itself is deliberately open so new tool-pack RPCs
-			// don't require a shared contract edit to compile.
 			wsRegistry.broadcast({
 				type,
 				_reqId: reqId,

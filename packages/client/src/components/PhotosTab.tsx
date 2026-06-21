@@ -32,9 +32,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 			await navigator.clipboard.writeText(text);
 			return true;
 		}
-	} catch {
-		/* fall through */
-	}
+	} catch {}
 	return false;
 }
 
@@ -82,7 +80,6 @@ export function PhotosTab() {
 		return () => window.removeEventListener("assets-changed", handler);
 	}, [fetchImages]);
 
-	// Escape clears the multi-selection.
 	useEffect(() => {
 		if (checked.size === 0) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -124,10 +121,6 @@ export function PhotosTab() {
 				.map((f) => f.name)
 				.filter((n) => !state.errors.includes(n));
 			if (uploaded.length > 0) {
-				// Workspace-scoped message — explicit `docName: undefined`
-				// opts out of the focused-doc injection in addPending so the
-				// server lands it in the workspace bucket and
-				// `maket_workspace list_messages` (no doc) picks it up.
 				useStore.getState().addPending({
 					id: crypto.randomUUID(),
 					type: "classify-images",
@@ -152,7 +145,6 @@ export function PhotosTab() {
 
 	const barPosition = useStore((s) => s.barPosition);
 
-	// Detail view — replaces the grid
 	if (selected) {
 		return (
 			<ImageDetail
@@ -248,7 +240,6 @@ export function PhotosTab() {
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-3 p-3`}
 		>
-			{/* Header — search + upload */}
 			<div className="flex items-center gap-1.5">
 				<div className="relative flex-1 min-w-0">
 					<Search
@@ -310,7 +301,6 @@ export function PhotosTab() {
 				</button>
 			</div>
 
-			{/* Upload progress bar (inline, replaces drag-drop zone while uploading) */}
 			{uploading && (
 				<div className="mx-1 px-3 py-2 rounded-lg bg-accent-soft">
 					<div className="h-1.5 rounded-full bg-white/50 overflow-hidden">
@@ -337,7 +327,6 @@ export function PhotosTab() {
 				</div>
 			)}
 
-			{/* Category filter chips */}
 			{categories.length > 1 && (
 				<div className="flex gap-1.5 flex-wrap">
 					{categories.map((f) => (
@@ -357,7 +346,6 @@ export function PhotosTab() {
 				</div>
 			)}
 
-			{/* Content */}
 			{loading ? (
 				<div className="text-center text-text-3 text-xs py-6">
 					{t("loading")}
@@ -422,7 +410,6 @@ export function PhotosTab() {
 				</div>
 			)}
 
-			{/* Global drop overlay — dim overlay when dragging files onto the grid */}
 			{dragOver && images.length > 0 && (
 				<div className="fixed inset-0 bg-accent/10 pointer-events-none z-50 ring-4 ring-accent/40 ring-inset" />
 			)}
@@ -532,14 +519,12 @@ function PhotoTile({
 					draggable={false}
 				/>
 
-				{/* Checked badge — top-right */}
 				{isChecked && (
 					<span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
 						✓
 					</span>
 				)}
 
-				{/* Dimension / orientation badge — bottom-left, only on hover */}
 				{(img.width && img.height) || img.orientation ? (
 					<span className="absolute bottom-1.5 left-1.5 text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md bg-black/55 text-white opacity-0 group-hover/tile:opacity-100 transition-opacity backdrop-blur-sm">
 						{img.width && img.height
@@ -548,7 +533,6 @@ function PhotoTile({
 					</span>
 				) : null}
 
-				{/* Title bar — bottom, only on hover (and when not confirming) */}
 				{!confirming && (
 					<div className="absolute inset-x-0 bottom-0 px-2 py-1.5 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover/tile:opacity-100 transition-opacity">
 						<span className="text-2xs font-semibold text-white truncate block">
@@ -558,7 +542,6 @@ function PhotoTile({
 				)}
 			</button>
 
-			{/* Confirm-delete overlay — covers the tile */}
 			{confirming && (
 				<div className="absolute inset-0 rounded-lg bg-panel/95 backdrop-blur-sm p-1 flex items-center">
 					<HoldToDelete
@@ -572,7 +555,6 @@ function PhotoTile({
 				</div>
 			)}
 
-			{/* Quick-action buttons — top-left on hover */}
 			{!confirming && (
 				<div className="absolute top-1.5 left-1.5 flex gap-1 opacity-0 group-hover/tile:opacity-100 transition-opacity">
 					{hasDoc && (
@@ -810,7 +792,6 @@ function ImageDetail({
 
 	return (
 		<div className="flex flex-col gap-3 p-3">
-			{/* Back + title */}
 			<div className="flex items-center gap-2">
 				<button
 					type="button"
@@ -827,7 +808,6 @@ function ImageDetail({
 				</div>
 			</div>
 
-			{/* Image preview */}
 			<div className="rounded-xl overflow-hidden bg-black/5">
 				<img
 					src={`/assets/${img.file}`}
@@ -871,7 +851,6 @@ function ImageDetail({
 				</div>
 			)}
 
-			{/* Actions */}
 			{confirming ? (
 				<HoldToDelete
 					label={t("photo_delete_hold")}

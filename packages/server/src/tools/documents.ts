@@ -417,9 +417,7 @@ async function runExport(
 		try {
 			const c = store.loadCharte(name);
 			if (c) chartes.push(c);
-		} catch {
-			/* skip unreadable chartes — export is best-effort */
-		}
+		} catch {}
 	}
 
 	const includeAssets = args.include_assets !== false;
@@ -501,9 +499,6 @@ async function runImport(
 	const all = documents.all();
 	for (const snap of bundle.documents) {
 		const finalName = uniqueName(snap.name, (n) => all.has(n));
-		// Always mint a fresh id — the exporter's id may collide with an existing
-		// local doc (unique column) and the identity only needs to be stable
-		// within *this* workspace.
 		const doc = createDocument({
 			name: finalName,
 			category: snap.category || "general",
@@ -532,9 +527,7 @@ async function runImport(
 			store.saveCharte(c);
 			bus.emit("charte:updated", { name: c.name, css: c.css || "" });
 			importedChartes.push(c.name);
-		} catch {
-			/* skip charte on error — best-effort */
-		}
+		} catch {}
 	}
 
 	const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);

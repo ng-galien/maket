@@ -81,8 +81,6 @@ async function runCheck(): Promise<void> {
 
 function runInstall(target: string): void {
 	const spec = `${PKG}@${target}`;
-	// On Windows, `npm` is a `.cmd` shim; `spawnSync` won't resolve a bare
-	// "npm" without `shell: true`. Use the explicit `.cmd` extension instead.
 	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 	process.stdout.write(`maket: running \`npm install -g ${spec}\`\n`);
 	const r = spawnSync(npm, ["install", "-g", spec], { stdio: "inherit" });

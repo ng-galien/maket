@@ -57,22 +57,18 @@ function pack(dev: boolean): void {
   const outputFile = join(DIST, dev ? "maket-dev.mcpb" : "maket.mcpb");
 
   try {
-    // Clean previous staging
     if (existsSync(stagingDir)) rmSync(stagingDir, { recursive: true, force: true });
     mkdirSync(stagingDir, { recursive: true });
 
-    // Step 1: Build client (React/Vite → public/)
     log("Building client...");
     execSync("npm run build:client", { cwd: ROOT, stdio: "inherit" });
 
-    // Step 2a: Bundle the stdio bridge (Claude Desktop entry → index.js)
     log("Bundling stdio-bridge → index.js...");
     execSync(
       `npx esbuild packages/stdio-bridge/src/index.ts --bundle --platform=node --format=esm --outfile="${join(stagingDir, "index.js")}"`,
       { cwd: ROOT, stdio: "inherit" },
     );
 
-    // Step 2b: Bundle the HTTP server (spawned by the bridge via MAKET_SERVER_CMD → server.js)
     log("Bundling server → server.js...");
     const externalFlags = EXTERNALS.map((e) => `--external:${e}`).join(" ");
     execSync(
@@ -80,9 +76,6 @@ function pack(dev: boolean): void {
       { cwd: ROOT, stdio: "inherit" },
     );
 
-    // Step 3: Install production dependencies in staging.
-    // Root package.json has no runtime deps post monorepo split — pull them
-    // from @maket/server (the externalized ones bundle uses at runtime).
     log("Installing production dependencies...");
     const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
     const serverPkg = JSON.parse(readFileSync(join(ROOT, "packages/server/package.json"), "utf-8"));
@@ -96,11 +89,9 @@ function pack(dev: boolean): void {
     writeFileSync(join(stagingDir, "package.json"), JSON.stringify(stagingPkg, null, 2));
     execSync("npm install --omit=dev", { cwd: stagingDir, stdio: "inherit" });
 
-    // Step 4: Copy runtime assets
     log("Copying assets...");
     cpSync(join(ROOT, "public"), join(stagingDir, "public"), { recursive: true });
 
-    // Step 5: Generate manifest
     const baseManifest = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf-8"));
     baseManifest.version = rootPkg.version;
 
@@ -112,7 +103,6 @@ function pack(dev: boolean): void {
 
     writeFileSync(join(stagingDir, "manifest.json"), JSON.stringify(baseManifest, null, 2));
 
-    // Step 6: Pack with mcpb
     if (existsSync(outputFile)) rmSync(outputFile);
 
     log("Packing .mcpb...");

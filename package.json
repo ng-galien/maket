@@ -34,6 +34,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "coverage:badge": "node scripts/coverage-badge.mjs",
+    "smell:rules": "code-moniker rules show . --default-rules off --profile smells",
+    "smell:review": "scripts/run-smell-review.sh . .code-moniker.toml",
     "changelog:draft": "node scripts/changelog-draft.mjs",
     "test:e2e": "npm run build:client && npm run test:e2e -w @maket/client",
     "e2e:server": "node scripts/dev.mjs e2e:server",

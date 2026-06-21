@@ -116,11 +116,6 @@ async function runSnapshot(
 		);
 
 	const { w, h } = d.canvas;
-	// Pre-inline every /assets/ image as a data: URI so the page renders with
-	// zero outbound requests. This lets us run the snapshot in offline mode —
-	// the only foolproof defence against a poisoned document calling
-	// `fetch('http://127.0.0.1:5432/...')` and exfiltrating the result via the
-	// returned PNG.
 	const inlinedHtml = await inlineImages(html, {
 		assetsDir: config.ASSETS_DIR,
 		pageMm: { w, h },

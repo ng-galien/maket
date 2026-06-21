@@ -106,7 +106,6 @@ export function createAppContainer(
 		thumbnailService: asFunction(createThumbnailService).singleton(),
 	});
 
-	// Route factories — resolved by `mountRoutes` at server boot.
 	container.register({
 		container: asValue(container),
 		appRouter: asFunction(createAppRouter).singleton(),

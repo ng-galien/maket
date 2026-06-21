@@ -221,8 +221,6 @@ function runSet(args: Args, store: Store, bus: Bus) {
 	if (args.voice) parts.push("voice");
 	if (args.rules) parts.push("rules");
 
-	// Emit the combined CSS (font @import + vars) so client's
-	// `ensureCharteFonts()` live-reloads new Google Fonts on tokens.font edits.
 	bus.emit("charte:updated", {
 		name: args.name,
 		css: composeCharteCss(charte),

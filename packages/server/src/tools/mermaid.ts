@@ -138,15 +138,11 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 				);
 			if (!page.html) page.html = "";
 
-			// Render SVG via beautiful-mermaid (lazy import — avoids paying the cost
-			// on every server boot when mermaid isn't used).
 			let svg: string;
 			try {
 				const { renderMermaidSVG, THEMES } = await import("beautiful-mermaid");
 				let themeObj: Record<string, string> | undefined;
 				if (args.theme && args.theme in THEMES) {
-					// beautiful-mermaid's `DiagramColors` type is structural but not indexable;
-					// cast through `unknown` so we can pass a mutable copy plus our overrides.
 					const base = (
 						THEMES as unknown as Record<string, Record<string, string>>
 					)[args.theme];
@@ -165,13 +161,11 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 				return text(`Mermaid render failed: ${msg}`, true);
 			}
 
-			// Pick a dataId that doesn't clash with existing data-ids on the page
 			const existingIds = [
 				...page.html.matchAll(/data-id=["']([^"']+)["']/g),
 			].map((m) => m[1] ?? "");
 			const dataId = args.dataId || generateId(existingIds);
 
-			// Strip fixed width/height from the SVG so it scales with its container
 			svg = svg
 				.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1 width="100%"')
 				.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1 height="100%"');
@@ -181,7 +175,6 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 			if (args.height) styleParts.push(`height:${args.height}`);
 			const wrapper = `<div data-id="${dataId}" style="${styleParts.join(";")}">${svg}</div>`;
 
-			// Inject into page HTML
 			const { document } = parseHTML(`<html><body>${page.html}</body></html>`);
 			const root = document.body;
 
@@ -202,16 +195,9 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 				root.insertAdjacentHTML("beforeend", wrapper);
 			}
 
-			// stripActiveHtml on the way out — beautiful-mermaid is trusted but
-			// the surrounding page may already contain agent content; keep one
-			// pass on every persistence path.
 			page.html = stripActiveHtml(root.innerHTML);
 			documents.persist(doc.name);
 
-			// Surface every page-level data-id that an agent can target with
-			// maket_html patch. Exclude data-ids that live *inside* an SVG — those
-			// are mermaid's internal node auto-labels (`A`, `B`, …) and patching
-			// them makes no sense.
 			const addressableIds = Array.from(root.querySelectorAll("[data-id]"))
 				.filter((el) => !el.closest("svg"))
 				.map((el) => el.getAttribute("data-id") ?? "")

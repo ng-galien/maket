@@ -97,7 +97,6 @@ export class DocumentStore implements Store {
 				} | null
 			)?.user_version ?? 0;
 
-		// v5: clean schema — drop everything and recreate
 		if (version < 5) {
 			this.db.exec("DROP TABLE IF EXISTS documents;");
 			this.db.exec("DROP TABLE IF EXISTS pages;");
@@ -148,7 +147,6 @@ export class DocumentStore implements Store {
 			log(`SQLite: schema v${SCHEMA_VERSION} created (clean)`);
 		}
 
-		// v6: add id column to documents (check by column existence, not version)
 		const cols = this.db.prepare("PRAGMA table_info(documents)").all() as {
 			name: string;
 		}[];
@@ -168,7 +166,6 @@ export class DocumentStore implements Store {
 			);
 		}
 
-		// Documents
 		this.stmtDocUpsert = this.db.prepare(`
       INSERT INTO documents (name, id, category, canvas, meta, active_page, next_id, created_at, updated_at)
       VALUES ($name, $id, $category, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
@@ -191,7 +188,6 @@ export class DocumentStore implements Store {
 			"DELETE FROM documents WHERE name = $name",
 		);
 
-		// Pages
 		this.stmtPageUpsert = this.db.prepare(`
       INSERT INTO pages (doc_name, idx, name, html, elements, canvas)
       VALUES ($doc_name, $idx, $name, $html, $elements, $canvas)
@@ -208,7 +204,6 @@ export class DocumentStore implements Store {
 			"SELECT * FROM pages WHERE doc_name = $doc_name ORDER BY idx ASC",
 		);
 
-		// Chartes
 		this.stmtCharteUpsert = this.db.prepare(`
       INSERT INTO chartes (name, data, created_at, updated_at)
       VALUES (?, ?, datetime('now'), datetime('now'))
@@ -226,15 +221,6 @@ export class DocumentStore implements Store {
 			"DELETE FROM chartes WHERE name = ?",
 		);
 
-		// Assets — partial-update UPSERT.
-		//
-		// `coalesce(excluded.X, assets.X)` is the "preserve on null" pattern for
-		// nullable text/integer columns: pass NULL to keep the prior value, any
-		// real value (including `''`) to write. The `tags` column is NOT NULL,
-		// so it cannot use that pattern; instead `$tags_set = 1` flags an
-		// explicit write and `0` flags preserve. With this split, every field
-		// follows the rule "only `undefined` from the JS caller preserves" —
-		// `''` and `[]` clear, matching the partial-update WS verb contract.
 		this.stmtAssetUpsert = this.db.prepare(`
       INSERT INTO assets (filename, title, description, category, tags, credit, width, height, orientation, created_at)
       VALUES ($filename, $title, $description, $category, $tags, $credit, $width, $height, $orientation, datetime('now'))
@@ -373,10 +359,6 @@ export class DocumentStore implements Store {
 	// ---- Assets CRUD ----
 
 	saveAsset(a: AssetInput): void {
-		// `?? null` (not `|| null`) so that empty string / 0 / `[]` reach the
-		// SQL layer as themselves and clear the column, instead of collapsing
-		// to NULL which the COALESCE would then preserve. Only `undefined`
-		// preserves — that is the partial-update contract.
 		const tagsSet = a.tags !== undefined ? 1 : 0;
 		const tagsValue =
 			typeof a.tags === "string" ? a.tags : JSON.stringify(a.tags ?? []);

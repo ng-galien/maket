@@ -321,21 +321,6 @@ export function createAssetsService(
 							reason: "Not a valid SVG (missing <?xml or <svg)",
 						};
 					}
-					// Threat model: the only path where SVG scripts can execute is
-					// direct browser navigation to `/assets/<file>.svg` (static
-					// route). Rasterized paths (MCP view, HTTP thumb/preview) go
-					// through resvg, which is a sandboxed WASM renderer that
-					// ignores scripts and foreignObject content. Page rendering
-					// inlines SVGs via `<img src="data:...">` (image-inline.ts),
-					// which browsers treat as images — no script execution.
-					//
-					// So we block only high-signal attack markers: scripts, event
-					// handlers, and javascript: URLs are never legitimate in an
-					// asset SVG. Empty `<foreignObject/>` is allowed because
-					// Adobe Illustrator / Inkscape / Wikipedia emit them as
-					// benign export artifacts (flow extension placeholders).
-					// Non-empty `<foreignObject>` can embed arbitrary HTML and
-					// stays blocked.
 					const body = readFileSync(abs, "utf8");
 					const dangerous =
 						/<script[\s>]/i.test(body) ||
@@ -380,11 +365,9 @@ export function createAssetsService(
 			if (!abs || !existsSync(abs)) return null;
 			try {
 				const buf = readFileSync(abs);
-				// PNG: width at offset 16 (4 bytes BE), height at offset 20
 				if (buf[0] === 0x89 && buf[1] === 0x50) {
 					return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 				}
-				// JPEG: scan for SOF0/SOF2 marker
 				let i = 2;
 				while (i < buf.length - 9) {
 					if (buf[i] === 0xff && (buf[i + 1] === 0xc0 || buf[i + 1] === 0xc2)) {
@@ -447,11 +430,6 @@ export function createAssetsService(
 			let migrated = 0;
 			let orphansDeleted = 0;
 			let ambiguous = 0;
-			// A new-convention thumb always ends in `<image-ext>.thumb.jpg`. Anything
-			// that ends in `.thumb.jpg` but with a non-image suffix under the extension
-			// slot is a pre-v1.1.0 thumb of a source whose basename happened to end
-			// in `.thumb` (e.g. `foo.thumb.png` → legacy thumb `foo.thumb.jpg`) and
-			// still needs migrating.
 			const sources = listFilenames();
 			const sourcesByBase = new Map<string, string[]>();
 			for (const f of sources) {
@@ -495,11 +473,7 @@ export function createAssetsService(
 						renameSync(legacyPath, targetPath);
 						migrated += 1;
 					}
-				} catch {
-					// A concurrent migration (dev-watcher race) or filesystem hiccup can
-					// make the legacy thumb vanish between scan and rename. Skip it —
-					// the other process will have counted it.
-				}
+				} catch {}
 			}
 			return { migrated, orphansDeleted, ambiguous };
 		},
@@ -521,7 +495,7 @@ export function validateAssetToken(
 	token: string | undefined,
 	currentToken: string | null,
 ): { valid: boolean; reason?: string } {
-	if (currentToken === null) return { valid: true }; // first creation
+	if (currentToken === null) return { valid: true };
 	if (!token) {
 		return {
 			valid: false,

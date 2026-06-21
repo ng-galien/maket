@@ -28,8 +28,6 @@ export function readGmailState(dataDir: string): GmailState {
 		const parsed = JSON.parse(readFileSync(paths.tokenPath, "utf-8"));
 		hasToken = true;
 		withRead = parsed?.with_read === true;
-	} catch {
-		/* missing or malformed — stays hasToken=false */
-	}
+	} catch {}
 	return { ...paths, hasCredentials, hasToken, withRead };
 }

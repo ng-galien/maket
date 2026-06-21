@@ -17,9 +17,7 @@ function safeGet(key: string): string | null {
 function safeSet(key: string, value: string): void {
 	try {
 		localStorage.setItem(key, value);
-	} catch {
-		/* noop — test envs, private mode, quota */
-	}
+	} catch {}
 }
 
 function detectLang(): string {

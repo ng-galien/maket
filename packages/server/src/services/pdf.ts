@@ -62,14 +62,10 @@ export function createPdfService(
 	opts: PdfServiceOptions = {},
 ): PdfService {
 	const { documents, config, assets, browserPool } = deps;
-	// Test shim — some existing fixtures pass `browserLaunch` and expect it to
-	// throw in place of a real browser. We honour that by redirecting `get()`.
 	const pool: BrowserPool = opts.browserLaunch
 		? {
 				get: opts.browserLaunch,
-				async dispose() {
-					/* no-op — caller owns the launcher */
-				},
+				async dispose() {},
 			}
 		: browserPool;
 

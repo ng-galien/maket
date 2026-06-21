@@ -92,7 +92,6 @@ function ScopeChips({ msg }: { msg: PendingMessage }) {
 	const hasEl = Boolean(msg.elementId);
 	const elLabel = msg.elementId ? resolveElementLabel(msg.elementId) : "";
 
-	// Workspace-scoped pill only — no doc/page/element info.
 	if (!hasDoc && !hasPage && !hasEl) {
 		return (
 			<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-input text-2xs font-semibold text-text-3 uppercase tracking-wider">
@@ -196,7 +195,6 @@ export function MessagesPanel() {
 					: "opacity-0 translate-x-8 pointer-events-none"
 			}`}
 		>
-			{/* Messages list */}
 			<div
 				className={`flex-1 overflow-y-auto px-3 py-2 flex gap-2 scrollbar-thin ${isTop ? "flex-col-reverse" : "flex-col"}`}
 			>
@@ -253,11 +251,9 @@ export function MessagesPanel() {
 				)}
 			</div>
 
-			{/* Input — closest to bar */}
 			<div
 				className={`px-3 py-3 flex flex-col gap-1.5 ${isTop ? "border-b order-first" : "border-t order-last"} border-border/60 ${hasDoc ? "" : "opacity-40 pointer-events-none"}`}
 			>
-				{/* Scope line — which doc this note will attach to */}
 				<div className="px-0.5 text-2xs font-semibold text-text-3 flex items-center gap-1 min-w-0">
 					<FileText size={10} className="flex-shrink-0" />
 					<span className="truncate">

@@ -73,9 +73,6 @@ function removeClaudeEntry(path: string, scope: ClaudeScope): void {
 		return;
 	}
 
-	// Guard against malformed configs: a string / array / null `mcpServers`
-	// would crash the `in` / `delete` operators below. Treat anything that
-	// isn't a plain object as "nothing to remove".
 	const rawServers = json.mcpServers;
 	const servers =
 		rawServers !== null &&
@@ -90,8 +87,6 @@ function removeClaudeEntry(path: string, scope: ClaudeScope): void {
 
 	backup(path);
 	delete servers.maket;
-	// Drop mcpServers when maket was the last entry, to leave a clean file
-	// rather than a dangling empty object.
 	if (Object.keys(servers).length === 0) delete json.mcpServers;
 
 	writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`, {
@@ -133,8 +128,6 @@ function uninstallCodex(opts: UninstallOpts): void {
 	}
 
 	backup(target);
-	// Collapse trailing blank lines the strip may leave so repeat
-	// install/uninstall cycles don't grow a tower of empty lines.
 	const normalized = `${stripped.replace(/\n{3,}$/, "\n\n").replace(/\n+$/, "")}\n`;
 	writeFileSync(target, normalized, { encoding: "utf-8", mode: 0o600 });
 	process.stdout.write(`maket: removed maket section from ${target}\n`);

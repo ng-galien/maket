@@ -105,15 +105,10 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			credentialsPath,
 		});
 
-	// Pending OAuth state nonces — used to bind a browser session to its callback.
-	// Without this, anyone who can reach `/auth/google/callback` (e.g. via DNS
-	// rebinding or a top-level navigation from a hostile site) could swap in a
-	// different account's authorization code.
 	const pendingStates = new Map<string, number>();
 	function newState(): string {
 		const s = randomBytes(32).toString("base64url");
 		pendingStates.set(s, Date.now() + STATE_TTL_MS);
-		// Lazy GC of expired entries.
 		const now = Date.now();
 		for (const [k, t] of pendingStates) {
 			if (t < now) pendingStates.delete(k);
@@ -131,9 +126,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 	}
 
 	function saveToken(refreshToken: string, withRead: boolean): void {
-		// Only the refresh token is persisted; client_id/client_secret stay in
-		// env or the credentials file. This keeps `google-token.json` from
-		// being a one-stop credential dump if the data dir leaks.
 		const payload = JSON.stringify({
 			refresh_token: refreshToken,
 			with_read: withRead,
@@ -223,9 +215,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			);
 			const { tokens } = await oauth2.getToken(code);
 			oauth2.setCredentials(tokens);
-			// Google echoes the exact scopes the user agreed to in tokens.scope;
-			// trust that over what we asked for (user can shrink the grant in the
-			// consent screen).
 			const grantedScopes =
 				typeof tokens.scope === "string" ? tokens.scope.split(" ") : [];
 			readGranted = grantedScopes.includes(READ_SCOPE);
@@ -265,7 +254,6 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 		},
 	};
 
-	// Testing hatch — exposed as `any` for unit tests, never used in production.
 	(client as any)._testForceConnected = (withRead = false) => {
 		connected = true;
 		readGranted = withRead;

@@ -192,10 +192,6 @@ function buildCli(): CAC {
 }
 
 async function main(argv: string[]): Promise<void> {
-	// No args + non-TTY stdin = an MCP client just spawned us. Bridge mode
-	// short-circuits cac so the stdin handshake isn't interrupted by
-	// auto-help. An MCP client that needs a custom data dir passes
-	// MAKET_DATA_DIR via its own config.
 	if (argv.length === 0 && !process.stdin.isTTY) {
 		await runBridge();
 		return;
@@ -210,13 +206,8 @@ async function main(argv: string[]): Promise<void> {
 
 	cli.parse(["node", "maket", ...argv]);
 
-	// cac prints --help / --version output but doesn't exit — it leaves
-	// `matchedCommand` unset even when a valid command preceded the flag. Don't
-	// treat that as an unknown-command error.
 	if (cli.options.help || cli.options.version) return;
 
-	// `maket foo` with no registered `foo` command: cac leaves matchedCommand
-	// undefined. Exit non-zero for discoverability.
 	const firstArg = argv[0];
 	const hasUnknown =
 		!cli.matchedCommand && firstArg !== undefined && !firstArg.startsWith("-");

@@ -21,8 +21,6 @@ const POLL_MS = 500;
 
 function printLastLines(text: string, count: number): void {
 	const lines = text.split("\n");
-	// `split` leaves a trailing empty when the file ends with \n — drop it
-	// before slicing so `count` corresponds to actual content lines.
 	const trailingEmpty = lines.at(-1) === "" ? 1 : 0;
 	const slice = lines.slice(Math.max(0, lines.length - count - trailingEmpty));
 	process.stdout.write(slice.join("\n"));
@@ -30,8 +28,6 @@ function printLastLines(text: string, count: number): void {
 
 function streamFrom(path: string, start: number, end: number): Promise<void> {
 	return new Promise((resolve, reject) => {
-		// `end` is inclusive in createReadStream; subtract 1 because our `end`
-		// is the exclusive byte length.
 		const stream = createReadStream(path, { start, end: end - 1 });
 		stream.on("end", resolve);
 		stream.on("error", reject);
@@ -63,14 +59,12 @@ export function runLogs(opts: LogsOpts = {}): void {
 		return;
 	}
 
-	// Follow mode — print the last few lines, then poll for changes.
 	printLastLines(text, FOLLOW_INITIAL_LINES);
 	let position = statSync(path).size;
 	let busy = false;
 
 	watchFile(path, { interval: POLL_MS }, async (curr, prev) => {
 		if (busy) return;
-		// Truncation / rotation — reset position and continue from start.
 		if (curr.size < position) position = 0;
 		if (curr.size === prev.size && curr.size === position) return;
 		busy = true;

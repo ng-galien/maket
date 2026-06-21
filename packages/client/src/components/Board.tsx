@@ -16,7 +16,7 @@ import {
 } from "../store/zoomBridge";
 import { WorkspaceDoc } from "./WorkspaceDoc";
 
-const DOC_GAP = 80; // px gap between docs
+const DOC_GAP = 80;
 
 function Watermark() {
 	const t = useT();
@@ -59,13 +59,10 @@ export function Board({ locked }: { locked: boolean }) {
 		workspaceDocNames.length === 0,
 	);
 
-	// Mirror `locked` into a ref so the d3-zoom filter (created once) reads the
-	// live value without re-instantiating the behavior on every toggle.
 	useEffect(() => {
 		lockedRef.current = locked;
 	}, [locked]);
 
-	// Space key = pan mode (like Figma)
 	const spaceRef = useRef(false);
 	useEffect(() => {
 		const down = (e: KeyboardEvent) => {
@@ -93,10 +90,6 @@ export function Board({ locked }: { locked: boolean }) {
 		};
 	}, []);
 
-	// d3-zoom: instantiated ONCE. Previously re-ran on every `locked` toggle and
-	// every workspace add/remove — that wiped the user's pan/zoom. Now the filter
-	// reads `lockedRef` live and adding/removing docs no longer touches the
-	// transform.
 	useEffect(() => {
 		if (!wrapRef.current) return;
 		const wrap = wrapRef.current;
@@ -109,7 +102,6 @@ export function Board({ locked }: { locked: boolean }) {
 				if (lockedRef.current) return true;
 				if (e.type === "mousedown" && (e as MouseEvent).button === 1)
 					return true;
-				// Space held = pan mode, ignore data-id
 				if (e.type === "mousedown" && (e as MouseEvent).button === 0) {
 					if (spaceRef.current) return true;
 					const target = e.target as HTMLElement;
@@ -123,13 +115,11 @@ export function Board({ locked }: { locked: boolean }) {
 			});
 
 		zoomRef.current = zoomBehavior;
-		// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-		el.call(zoomBehavior as any);
+		el.call(zoomBehavior);
 
 		registerZoomTo((pct) => {
 			const rect = wrap.getBoundingClientRect();
-			// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-			(el as any).call(zoomBehavior.scaleTo, pct / 100, [
+			el.call(zoomBehavior.scaleTo, pct / 100, [
 				rect.width / 2,
 				rect.height / 2,
 			]);
@@ -148,8 +138,7 @@ export function Board({ locked }: { locked: boolean }) {
 			const tx = (vw - cw * scale) / 2;
 			const ty = Math.max(20, (vh - ch * scale) / 2);
 			el.call(
-				// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-				(zoomBehavior as any).transform,
+				zoomBehavior.transform,
 				zoomIdentity.translate(tx, ty).scale(scale),
 			);
 		};
@@ -160,8 +149,6 @@ export function Board({ locked }: { locked: boolean }) {
 			const docSelector = `[data-doc="${CSS.escape(docName)}"]`;
 			const pageSel =
 				pageIndex != null ? `${docSelector} [data-page="${pageIndex}"]` : null;
-			// Prefer the targeted page's canvas — same selector as the whole-doc
-			// wrapper falls back if the page isn't rendered yet (e.g. single-page docs).
 			const target = pageSel
 				? boardRef.current.querySelector<HTMLElement>(pageSel)
 				: null;
@@ -172,7 +159,6 @@ export function Board({ locked }: { locked: boolean }) {
 			const docRect = docEl.getBoundingClientRect();
 			const t = zoomTransform(wrap as unknown as Element);
 			const k = t.k || 1;
-			// Translate viewport-space doc bounds into board-space (pre-zoom).
 			const boardLeft = (docRect.left - wrapRect.left - t.x) / k;
 			const boardTop = (docRect.top - wrapRect.top - t.y) / k;
 			const cw = docRect.width / k;
@@ -187,15 +173,12 @@ export function Board({ locked }: { locked: boolean }) {
 			el.transition()
 				.duration(300)
 				.call(
-					// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-					(zoomBehavior as any).transform,
+					zoomBehavior.transform,
 					zoomIdentity.translate(tx, ty).scale(scale),
 				);
 		};
 		registerFitToDoc(fitToDoc);
 
-		// Initial fit: when the first [data-doc] renders, the board's bounding box
-		// grows and this fires. Runs once per mount.
 		let initialFitDone = false;
 		const boardRo = new ResizeObserver(() => {
 			if (!initialFitDone && boardRef.current?.querySelector("[data-doc]")) {
@@ -206,9 +189,6 @@ export function Board({ locked }: { locked: boolean }) {
 		});
 		if (boardRef.current) boardRo.observe(boardRef.current);
 
-		// Viewport changes (window resize, sidebar toggle, etc.): preserve scale,
-		// shift pan by half the size delta so the visual center stays anchored on
-		// the same board coordinate. Never calls fit() — user's pan/zoom is sacred.
 		let lastW = 0;
 		let lastH = 0;
 		const wrapRo = new ResizeObserver((entries) => {
@@ -227,15 +207,12 @@ export function Board({ locked }: { locked: boolean }) {
 			if (dx === 0 && dy === 0) return;
 			const current = zoomTransform(wrap as unknown as Element);
 			el.call(
-				// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-				(zoomBehavior as any).transform,
+				zoomBehavior.transform,
 				zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k),
 			);
 		});
 		wrapRo.observe(wrap);
 
-		// iOS Safari: orientationchange can fire before the ResizeObserver reflects
-		// the rotated dimensions. Take a measurement next frame as a safety net.
 		const onOrientation = () => {
 			requestAnimationFrame(() => {
 				const rect = wrap.getBoundingClientRect();
@@ -246,8 +223,7 @@ export function Board({ locked }: { locked: boolean }) {
 				if (dx === 0 && dy === 0) return;
 				const current = zoomTransform(wrap as unknown as Element);
 				el.call(
-					// biome-ignore lint/suspicious/noExplicitAny: d3-zoom typings don't flow
-					(zoomBehavior as any).transform,
+					zoomBehavior.transform,
 					zoomIdentity
 						.translate(current.x + dx, current.y + dy)
 						.scale(current.k),
@@ -267,7 +243,6 @@ export function Board({ locked }: { locked: boolean }) {
 		};
 	}, []);
 
-	// Background click → deselect
 	const handleBgClick = useCallback((e: React.MouseEvent) => {
 		if (e.target === wrapRef.current || e.target === boardRef.current) {
 			useStore.getState().selectElement(null);
@@ -277,8 +252,6 @@ export function Board({ locked }: { locked: boolean }) {
 		}
 	}, []);
 
-	// Always render wrapRef + boardRef so the zoom effect can bind on mount and
-	// survive empty→populated workspace transitions without re-instantiating.
 	return (
 		<div
 			ref={wrapRef}

@@ -42,8 +42,6 @@ export function loadAssetsFromDir(
 	const assets: BundleAsset[] = [];
 	const missing: string[] = [];
 	for (const name of filenames) {
-		// Defensive: the regex already rules out separators, but a malformed
-		// HTML ref could slip through. `basename` pins us to a flat name.
 		const flat = basename(name);
 		if (flat !== name) {
 			missing.push(name);

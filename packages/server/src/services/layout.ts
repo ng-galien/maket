@@ -172,16 +172,10 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 		doc: Document,
 		pageHtml: string,
 	): Promise<LayoutResult> {
-		// Skip puppeteer when mm-math already sees overflow.
 		const serverResult = serverLayoutCheck(pageHtml, doc.canvas);
 		if (serverResult.status === "overflow") return serverResult;
-		// Headless catches content-driven overflow, overlap, and the tight
-		// threshold; falls back to the server's ok when puppeteer is unavailable.
 		const headless = await headlessCheck(doc, pageHtml);
 		if (headless) return formatLayoutReport(headless, doc.canvas);
-		// Headless unavailable: server check passed but content-driven overflow
-		// + overlap can't be verified. Surface that explicitly so the agent
-		// doesn't treat ✓ as full validation.
 		if (serverResult.status === "ok") {
 			return {
 				status: "ok",
@@ -531,10 +525,6 @@ function measureInBrowser(
 		.filter(Boolean);
 	const overflowV = contentHeight > containerHeight;
 	const overflowH = contentWidth > containerWidth;
-	// Pairwise AABB intersection on tagged blocks. Skip ancestor/descendant
-	// relations (a block "overlapping" its own contents is by design — flex/
-	// grid containers always intersect their children). N is small (~50
-	// blocks/page → ~1250 pairs) so quadratic cost is negligible.
 	const overlaps: [string, string][] = [];
 	for (const [i, a] of blocks.entries()) {
 		if (!a.id) continue;

@@ -41,7 +41,6 @@ const _logFile = join(
 	process.env.MAKET_DATA_DIR || join(homedir(), ".maket"),
 	"server.log",
 );
-// biome-ignore lint/suspicious/noExplicitAny: log args are free-form
 const log = (...a: any[]) => {
 	const line = `${new Date().toISOString()} ${a.join(" ")}\n`;
 	process.stderr.write(line);
@@ -334,7 +333,6 @@ wss.on("connection", (ws) => {
 	ws.on("message", (raw) => {
 		try {
 			wsHandler(JSON.parse(String(raw)), ws);
-			// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 		} catch (e: any) {
 			log(`WS message error: ${e?.message || e}`);
 		}
@@ -348,7 +346,6 @@ function onListening() {
 	log(`[boot] HTTP listening on ${HOST}:${actualPort}`);
 	log(`Maket: http://localhost:${actualPort}`);
 }
-// biome-ignore lint/suspicious/noExplicitAny: error shape varies
 http.on("error", (err: any) => {
 	if (err.code === "EADDRINUSE") {
 		log(`Port ${PORT} in use, using random port...`);

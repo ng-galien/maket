@@ -64,7 +64,6 @@ export function BottomBar() {
 		<div
 			className={`fixed left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
 		>
-			{/* Toggle — above bar when at top */}
 			{position === "top" && (
 				<button
 					type="button"
@@ -76,13 +75,11 @@ export function BottomBar() {
 				</button>
 			)}
 
-			{/* The pill */}
 			<div className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1">
 				{iconBtn("chartes", <Palette size={16} />, t("chartes"))}
 				{iconBtn("photos", <Image size={16} />, t("photos"))}
 				{iconBtn("docs", <FileText size={16} />, t("documents"))}
 
-				{/* Fit workspace */}
 				<button
 					type="button"
 					onClick={fitToView}
@@ -93,7 +90,6 @@ export function BottomBar() {
 					<Maximize size={16} />
 				</button>
 
-				{/* Auto-fit-on-focus toggle (MCP ↔ zoom coupling) */}
 				<button
 					type="button"
 					onClick={toggleAutoFocusFit}
@@ -113,7 +109,6 @@ export function BottomBar() {
 					{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
 				</button>
 
-				{/* ● Doc name */}
 				<div className="flex items-center gap-1.5 px-2">
 					<div
 						className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
@@ -130,7 +125,6 @@ export function BottomBar() {
 					pendingCount,
 				)}
 
-				{/* Print */}
 				{hasDoc && (
 					<a
 						href={`/print?name=${encodeURIComponent(focusedDoc?.name || "")}`}
@@ -144,7 +138,6 @@ export function BottomBar() {
 					</a>
 				)}
 
-				{/* Language toggle */}
 				<button
 					type="button"
 					onClick={toggleLang}
@@ -157,7 +150,6 @@ export function BottomBar() {
 					{getLang() === "fr" ? "FR" : "EN"}
 				</button>
 
-				{/* Dark mode toggle */}
 				<button
 					type="button"
 					onClick={() => useStore.getState().toggleDarkMode()}
@@ -168,7 +160,6 @@ export function BottomBar() {
 				</button>
 			</div>
 
-			{/* Toggle — below bar when at bottom */}
 			{position === "bottom" && (
 				<button
 					type="button"

@@ -19,13 +19,11 @@ export default function App() {
 
 	useEffect(() => {
 		initWs();
-		// Apply initial color scheme
 		document.documentElement.style.colorScheme = useStore.getState().darkMode
 			? "dark"
 			: "light";
 	}, []);
 
-	// Sync color-scheme on change
 	useEffect(() => {
 		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
 	}, [darkMode]);
@@ -35,7 +33,6 @@ export default function App() {
 			<Board locked={locked} />
 			<BottomBar />
 
-			{/* Chartes panel — left */}
 			<SidePanel
 				open={activePanel === "chartes"}
 				onClose={closePanel}
@@ -44,7 +41,6 @@ export default function App() {
 				<ChartesTab />
 			</SidePanel>
 
-			{/* Photos panel — left */}
 			<SidePanel
 				open={activePanel === "photos"}
 				onClose={closePanel}
@@ -53,7 +49,6 @@ export default function App() {
 				<PhotosTab />
 			</SidePanel>
 
-			{/* Docs panel — left */}
 			<SidePanel open={activePanel === "docs"} onClose={closePanel} side="left">
 				<DocsTab />
 			</SidePanel>
