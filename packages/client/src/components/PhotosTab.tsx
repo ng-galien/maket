@@ -236,6 +236,25 @@ export function PhotosTab() {
 		setChecked(new Set());
 	};
 
+	const photoItemFor = (img: ImageAsset): PhotoTileProps => ({
+		model: {
+			img,
+			checked: checked.has(img.file),
+			menuOpen: menuFor === img.file,
+			mode:
+				modeFor?.file === img.file
+					? modeFor.mode
+					: ({ kind: "idle" } as RowMode),
+		},
+		actions: {
+			click: (e) => handleTileClick(img, e),
+			openMenu: () => setMenuFor(img.file),
+			closeMenu: () => setMenuFor(null),
+			changeMode: (mode) =>
+				setModeFor(mode.kind === "idle" ? null : { file: img.file, mode }),
+		},
+	});
+
 	return (
 		<div
 			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-3 p-3`}
@@ -387,25 +406,7 @@ export function PhotosTab() {
 					}}
 				>
 					{filtered.map((img) => (
-						<PhotoTile
-							key={img.file}
-							img={img}
-							isChecked={checked.has(img.file)}
-							onClick={(e) => handleTileClick(img, e)}
-							menuOpen={menuFor === img.file}
-							onMenuOpen={() => setMenuFor(img.file)}
-							onMenuClose={() => setMenuFor(null)}
-							mode={
-								modeFor?.file === img.file
-									? modeFor.mode
-									: ({ kind: "idle" } as RowMode)
-							}
-							onModeChange={(mode) =>
-								setModeFor(
-									mode.kind === "idle" ? null : { file: img.file, mode },
-								)
-							}
-						/>
+						<PhotoTile key={img.file} {...photoItemFor(img)} />
 					))}
 				</div>
 			)}
@@ -461,27 +462,27 @@ function EmptyDropZone({
 	);
 }
 
-interface PhotoTileProps {
+interface PhotoTileModel {
 	img: ImageAsset;
-	isChecked: boolean;
-	onClick: (e: React.MouseEvent) => void;
+	checked: boolean;
 	menuOpen: boolean;
-	onMenuOpen: () => void;
-	onMenuClose: () => void;
 	mode: RowMode;
-	onModeChange: (mode: RowMode) => void;
 }
 
-function PhotoTile({
-	img,
-	isChecked,
-	onClick,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-	mode,
-	onModeChange,
-}: PhotoTileProps) {
+interface PhotoTileActions {
+	click: (e: React.MouseEvent) => void;
+	openMenu: () => void;
+	closeMenu: () => void;
+	changeMode: (mode: RowMode) => void;
+}
+
+interface PhotoTileProps {
+	model: PhotoTileModel;
+	actions: PhotoTileActions;
+}
+
+function PhotoTile({ model, actions }: PhotoTileProps) {
+	const { img, checked, menuOpen, mode } = model;
 	const t = useT();
 	const menuBtnRef = useRef<HTMLButtonElement>(null);
 	const confirming = mode.kind === "confirm-delete";
@@ -503,9 +504,9 @@ function PhotoTile({
 		<div className="relative group/tile">
 			<button
 				type="button"
-				onClick={onClick}
+				onClick={actions.click}
 				className={`aspect-[4/3] w-full rounded-lg relative overflow-hidden transition-transform outline-none ${
-					isChecked
+					checked
 						? "ring-4 ring-accent ring-offset-2 ring-offset-panel"
 						: "hover:scale-[1.02]"
 				}`}
@@ -519,7 +520,7 @@ function PhotoTile({
 					draggable={false}
 				/>
 
-				{isChecked && (
+				{checked && (
 					<span className="absolute top-1.5 right-1.5 w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold">
 						✓
 					</span>
@@ -547,10 +548,10 @@ function PhotoTile({
 					<HoldToDelete
 						label={t("photo_delete_hold")}
 						onConfirm={() => {
-							onModeChange({ kind: "idle" });
+							actions.changeMode({ kind: "idle" });
 							wsSend({ type: "delete_asset", filename: img.file });
 						}}
-						onCancel={() => onModeChange({ kind: "idle" })}
+						onCancel={() => actions.changeMode({ kind: "idle" })}
 					/>
 				</div>
 			)}
@@ -577,8 +578,8 @@ function PhotoTile({
 						aria-label={t("photo_menu")}
 						onClick={(e) => {
 							e.stopPropagation();
-							if (menuOpen) onMenuClose();
-							else onMenuOpen();
+							if (menuOpen) actions.closeMenu();
+							else actions.openMenu();
 						}}
 						className={`w-7 h-7 rounded-md backdrop-blur-sm flex items-center justify-center transition ${
 							menuOpen
@@ -596,11 +597,11 @@ function PhotoTile({
 					img={img}
 					hasDoc={hasDoc}
 					anchorRef={menuBtnRef}
-					onClose={onMenuClose}
+					onClose={actions.closeMenu}
 					onInsert={onInsert}
 					onDeleteRequest={() => {
-						onMenuClose();
-						onModeChange({ kind: "confirm-delete" });
+						actions.closeMenu();
+						actions.changeMode({ kind: "confirm-delete" });
 					}}
 				/>
 			)}

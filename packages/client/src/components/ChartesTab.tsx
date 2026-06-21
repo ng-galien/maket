@@ -180,6 +180,21 @@ export function ChartesTab() {
 	const activeCharte =
 		currentCharte && filtered.find((c) => c.name === currentCharte);
 	const restCharte = filtered.filter((c) => c.name !== currentCharte);
+	const charteItemFor = (
+		charte: Charte,
+		isActive: boolean,
+	): CharteItemProps => ({
+		model: { charte, isActive, hasDoc },
+		actions: {
+			open: () => setPreview(charte),
+			edit: () => setEditing(charte),
+			apply: () => applyCharte(charte.name),
+			unapply: unapplyCharte,
+			openMenu: () => setMenuFor(charte.name),
+			closeMenu: () => setMenuFor(null),
+		},
+		menuOpen: menuFor === charte.name,
+	});
 
 	return (
 		<>
@@ -263,31 +278,9 @@ export function ChartesTab() {
 									</span>
 								</div>
 								{view === "grid" ? (
-									<CharteCard
-										charte={activeCharte}
-										isActive
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(activeCharte)}
-										onEdit={() => setEditing(activeCharte)}
-										onApply={() => applyCharte(activeCharte.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === activeCharte.name}
-										onMenuOpen={() => setMenuFor(activeCharte.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteCard {...charteItemFor(activeCharte, true)} />
 								) : (
-									<CharteRow
-										charte={activeCharte}
-										isActive
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(activeCharte)}
-										onEdit={() => setEditing(activeCharte)}
-										onApply={() => applyCharte(activeCharte.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === activeCharte.name}
-										onMenuOpen={() => setMenuFor(activeCharte.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteRow {...charteItemFor(activeCharte, true)} />
 								)}
 								<div className="h-px bg-black/[0.06] my-1" />
 							</section>
@@ -295,37 +288,13 @@ export function ChartesTab() {
 						{view === "grid" ? (
 							<div className="grid grid-cols-1 gap-2">
 								{restCharte.map((c) => (
-									<CharteCard
-										key={c.name}
-										charte={c}
-										isActive={false}
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(c)}
-										onEdit={() => setEditing(c)}
-										onApply={() => applyCharte(c.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === c.name}
-										onMenuOpen={() => setMenuFor(c.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteCard key={c.name} {...charteItemFor(c, false)} />
 								))}
 							</div>
 						) : (
 							<div className="flex flex-col gap-1">
 								{restCharte.map((c) => (
-									<CharteRow
-										key={c.name}
-										charte={c}
-										isActive={false}
-										hasDoc={hasDoc}
-										onOpen={() => setPreview(c)}
-										onEdit={() => setEditing(c)}
-										onApply={() => applyCharte(c.name)}
-										onUnapply={unapplyCharte}
-										menuOpen={menuFor === c.name}
-										onMenuOpen={() => setMenuFor(c.name)}
-										onMenuClose={() => setMenuFor(null)}
-									/>
+									<CharteRow key={c.name} {...charteItemFor(c, false)} />
 								))}
 							</div>
 						)}
@@ -352,31 +321,29 @@ function EmptyState() {
 	);
 }
 
-interface CharteCommonProps {
+interface CharteItemModel {
 	charte: Charte;
 	isActive: boolean;
 	hasDoc: boolean;
-	onOpen: () => void;
-	onEdit: () => void;
-	onApply: () => void;
-	onUnapply: () => void;
-	menuOpen: boolean;
-	onMenuOpen: () => void;
-	onMenuClose: () => void;
 }
 
-function CharteRow({
-	charte,
-	isActive,
-	hasDoc,
-	onOpen,
-	onEdit,
-	onApply,
-	onUnapply,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-}: CharteCommonProps) {
+interface CharteItemActions {
+	open: () => void;
+	edit: () => void;
+	apply: () => void;
+	unapply: () => void;
+	openMenu: () => void;
+	closeMenu: () => void;
+}
+
+interface CharteItemProps {
+	model: CharteItemModel;
+	actions: CharteItemActions;
+	menuOpen: boolean;
+}
+
+function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -387,7 +354,7 @@ function CharteRow({
 		<div className="relative group">
 			<button
 				type="button"
-				onClick={onOpen}
+				onClick={actions.open}
 				className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all ${
 					isActive
 						? "bg-accent/10 ring-2 ring-accent/30"
@@ -450,13 +417,13 @@ function CharteRow({
 					<span
 						onClick={(e) => {
 							e.stopPropagation();
-							onApply();
+							actions.apply();
 						}}
 						onKeyDown={(e) => {
 							if (e.key === "Enter" || e.key === " ") {
 								e.stopPropagation();
 								e.preventDefault();
-								onApply();
+								actions.apply();
 							}
 						}}
 						role="button"
@@ -473,8 +440,8 @@ function CharteRow({
 				aria-label={t("charte_menu")}
 				onClick={(e) => {
 					e.stopPropagation();
-					if (menuOpen) onMenuClose();
-					else onMenuOpen();
+					if (menuOpen) actions.closeMenu();
+					else actions.openMenu();
 				}}
 				className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
 					menuOpen
@@ -485,34 +452,14 @@ function CharteRow({
 				<MoreVertical size={14} />
 			</button>
 			{menuOpen && (
-				<CharteMenu
-					charte={charte}
-					isActive={isActive}
-					hasDoc={hasDoc}
-					onClose={onMenuClose}
-					onApply={onApply}
-					onUnapply={onUnapply}
-					onOpen={onOpen}
-					onEdit={onEdit}
-					anchorRef={menuBtnRef}
-				/>
+				<CharteMenu model={model} actions={actions} anchorRef={menuBtnRef} />
 			)}
 		</div>
 	);
 }
 
-function CharteCard({
-	charte,
-	isActive,
-	hasDoc,
-	onOpen,
-	onEdit,
-	onApply,
-	onUnapply,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-}: CharteCommonProps) {
+function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -525,7 +472,7 @@ function CharteCard({
 		<div className="relative group/card">
 			<button
 				type="button"
-				onClick={onOpen}
+				onClick={actions.open}
 				className={`w-full rounded-xl overflow-hidden border text-left transition ${
 					isActive
 						? "border-accent ring-4 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.15)]"
@@ -585,13 +532,13 @@ function CharteCard({
 						<span
 							onClick={(e) => {
 								e.stopPropagation();
-								onApply();
+								actions.apply();
 							}}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") {
 									e.stopPropagation();
 									e.preventDefault();
-									onApply();
+									actions.apply();
 								}
 							}}
 							role="button"
@@ -610,8 +557,8 @@ function CharteCard({
 				aria-label={t("charte_menu")}
 				onClick={(e) => {
 					e.stopPropagation();
-					if (menuOpen) onMenuClose();
-					else onMenuOpen();
+					if (menuOpen) actions.closeMenu();
+					else actions.openMenu();
 				}}
 				className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-md flex items-center justify-center transition backdrop-blur-sm ${
 					menuOpen
@@ -622,45 +569,20 @@ function CharteCard({
 				<MoreVertical size={14} />
 			</button>
 			{menuOpen && (
-				<CharteMenu
-					charte={charte}
-					isActive={isActive}
-					hasDoc={hasDoc}
-					onClose={onMenuClose}
-					onApply={onApply}
-					onUnapply={onUnapply}
-					onOpen={onOpen}
-					onEdit={onEdit}
-					anchorRef={menuBtnRef}
-				/>
+				<CharteMenu model={model} actions={actions} anchorRef={menuBtnRef} />
 			)}
 		</div>
 	);
 }
 
 interface CharteMenuProps {
-	charte: Charte;
-	isActive: boolean;
-	hasDoc: boolean;
-	onClose: () => void;
-	onApply: () => void;
-	onUnapply: () => void;
-	onOpen: () => void;
-	onEdit: () => void;
+	model: CharteItemModel;
+	actions: CharteItemActions;
 	anchorRef: React.RefObject<HTMLElement | null>;
 }
 
-function CharteMenu({
-	charte,
-	isActive,
-	hasDoc,
-	onClose,
-	onApply,
-	onUnapply,
-	onOpen,
-	onEdit,
-	anchorRef,
-}: CharteMenuProps) {
+function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
+	const { charte, isActive, hasDoc } = model;
 	const t = useT();
 	const ref = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -683,12 +605,12 @@ function CharteMenu({
 		const onDocClick = (e: MouseEvent) => {
 			if (ref.current?.contains(e.target as Node)) return;
 			if (anchorRef.current?.contains(e.target as Node)) return;
-			onClose();
+			actions.closeMenu();
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
+			if (e.key === "Escape") actions.closeMenu();
 		};
-		const onScroll = () => onClose();
+		const onScroll = () => actions.closeMenu();
 		document.addEventListener("mousedown", onDocClick);
 		document.addEventListener("keydown", onKey);
 		window.addEventListener("scroll", onScroll, true);
@@ -699,13 +621,13 @@ function CharteMenu({
 			window.removeEventListener("scroll", onScroll, true);
 			window.removeEventListener("resize", onScroll);
 		};
-	}, [onClose, anchorRef]);
+	}, [actions, anchorRef]);
 
 	if (!pos) return null;
 
 	const handleCopyName = async () => {
 		await copyToClipboard(charte.name);
-		onClose();
+		actions.closeMenu();
 	};
 
 	return createPortal(
@@ -717,8 +639,8 @@ function CharteMenu({
 			<MenuItem
 				icon={<Search size={13} />}
 				onClick={() => {
-					onOpen();
-					onClose();
+					actions.open();
+					actions.closeMenu();
 				}}
 			>
 				{t("charte_details")}
@@ -726,8 +648,8 @@ function CharteMenu({
 			<MenuItem
 				icon={<Pencil size={13} />}
 				onClick={() => {
-					onEdit();
-					onClose();
+					actions.edit();
+					actions.closeMenu();
 				}}
 			>
 				{t("charte_edit")}
@@ -736,8 +658,8 @@ function CharteMenu({
 				<MenuItem
 					icon={<Check size={13} />}
 					onClick={() => {
-						onApply();
-						onClose();
+						actions.apply();
+						actions.closeMenu();
 					}}
 				>
 					{t("apply")}
@@ -747,8 +669,8 @@ function CharteMenu({
 				<MenuItem
 					icon={<X size={13} />}
 					onClick={() => {
-						onUnapply();
-						onClose();
+						actions.unapply();
+						actions.closeMenu();
 					}}
 				>
 					{t("charte_unapply")}

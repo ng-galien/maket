@@ -418,6 +418,34 @@ export function DocsTab() {
 		}
 		clearSelection();
 	};
+	const docItemFor = (d: DocSummary): DocItemProps => ({
+		model: {
+			doc: d,
+			onWs: isOnWorkspace(d.name),
+			selected: selected.has(d.name),
+			menuOpen: menuFor === d.name,
+			mode:
+				modeFor?.name === d.name ? modeFor.mode : ({ kind: "idle" } as RowMode),
+			canDelete: docList.length > 1,
+			dragging: draggingName === d.name,
+		},
+		actions: {
+			click: (e) => handleRowClick(d.name, e),
+			openMenu: () => setMenuFor(d.name),
+			closeMenu: () => setMenuFor(null),
+			changeMode: (mode) =>
+				setModeFor(mode.kind === "idle" ? null : { name: d.name, mode }),
+			dragStart: (e) => {
+				e.dataTransfer.effectAllowed = "move";
+				e.dataTransfer.setData(DRAG_MIME, d.name);
+				setDraggingName(d.name);
+			},
+			dragEnd: () => {
+				setDraggingName(null);
+				setDragOverCat(null);
+			},
+		},
+	});
 
 	return (
 		<div
@@ -609,34 +637,7 @@ export function DocsTab() {
 								}
 							>
 								{docs.map((d) => {
-									const rowProps = {
-										doc: d,
-										onWs: isOnWorkspace(d.name),
-										selected: selected.has(d.name),
-										onClick: (e: React.MouseEvent) => handleRowClick(d.name, e),
-										menuOpen: menuFor === d.name,
-										onMenuOpen: () => setMenuFor(d.name),
-										onMenuClose: () => setMenuFor(null),
-										mode:
-											modeFor?.name === d.name
-												? modeFor.mode
-												: ({ kind: "idle" } as RowMode),
-										onModeChange: (mode: RowMode) =>
-											setModeFor(
-												mode.kind === "idle" ? null : { name: d.name, mode },
-											),
-										canDelete: docList.length > 1,
-										dragging: draggingName === d.name,
-										onDragStart: (e: React.DragEvent) => {
-											e.dataTransfer.effectAllowed = "move";
-											e.dataTransfer.setData(DRAG_MIME, d.name);
-											setDraggingName(d.name);
-										},
-										onDragEnd: () => {
-											setDraggingName(null);
-											setDragOverCat(null);
-										},
-									};
+									const rowProps = docItemFor(d);
 									return view === "grid" ? (
 										<DocCard key={d.name} {...rowProps} />
 									) : (
@@ -657,16 +658,17 @@ export function DocsTab() {
 
 			{selected.size > 0 && (
 				<BulkActionBar
-					selected={selected}
-					docList={docList}
-					onClear={clearSelection}
-					onLock={() => bulkLock(true)}
-					onUnlock={() => bulkLock(false)}
-					onRecategorize={bulkRecategorize}
-					onDelete={bulkDelete}
-					onExport={() => {
-						exportMaketBundle([...selected]);
-						clearSelection();
+					model={{ selected, docList }}
+					actions={{
+						clear: clearSelection,
+						lock: () => bulkLock(true),
+						unlock: () => bulkLock(false),
+						recategorize: bulkRecategorize,
+						delete: bulkDelete,
+						export: () => {
+							exportMaketBundle([...selected]);
+							clearSelection();
+						},
 					}}
 				/>
 			)}
@@ -674,27 +676,27 @@ export function DocsTab() {
 	);
 }
 
-interface BulkActionBarProps {
+interface BulkActionBarModel {
 	selected: Set<string>;
 	docList: DocSummary[];
-	onClear: () => void;
-	onLock: () => void;
-	onUnlock: () => void;
-	onRecategorize: (cat: string) => void;
-	onDelete: () => void;
-	onExport: () => void;
 }
 
-function BulkActionBar({
-	selected,
-	docList,
-	onClear,
-	onLock,
-	onUnlock,
-	onRecategorize,
-	onDelete,
-	onExport,
-}: BulkActionBarProps) {
+interface BulkActionBarActions {
+	clear: () => void;
+	lock: () => void;
+	unlock: () => void;
+	recategorize: (cat: string) => void;
+	delete: () => void;
+	export: () => void;
+}
+
+interface BulkActionBarProps {
+	model: BulkActionBarModel;
+	actions: BulkActionBarActions;
+}
+
+function BulkActionBar({ model, actions }: BulkActionBarProps) {
+	const { selected, docList } = model;
 	const t = useT();
 	const [showCatPicker, setShowCatPicker] = useState(false);
 	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
@@ -755,7 +757,7 @@ function BulkActionBar({
 										type="button"
 										onClick={() => {
 											setShowCatPicker(false);
-											onRecategorize(cat);
+											actions.recategorize(cat);
 										}}
 										className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
 									>
@@ -773,7 +775,7 @@ function BulkActionBar({
 											const value = e.currentTarget.value.trim();
 											setCreatingCat(false);
 											setShowCatPicker(false);
-											if (value) onRecategorize(value);
+											if (value) actions.recategorize(value);
 										} else if (e.key === "Escape") {
 											e.currentTarget.value = "";
 											setCreatingCat(false);
@@ -796,7 +798,7 @@ function BulkActionBar({
 				</div>
 				<button
 					type="button"
-					onClick={onExport}
+					onClick={actions.export}
 					className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition inline-flex items-center gap-1"
 				>
 					<Download size={12} />
@@ -805,7 +807,7 @@ function BulkActionBar({
 				{anyUnlocked && (
 					<button
 						type="button"
-						onClick={onLock}
+						onClick={actions.lock}
 						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
 					>
 						{t("doc_lock")}
@@ -814,7 +816,7 @@ function BulkActionBar({
 				{anyLocked && (
 					<button
 						type="button"
-						onClick={onUnlock}
+						onClick={actions.unlock}
 						className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition"
 					>
 						{t("doc_unlock")}
@@ -825,7 +827,7 @@ function BulkActionBar({
 						type="button"
 						onClick={() => {
 							setShowConfirmDelete(false);
-							onDelete();
+							actions.delete();
 						}}
 						className="px-2 py-1 rounded-md text-xs font-bold bg-danger text-white hover:brightness-110 transition"
 					>
@@ -848,7 +850,7 @@ function BulkActionBar({
 			</div>
 			<button
 				type="button"
-				onClick={onClear}
+				onClick={actions.clear}
 				aria-label={t("bulk_clear")}
 				className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.05] transition"
 			>
@@ -860,42 +862,32 @@ function BulkActionBar({
 	);
 }
 
-interface DocRowProps {
+interface DocItemModel {
 	doc: DocSummary;
 	onWs: boolean;
 	selected: boolean;
-	onClick: (e: React.MouseEvent) => void;
 	menuOpen: boolean;
-	onMenuOpen: () => void;
-	onMenuClose: () => void;
 	mode: RowMode;
-	onModeChange: (mode: RowMode) => void;
 	canDelete: boolean;
 	dragging: boolean;
-	onDragStart: (e: React.DragEvent) => void;
-	onDragEnd: (e: React.DragEvent) => void;
 }
 
-/**
- * Grid-view card — a scaled iframe preview over the doc's first page plus
- * a caption strip. Uses the same mode state machine as DocRow so rename /
- * duplicate / confirm-delete flows stay consistent between views.
- */
-function DocCard({
-	doc,
-	onWs,
-	selected,
-	onClick,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-	mode,
-	onModeChange,
-	canDelete,
-	dragging,
-	onDragStart,
-	onDragEnd,
-}: DocRowProps) {
+interface DocItemActions {
+	click: (e: React.MouseEvent) => void;
+	openMenu: () => void;
+	closeMenu: () => void;
+	changeMode: (mode: RowMode) => void;
+	dragStart: (e: React.DragEvent) => void;
+	dragEnd: (e: React.DragEvent) => void;
+}
+
+interface DocItemProps {
+	model: DocItemModel;
+	actions: DocItemActions;
+}
+
+function DocCard({ model, actions }: DocItemProps) {
+	const { doc, onWs, selected, menuOpen, mode, canDelete, dragging } = model;
 	const t = useT();
 	const locked = doc.locked === true;
 	const editing = mode.kind === "rename" || mode.kind === "duplicate";
@@ -915,13 +907,13 @@ function DocCard({
 					e.preventDefault();
 					return;
 				}
-				onDragStart(e);
+				actions.dragStart(e);
 			}}
-			onDragEnd={onDragEnd}
+			onDragEnd={actions.dragEnd}
 		>
 			<button
 				type="button"
-				onClick={onClick}
+				onClick={actions.click}
 				className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${
 					selected
 						? "border-accent ring-4 ring-accent/30 shadow-[0_8px_24px_rgba(16,185,129,0.18)]"
@@ -974,7 +966,7 @@ function DocCard({
 						}
 						onCommit={(value) => {
 							const trimmed = value.trim();
-							onModeChange({ kind: "idle" });
+							actions.changeMode({ kind: "idle" });
 							if (!trimmed) return;
 							if (mode.kind === "rename") {
 								if (trimmed === doc.name) return;
@@ -983,7 +975,7 @@ function DocCard({
 								sendDuplicateDoc(doc.name, trimmed);
 							}
 						}}
-						onCancel={() => onModeChange({ kind: "idle" })}
+						onCancel={() => actions.changeMode({ kind: "idle" })}
 					/>
 				</div>
 			) : confirming ? (
@@ -991,10 +983,10 @@ function DocCard({
 					<HoldToDelete
 						label={t("doc_delete_hold", { name: doc.name })}
 						onConfirm={() => {
-							onModeChange({ kind: "idle" });
+							actions.changeMode({ kind: "idle" });
 							sendDeleteDoc(doc.name);
 						}}
-						onCancel={() => onModeChange({ kind: "idle" })}
+						onCancel={() => actions.changeMode({ kind: "idle" })}
 					/>
 				</div>
 			) : (
@@ -1034,8 +1026,8 @@ function DocCard({
 						aria-label={t("doc_menu")}
 						onClick={(e) => {
 							e.stopPropagation();
-							if (menuOpen) onMenuClose();
-							else onMenuOpen();
+							if (menuOpen) actions.closeMenu();
+							else actions.openMenu();
 						}}
 						className={`w-6 h-6 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
 							menuOpen
@@ -1050,44 +1042,31 @@ function DocCard({
 
 			{menuOpen && (
 				<DocMenu
-					doc={doc}
-					onClose={onMenuClose}
-					canDelete={canDelete}
-					locked={locked}
+					model={{ doc, canDelete, locked }}
+					actions={{
+						close: actions.closeMenu,
+						rename: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "rename" });
+						},
+						duplicate: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "duplicate" });
+						},
+						requestDelete: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "confirm-delete" });
+						},
+					}}
 					anchorRef={menuButtonRef}
-					onRename={() => {
-						onMenuClose();
-						onModeChange({ kind: "rename" });
-					}}
-					onDuplicate={() => {
-						onMenuClose();
-						onModeChange({ kind: "duplicate" });
-					}}
-					onDeleteRequest={() => {
-						onMenuClose();
-						onModeChange({ kind: "confirm-delete" });
-					}}
 				/>
 			)}
 		</div>
 	);
 }
 
-function DocRow({
-	doc,
-	onWs,
-	selected,
-	onClick,
-	menuOpen,
-	onMenuOpen,
-	onMenuClose,
-	mode,
-	onModeChange,
-	canDelete,
-	dragging,
-	onDragStart,
-	onDragEnd,
-}: DocRowProps) {
+function DocRow({ model, actions }: DocItemProps) {
+	const { doc, onWs, selected, menuOpen, mode, canDelete, dragging } = model;
 	const t = useT();
 	const locked = doc.locked === true;
 	const editing = mode.kind === "rename" || mode.kind === "duplicate";
@@ -1103,9 +1082,9 @@ function DocRow({
 					e.preventDefault();
 					return;
 				}
-				onDragStart(e);
+				actions.dragStart(e);
 			}}
-			onDragEnd={onDragEnd}
+			onDragEnd={actions.dragEnd}
 		>
 			{editing ? (
 				<InlineNameEditor
@@ -1117,7 +1096,7 @@ function DocRow({
 					}
 					onCommit={(value) => {
 						const trimmed = value.trim();
-						onModeChange({ kind: "idle" });
+						actions.changeMode({ kind: "idle" });
 						if (!trimmed) return;
 						if (mode.kind === "rename") {
 							if (trimmed === doc.name) return;
@@ -1126,12 +1105,12 @@ function DocRow({
 							sendDuplicateDoc(doc.name, trimmed);
 						}
 					}}
-					onCancel={() => onModeChange({ kind: "idle" })}
+					onCancel={() => actions.changeMode({ kind: "idle" })}
 				/>
 			) : (
 				<button
 					type="button"
-					onClick={onClick}
+					onClick={actions.click}
 					className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${
 						selected
 							? "bg-accent/10 ring-2 ring-accent/30"
@@ -1210,10 +1189,10 @@ function DocRow({
 				<HoldToDelete
 					label={t("doc_delete_hold", { name: doc.name })}
 					onConfirm={() => {
-						onModeChange({ kind: "idle" });
+						actions.changeMode({ kind: "idle" });
 						sendDeleteDoc(doc.name);
 					}}
-					onCancel={() => onModeChange({ kind: "idle" })}
+					onCancel={() => actions.changeMode({ kind: "idle" })}
 				/>
 			)}
 
@@ -1224,8 +1203,8 @@ function DocRow({
 					aria-label={t("doc_menu")}
 					onClick={(e) => {
 						e.stopPropagation();
-						if (menuOpen) onMenuClose();
-						else onMenuOpen();
+						if (menuOpen) actions.closeMenu();
+						else actions.openMenu();
 					}}
 					className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
 						menuOpen
@@ -1239,23 +1218,23 @@ function DocRow({
 
 			{menuOpen && (
 				<DocMenu
-					doc={doc}
-					onClose={onMenuClose}
-					canDelete={canDelete}
-					locked={locked}
+					model={{ doc, canDelete, locked }}
+					actions={{
+						close: actions.closeMenu,
+						rename: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "rename" });
+						},
+						duplicate: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "duplicate" });
+						},
+						requestDelete: () => {
+							actions.closeMenu();
+							actions.changeMode({ kind: "confirm-delete" });
+						},
+					}}
 					anchorRef={menuButtonRef}
-					onRename={() => {
-						onMenuClose();
-						onModeChange({ kind: "rename" });
-					}}
-					onDuplicate={() => {
-						onMenuClose();
-						onModeChange({ kind: "duplicate" });
-					}}
-					onDeleteRequest={() => {
-						onMenuClose();
-						onModeChange({ kind: "confirm-delete" });
-					}}
 				/>
 			)}
 		</div>
@@ -1312,30 +1291,27 @@ function InlineNameEditor({
 	);
 }
 
-interface DocMenuProps {
+interface DocMenuModel {
 	doc: DocSummary;
-	onClose: () => void;
 	canDelete: boolean;
 	locked: boolean;
-	onRename: () => void;
-	onDuplicate: () => void;
-	onDeleteRequest: () => void;
-	/** The ⋮ button that opened the menu — used to anchor the popover with
-	 * fixed coordinates so ancestor `overflow-hidden` containers (SidePanel,
-	 * scrollable panel) can't clip it. */
+}
+
+interface DocMenuActions {
+	close: () => void;
+	rename: () => void;
+	duplicate: () => void;
+	requestDelete: () => void;
+}
+
+interface DocMenuProps {
+	model: DocMenuModel;
+	actions: DocMenuActions;
 	anchorRef: React.RefObject<HTMLElement | null>;
 }
 
-function DocMenu({
-	doc,
-	onClose,
-	canDelete,
-	locked,
-	onRename,
-	onDuplicate,
-	onDeleteRequest,
-	anchorRef,
-}: DocMenuProps) {
+function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
+	const { doc, canDelete, locked } = model;
 	const t = useT();
 	const ref = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
@@ -1361,12 +1337,12 @@ function DocMenu({
 		const onDocClick = (e: MouseEvent) => {
 			if (ref.current?.contains(e.target as Node)) return;
 			if (anchorRef.current?.contains(e.target as Node)) return;
-			onClose();
+			actions.close();
 		};
 		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") onClose();
+			if (e.key === "Escape") actions.close();
 		};
-		const onScroll = () => onClose();
+		const onScroll = () => actions.close();
 		document.addEventListener("mousedown", onDocClick);
 		document.addEventListener("keydown", onKey);
 		window.addEventListener("scroll", onScroll, true);
@@ -1377,16 +1353,16 @@ function DocMenu({
 			window.removeEventListener("scroll", onScroll, true);
 			window.removeEventListener("resize", onScroll);
 		};
-	}, [onClose, anchorRef]);
+	}, [actions, anchorRef]);
 
 	const handleCopy = async () => {
 		await copyToClipboard(doc.name);
-		onClose();
+		actions.close();
 	};
 
 	const handleLock = () => {
 		sendLockDoc(doc.name, !locked);
-		onClose();
+		actions.close();
 	};
 
 	if (!pos) return null;
@@ -1402,19 +1378,19 @@ function DocMenu({
 			</MenuItem>
 			<MenuItem
 				icon={<Pencil size={13} />}
-				onClick={onRename}
+				onClick={actions.rename}
 				disabled={locked}
 			>
 				{t("doc_rename")}
 			</MenuItem>
-			<MenuItem icon={<Files size={13} />} onClick={onDuplicate}>
+			<MenuItem icon={<Files size={13} />} onClick={actions.duplicate}>
 				{t("doc_duplicate")}
 			</MenuItem>
 			<MenuItem
 				icon={<Download size={13} />}
 				onClick={() => {
 					exportMaketBundle([doc.name]);
-					onClose();
+					actions.close();
 				}}
 			>
 				{t("doc_export_maket")}
@@ -1428,7 +1404,7 @@ function DocMenu({
 			<div className="h-px bg-black/[0.06] my-1" />
 			<MenuItem
 				icon={<Trash2 size={13} />}
-				onClick={onDeleteRequest}
+				onClick={actions.requestDelete}
 				disabled={locked || !canDelete}
 				danger
 			>

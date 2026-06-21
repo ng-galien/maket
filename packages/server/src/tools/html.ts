@@ -356,7 +356,7 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 				case "set": {
 					const locked = lockGuard(doc);
 					if (locked) return locked;
-					return runSet(
+					return runSet({
 						args,
 						doc,
 						page,
@@ -365,7 +365,7 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 						store,
 						layout,
 						assets,
-					);
+					});
 				}
 				case "patch": {
 					const locked = lockGuard(doc);
@@ -383,16 +383,20 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketHtmlSchema>;
 
-async function runSet(
-	args: Args,
-	doc: Document,
-	page: Page,
-	pageIdx: number,
-	documents: Documents,
-	store: Store,
-	layout: LayoutService,
-	assets: AssetsService,
-): Promise<ToolResult> {
+interface HtmlSetContext {
+	args: Args;
+	doc: Document;
+	page: Page;
+	pageIdx: number;
+	documents: Documents;
+	store: Store;
+	layout: LayoutService;
+	assets: AssetsService;
+}
+
+async function runSet(context: HtmlSetContext): Promise<ToolResult> {
+	const { args, doc, page, pageIdx, documents, store, layout, assets } =
+		context;
 	if (args.html == null) return text("html is required for action=set", true);
 
 	if (doc.meta?.charte) {

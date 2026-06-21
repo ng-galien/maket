@@ -244,18 +244,23 @@ export function CharteEditModal({ charte, onClose }: Props) {
 						{TOKEN_GROUPS.map((group) => (
 							<TokenGroup
 								key={group}
-								group={group}
-								label={t(`charte_edit_token_group_${group}`)}
-								rows={tokens[group]}
-								onChange={(idx, field, value) =>
-									updateRow(group, idx, field, value)
-								}
-								onAdd={() => addRow(group)}
-								onRemove={(idx) => removeRow(group, idx)}
-								addLabel={t("charte_edit_token_add")}
-								keyLabel={t("charte_edit_token_key")}
-								valueLabel={t("charte_edit_token_value")}
-								removeLabel={t("charte_edit_token_remove")}
+								model={{
+									group,
+									label: t(`charte_edit_token_group_${group}`),
+									rows: tokens[group],
+								}}
+								actions={{
+									change: (idx, field, value) =>
+										updateRow(group, idx, field, value),
+									add: () => addRow(group),
+									remove: (idx) => removeRow(group, idx),
+								}}
+								labels={{
+									add: t("charte_edit_token_add"),
+									key: t("charte_edit_token_key"),
+									value: t("charte_edit_token_value"),
+									remove: t("charte_edit_token_remove"),
+								}}
 							/>
 						))}
 					</section>
@@ -372,71 +377,72 @@ function Field({
 	);
 }
 
-interface TokenGroupProps {
+interface TokenGroupModel {
 	label: string;
 	group: TokenGroupKey;
 	rows: TokenRow[];
-	onChange: (idx: number, field: 0 | 1, value: string) => void;
-	onAdd: () => void;
-	onRemove: (idx: number) => void;
-	addLabel: string;
-	keyLabel: string;
-	valueLabel: string;
-	removeLabel: string;
 }
 
-function TokenGroup({
-	label,
-	group,
-	rows,
-	onChange,
-	onAdd,
-	onRemove,
-	addLabel,
-	keyLabel,
-	valueLabel,
-	removeLabel,
-}: TokenGroupProps) {
+interface TokenGroupActions {
+	change: (idx: number, field: 0 | 1, value: string) => void;
+	add: () => void;
+	remove: (idx: number) => void;
+}
+
+interface TokenGroupLabels {
+	add: string;
+	key: string;
+	value: string;
+	remove: string;
+}
+
+interface TokenGroupProps {
+	model: TokenGroupModel;
+	actions: TokenGroupActions;
+	labels: TokenGroupLabels;
+}
+
+function TokenGroup({ model, actions, labels }: TokenGroupProps) {
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex items-center justify-between">
 				<span className="text-2xs font-semibold text-text-3 uppercase tracking-wider">
-					{label}
+					{model.label}
 				</span>
 				<button
 					type="button"
-					onClick={onAdd}
+					onClick={actions.add}
 					className="flex items-center gap-1 text-xs font-semibold text-accent hover:brightness-110 transition"
 				>
 					<Plus size={12} />
-					{addLabel}
+					{labels.add}
 				</button>
 			</div>
-			{rows.length === 0 ? (
+			{model.rows.length === 0 ? (
 				<div className="text-2xs text-text-3 italic px-1">—</div>
 			) : (
 				<div className="flex flex-col gap-1.5">
-					{rows.map((row, idx) => (
+					{model.rows.map((row, idx) => (
 						<div key={row.id} className="flex items-center gap-1.5">
 							<input
 								value={row.key}
-								onChange={(e) => onChange(idx, 0, e.target.value)}
-								placeholder={keyLabel}
+								onChange={(e) => actions.change(idx, 0, e.target.value)}
+								placeholder={labels.key}
 								className="flex-1 px-2.5 py-1.5 bg-input rounded-md text-sm outline-none focus:ring-2 focus:ring-accent/20"
 							/>
 							<TokenValueInput
-								group={group}
+								group={model.group}
 								value={row.value}
-								onChange={(v) => onChange(idx, 1, v)}
-								placeholder={valueLabel}
+								onChange={(v) => actions.change(idx, 1, v)}
+								placeholder={labels.value}
 							/>
 							<button
 								type="button"
-								onClick={() => onRemove(idx)}
+								onClick={() => actions.remove(idx)}
 								aria-label={
 									row.key.trim()
-										? `${removeLabel} "${row.key.trim()}"`
-										: removeLabel
+										? `${labels.remove} "${row.key.trim()}"`
+										: labels.remove
 								}
 								className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:text-danger hover:bg-danger-soft transition"
 							>
