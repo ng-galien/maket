@@ -10,7 +10,11 @@
  * targeting a specific page.
  */
 
-import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
+import type {
+	Collection,
+	WorkspaceCommand,
+	WorkspaceStateSignal,
+} from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
 import { composeCharteCss } from "../lib/charte-css.js";
@@ -23,6 +27,8 @@ import {
 } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { Bus } from "./bus.js";
+import type { Collections } from "./collections.js";
+import { createCollections } from "./collections.js";
 import type { Documents } from "./documents.js";
 import type { Pending } from "./pending.js";
 import type { Store } from "./store.js";
@@ -37,6 +43,7 @@ export type WorkspaceCommandHandler = (
 export interface WsHandlerDeps {
 	assets: AssetsService;
 	bus: Bus;
+	collections?: Collections;
 	documents: Documents;
 	pending: Pending;
 	store: Store;
@@ -47,16 +54,20 @@ export interface WsHandlerDeps {
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
-interface WsHandlerContext extends WsHandlerDeps {
+interface WsHandlerContext extends Omit<WsHandlerDeps, "collections"> {
+	collections: Collections;
 	broadcastState(d: Document | null): void;
 	wsDoc(msg: { docName?: string }): Document | null;
 }
 
 export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
+	const collections =
+		deps.collections ?? createCollections({ bus, documents, store });
 	const ctx: WsHandlerContext = {
 		assets,
 		bus,
+		collections,
 		documents,
 		pending,
 		store,
@@ -69,6 +80,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 				type: "state",
 				doc: documents.lightView(d),
 				docList: documents.list(),
+				collections: collections.loadAll(),
 				charteCss: documents.charteCss(d),
 			});
 		},
@@ -110,6 +122,18 @@ function dispatchWorkspaceCommand(
 		case "update_charte_meta":
 			handleUpdateCharteMeta(ctx, msg);
 			break;
+		case "collection_save":
+			handleCollectionSave(ctx, msg);
+			break;
+		case "collection_delete":
+			handleCollectionDelete(ctx, msg);
+			break;
+		case "collection_bind_page":
+			handleCollectionBindPage(ctx, msg);
+			break;
+		case "collection_clear_page":
+			handleCollectionClearPage(ctx, msg);
+			break;
 		case "delete_asset":
 			handleDeleteAsset(ctx, msg);
 			break;
@@ -143,6 +167,76 @@ function dispatchWorkspaceCommand(
 	}
 }
 
+function handleCollectionSave(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "collection_save" }>,
+): void {
+	if (!isPlainObject(msg.collection)) {
+		ctx.bus.emit("toast", {
+			text: "Collection payload must be an object",
+			level: "error",
+		});
+		return;
+	}
+	try {
+		ctx.collections.save(msg.collection as unknown as Collection);
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			text: error instanceof Error ? error.message : String(error),
+			level: "error",
+		});
+	}
+}
+
+function handleCollectionDelete(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "collection_delete" }>,
+): void {
+	if (!msg.name) return;
+	try {
+		ctx.collections.delete(msg.name);
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			text: error instanceof Error ? error.message : String(error),
+			level: "error",
+		});
+	}
+}
+
+function handleCollectionBindPage(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "collection_bind_page" }>,
+): void {
+	try {
+		const doc = ctx.collections.bindPage(
+			msg.docName,
+			msg.pageIndex,
+			msg.collectionName,
+		);
+		ctx.broadcastState(doc);
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			text: error instanceof Error ? error.message : String(error),
+			level: "error",
+		});
+	}
+}
+
+function handleCollectionClearPage(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "collection_clear_page" }>,
+): void {
+	try {
+		const doc = ctx.collections.clearPageBinding(msg.docName, msg.pageIndex);
+		ctx.broadcastState(doc);
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			text: error instanceof Error ? error.message : String(error),
+			level: "error",
+		});
+	}
+}
+
 function handleLoadDocument(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
@@ -161,6 +255,7 @@ function handleLoadDocument(
 		type: "state",
 		doc: ctx.documents.lightView(requested),
 		docList: ctx.documents.list(),
+		collections: ctx.collections.loadAll(),
 		charteCss: ctx.documents.charteCss(requested),
 		addToWorkspace: true,
 		focus: true,

@@ -50,6 +50,27 @@ describe("SQLiteStore", () => {
 		store.close();
 	});
 
+	it("preserves page collection references across save and load", () => {
+		const store = createSQLiteStore(":memory:");
+		const d = createDocument({
+			...makeDoc("bound"),
+			pages: [
+				{
+					id: "page-a",
+					name: "A",
+					elements: [],
+					html: "<p>{{ client_name }}</p>",
+					collection: { name: "clients" },
+				},
+			],
+		});
+		store.saveDoc(d);
+
+		const loaded = store.loadOne("bound");
+		expect(loaded?.pages[0]?.collection).toEqual({ name: "clients" });
+		store.close();
+	});
+
 	it("loadAll returns every saved document", () => {
 		const store = createSQLiteStore(":memory:");
 		store.saveDocs([makeDoc("a"), makeDoc("b"), makeDoc("c")]);
@@ -99,6 +120,86 @@ describe("SQLiteStore", () => {
 		store.saveCharte({ name: "x", tokens: {} });
 		expect(store.deleteCharte("x")).toBe(true);
 		expect(store.deleteCharte("x")).toBe(false);
+		store.close();
+	});
+
+	it("saves and loads collections with JSON schema and typed rows", () => {
+		const store = createSQLiteStore(":memory:");
+		store.saveCollection({
+			name: "clients",
+			description: "Client data",
+			schema: {
+				type: "object",
+				properties: {
+					client_name: { type: "string" },
+					budget: { type: "number" },
+					active: { type: "boolean" },
+				},
+				required: ["client_name", "budget", "active"],
+				additionalProperties: false,
+			},
+			members: [
+				{
+					id: "member-1",
+					position: 0,
+					data: { client_name: "Acme", budget: 1200.5, active: true },
+				},
+			],
+		});
+
+		const loaded = store.loadCollection("clients");
+		expect(loaded?.schema).toEqual({
+			type: "object",
+			properties: {
+				client_name: { type: "string" },
+				budget: { type: "number" },
+				active: { type: "boolean" },
+			},
+			required: ["client_name", "budget", "active"],
+			additionalProperties: false,
+		});
+		expect(loaded?.members).toEqual([
+			{
+				id: "member-1",
+				position: 0,
+				data: { client_name: "Acme", budget: 1200.5, active: true },
+			},
+		]);
+		store.close();
+	});
+
+	it("rejects collection members that do not match the schema", () => {
+		const store = createSQLiteStore(":memory:");
+		expect(() =>
+			store.saveCollection({
+				name: "clients",
+				schema: {
+					type: "object",
+					properties: { client_name: { type: "string" } },
+					required: ["client_name"],
+					additionalProperties: false,
+				},
+				members: [{ id: "member-1", position: 0, data: { client_name: 42 } }],
+			}),
+		).toThrow('Collection member "member-1" does not match schema');
+		expect(store.loadCollection("clients")).toBeNull();
+		store.close();
+	});
+
+	it("deleteCollection returns true when a collection existed", () => {
+		const store = createSQLiteStore(":memory:");
+		store.saveCollection({
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client_name: { type: "string" } },
+				required: ["client_name"],
+				additionalProperties: false,
+			},
+			members: [{ id: "member-1", position: 0, data: { client_name: "Acme" } }],
+		});
+		expect(store.deleteCollection("clients")).toBe(true);
+		expect(store.deleteCollection("clients")).toBe(false);
 		store.close();
 	});
 

@@ -23,6 +23,7 @@ import { waitForPageStable } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
+import type { Collections } from "./collections.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
 
@@ -44,6 +45,7 @@ export interface PdfService {
 
 export interface PdfServiceDeps {
 	documents: Documents;
+	collections?: Pick<Collections, "renderDocument">;
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
@@ -62,6 +64,9 @@ export function createPdfService(
 	opts: PdfServiceOptions = {},
 ): PdfService {
 	const { documents, config, assets, browserPool } = deps;
+	const collections = deps.collections ?? {
+		renderDocument: (doc: Document) => doc,
+	};
 	const pool: BrowserPool = opts.browserLaunch
 		? {
 				get: opts.browserLaunch,
@@ -71,20 +76,21 @@ export function createPdfService(
 
 	return {
 		async render(doc, quality = "print") {
+			const renderedDoc = collections.renderDocument(doc);
 			const dpi = DPI_PRESETS[quality] || 150;
-			const rawHtmls = doc.pages
+			const rawHtmls = renderedDoc.pages
 				.map((p) => p.html)
 				.filter((h): h is string => Boolean(h));
 			if (rawHtmls.length === 0) throw new Error("No pages with HTML content");
 
-			const charteCss = documents.charteCss(doc);
+			const charteCss = documents.charteCss(renderedDoc);
 			const shadowVars = buildShadowVarMap(charteCss);
 
 			const pageHtmls = await Promise.all(
 				rawHtmls.map(async (html) => {
 					const inlined = await inlineImages(html, {
 						assetsDir: config.ASSETS_DIR,
-						pageMm: { w: doc.canvas.w, h: doc.canvas.h },
+						pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
 						dpi,
 						mimeFromExt: (p) => assets.mimeFromExt(p),
 					});
@@ -92,8 +98,8 @@ export function createPdfService(
 				}),
 			);
 
-			const { w, h } = doc.canvas;
-			const fullHtml = buildPrintHtml(doc, pageHtmls, charteCss);
+			const { w, h } = renderedDoc.canvas;
+			const fullHtml = buildPrintHtml(renderedDoc, pageHtmls, charteCss);
 
 			const b = await pool.get();
 			const p = await b.newPage();

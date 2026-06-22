@@ -19,6 +19,7 @@ import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAssetsService } from "./services/assets.js";
 import { createBrowserPool } from "./services/browser-pool.js";
 import { createBus } from "./services/bus.js";
+import { createCollections } from "./services/collections.js";
 import { type Config, createConfig, ensureDirs } from "./services/config.js";
 import { createDocuments, type Documents } from "./services/documents.js";
 import {
@@ -78,6 +79,8 @@ export function createAppContainer(
 			: asFunction(createDocuments).singleton(),
 
 		pending: asFunction(createPending).singleton(),
+
+		collections: asFunction(createCollections).singleton(),
 
 		wsRegistry: asFunction(createWsRegistry).singleton(),
 

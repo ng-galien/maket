@@ -119,6 +119,8 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 					0,
 				),
 				charte: d.meta?.charte,
+				collection: d.pages.find((page) => page.collection)?.collection,
+				collectionCount: d.pages.filter((page) => page.collection).length,
 				locked: d.meta?.locked === true,
 				updatedAt: timestamps.get(d.name),
 				charteColor: resolveCharteColor(d.meta?.charte),

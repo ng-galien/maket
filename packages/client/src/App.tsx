@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Board } from "./components/Board";
 import { BottomBar } from "./components/BottomBar";
 import { ChartesTab } from "./components/ChartesTab";
+import { CollectionsTab } from "./components/CollectionsTab";
 import { DocsTab } from "./components/DocsTab";
 import { MessagesPanel } from "./components/MessagesPanel";
 import { PhotosTab } from "./components/PhotosTab";
@@ -51,6 +52,14 @@ export default function App() {
 
 			<SidePanel open={activePanel === "docs"} onClose={closePanel} side="left">
 				<DocsTab />
+			</SidePanel>
+
+			<SidePanel
+				open={activePanel === "collections"}
+				onClose={closePanel}
+				side="left"
+			>
+				<CollectionsTab />
 			</SidePanel>
 
 			<Popover />

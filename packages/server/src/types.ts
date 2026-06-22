@@ -6,7 +6,15 @@
 
 import crypto from "node:crypto";
 
-export { computeCanvasDims, FORMATS, SCREEN_FORMATS } from "@maket/shared";
+import type { CollectionReference } from "@maket/shared";
+
+export {
+	type Collection,
+	type CollectionReference,
+	computeCanvasDims,
+	FORMATS,
+	SCREEN_FORMATS,
+} from "@maket/shared";
 
 export interface Margins {
 	top: number;
@@ -75,6 +83,7 @@ export interface Page {
 	elements: unknown[];
 	html?: string;
 	canvas?: Partial<Canvas>;
+	collection?: CollectionReference;
 }
 
 export type PageInit = Page | Omit<Page, "id">;
@@ -150,6 +159,8 @@ export interface DocSummary {
 	rating: number;
 	count: number;
 	charte?: string;
+	collection?: CollectionReference;
+	collectionCount?: number;
 	locked?: boolean;
 	/** ISO-ish timestamp ("2026-04-20 14:59:27") of the last save — used by the
 	 * client to render a relative "N min ago" label. */

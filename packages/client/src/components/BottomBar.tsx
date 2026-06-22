@@ -11,12 +11,13 @@ import {
 	Palette,
 	Printer,
 	Sun,
+	Table,
 } from "lucide-react";
 import { getLang, toggleLang, useT } from "../i18n/useT";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { fitToView } from "../store/zoomBridge";
 
-type PanelName = "chartes" | "photos" | "docs" | "exchange";
+type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
 
 // code-moniker: ignore[smell-feature-envy-local]
 // BottomBar is the client shell adapter: it intentionally composes store selectors, i18n, and command controls without owning their state.
@@ -64,6 +65,13 @@ export function BottomBar() {
 					panel="docs"
 					icon={<FileText size={16} />}
 					title={t("documents")}
+					activePanel={activePanel}
+					onToggle={togglePanel}
+				/>
+				<PanelButton
+					panel="collections"
+					icon={<Table size={16} />}
+					title={t("collections")}
 					activePanel={activePanel}
 					onToggle={togglePanel}
 				/>

@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { memo } from "react";
 import { useDocByName, useStore } from "../store/useStore";
+import { wsSend } from "../store/ws";
 import { PageCanvas } from "./PageCanvas";
 import { DraftPill } from "./shared/DraftPill";
 
@@ -17,6 +18,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 }: Props) {
 	const doc = useDocByName(docName);
 	const charteCss = useStore((s) => s.chartesCss.get(docName) ?? "");
+	const collections = useStore((s) => s.collections);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
 	const pendingCount = useStore(
 		(s) => s.pending.filter((m) => m.docName === docName).length,
@@ -55,6 +57,36 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						>
 							{_page.name || `${i + 1} / ${doc.pages.length}`}
 						</span>
+					)}
+					{isFocused && collections.length > 0 && (
+						<select
+							value={_page.collection?.name ?? ""}
+							onChange={(event) => {
+								const collectionName = event.target.value;
+								wsSend(
+									collectionName
+										? {
+												type: "collection_bind_page",
+												docName,
+												pageIndex: i,
+												collectionName,
+											}
+										: {
+												type: "collection_clear_page",
+												docName,
+												pageIndex: i,
+											},
+								);
+							}}
+							className="mt-1 max-w-[180px] rounded-md bg-panel border border-border text-text-2 text-xs px-2 py-1 outline-none"
+						>
+							<option value="">Page statique</option>
+							{collections.map((collection) => (
+								<option key={collection.name} value={collection.name}>
+									{collection.name}
+								</option>
+							))}
+						</select>
 					)}
 				</div>
 			))}

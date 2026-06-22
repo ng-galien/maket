@@ -1,3 +1,4 @@
+import type { Collection } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import type { DocSummary, Document } from "./types";
@@ -23,17 +24,25 @@ interface AppState {
 	docs: Map<string, Document>;
 	workspaceDocNames: string[];
 	focusedDocName: string | null;
+	focusedCollectionName: string | null;
 
 	// Global
 	docList: DocSummary[];
 	chartesCss: Map<string, string>;
 	chartesVersion: number;
+	collections: Collection[];
 
 	// UI
 	selectedIds: string[];
 	editingElementId: string | null;
 	showPopover: boolean;
-	activePanel: "chartes" | "photos" | "docs" | "exchange" | null;
+	activePanel:
+		| "chartes"
+		| "photos"
+		| "docs"
+		| "collections"
+		| "exchange"
+		| null;
 	barPosition: "top" | "bottom";
 	darkMode: boolean;
 	locked: boolean;
@@ -45,6 +54,8 @@ interface AppState {
 
 	// Actions
 	setConnected: (v: boolean) => void;
+	setCollections: (collections: Collection[]) => void;
+	setFocusedCollection: (name: string | null) => void;
 	upsertDoc: (
 		doc: Document,
 		docList: DocSummary[],
@@ -58,9 +69,11 @@ interface AppState {
 	selectElement: (id: string | null, toggle?: boolean) => void;
 	setEditingElement: (id: string | null) => void;
 	setActivePanel: (
-		v: "chartes" | "photos" | "docs" | "exchange" | null,
+		v: "chartes" | "photos" | "docs" | "collections" | "exchange" | null,
 	) => void;
-	togglePanel: (panel: "chartes" | "photos" | "docs" | "exchange") => void;
+	togglePanel: (
+		panel: "chartes" | "photos" | "docs" | "collections" | "exchange",
+	) => void;
 	setBarPosition: (v: "top" | "bottom") => void;
 	setDarkMode: (v: boolean) => void;
 	toggleDarkMode: () => void;
@@ -116,9 +129,11 @@ export const useStore = create<AppState>((set, get) => ({
 		_savedFocused && _savedWorkspace.includes(_savedFocused)
 			? _savedFocused
 			: null,
+	focusedCollectionName: null,
 	docList: [],
 	chartesCss: new Map(),
 	chartesVersion: 0,
+	collections: [],
 	selectedIds: [],
 	editingElementId: null,
 	showPopover: false,
@@ -134,6 +149,9 @@ export const useStore = create<AppState>((set, get) => ({
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
 	setConnected: (connected) => set({ connected }),
+	setCollections: (collections) => set({ collections }),
+	setFocusedCollection: (focusedCollectionName) =>
+		set({ focusedCollectionName, focusedDocName: null, selectedIds: [] }),
 
 	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
 		set((s) => {
@@ -216,7 +234,11 @@ export const useStore = create<AppState>((set, get) => ({
 		set((s) => {
 			if (s.focusedDocName === docName) return {};
 			localStorage.setItem("maket-focused-doc", docName ?? "");
-			return { focusedDocName: docName, selectedIds: [] };
+			return {
+				focusedDocName: docName,
+				focusedCollectionName: null,
+				selectedIds: [],
+			};
 		}),
 
 	selectElement: (id, toggle = false) =>

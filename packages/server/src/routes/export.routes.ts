@@ -26,6 +26,7 @@ import { stripActiveHtml } from "../lib/strip-active-html.js";
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 
 import type { Bus } from "../services/bus.js";
+import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import {
@@ -39,6 +40,7 @@ import { type Charte, createDocument, type Document } from "../types.js";
 
 export interface ExportRouterDeps {
 	documents: Documents;
+	collections?: Pick<Collections, "renderDocument" | "referencedBy">;
 	pdfService: PdfService;
 	store: Store;
 	bus: Bus;
@@ -51,21 +53,28 @@ function safeName(raw: string): string {
 
 export function createExportRouter({
 	documents,
+	collections,
 	pdfService,
 	store,
 	bus,
 	config,
 }: ExportRouterDeps): Router {
+	const collectionService = collections ?? {
+		renderDocument: (doc: Document) => doc,
+		referencedBy: () => [],
+	};
 	const router = createRouter();
 
 	router.use(requireBrowserContextLoopback);
 
-	router.get("/print", (req, res) => handlePrint(req, res, documents));
+	router.get("/print", (req, res) =>
+		handlePrint(req, res, documents, collectionService),
+	);
 	router.get("/api/export-pdf", (req, res) =>
 		handlePdfExport(req, res, documents, pdfService),
 	);
 	router.get("/api/export-maket", (req, res) =>
-		handleMaketExport(req, res, documents, store, config),
+		handleMaketExport(req, res, documents, collectionService, store, config),
 	);
 	router.post("/api/import-maket", (req, res) =>
 		handleMaketImport(req, res, documents, store, bus, config),
@@ -74,7 +83,12 @@ export function createExportRouter({
 	return router;
 }
 
-function handlePrint(req: Request, res: Response, documents: Documents): void {
+function handlePrint(
+	req: Request,
+	res: Response,
+	documents: Documents,
+	collections: Pick<Collections, "renderDocument">,
+): void {
 	const name = req.query.name as string | undefined;
 	if (!name) {
 		res.status(400).send("Missing ?name= parameter");
@@ -85,23 +99,32 @@ function handlePrint(req: Request, res: Response, documents: Documents): void {
 		res.status(400).send(`Document "${name}" not found`);
 		return;
 	}
-	const rawHtmls = d.pages.map((p) => p.html).filter(Boolean) as string[];
-	if (!rawHtmls.length) {
-		res.status(400).send("No pages with HTML content");
-		return;
+	try {
+		const rendered = collections.renderDocument(d);
+		const rawHtmls = rendered.pages
+			.map((p) => p.html)
+			.filter(Boolean) as string[];
+		if (!rawHtmls.length) {
+			res.status(400).send("No pages with HTML content");
+			return;
+		}
+		const charteCssStr = documents.charteCss(rendered);
+		const shadowVars = buildShadowVarMap(charteCssStr);
+		const pageHtmls = rawHtmls.map((html) =>
+			boxShadowToDropShadow(html, shadowVars),
+		);
+		const printHtml = buildPrintHtml(rendered, pageHtmls, charteCssStr);
+		const html = printHtml.replace(
+			"</body>",
+			"<script>window.onafterprint=()=>window.close();window.onload=()=>setTimeout(()=>window.print(),400)</script></body>",
+		);
+		res.setHeader("Content-Type", "text/html");
+		res.send(html);
+	} catch (error) {
+		res
+			.status(400)
+			.send(error instanceof Error ? error.message : String(error));
 	}
-	const charteCssStr = documents.charteCss(d);
-	const shadowVars = buildShadowVarMap(charteCssStr);
-	const pageHtmls = rawHtmls.map((html) =>
-		boxShadowToDropShadow(html, shadowVars),
-	);
-	const printHtml = buildPrintHtml(d, pageHtmls, charteCssStr);
-	const html = printHtml.replace(
-		"</body>",
-		"<script>window.onafterprint=()=>window.close();window.onload=()=>setTimeout(()=>window.print(),400)</script></body>",
-	);
-	res.setHeader("Content-Type", "text/html");
-	res.send(html);
 }
 
 async function handlePdfExport(
@@ -138,6 +161,7 @@ async function handleMaketExport(
 	req: Request,
 	res: Response,
 	documents: Documents,
+	collections: Pick<Collections, "referencedBy">,
 	store: Store,
 	config: Config,
 ): Promise<void> {
@@ -150,9 +174,10 @@ async function handleMaketExport(
 		const docs = resolveExportDocs(names, documents, res);
 		if (!docs) return;
 		const chartes = loadReferencedChartes(docs, store);
+		const collectionRefs = collections.referencedBy(docs);
 		const refs = collectAssetFilenames(docs);
 		const { assets } = loadAssetsFromDir(refs, config.ASSETS_DIR);
-		const buf = await encodeBundleV2(docs, chartes, assets);
+		const buf = await encodeBundleV2(docs, chartes, collectionRefs, assets);
 		const baseName = docs.length === 1 ? docs[0]?.name : "maket-bundle";
 		res.setHeader("Content-Type", "application/zip");
 		res.setHeader(
@@ -223,10 +248,15 @@ async function handleMaketImport(
 		if (!bundle) return;
 		const imported = importBundleDocuments(bundle, documents, bus);
 		const chartes = importBundleChartes(bundle.chartes, store, bus);
+		const collectionReport = importBundleCollections(
+			bundle.collections,
+			store,
+			bus,
+		);
 		const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);
 		if (assetReport.written > 0) bus.emit("assets:changed", {});
 		bus.emit("toast", {
-			text: `Imported ${imported.documents.length} document(s)${chartes.added.length ? ` + ${chartes.added.length} charte(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
+			text: `Imported ${imported.documents.length} document(s)${chartes.added.length ? ` + ${chartes.added.length} charte(s)` : ""}${collectionReport.added.length ? ` + ${collectionReport.added.length} collection(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
 			level: "success",
 		});
 		res.json({
@@ -236,6 +266,8 @@ async function handleMaketImport(
 			renamed: imported.renamed,
 			chartesAdded: chartes.added,
 			chartesSkipped: chartes.skipped,
+			collectionsAdded: collectionReport.added,
+			collectionsSkipped: collectionReport.skipped,
 			assetsWritten: assetReport.written,
 			assetsSkipped: assetReport.skipped,
 			assetsRejected: assetReport.rejected.length,
@@ -329,6 +361,27 @@ function importBundleChartes(
 			store.saveCharte(c);
 			bus.emit("charte:updated", { name: c.name, css: c.css || "" });
 			added.push(c.name);
+		} catch {}
+	}
+	return { added, skipped };
+}
+
+function importBundleCollections(
+	collections: Awaited<ReturnType<typeof decodeBundle>>["collections"],
+	store: Store,
+	bus: Bus,
+): { added: string[]; skipped: string[] } {
+	const added: string[] = [];
+	const skipped: string[] = [];
+	for (const collection of collections) {
+		try {
+			if (store.loadCollection(collection.name)) {
+				skipped.push(collection.name);
+				continue;
+			}
+			store.saveCollection(collection);
+			bus.emit("collection:saved", { name: collection.name });
+			added.push(collection.name);
 		} catch {}
 	}
 	return { added, skipped };

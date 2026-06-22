@@ -18,6 +18,7 @@
  */
 
 import { gunzipSync, gzipSync } from "node:zlib";
+import type { Collection } from "@maket/shared";
 import JSZip from "jszip";
 import type { Charte, Document } from "../types.js";
 
@@ -51,6 +52,7 @@ export interface DecodedBundle {
 	exportedAt: string;
 	documents: BundleDocument[];
 	chartes: Charte[];
+	collections: Collection[];
 	/** Empty for v1 bundles (they don't carry assets). */
 	assets: BundleAsset[];
 }
@@ -70,6 +72,7 @@ export function snapshotDocument(doc: Document): BundleDocument {
 			elements: p.elements,
 			html: p.html,
 			canvas: p.canvas,
+			collection: p.collection,
 		})),
 		activePage,
 		nextId,
@@ -81,6 +84,7 @@ export function snapshotDocument(doc: Document): BundleDocument {
 function buildManifest(
 	documents: Document[],
 	chartes: Charte[],
+	collections: Collection[],
 	version: number,
 ) {
 	return {
@@ -89,6 +93,7 @@ function buildManifest(
 		exportedAt: new Date().toISOString(),
 		documents: documents.map(snapshotDocument),
 		chartes,
+		collections,
 	};
 }
 
@@ -98,7 +103,10 @@ export function encodeBundleV1(
 	chartes: Charte[],
 ): Buffer {
 	return gzipSync(
-		Buffer.from(JSON.stringify(buildManifest(documents, chartes, 1)), "utf-8"),
+		Buffer.from(
+			JSON.stringify(buildManifest(documents, chartes, [], 1)),
+			"utf-8",
+		),
 	);
 }
 
@@ -122,12 +130,15 @@ function decodeV1(buf: Buffer): DecodedBundle {
 export async function encodeBundleV2(
 	documents: Document[],
 	chartes: Charte[],
-	assets: BundleAsset[],
+	collectionsOrAssets: Collection[] | BundleAsset[],
+	assetsArg?: BundleAsset[],
 ): Promise<Buffer> {
+	const collections = assetsArg ? (collectionsOrAssets as Collection[]) : [];
+	const assets = assetsArg ?? (collectionsOrAssets as BundleAsset[]);
 	const zip = new JSZip();
 	zip.file(
 		"manifest.json",
-		`${JSON.stringify(buildManifest(documents, chartes, 2), null, 2)}\n`,
+		`${JSON.stringify(buildManifest(documents, chartes, collections, 2), null, 2)}\n`,
 	);
 	for (const a of assets) {
 		zip.file(`assets/${a.relPath}`, a.bytes);
@@ -216,6 +227,9 @@ function finalizeManifest(
 		exportedAt: typeof m.exportedAt === "string" ? m.exportedAt : "",
 		documents: m.documents as BundleDocument[],
 		chartes: Array.isArray(m.chartes) ? (m.chartes as Charte[]) : [],
+		collections: Array.isArray(m.collections)
+			? (m.collections as Collection[])
+			: [],
 		assets,
 	};
 }

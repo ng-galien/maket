@@ -48,6 +48,19 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(target.classList.contains("selected")).toBe(true);
 	});
 
+	it("marks placeholders on collection-bound pages", () => {
+		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		const marker = document.querySelector("[data-collection-placeholder]");
+		expect(marker?.getAttribute("data-collection-placeholder")).toBe(
+			"client_name",
+		);
+		expect(marker?.getAttribute("data-collection-bound")).toBe("true");
+	});
+
 	it("shows comment-only toolbar for non-editable elements", async () => {
 		render(
 			<PageCanvas

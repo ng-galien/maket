@@ -45,6 +45,10 @@
       "description": "Manage brand style guides: list, view (returns context_token), set, delete."
     },
     {
+      "name": "maket_collection",
+      "description": "Manage placeholder collections: list, view, set, delete, bind to a document page."
+    },
+    {
       "name": "maket_image",
       "description": "Manage the asset library: list, view, meta (requires context_token), import, delete."
     },

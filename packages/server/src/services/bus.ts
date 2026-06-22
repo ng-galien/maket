@@ -26,6 +26,8 @@ export interface BusEvents {
 	"meta:updated": { docName: string };
 	"charte:updated": { name: string; css: string };
 	"charte:removed": { name: string };
+	"collection:saved": { name: string };
+	"collection:deleted": { name: string };
 	"messages:acked": { ids: string[] };
 	toast: { text: string; level?: string; duration?: number };
 }

@@ -9,6 +9,7 @@ import { createConfig } from "./services/config.js";
 import { assetsPack } from "./tools/assets.js";
 import { canvasPack } from "./tools/canvas.js";
 import { chartesPack } from "./tools/chartes.js";
+import { collectionsPack } from "./tools/collections.js";
 import { documentsPack } from "./tools/documents.js";
 import { gmailPack } from "./tools/gmail.js";
 import { htmlPack } from "./tools/html.js";
@@ -120,6 +121,7 @@ describe("registerToolPacks", () => {
 		mermaidPack,
 		assetsPack,
 		chartesPack,
+		collectionsPack,
 		pagesPack,
 		documentsPack,
 		canvasPack,
@@ -134,6 +136,7 @@ describe("registerToolPacks", () => {
 		mermaid: {},
 		assets: {},
 		chartes: {},
+		collections: {},
 		pages: {},
 		documents: {},
 		canvas: {},

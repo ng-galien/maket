@@ -1,3 +1,4 @@
+import { markCollectionPlaceholders } from "@maket/shared";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Document } from "../store/types";
@@ -57,18 +58,53 @@ export const PageCanvas = memo(function PageCanvas({
 	} | null>(null);
 	const page = doc.pages[pageIndex];
 	const rawHtml = page?.html ?? "";
+	const templateHtml = useMemo(() => {
+		if (!page?.collection) return rawHtml;
+		try {
+			return markCollectionPlaceholders(rawHtml);
+		} catch {
+			return rawHtml;
+		}
+	}, [page?.collection, rawHtml]);
 	const html = useMemo(
 		() =>
-			rawHtml.replace(
+			templateHtml.replace(
 				/src=["']\/assets\/(?!(?:thumb|preview|print)\/)([\w.\-()% ]+\.(jpe?g|png|webp))["']/gi,
 				'src="/assets/preview/$1"',
 			),
-		[rawHtml],
+		[templateHtml],
 	);
 	const { canvas } = doc;
 	const pending = useStore((s) => s.pending);
+	const collections = useStore((s) => s.collections);
 	const isEditing = useStore((s) => s.editingElementId !== null);
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
+	const boundCollection = useMemo(
+		() =>
+			page?.collection?.name
+				? collections.find((item) => item.name === page.collection?.name)
+				: null,
+		[collections, page?.collection?.name],
+	);
+	const placeholderOptions = useMemo(
+		() => [
+			...(boundCollection
+				? Object.keys(boundCollection.schema.properties ?? {}).map((key) => ({
+						label: key,
+						value: key,
+					}))
+				: []),
+			{ label: "page.number", value: "page.number" },
+			{ label: "page.total", value: "page.total" },
+			...(boundCollection
+				? [
+						{ label: "member.number", value: "member.number" },
+						{ label: "member.total", value: "member.total" },
+					]
+				: []),
+		],
+		[boundCollection],
+	);
 
 	// Freeze rendered HTML during editing to protect contentEditable DOM.
 	// When server broadcast arrives with updated rawHtml, clear editing.
@@ -250,6 +286,19 @@ export const PageCanvas = memo(function PageCanvas({
 		[dismissToolbar],
 	);
 
+	const applyPlaceholder = useCallback(
+		(id: string, placeholder: string) => {
+			if (!placeholder || !pageRef.current) return;
+			const target = pageRef.current.querySelector(
+				`[data-id="${id}"]`,
+			) as HTMLElement | null;
+			if (!target) return;
+			sendTextEdit(doc.name, pageIndex, id, `{{ ${placeholder} }}`);
+			setToolbar(null);
+		},
+		[doc.name, pageIndex],
+	);
+
 	// Click delegation — pin toolbar on clicked element
 	useEffect(() => {
 		if (!pageRef.current || !focused) return;
@@ -380,30 +429,49 @@ export const PageCanvas = memo(function PageCanvas({
 						}}
 					>
 						{toolbar.editable && (
-							<button
-								type="button"
-								className="tb-btn tb-edit"
-								title="Edit text"
-								onClick={(e) => {
-									e.stopPropagation();
-									console.log("[toolbar] ✏️ clicked, id:", toolbar.id);
-									startEdit(toolbar.id);
-								}}
-							>
-								<svg
-									aria-hidden="true"
-									width="12"
-									height="12"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									strokeWidth="2"
-									strokeLinecap="round"
-									strokeLinejoin="round"
+							<>
+								<button
+									type="button"
+									className="tb-btn tb-edit"
+									title="Edit text"
+									onClick={(e) => {
+										e.stopPropagation();
+										console.log("[toolbar] ✏️ clicked, id:", toolbar.id);
+										startEdit(toolbar.id);
+									}}
 								>
-									<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-								</svg>
-							</button>
+									<svg
+										aria-hidden="true"
+										width="12"
+										height="12"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										strokeWidth="2"
+										strokeLinecap="round"
+										strokeLinejoin="round"
+									>
+										<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+									</svg>
+								</button>
+								<select
+									title="Utiliser un placeholder"
+									aria-label="Utiliser un placeholder"
+									defaultValue=""
+									onClick={(e) => e.stopPropagation()}
+									onChange={(event) =>
+										applyPlaceholder(toolbar.id, event.target.value)
+									}
+									className="h-7 max-w-36 rounded-md bg-panel border border-border text-xs text-text-2 px-2 outline-none"
+								>
+									<option value="">Placeholder</option>
+									{placeholderOptions.map((option) => (
+										<option key={option.value} value={option.value}>
+											{option.label}
+										</option>
+									))}
+								</select>
+							</>
 						)}
 						<button
 							type="button"

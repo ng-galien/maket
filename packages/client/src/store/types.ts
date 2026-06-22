@@ -29,6 +29,7 @@ export interface Page {
 	name: string;
 	elements: Element[];
 	html?: string;
+	collection?: { name: string };
 }
 
 export interface Document {
@@ -40,6 +41,8 @@ export interface Document {
 	activePage: number;
 	meta?: Record<string, any>;
 	charte?: string;
+	collection?: { name: string };
+	collectionCount?: number;
 }
 
 export interface DocSummary {

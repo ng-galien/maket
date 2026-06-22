@@ -25,6 +25,7 @@ export interface WorkspaceStateSignal {
 	type: "state";
 	doc: unknown;
 	docList: unknown[];
+	collections?: unknown[];
 	charteCss: string;
 	addToWorkspace?: boolean;
 	focus?: boolean;
@@ -76,6 +77,11 @@ export interface ActivitySignal {
 /** Signals the browser that `/api/assets` should be re-fetched. */
 export interface AssetsChangedSignal {
 	type: "assets_changed";
+}
+
+export interface CollectionsChangedSignal {
+	type: "collections_changed";
+	collections: unknown[];
 }
 
 /** Asks the client to fit the whole workspace to view (like the Maximize button). */
@@ -213,6 +219,29 @@ export interface UpdateCharteMetadataCommand {
 	rules?: Record<string, string>;
 }
 
+export interface SaveCollectionCommand {
+	type: "collection_save";
+	collection: unknown;
+}
+
+export interface DeleteCollectionCommand {
+	type: "collection_delete";
+	name: string;
+}
+
+export interface BindPageCollectionCommand {
+	type: "collection_bind_page";
+	docName: string;
+	pageIndex: number;
+	collectionName: string;
+}
+
+export interface ClearPageCollectionCommand {
+	type: "collection_clear_page";
+	docName: string;
+	pageIndex: number;
+}
+
 export interface ShowPageCommand {
 	type: "page_go";
 	docName: string;
@@ -311,6 +340,7 @@ export type WorkspaceSignal =
 	| WorkspaceReloadSignal
 	| ActivitySignal
 	| AssetsChangedSignal
+	| CollectionsChangedSignal
 	| FitViewSignal
 	| LayoutCheckRequest;
 
@@ -327,6 +357,10 @@ export type WorkspaceCommand =
 	| UpdateAssetMetadataCommand
 	| SaveCharteCommand
 	| UpdateCharteMetadataCommand
+	| SaveCollectionCommand
+	| DeleteCollectionCommand
+	| BindPageCollectionCommand
+	| ClearPageCollectionCommand
 	| ShowPageCommand
 	| ClearCanvasCommand
 	| EditTextCommand

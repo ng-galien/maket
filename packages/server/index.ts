@@ -20,6 +20,7 @@ import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
 import type { AssetsService } from "./src/services/assets.js";
 import type { Bus } from "./src/services/bus.js";
+import type { Collections } from "./src/services/collections.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
 import type { Documents } from "./src/services/documents.js";
@@ -28,6 +29,7 @@ import type { WsLike, WsRegistry } from "./src/services/ws-registry.js";
 import { assetsPack } from "./src/tools/assets.js";
 import { canvasPack } from "./src/tools/canvas.js";
 import { chartesPack } from "./src/tools/chartes.js";
+import { collectionsPack } from "./src/tools/collections.js";
 import { documentsPack } from "./src/tools/documents.js";
 import { gmailPack } from "./src/tools/gmail.js";
 import { htmlPack } from "./src/tools/html.js";
@@ -80,6 +82,7 @@ const appContainer = createAppContainer();
 
 const config = appContainer.resolve<Config>("config");
 const bus = appContainer.resolve<Bus>("bus");
+const collections = appContainer.resolve<Collections>("collections");
 const documents = appContainer.resolve<Documents>("documents");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
@@ -107,6 +110,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 			mermaid: {},
 			assets: {},
 			chartes: {},
+			collections: {},
 			pages: {},
 			documents: {},
 			canvas: {},
@@ -121,6 +125,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		mermaidPack,
 		assetsPack,
 		chartesPack,
+		collectionsPack,
 		pagesPack,
 		documentsPack,
 		canvasPack,
@@ -180,6 +185,7 @@ function broadcastDoc(
 		type: "state",
 		doc: documents.lightView(doc, doc.activePage),
 		docList: documents.list(),
+		collections: collections.loadAll(),
 		charteCss: documents.charteCss(doc),
 		addToWorkspace,
 		focus,
@@ -218,6 +224,16 @@ bus.on("charte:updated", ({ name, css }) => {
 bus.on("charte:removed", ({ name }) => {
 	wsRegistry.broadcast({ type: "charte_removed", name });
 });
+
+function broadcastCollections(): void {
+	wsRegistry.broadcast({
+		type: "collections_changed",
+		collections: collections.loadAll(),
+	});
+}
+
+bus.on("collection:saved", broadcastCollections);
+bus.on("collection:deleted", broadcastCollections);
 
 bus.on("toast", ({ text, level, duration }) => {
 	wsRegistry.broadcast({
@@ -326,6 +342,7 @@ wss.on("connection", (ws) => {
 		type: "state",
 		doc: documents.lightView(firstDoc ?? null),
 		docList: documents.list(),
+		collections: collections.loadAll(),
 		charteCss: documents.charteCss(firstDoc ?? null),
 		addToWorkspace: true,
 	};

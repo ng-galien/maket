@@ -1,4 +1,5 @@
 import type {
+	Collection,
 	LayoutReportCommand,
 	WorkspaceCommand,
 	WorkspaceSignal,
@@ -311,6 +312,11 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "assets_changed":
 			window.dispatchEvent(new Event("assets-changed"));
 			break;
+		case "collections_changed":
+			useStore
+				.getState()
+				.setCollections((msg.collections ?? []) as Collection[]);
+			break;
 		case "fit_view":
 			requestAnimationFrame(() => fitToView());
 			break;
@@ -331,6 +337,8 @@ function applyStateMessage(
 ): void {
 	const doc = msg.doc as Document | null;
 	const docList = (msg.docList ?? []) as DocSummary[];
+	const collections = (msg.collections ?? []) as Collection[];
+	useStore.getState().setCollections(collections);
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 	if (!doc) {
 		useStore.setState({ docList });
