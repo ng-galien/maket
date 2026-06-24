@@ -1,5 +1,4 @@
-import { createServer, type Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { assertSafeUrl, boundedFetch } from "./safe-fetch.ts";
 
 describe("assertSafeUrl", () => {
@@ -57,83 +56,67 @@ describe("assertSafeUrl", () => {
 });
 
 describe("boundedFetch redirect handling", () => {
-	let server: Server;
-	let port: number;
-
-	beforeAll(async () => {
-		server = createServer((req, res) => {
-			// /redirect → 302 to a private/loopback URL (must be rejected)
-			if (req.url === "/redirect-loopback") {
-				res.writeHead(302, { Location: "http://127.0.0.1:1/secret" });
-				res.end();
-				return;
-			}
-			if (req.url === "/redirect-imds") {
-				res.writeHead(302, { Location: "http://169.254.169.254/latest" });
-				res.end();
-				return;
-			}
-			// /loop → infinite self-redirect; should hit the hop cap
-			if (req.url?.startsWith("/loop")) {
-				res.writeHead(302, { Location: req.url });
-				res.end();
-				return;
-			}
-			// /ok → succeed with a small body
-			if (req.url === "/ok") {
-				res.writeHead(200, { "Content-Type": "text/plain" });
-				res.end("hello");
-				return;
-			}
-			res.writeHead(404);
-			res.end();
-		});
-		await new Promise<void>((resolve) =>
-			server.listen(0, "127.0.0.1", resolve),
-		);
-		const addr = server.address();
-		port = typeof addr === "object" && addr ? addr.port : 0;
-	});
-
-	afterAll(async () => {
-		await new Promise<void>((resolve) =>
-			server.close(() => {
-				resolve();
-			}),
-		);
+	afterEach(() => {
+		vi.unstubAllGlobals();
 	});
 
 	it("refuses a redirect that points to a loopback IP", async () => {
-		// Note: assertSafeUrl on the initial URL already runs; bypass that by
-		// targeting localhost via a hostname only the tests can reach.
-		// We bind to 127.0.0.1, so the initial assertSafeUrl would reject —
-		// instead we test boundedFetch directly with the public-facing path
-		// using a valid public hostname proxied through the test server.
-		// In real life the bypass is: a public host 302's to a private one.
-		// Here we just call boundedFetch on /redirect-loopback as if from a
-		// freshly-validated public URL, which exercises the same code path.
+		vi.stubGlobal("fetch", vi.fn(fetchFixture));
+
 		await expect(
-			boundedFetch(`http://127.0.0.1:${port}/redirect-loopback`),
+			boundedFetch("http://public.test/redirect-loopback"),
 		).rejects.toThrow(/private\/loopback/);
 	});
 
 	it("refuses a redirect that points to AWS IMDS", async () => {
+		vi.stubGlobal("fetch", vi.fn(fetchFixture));
+
 		await expect(
-			boundedFetch(`http://127.0.0.1:${port}/redirect-imds`),
+			boundedFetch("http://public.test/redirect-imds"),
 		).rejects.toThrow(/private\/loopback/);
 	});
 
 	it("caps redirect chains at 5 hops", async () => {
-		// /loop returns Location: /loop endlessly. assertSafeUrl on each Location
-		// passes (same loopback host the test server uses), so boundedFetch must
-		// stop on its own after MAX_REDIRECTS.
-		await expect(boundedFetch(`http://127.0.0.1:${port}/loop`)).rejects.toThrow(
-			/Too many redirects|private\/loopback/,
+		vi.stubGlobal("fetch", vi.fn(fetchFixture));
+
+		await expect(boundedFetch("http://93.184.216.34/loop")).rejects.toThrow(
+			/Too many redirects/,
 		);
 	});
 
 	it("returns the body when no redirect is involved", async () => {
-		const buf = await boundedFetch(`http://127.0.0.1:${port}/ok`);
+		vi.stubGlobal("fetch", vi.fn(fetchFixture));
+
+		const buf = await boundedFetch("http://public.test/ok");
 		expect(buf.toString("utf-8")).toBe("hello");
 	});
 });
+
+function fetchFixture(input: RequestInfo | URL): Response {
+	const url = new URL(input.toString());
+	if (url.pathname === "/redirect-loopback") {
+		return new Response(null, {
+			status: 302,
+			headers: { Location: "http://127.0.0.1:1/secret" },
+		});
+	}
+	if (url.pathname === "/redirect-imds") {
+		return new Response(null, {
+			status: 302,
+			headers: { Location: "http://169.254.169.254/latest" },
+		});
+	}
+	if (url.pathname === "/loop") {
+		return new Response(null, {
+			status: 302,
+			headers: { Location: "/loop" },
+		});
+	}
+	if (url.pathname === "/ok") {
+		return new Response("hello", {
+			status: 200,
+			headers: { "Content-Type": "text/plain" },
+		});
+	}
+	return new Response("missing", { status: 404 });
+}

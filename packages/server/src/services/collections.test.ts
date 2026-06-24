@@ -18,16 +18,18 @@ function makeStoreDeps() {
 }
 
 describe("Collections service", () => {
+	const clientSchema = {
+		type: "object",
+		properties: { client_name: { type: "string" } },
+		required: ["client_name"],
+		additionalProperties: false,
+	};
+
 	it("saves, lists and resolves collections", () => {
 		const { store, collections } = makeStoreDeps();
 		collections.save({
 			name: "clients",
-			schema: {
-				type: "object",
-				properties: { client_name: { type: "string" } },
-				required: ["client_name"],
-				additionalProperties: false,
-			},
+			schema: clientSchema,
 			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
 		});
 
@@ -42,18 +44,99 @@ describe("Collections service", () => {
 		store.close();
 	});
 
+	it("creates a collection from a schema", () => {
+		const { store, collections } = makeStoreDeps();
+
+		const collection = collections.create("clients", clientSchema, "Clients");
+
+		expect(collection).toEqual({
+			name: "clients",
+			description: "Clients",
+			schema: clientSchema,
+			members: [],
+		});
+		expect(store.loadCollection("clients")).toEqual(collection);
+		store.close();
+	});
+
+	it("validates schema changes against existing rows before applying them", () => {
+		const { store, collections } = makeStoreDeps();
+		collections.save({
+			name: "clients",
+			schema: clientSchema,
+			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
+		});
+
+		const invalidResult = collections.changeSchema("clients", {
+			type: "object",
+			properties: { budget: { type: "number" } },
+			required: ["budget"],
+			additionalProperties: false,
+		});
+
+		expect(invalidResult.valid).toBe(false);
+		expect(invalidResult.issues).toEqual([
+			expect.objectContaining({ code: "invalidMember", memberId: "member_1" }),
+		]);
+		expect(store.loadCollection("clients")?.schema).toEqual(clientSchema);
+
+		const validSchema = {
+			type: "object",
+			properties: {
+				client_name: { type: "string" },
+				budget: { type: "number" },
+			},
+			required: ["client_name"],
+			additionalProperties: true,
+		};
+
+		expect(collections.validateSchema("clients", validSchema).valid).toBe(true);
+		expect(collections.changeSchema("clients", validSchema).valid).toBe(true);
+		expect(store.loadCollection("clients")?.schema).toEqual(validSchema);
+		store.close();
+	});
+
+	it("adds, updates and deletes rows through collection operations", () => {
+		const { store, collections } = makeStoreDeps();
+		collections.create("clients", clientSchema);
+
+		const withRow = collections.addRow("clients", { client_name: "Acme" });
+
+		expect(withRow.members).toEqual([
+			{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+		]);
+
+		const updated = collections.updateRow("clients", "member_1", {
+			client_name: "Globex",
+		});
+
+		expect(updated.members[0]?.data).toEqual({ client_name: "Globex" });
+
+		const withoutRow = collections.deleteRow("clients", "member_1");
+
+		expect(withoutRow.members).toEqual([]);
+		expect(store.loadCollection("clients")?.members).toEqual([]);
+		store.close();
+	});
+
+	it("refuses row changes that do not validate the schema", () => {
+		const { store, collections } = makeStoreDeps();
+		collections.create("clients", clientSchema);
+
+		expect(() => collections.addRow("clients", { client_name: 42 })).toThrow(
+			'Collection member "member_1" does not match schema',
+		);
+		expect(store.loadCollection("clients")?.members).toEqual([]);
+		store.close();
+	});
+
 	it("binds a collection to a document page", () => {
 		const { store, bus, documents, collections } = makeStoreDeps();
 		const saved = vi.fn();
 		bus.on("document:saved", saved);
 		collections.save({
 			name: "clients",
-			schema: {
-				type: "object",
-				properties: { client_name: { type: "string" } },
-				required: ["client_name"],
-				additionalProperties: false,
-			},
+			schema: clientSchema,
 			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
 		});
 		const doc = createDocument({
@@ -83,12 +166,7 @@ describe("Collections service", () => {
 		const { store, documents, collections } = makeStoreDeps();
 		collections.save({
 			name: "clients",
-			schema: {
-				type: "object",
-				properties: { client_name: { type: "string" } },
-				required: ["client_name"],
-				additionalProperties: false,
-			},
+			schema: clientSchema,
 			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
 		});
 		const doc = createDocument({

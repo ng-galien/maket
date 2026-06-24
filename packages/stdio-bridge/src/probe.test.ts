@@ -1,53 +1,56 @@
-import { createServer, type Server } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const net = vi.hoisted(() => ({
+	outcomes: [] as Array<"connect" | "error">,
+	createConnection: vi.fn(() => {
+		const socket = new EventEmitter() as EventEmitter & {
+			destroy: ReturnType<typeof vi.fn>;
+		};
+		socket.destroy = vi.fn();
+		const outcome = net.outcomes.shift() ?? "error";
+		queueMicrotask(() => {
+			if (outcome === "connect") socket.emit("connect");
+			else socket.emit("error", new Error("closed"));
+		});
+		return socket;
+	}),
+}));
+
+vi.mock("node:net", () => ({
+	createConnection: net.createConnection,
+}));
+
 import { probeServer, waitForServer } from "./probe.ts";
 
-let current: Server | null = null;
-
-afterEach(async () => {
-	if (current) {
-		await new Promise<void>((r) => current?.close(() => r()));
-		current = null;
-	}
+beforeEach(() => {
+	net.outcomes.length = 0;
+	net.createConnection.mockClear();
 });
 
-function listenRandom(): Promise<{ server: Server; port: number }> {
-	return new Promise((resolve, reject) => {
-		const server = createServer();
-		server.once("error", reject);
-		server.listen(0, "127.0.0.1", () => {
-			const addr = server.address();
-			if (typeof addr === "object" && addr) {
-				resolve({ server, port: addr.port });
-			} else reject(new Error("no address"));
+describe("probeServer", () => {
+	it("resolves true when the socket connects", async () => {
+		net.outcomes.push("connect");
+
+		await expect(probeServer(24843)).resolves.toBe(true);
+		expect(net.createConnection).toHaveBeenCalledWith({
+			port: 24843,
+			host: "127.0.0.1",
 		});
 	});
-}
 
-describe("probeServer", () => {
-	it("resolves true when the port is bound", async () => {
-		const { server, port } = await listenRandom();
-		current = server;
-		expect(await probeServer(port)).toBe(true);
-	});
+	it("resolves false when the socket errors", async () => {
+		net.outcomes.push("error");
 
-	it("resolves false for a closed port", async () => {
-		// Bind then release to grab a known-free port.
-		const { server, port } = await listenRandom();
-		await new Promise<void>((r) => server.close(() => r()));
-		current = null;
-		expect(await probeServer(port, "127.0.0.1", 200)).toBe(false);
+		await expect(probeServer(24843, "127.0.0.1", 20)).resolves.toBe(false);
 	});
 });
 
 describe("waitForServer", () => {
-	it("returns false quickly when the server never comes up", async () => {
-		const { server, port } = await listenRandom();
-		await new Promise<void>((r) => server.close(() => r()));
-		current = null;
-		const t0 = Date.now();
-		const ok = await waitForServer(port, "127.0.0.1", 400, 100);
-		expect(ok).toBe(false);
-		expect(Date.now() - t0).toBeLessThan(1500);
+	it("returns false quickly when probes never connect", async () => {
+		net.outcomes.push("error", "error", "error", "error");
+
+		await expect(waitForServer(24843, "127.0.0.1", 20, 1)).resolves.toBe(false);
+		expect(net.createConnection).toHaveBeenCalled();
 	});
 });

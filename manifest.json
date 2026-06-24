@@ -46,7 +46,7 @@
     },
     {
       "name": "maket_collection",
-      "description": "Manage placeholder collections: list, view, set, delete, bind to a document page."
+      "description": "Manage placeholder collections: list, view, create, validate/change schema, edit rows, delete, bind/unbind a document page."
     },
     {
       "name": "maket_image",

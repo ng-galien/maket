@@ -63,81 +63,85 @@ async function sendOne(
 	return JSON.parse(lines[lines.length - 1] as string);
 }
 
-describe("stdio-bridge ↔ live Maket server", () => {
-	let child: ChildProcess | null = null;
-	let port = 0;
-	let dataDir = "";
+describe.skipIf(process.env.MAKET_RUN_NETWORK_TESTS !== "1")(
+	"stdio-bridge ↔ live Maket server",
+	() => {
+		let child: ChildProcess | null = null;
+		let port = 0;
+		let dataDir = "";
 
-	beforeAll(async () => {
-		port = await pickFreePort();
-		dataDir = mkdtempSync(join(tmpdir(), "maket-bridge-it-"));
+		beforeAll(async () => {
+			port = await pickFreePort();
+			dataDir = mkdtempSync(join(tmpdir(), "maket-bridge-it-"));
 
-		child = spawn("npx", ["tsx", SERVER_ENTRY], {
-			cwd: REPO_ROOT,
-			stdio: ["ignore", "ignore", "pipe"],
-			env: {
-				...process.env,
-				MAKET_PORT: String(port),
-				MAKET_DATA_DIR: dataDir,
-			},
+			child = spawn("npx", ["tsx", SERVER_ENTRY], {
+				cwd: REPO_ROOT,
+				stdio: ["ignore", "ignore", "pipe"],
+				env: {
+					...process.env,
+					MAKET_PORT: String(port),
+					MAKET_DATA_DIR: dataDir,
+				},
+			});
+			child.stderr?.on("data", () => {
+				/* swallow noisy boot logs; failures surface via probe timeout */
+			});
+
+			const ready = await waitForServer(port, "127.0.0.1", 30_000, 250);
+			if (!ready) {
+				throw new Error(
+					`server never bound 127.0.0.1:${port} (data dir ${dataDir})`,
+				);
+			}
+		}, 40_000);
+
+		afterAll(() => {
+			if (child && !child.killed) child.kill("SIGTERM");
+			if (dataDir) rmSync(dataDir, { recursive: true, force: true });
 		});
-		child.stderr?.on("data", () => {
-			/* swallow noisy boot logs; failures surface via probe timeout */
-		});
 
-		const ready = await waitForServer(port, "127.0.0.1", 30_000, 250);
-		if (!ready) {
-			throw new Error(
-				`server never bound 127.0.0.1:${port} (data dir ${dataDir})`,
-			);
-		}
-	}, 40_000);
+		it("answers initialize with maket server info", async () => {
+			const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
+				jsonrpc: "2.0",
+				id: 1,
+				method: "initialize",
+				params: {
+					protocolVersion: "2024-11-05",
+					capabilities: {},
+					clientInfo: { name: "it-test", version: "0" },
+				},
+			});
+			expect(res.jsonrpc).toBe("2.0");
+			expect(res.id).toBe(1);
+			const result = res.result as { serverInfo: { name: string } };
+			expect(result.serverInfo.name).toBe("maket");
+		}, 20_000);
 
-	afterAll(() => {
-		if (child && !child.killed) child.kill("SIGTERM");
-		if (dataDir) rmSync(dataDir, { recursive: true, force: true });
-	});
-
-	it("answers initialize with maket server info", async () => {
-		const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: {
-				protocolVersion: "2024-11-05",
-				capabilities: {},
-				clientInfo: { name: "it-test", version: "0" },
-			},
-		});
-		expect(res.jsonrpc).toBe("2.0");
-		expect(res.id).toBe(1);
-		const result = res.result as { serverInfo: { name: string } };
-		expect(result.serverInfo.name).toBe("maket");
-	}, 20_000);
-
-	it("lists the 11 maket tools via tools/list", async () => {
-		const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
-			jsonrpc: "2.0",
-			id: 2,
-			method: "tools/list",
-			params: {},
-		});
-		const result = res.result as { tools: { name: string }[] };
-		const names = new Set(result.tools.map((t) => t.name));
-		for (const expected of [
-			"maket_doc",
-			"maket_page",
-			"maket_canvas",
-			"maket_html",
-			"maket_workspace",
-			"maket_charte",
-			"maket_image",
-			"maket_preview",
-			"maket_mermaid",
-			"maket_pdf",
-			"maket_gmail",
-		]) {
-			expect(names.has(expected)).toBe(true);
-		}
-	}, 20_000);
-});
+		it("lists the 12 maket tools via tools/list", async () => {
+			const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
+				jsonrpc: "2.0",
+				id: 2,
+				method: "tools/list",
+				params: {},
+			});
+			const result = res.result as { tools: { name: string }[] };
+			const names = new Set(result.tools.map((t) => t.name));
+			for (const expected of [
+				"maket_doc",
+				"maket_page",
+				"maket_canvas",
+				"maket_html",
+				"maket_workspace",
+				"maket_charte",
+				"maket_collection",
+				"maket_image",
+				"maket_preview",
+				"maket_mermaid",
+				"maket_pdf",
+				"maket_gmail",
+			]) {
+				expect(names.has(expected)).toBe(true);
+			}
+		}, 20_000);
+	},
+);
