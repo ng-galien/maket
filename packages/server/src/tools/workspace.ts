@@ -42,12 +42,16 @@ const MaketWorkspaceSchema = z.object({
 	),
 	doc: z
 		.string()
+		.trim()
+		.min(1)
 		.optional()
 		.describe(
-			"The doc in scope. Required for focus/state/lock. Ignored by list_messages/ack_messages.",
+			"The document in scope. Required for focus/state/lock. Do not pass it for list_messages; that action returns every queued user message across all documents and the workspace.",
 		),
 	page: z
 		.number()
+		.int()
+		.positive()
 		.optional()
 		.describe("For focus: 1-based page number to make active."),
 	locked: z
@@ -57,7 +61,8 @@ const MaketWorkspaceSchema = z.object({
 			"For lock: true to lock the document, false to unlock. Omit to toggle.",
 		),
 	ids: z
-		.array(z.string())
+		.array(z.string().trim().min(1))
+		.min(1)
 		.optional()
 		.describe("For ack_messages: message ids to mark processed."),
 });

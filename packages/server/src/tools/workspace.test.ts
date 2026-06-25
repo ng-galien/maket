@@ -88,6 +88,15 @@ describe("maket_workspace — action=focus", () => {
 		store.close();
 	});
 
+	it("rejects non-integer page numbers at schema level", async () => {
+		const { store, bus, documents, pending } = fixture();
+		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		await expect(
+			tool.handler({ action: "focus", doc: "d", page: 1.5 }, NO_EXTRA),
+		).rejects.toThrow();
+		store.close();
+	});
+
 	it("errors when required args are missing", async () => {
 		const { store, bus, documents, pending } = fixture();
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
@@ -182,6 +191,16 @@ describe("maket_workspace — action=list_messages", () => {
 		const tool = createMaketWorkspaceTool({ bus, documents, pending });
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
 		expect((res.content[0] as any).text).toMatch(/No pending messages/);
+		store.close();
+	});
+
+	it("does not require a document scope", async () => {
+		const { store, bus, documents, pending } = fixture();
+		pending.syncFromClient([{ id: "d1", docName: "alpha", text: "fix this" }]);
+		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
+		expect(res.isError).toBeUndefined();
+		expect((res.content[0] as any).text).toMatch(/alpha/);
 		store.close();
 	});
 
