@@ -1,3 +1,4 @@
+import type { Collection } from "@maket/shared";
 import {
 	ChevronDown,
 	ChevronUp,
@@ -14,7 +15,12 @@ import {
 	Table,
 } from "lucide-react";
 import { getLang, toggleLang, useT } from "../i18n/useT";
-import { useFocusedDoc, useStore } from "../store/useStore";
+import type { Document } from "../store/types";
+import {
+	type CollectionPreviewState,
+	useFocusedDoc,
+	useStore,
+} from "../store/useStore";
 import { fitToView } from "../store/zoomBridge";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
@@ -25,6 +31,9 @@ export function BottomBar() {
 	const t = useT();
 	const connected = useStore((s) => s.connected);
 	const focusedDoc = useFocusedDoc();
+	const collectionPreview = useStore((s) => s.collectionPreview);
+	const collections = useStore((s) => s.collections);
+	const collectionDrafts = useStore((s) => s.collectionDrafts);
 	const pendingCount = useStore((s) => s.pending.length);
 	const activePanel = useStore((s) => s.activePanel);
 	const togglePanel = useStore((s) => s.togglePanel);
@@ -33,6 +42,12 @@ export function BottomBar() {
 	const darkMode = useStore((s) => s.darkMode);
 	const autoFocusFit = useStore((s) => s.autoFocusFit);
 	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
+	const effectiveCollections = collections.map(
+		(collection) => collectionDrafts[collection.name] ?? collection,
+	);
+	const printHref = focusedDoc
+		? printHrefForDoc(focusedDoc, collectionPreview, effectiveCollections)
+		: "";
 
 	const hasDoc = focusedDoc !== null;
 	const togglePosition = () =>
@@ -104,7 +119,7 @@ export function BottomBar() {
 
 				{hasDoc && (
 					<a
-						href={`/print?name=${encodeURIComponent(focusedDoc?.name || "")}`}
+						href={printHref}
 						target="_blank"
 						rel="noopener"
 						title={t("print")}
@@ -142,6 +157,61 @@ export function BottomBar() {
 			)}
 		</div>
 	);
+}
+
+export function printHrefForDoc(
+	doc: Document,
+	previewByCollection: Record<string, CollectionPreviewState>,
+	collections: readonly Collection[] = [],
+): string {
+	const params = new URLSearchParams({ name: doc.name });
+	const preview = collectionPrintPreview(doc, previewByCollection, collections);
+	if (Object.keys(preview).length > 0) {
+		params.set("collection_preview", JSON.stringify(preview));
+	}
+	return `/print?${params.toString()}`;
+}
+
+function collectionPrintPreview(
+	doc: Document,
+	previewByCollection: Record<string, CollectionPreviewState>,
+	collections: readonly Collection[],
+): Record<string, CollectionPreviewState> {
+	const collectionNames = referencedCollectionNames(doc);
+	return Object.fromEntries(
+		collectionNames.map((name) => [
+			name,
+			previewByCollection[name] ?? defaultPreviewFor(name, collections),
+		]),
+	);
+}
+
+function referencedCollectionNames(doc: Document): string[] {
+	return [
+		...new Set(
+			doc.pages
+				.map((page) => page.collection?.name)
+				.filter((name): name is string => Boolean(name)),
+		),
+	];
+}
+
+function defaultPreviewFor(
+	collectionName: string,
+	collections: readonly Collection[],
+): CollectionPreviewState {
+	const collection = collections.find((item) => item.name === collectionName);
+	return {
+		mode: "template",
+		memberId: collection ? firstMemberId(collection) : null,
+	};
+}
+
+function firstMemberId(collection: Collection): string | null {
+	const [member] = [...collection.members].sort(
+		(a, b) => a.position - b.position,
+	);
+	return member?.id ?? null;
 }
 
 function PanelButton({

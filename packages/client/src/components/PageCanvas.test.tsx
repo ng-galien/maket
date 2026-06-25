@@ -1,3 +1,4 @@
+import type { Collection } from "@maket/shared";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "../store/types";
@@ -5,7 +6,6 @@ import { useStore } from "../store/useStore";
 import * as ws from "../store/ws";
 import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 
-// Silence PageCanvas's verbose console.log during tests.
 beforeEach(() => {
 	vi.useFakeTimers();
 	vi.spyOn(console, "log").mockImplementation(() => {});
@@ -25,6 +25,8 @@ afterEach(() => {
 		editingElementId: null,
 		selectedIds: [],
 		showPopover: false,
+		collections: [],
+		collectionPreview: {},
 	});
 });
 
@@ -59,6 +61,90 @@ describe("PageCanvas toolbar interactions", () => {
 			"client_name",
 		);
 		expect(marker?.getAttribute("data-collection-bound")).toBe("true");
+	});
+
+	it("renders the selected collection row in rendered preview mode", () => {
+		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+		const collection = makeCollection({ client_name: "Acme" });
+
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				collection={collection}
+				preview={{
+					mode: "rendered",
+					memberId: "member_1",
+					memberNumber: 1,
+					memberTotal: 1,
+					pageNumber: 1,
+					pageTotal: 1,
+				}}
+			/>,
+		);
+
+		expect(document.querySelector('[data-id="a"]')?.textContent).toBe("Acme");
+	});
+
+	it("does not offer text editing on rendered collection rows", async () => {
+		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+		const collection = makeCollection({ client_name: "Acme" });
+
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				collection={collection}
+				preview={{
+					mode: "rendered",
+					memberId: "member_1",
+					memberNumber: 1,
+					memberTotal: 1,
+					pageNumber: 1,
+					pageTotal: 1,
+				}}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
+		});
+
+		expect(document.querySelector(".tb-edit")).toBeNull();
+		expect(document.querySelector(".element-toolbar select")).toBeNull();
+		expect(document.querySelector(".tb-comment")).not.toBeNull();
+	});
+
+	it("shows placeholder errors instead of silently falling back", () => {
+		const doc = makeDoc('<p data-id="a">{{ missing_field }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+		const collection = makeCollection({ client_name: "Acme" });
+
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				collection={collection}
+				preview={{
+					mode: "rendered",
+					memberId: "member_1",
+					memberNumber: 1,
+					memberTotal: 1,
+					pageNumber: 1,
+					pageTotal: 1,
+				}}
+			/>,
+		);
+
+		expect(document.body.textContent).toContain("Unknown collection field");
 	});
 
 	it("shows comment-only toolbar for non-editable elements", async () => {
@@ -149,12 +235,31 @@ function makeDoc(html: string, marginUniform?: number): Document {
 	};
 }
 
+function makeCollection(data: Record<string, string>): Collection {
+	return {
+		name: "clients",
+		schema: {
+			type: "object",
+			properties: { client_name: { type: "string" } },
+			required: ["client_name"],
+			additionalProperties: false,
+		},
+		members: [
+			{
+				id: "member_1",
+				position: 0,
+				data,
+			},
+		],
+	};
+}
+
 describe("parseCSSVars", () => {
 	it("extracts CSS custom properties into a map", () => {
 		const css = `:root {
 			--charte-color-primary: #ff0000;
 			--charte-font-heading: 'Inter', sans-serif;
-			color: red; /* ignored */
+			color: red;
 		}`;
 		expect(parseCSSVars(css)).toEqual({
 			"--charte-color-primary": "#ff0000",
@@ -478,14 +583,11 @@ describe("PageCanvas edit mode", () => {
 			<PageCanvas doc={doc1} pageIndex={0} charteCss="" focused={true} />,
 		);
 
-		// Enter edit mode (simulating the toolbar flow without the rAF chain).
 		await act(async () => {
 			useStore.setState({ editingElementId: "a" });
 		});
 		expect(useStore.getState().editingElementId).toBe("a");
 
-		// Server broadcast arrives with new HTML — the rawHtml-watching effect
-		// must tear down edit mode.
 		const doc2 = makeDoc('<p data-id="a">from server</p>');
 		await act(async () => {
 			rerender(
@@ -505,7 +607,6 @@ describe("PageCanvas edit mode", () => {
 			useStore.setState({ editingElementId: "a" });
 		});
 
-		// Re-render with the *same* doc — no broadcast, edit mode must persist.
 		await act(async () => {
 			rerender(
 				<PageCanvas doc={doc1} pageIndex={0} charteCss="" focused={true} />,

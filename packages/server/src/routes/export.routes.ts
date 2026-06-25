@@ -12,6 +12,10 @@ import {
 } from "../lib/asset-collector.js";
 import { writeBundleAssets } from "../lib/asset-writer.js";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
+import type {
+	CollectionRenderMode,
+	CollectionRenderOptions,
+} from "../lib/collection-render.js";
 import { requireBrowserContextLoopback } from "../lib/local-origin.js";
 import {
 	bundleFilename,
@@ -100,7 +104,7 @@ function handlePrint(
 		return;
 	}
 	try {
-		const rendered = collections.renderDocument(d);
+		const rendered = collections.renderDocument(d, printOptions(req));
 		const rawHtmls = rendered.pages
 			.map((p) => p.html)
 			.filter(Boolean) as string[];
@@ -125,6 +129,42 @@ function handlePrint(
 			.status(400)
 			.send(error instanceof Error ? error.message : String(error));
 	}
+}
+
+function printOptions(req: Request): CollectionRenderOptions | undefined {
+	const preview = singleQueryValue(req.query.collection_preview);
+	if (!preview) return undefined;
+	return { collections: collectionRenderSelections(preview) };
+}
+
+function collectionRenderSelections(
+	raw: string,
+): CollectionRenderOptions["collections"] {
+	const decoded = JSON.parse(raw) as unknown;
+	if (!isRecord(decoded)) return {};
+	const entries = Object.entries(decoded).flatMap(([name, value]) => {
+		if (!isRecord(value)) return [];
+		const mode = renderMode(value.mode);
+		if (!mode) return [];
+		const memberId = typeof value.memberId === "string" ? value.memberId : null;
+		return [[name, { mode, memberId }]] as const;
+	});
+	return Object.fromEntries(entries);
+}
+
+function renderMode(value: unknown): CollectionRenderMode | null {
+	return value === "template" || value === "rendered" || value === "all"
+		? value
+		: null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function singleQueryValue(value: unknown): string | null {
+	if (Array.isArray(value)) return singleQueryValue(value[0]);
+	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 async function handlePdfExport(

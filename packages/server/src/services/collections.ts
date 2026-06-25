@@ -9,7 +9,10 @@ import {
 	summarizeCollection,
 	validateCollection,
 } from "@maket/shared";
-import { renderCollectionDocument } from "../lib/collection-render.js";
+import {
+	type CollectionRenderOptions,
+	renderCollectionDocument,
+} from "../lib/collection-render.js";
 import type { Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -48,7 +51,7 @@ export interface Collections {
 		collectionName: string,
 	): Document;
 	clearPageBinding(docName: string, pageIndex: number): Document;
-	renderDocument(doc: Document): Document;
+	renderDocument(doc: Document, options?: CollectionRenderOptions): Document;
 	referencedBy(docs: readonly Document[]): Collection[];
 }
 
@@ -107,11 +110,12 @@ export function createCollections(deps: CollectionsDeps): Collections {
 		clearPageBinding(docName, pageIndex) {
 			return updatePageBinding(deps, docName, pageIndex, null);
 		},
-		renderDocument(doc) {
+		renderDocument(doc, options) {
 			const referenced = referencedBy(deps, [doc]);
 			return renderCollectionDocument(
 				doc,
 				new Map(referenced.map((collection) => [collection.name, collection])),
+				options,
 			);
 		},
 		referencedBy(docs) {

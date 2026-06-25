@@ -6,11 +6,24 @@ import {
 } from "@maket/shared";
 import type { Document, Page } from "../types.js";
 
+export type CollectionRenderMode = "template" | "rendered" | "all";
+
+export interface CollectionRenderOptions {
+	collections?: Record<
+		string,
+		{
+			mode: CollectionRenderMode;
+			memberId?: string | null;
+		}
+	>;
+}
+
 export function renderCollectionDocument(
 	doc: Document,
 	collections: ReadonlyMap<string, Collection>,
+	options: CollectionRenderOptions = {},
 ): Document {
-	const entries = expandRenderEntries(doc, collections);
+	const entries = expandRenderEntries(doc, collections, options);
 	const pageTotal = entries.length;
 	return {
 		...doc,
@@ -24,6 +37,7 @@ export function renderCollectionDocument(
 function expandRenderEntries(
 	doc: Document,
 	collections: ReadonlyMap<string, Collection>,
+	options: CollectionRenderOptions,
 ): RenderEntry[] {
 	const entries: RenderEntry[] = [];
 	for (const page of doc.pages) {
@@ -42,20 +56,60 @@ function expandRenderEntries(
 		const members = [...collection.members].sort(
 			(a, b) => a.position - b.position,
 		);
-		for (let memberIndex = 0; memberIndex < members.length; memberIndex++) {
-			const member = members[memberIndex];
-			if (!member) continue;
-			entries.push({
-				kind: "collection",
-				page,
-				collection,
-				member,
-				memberNumber: memberIndex + 1,
-				memberTotal: members.length,
-			});
-		}
+		entries.push(...collectionEntries(page, collection, members, options));
 	}
 	return entries;
+}
+
+function collectionEntries(
+	page: Page,
+	collection: Collection,
+	members: readonly Collection["members"][number][],
+	options: CollectionRenderOptions,
+): RenderEntry[] {
+	const selection = options.collections?.[collection.name];
+	if (selection?.mode === "template") return [{ kind: "static", page }];
+	if (selection?.mode === "rendered") {
+		return selectedMemberEntries(page, collection, members, selection.memberId);
+	}
+	return members.map((member, index) =>
+		collectionEntry(page, collection, member, index, members.length),
+	);
+}
+
+function selectedMemberEntries(
+	page: Page,
+	collection: Collection,
+	members: readonly Collection["members"][number][],
+	memberId: string | null | undefined,
+): RenderEntry[] {
+	const index = members.findIndex((member) => member.id === memberId);
+	if (index < 0) {
+		throw new Error(
+			`Collection member "${memberId ?? ""}" not found in "${collection.name}".`,
+		);
+	}
+	const member = members[index];
+	return member
+		? [collectionEntry(page, collection, member, index, members.length)]
+		: [];
+}
+
+function collectionEntry(
+	page: Page,
+	collection: Collection,
+	member: Collection["members"][number],
+	memberIndex: number,
+	memberTotal: number,
+): CollectionRenderEntry {
+	return {
+		kind: "collection",
+		page,
+		collection,
+		member,
+		memberNumber: memberIndex + 1,
+		memberTotal,
+	};
 }
 
 function renderEntryPage(

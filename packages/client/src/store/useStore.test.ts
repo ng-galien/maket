@@ -1,3 +1,4 @@
+import type { Collection } from "@maket/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -25,6 +26,9 @@ function resetStore() {
 			docList: [],
 			chartesCss: new Map(),
 			chartesVersion: 0,
+			collections: [],
+			collectionPreview: {},
+			collectionDrafts: {},
 			selectedIds: [],
 			editingElementId: null,
 			showPopover: false,
@@ -36,6 +40,20 @@ function resetStore() {
 		true,
 	);
 }
+
+const clientsCollection: Collection = {
+	name: "clients",
+	schema: {
+		type: "object",
+		properties: { client_name: { type: "string" } },
+		required: ["client_name"],
+		additionalProperties: false,
+	},
+	members: [
+		{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+		{ id: "member_2", position: 1, data: { client_name: "Globex" } },
+	],
+};
 
 function makeDoc(name: string, category = "flyer"): Document {
 	return {
@@ -225,6 +243,24 @@ describe("workspace / focus", () => {
 		useStore.getState().setFocusedDoc("beta");
 		expect(useStore.getState().selectedIds).toEqual([]);
 	});
+
+	it("setFocusedDoc keeps the opened collection workspace", () => {
+		useStore.setState({
+			focusedDocName: "alpha",
+			focusedCollectionName: "clients",
+		});
+		useStore.getState().setFocusedDoc("beta");
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedCollectionName).toBe("clients");
+	});
+
+	it("setFocusedCollection keeps the focused document controls open", () => {
+		useStore.setState({ focusedDocName: "alpha", selectedIds: ["x"] });
+		useStore.getState().setFocusedCollection("clients");
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+		expect(useStore.getState().focusedCollectionName).toBe("clients");
+		expect(useStore.getState().selectedIds).toEqual([]);
+	});
 });
 
 describe("selection", () => {
@@ -275,6 +311,78 @@ describe("UI preferences", () => {
 		useStore.getState().togglePanel("chartes");
 		useStore.getState().togglePanel("photos");
 		expect(useStore.getState().activePanel).toBe("photos");
+	});
+});
+
+describe("collection preview", () => {
+	it("initializes preview cursor from the first collection row", () => {
+		useStore.getState().setCollections([clientsCollection]);
+		expect(useStore.getState().collectionPreview.clients).toEqual({
+			mode: "template",
+			memberId: "member_1",
+		});
+	});
+
+	it("moves the current collection row within bounds", () => {
+		useStore.getState().setCollections([clientsCollection]);
+		useStore.getState().moveCollectionPreviewMember("clients", 1);
+		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
+			"member_2",
+		);
+		useStore.getState().moveCollectionPreviewMember("clients", 1);
+		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
+			"member_2",
+		);
+		useStore.getState().moveCollectionPreviewMember("clients", -1);
+		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
+			"member_1",
+		);
+	});
+
+	it("preserves mode and valid row when collections refresh", () => {
+		useStore.getState().setCollections([clientsCollection]);
+		useStore.getState().setCollectionPreviewMode("clients", "rendered");
+		useStore.getState().setCollectionPreviewMember("clients", "member_2");
+		useStore.getState().setCollections([
+			{
+				...clientsCollection,
+				members: [
+					{ id: "member_2", position: 0, data: { client_name: "Globex" } },
+				],
+			},
+		]);
+		expect(useStore.getState().collectionPreview.clients).toEqual({
+			mode: "rendered",
+			memberId: "member_2",
+		});
+	});
+
+	it("uses draft rows when moving the preview cursor", () => {
+		useStore.getState().setCollections([clientsCollection]);
+		useStore.getState().setCollectionDraft({
+			...clientsCollection,
+			members: [
+				...clientsCollection.members,
+				{ id: "member_3", position: 2, data: { client_name: "Soylent" } },
+			],
+		});
+		useStore.getState().moveCollectionPreviewMember("clients", 1);
+		useStore.getState().moveCollectionPreviewMember("clients", 1);
+		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
+			"member_3",
+		);
+	});
+
+	it("repoints the preview cursor when a draft removes the selected row", () => {
+		useStore.getState().setCollections([clientsCollection]);
+		useStore.getState().setCollectionPreviewMember("clients", "member_2");
+		useStore.getState().setCollectionDraft({
+			...clientsCollection,
+			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
+		});
+		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
+			"member_1",
+		);
 	});
 });
 

@@ -1,6 +1,12 @@
-import { markCollectionPlaceholders } from "@maket/shared";
+import {
+	type Collection,
+	markCollectionPlaceholders,
+	resolveCollectionText,
+} from "@maket/shared";
+import { MessageCircle, Pencil } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import { sendTextEdit } from "../store/ws";
@@ -29,11 +35,69 @@ export function isTextEditable(el: HTMLElement): boolean {
 	return true;
 }
 
+function collectionPreviewHtml(
+	rawHtml: string,
+	hasCollection: boolean,
+	collection: Collection | null,
+	collectionName: string | undefined,
+	preview: CollectionPagePreview | undefined,
+): { html: string; error: string | null } {
+	if (!hasCollection) return { html: rawHtml, error: null };
+	if (!collection) {
+		return {
+			html: markedTemplateHtml(rawHtml),
+			error: `Collection "${collectionName ?? ""}" not found.`,
+		};
+	}
+	if (preview?.mode === "rendered" && collection) {
+		const member = collection.members.find(
+			(candidate) => candidate.id === preview.memberId,
+		);
+		if (member) {
+			try {
+				return {
+					html: resolveCollectionText(rawHtml, collection, {
+						member,
+						memberNumber: preview.memberNumber,
+						memberTotal: preview.memberTotal,
+						pageNumber: preview.pageNumber,
+						pageTotal: preview.pageTotal,
+					}),
+					error: null,
+				};
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				return { html: markedTemplateHtml(rawHtml), error: message };
+			}
+		}
+	}
+	return { html: markedTemplateHtml(rawHtml), error: null };
+}
+
+function markedTemplateHtml(rawHtml: string): string {
+	try {
+		return markCollectionPlaceholders(rawHtml);
+	} catch {
+		return rawHtml;
+	}
+}
+
 interface Props {
 	doc: Document;
 	pageIndex: number;
 	charteCss: string;
 	focused: boolean;
+	collection?: Collection | null;
+	preview?: CollectionPagePreview;
+}
+
+export interface CollectionPagePreview {
+	mode: "template" | "rendered";
+	memberId: string | null;
+	memberNumber: number;
+	memberTotal: number;
+	pageNumber: number;
+	pageTotal: number;
 }
 
 /** Toolbar position in screen (viewport) coordinates */
@@ -49,7 +113,10 @@ export const PageCanvas = memo(function PageCanvas({
 	pageIndex,
 	charteCss,
 	focused,
+	collection = null,
+	preview,
 }: Props) {
+	const t = useT();
 	const pageRef = useRef<HTMLDivElement>(null);
 	const editingRef = useRef<{
 		id: string;
@@ -58,73 +125,62 @@ export const PageCanvas = memo(function PageCanvas({
 	} | null>(null);
 	const page = doc.pages[pageIndex];
 	const rawHtml = page?.html ?? "";
-	const templateHtml = useMemo(() => {
-		if (!page?.collection) return rawHtml;
-		try {
-			return markCollectionPlaceholders(rawHtml);
-		} catch {
-			return rawHtml;
-		}
-	}, [page?.collection, rawHtml]);
+	const collectionRender = useMemo(() => {
+		return collectionPreviewHtml(
+			rawHtml,
+			Boolean(page?.collection),
+			collection,
+			page?.collection?.name,
+			preview,
+		);
+	}, [collection, page?.collection, preview, rawHtml]);
 	const html = useMemo(
 		() =>
-			templateHtml.replace(
+			collectionRender.html.replace(
 				/src=["']\/assets\/(?!(?:thumb|preview|print)\/)([\w.\-()% ]+\.(jpe?g|png|webp))["']/gi,
 				'src="/assets/preview/$1"',
 			),
-		[templateHtml],
+		[collectionRender.html],
 	);
 	const { canvas } = doc;
 	const pending = useStore((s) => s.pending);
-	const collections = useStore((s) => s.collections);
 	const isEditing = useStore((s) => s.editingElementId !== null);
+	const canEditTemplate = preview?.mode !== "rendered";
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
-	const boundCollection = useMemo(
-		() =>
-			page?.collection?.name
-				? collections.find((item) => item.name === page.collection?.name)
-				: null,
-		[collections, page?.collection?.name],
-	);
 	const placeholderOptions = useMemo(
 		() => [
-			...(boundCollection
-				? Object.keys(boundCollection.schema.properties ?? {}).map((key) => ({
+			...(collection
+				? Object.keys(collection.schema.properties ?? {}).map((key) => ({
 						label: key,
 						value: key,
 					}))
 				: []),
 			{ label: "page.number", value: "page.number" },
 			{ label: "page.total", value: "page.total" },
-			...(boundCollection
+			...(collection
 				? [
 						{ label: "member.number", value: "member.number" },
 						{ label: "member.total", value: "member.total" },
 					]
 				: []),
 		],
-		[boundCollection],
+		[collection],
 	);
 
-	// Freeze rendered HTML during editing to protect contentEditable DOM.
-	// When server broadcast arrives with updated rawHtml, clear editing.
 	const stableHtmlRef = useRef(html);
 	if (!isEditing) stableHtmlRef.current = html;
 	const renderHtml = isEditing ? stableHtmlRef.current : html;
 
 	useEffect(() => {
 		if (!isEditing) return;
-		// Server broadcast arrived with new HTML — editing is done
 		stableHtmlRef.current = html;
 		useStore.getState().setEditingElement(null);
 	}, [rawHtml]);
 
-	// Element toolbar — pinned on click
 	const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
 
 	const dismissToolbar = useCallback(() => setToolbar(null), []);
 
-	// Dismiss on Escape or click outside
 	useEffect(() => {
 		if (!toolbar) return;
 		const onKey = (e: KeyboardEvent) => {
@@ -132,18 +188,8 @@ export const PageCanvas = memo(function PageCanvas({
 		};
 		const onClick = (e: MouseEvent) => {
 			const t = e.target as HTMLElement;
-			console.log(
-				"[toolbar dismiss] click target:",
-				t.tagName,
-				t.className,
-				"closest toolbar:",
-				!!t.closest(".element-toolbar"),
-				"closest canvas:",
-				!!t.closest(".page-canvas"),
-			);
 			if (t.closest(".element-toolbar")) return;
 			if (t.closest(".page-canvas")) return;
-			console.log("[toolbar dismiss] → dismissing");
 			dismissToolbar();
 		};
 		window.addEventListener("keydown", onKey);
@@ -154,39 +200,25 @@ export const PageCanvas = memo(function PageCanvas({
 		};
 	}, [toolbar, dismissToolbar]);
 
-	// Edit actions
 	const startEdit = useCallback(
 		(id: string) => {
-			console.log("[startEdit] called with id:", id);
-			if (!pageRef.current) {
-				console.error("[startEdit] FAIL: no pageRef");
-				return;
-			}
+			if (!pageRef.current || !canEditTemplate) return;
 
-			// Save original HTML before React re-renders
 			const origTarget = pageRef.current.querySelector(
 				`[data-id="${id}"]`,
 			) as HTMLElement | null;
-			if (!origTarget) {
-				console.error("[startEdit] FAIL: element not found:", id);
-				return;
-			}
+			if (!origTarget) return;
 			const originalHtml = origTarget.innerHTML;
 
-			// Trigger state change — React will re-render and freeze displayHtml
 			useStore.getState().setEditingElement(id);
 			useStore.getState().selectElement(id);
 
-			// After React re-render, find the element again and activate contentEditable
 			requestAnimationFrame(() => {
 				if (!pageRef.current) return;
 				const target = pageRef.current.querySelector(
 					`[data-id="${id}"]`,
 				) as HTMLElement | null;
-				if (!target) {
-					console.error("[startEdit] FAIL: element gone after re-render:", id);
-					return;
-				}
+				if (!target) return;
 
 				editingRef.current = { id, originalHtml, target };
 				pageRef.current.classList.add("is-editing");
@@ -199,7 +231,6 @@ export const PageCanvas = memo(function PageCanvas({
 				const sel = window.getSelection();
 				sel?.removeAllRanges();
 				sel?.addRange(range);
-				console.log("[startEdit] editing active on", id);
 
 				const onKeyDown = (ke: KeyboardEvent) => {
 					if (ke.key === "Escape") {
@@ -210,7 +241,6 @@ export const PageCanvas = memo(function PageCanvas({
 					if (ke.code === "Space") ke.stopPropagation();
 				};
 				const onBlur = () => {
-					console.log("[edit] blur → exitEdit(true)");
 					exitEdit(true);
 				};
 				const onPaste = (pe: ClipboardEvent) => {
@@ -228,7 +258,6 @@ export const PageCanvas = memo(function PageCanvas({
 
 				target.addEventListener("keydown", onKeyDown);
 				target.addEventListener("paste", onPaste as EventListener);
-				// Attach blur after focus settles
 				requestAnimationFrame(() => target.addEventListener("blur", onBlur));
 
 				(target as any).__editCleanup = () => {
@@ -238,24 +267,13 @@ export const PageCanvas = memo(function PageCanvas({
 				};
 			});
 		},
-		[doc.name],
+		[canEditTemplate],
 	);
 
 	function exitEdit(commit: boolean) {
 		const state = editingRef.current;
-		if (!state) {
-			console.error("[exitEdit] FAIL: no editingRef.current");
-			return;
-		}
+		if (!state) return;
 		const { target, id, originalHtml } = state;
-		console.log(
-			"[exitEdit] commit:",
-			commit,
-			"id:",
-			id,
-			"target in DOM:",
-			document.contains(target),
-		);
 
 		target.contentEditable = "false";
 		(target as any).__editCleanup?.();
@@ -276,7 +294,6 @@ export const PageCanvas = memo(function PageCanvas({
 		editingRef.current = null;
 	}
 
-	// Open comment popover — dismiss toolbar, show popover
 	const openComment = useCallback(
 		(id: string) => {
 			dismissToolbar();
@@ -299,20 +316,11 @@ export const PageCanvas = memo(function PageCanvas({
 		[doc.name, pageIndex],
 	);
 
-	// Click delegation — pin toolbar on clicked element
 	useEffect(() => {
 		if (!pageRef.current || !focused) return;
 		const el = pageRef.current;
 
 		const onClick = (e: MouseEvent) => {
-			console.log(
-				"[canvas click] target:",
-				(e.target as HTMLElement).tagName,
-				"closest toolbar:",
-				!!(e.target as HTMLElement).closest(".element-toolbar"),
-				"editing:",
-				!!editingRef.current,
-			);
 			if ((e.target as HTMLElement).closest(".element-toolbar")) return;
 			if (editingRef.current) return;
 			const target = (e.target as HTMLElement).closest(
@@ -322,12 +330,6 @@ export const PageCanvas = memo(function PageCanvas({
 			e.stopPropagation();
 			const id = target.dataset.id;
 			if (!id) return;
-			console.log(
-				"[canvas click] element id:",
-				id,
-				"toolbar?.id:",
-				toolbar?.id,
-			);
 
 			const docRoot = el.closest("[data-doc]");
 			if (docRoot) {
@@ -349,7 +351,7 @@ export const PageCanvas = memo(function PageCanvas({
 				id,
 				screenTop: rect.top,
 				screenRight: window.innerWidth - rect.right,
-				editable: isTextEditable(target),
+				editable: canEditTemplate && isTextEditable(target),
 			});
 		};
 
@@ -358,9 +360,8 @@ export const PageCanvas = memo(function PageCanvas({
 			if (editingRef.current) exitEdit(false);
 			el.removeEventListener("click", onClick);
 		};
-	}, [html, focused, doc.name, toolbar?.id]);
+	}, [html, focused, toolbar?.id, canEditTemplate]);
 
-	// Sync pending flags on DOM elements
 	useEffect(() => {
 		if (!pageRef.current) return;
 		const deleteIds = new Set(
@@ -415,8 +416,12 @@ export const PageCanvas = memo(function PageCanvas({
 						}}
 					/>
 				)}
+				{collectionRender.error && (
+					<div className="absolute top-2 left-2 right-2 z-[10000] rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] font-semibold text-danger shadow-sm">
+						{t("collection_preview_error")}: {collectionRender.error}
+					</div>
+				)}
 			</div>
-			{/* Pinned toolbar — rendered outside canvas via portal (zoom-independent) */}
 			{toolbar &&
 				!isEditing &&
 				createPortal(
@@ -433,30 +438,18 @@ export const PageCanvas = memo(function PageCanvas({
 								<button
 									type="button"
 									className="tb-btn tb-edit"
-									title="Edit text"
+									title={t("edit_text")}
+									aria-label={t("edit_text")}
 									onClick={(e) => {
 										e.stopPropagation();
-										console.log("[toolbar] ✏️ clicked, id:", toolbar.id);
 										startEdit(toolbar.id);
 									}}
 								>
-									<svg
-										aria-hidden="true"
-										width="12"
-										height="12"
-										viewBox="0 0 24 24"
-										fill="none"
-										stroke="currentColor"
-										strokeWidth="2"
-										strokeLinecap="round"
-										strokeLinejoin="round"
-									>
-										<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-									</svg>
+									<Pencil size={12} />
 								</button>
 								<select
-									title="Utiliser un placeholder"
-									aria-label="Utiliser un placeholder"
+									title={t("collection_use_placeholder")}
+									aria-label={t("collection_use_placeholder")}
 									defaultValue=""
 									onClick={(e) => e.stopPropagation()}
 									onChange={(event) =>
@@ -464,7 +457,7 @@ export const PageCanvas = memo(function PageCanvas({
 									}
 									className="h-7 max-w-36 rounded-md bg-panel border border-border text-xs text-text-2 px-2 outline-none"
 								>
-									<option value="">Placeholder</option>
+									<option value="">{t("collection_placeholder")}</option>
 									{placeholderOptions.map((option) => (
 										<option key={option.value} value={option.value}>
 											{option.label}
@@ -476,26 +469,14 @@ export const PageCanvas = memo(function PageCanvas({
 						<button
 							type="button"
 							className="tb-btn tb-comment"
-							title="Comment"
+							title={t("comment")}
+							aria-label={t("comment")}
 							onClick={(e) => {
 								e.stopPropagation();
-								console.log("[toolbar] 💬 clicked, id:", toolbar.id);
 								openComment(toolbar.id);
 							}}
 						>
-							<svg
-								aria-hidden="true"
-								width="12"
-								height="12"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-							</svg>
+							<MessageCircle size={12} />
 						</button>
 					</div>,
 					document.body,

@@ -4,6 +4,13 @@ import { useShallow } from "zustand/shallow";
 import type { DocSummary, Document } from "./types";
 import { wsSend } from "./ws";
 
+export type CollectionPreviewMode = "template" | "rendered" | "all";
+
+export interface CollectionPreviewState {
+	mode: CollectionPreviewMode;
+	memberId: string | null;
+}
+
 export interface PendingMessage {
 	id: string;
 	type: "note" | "delete" | "drop-image" | "drop-text" | "classify-images";
@@ -16,7 +23,27 @@ export interface PendingMessage {
 	ts: number;
 }
 
-interface AppState {
+interface CollectionSlice {
+	focusedCollectionName: string | null;
+	collectionPreview: Record<string, CollectionPreviewState>;
+	collections: Collection[];
+	collectionDrafts: Record<string, Collection>;
+	setCollections: (collections: Collection[]) => void;
+	setFocusedCollection: (name: string | null) => void;
+	setCollectionDraft: (collection: Collection) => void;
+	clearCollectionDraft: (name: string) => void;
+	setCollectionPreviewMode: (
+		collectionName: string,
+		mode: CollectionPreviewMode,
+	) => void;
+	setCollectionPreviewMember: (
+		collectionName: string,
+		memberId: string | null,
+	) => void;
+	moveCollectionPreviewMember: (collectionName: string, delta: number) => void;
+}
+
+interface AppState extends CollectionSlice {
 	// Connection
 	connected: boolean;
 
@@ -24,13 +51,11 @@ interface AppState {
 	docs: Map<string, Document>;
 	workspaceDocNames: string[];
 	focusedDocName: string | null;
-	focusedCollectionName: string | null;
 
 	// Global
 	docList: DocSummary[];
 	chartesCss: Map<string, string>;
 	chartesVersion: number;
-	collections: Collection[];
 
 	// UI
 	selectedIds: string[];
@@ -54,8 +79,6 @@ interface AppState {
 
 	// Actions
 	setConnected: (v: boolean) => void;
-	setCollections: (collections: Collection[]) => void;
-	setFocusedCollection: (name: string | null) => void;
 	upsertDoc: (
 		doc: Document,
 		docList: DocSummary[],
@@ -118,6 +141,90 @@ function saveWorkspace(names: string[]) {
 	localStorage.setItem("maket-workspace", JSON.stringify(names));
 }
 
+function reconcileCollectionPreview(
+	current: Record<string, CollectionPreviewState>,
+	collections: readonly Collection[],
+): Record<string, CollectionPreviewState> {
+	return Object.fromEntries(
+		collections.map((collection) => [
+			collection.name,
+			previewFor(current, collections, collection.name),
+		]),
+	);
+}
+
+function reconcileCollectionDrafts(
+	current: Record<string, Collection>,
+	collections: readonly Collection[],
+): Record<string, Collection> {
+	const savedNames = new Set(collections.map((collection) => collection.name));
+	return Object.fromEntries(
+		Object.entries(current).filter(([name, draft]) => {
+			const saved = collections.find((collection) => collection.name === name);
+			return savedNames.has(name) && hasChangedCollection(saved, draft);
+		}),
+	);
+}
+
+function hasChangedCollection(
+	source: Collection | undefined,
+	draft: Collection,
+): boolean {
+	return source ? JSON.stringify(source) !== JSON.stringify(draft) : true;
+}
+
+function collectionsWithDrafts(
+	collections: readonly Collection[],
+	drafts: Record<string, Collection>,
+): Collection[] {
+	return collections.map((collection) => drafts[collection.name] ?? collection);
+}
+
+function previewFor(
+	current: Record<string, CollectionPreviewState>,
+	collections: readonly Collection[],
+	collectionName: string,
+): CollectionPreviewState {
+	const collection = collections.find((item) => item.name === collectionName);
+	const existing = current[collectionName];
+	const members = sortedCollectionMembers(collection);
+	const existingMember = members.find(
+		(member) => member.id === existing?.memberId,
+	);
+	return {
+		mode: existing?.mode ?? "template",
+		memberId: existingMember?.id ?? members[0]?.id ?? null,
+	};
+}
+
+function movedPreview(
+	current: Record<string, CollectionPreviewState>,
+	collections: readonly Collection[],
+	collectionName: string,
+	delta: number,
+): CollectionPreviewState {
+	const preview = previewFor(current, collections, collectionName);
+	const members = sortedCollectionMembers(
+		collections.find((item) => item.name === collectionName),
+	);
+	if (members.length === 0) return { ...preview, memberId: null };
+	const currentIndex = Math.max(
+		0,
+		members.findIndex((member) => member.id === preview.memberId),
+	);
+	const nextIndex = Math.min(
+		members.length - 1,
+		Math.max(0, currentIndex + delta),
+	);
+	return { ...preview, memberId: members[nextIndex]?.id ?? null };
+}
+
+function sortedCollectionMembers(collection: Collection | undefined) {
+	return collection
+		? [...collection.members].sort((a, b) => a.position - b.position)
+		: [];
+}
+
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
 
@@ -130,6 +237,8 @@ export const useStore = create<AppState>((set, get) => ({
 			? _savedFocused
 			: null,
 	focusedCollectionName: null,
+	collectionPreview: {},
+	collectionDrafts: {},
 	docList: [],
 	chartesCss: new Map(),
 	chartesVersion: 0,
@@ -149,9 +258,81 @@ export const useStore = create<AppState>((set, get) => ({
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
 	setConnected: (connected) => set({ connected }),
-	setCollections: (collections) => set({ collections }),
+	setCollections: (collections) =>
+		set((s) => {
+			const collectionDrafts = reconcileCollectionDrafts(
+				s.collectionDrafts,
+				collections,
+			);
+			return {
+				collections,
+				collectionDrafts,
+				collectionPreview: reconcileCollectionPreview(
+					s.collectionPreview,
+					collectionsWithDrafts(collections, collectionDrafts),
+				),
+			};
+		}),
 	setFocusedCollection: (focusedCollectionName) =>
-		set({ focusedCollectionName, focusedDocName: null, selectedIds: [] }),
+		set({ focusedCollectionName, selectedIds: [] }),
+	setCollectionDraft: (collection) =>
+		set((s) => ({
+			collectionDrafts: {
+				...s.collectionDrafts,
+				[collection.name]: collection,
+			},
+			collectionPreview: reconcileCollectionPreview(s.collectionPreview, [
+				...collectionsWithDrafts(s.collections, s.collectionDrafts).filter(
+					(item) => item.name !== collection.name,
+				),
+				collection,
+			]),
+		})),
+	clearCollectionDraft: (name) =>
+		set((s) => {
+			const { [name]: _removed, ...collectionDrafts } = s.collectionDrafts;
+			return { collectionDrafts };
+		}),
+	setCollectionPreviewMode: (collectionName, mode) =>
+		set((s) => ({
+			collectionPreview: {
+				...s.collectionPreview,
+				[collectionName]: {
+					...previewFor(
+						s.collectionPreview,
+						collectionsWithDrafts(s.collections, s.collectionDrafts),
+						collectionName,
+					),
+					mode,
+				},
+			},
+		})),
+	setCollectionPreviewMember: (collectionName, memberId) =>
+		set((s) => ({
+			collectionPreview: {
+				...s.collectionPreview,
+				[collectionName]: {
+					...previewFor(
+						s.collectionPreview,
+						collectionsWithDrafts(s.collections, s.collectionDrafts),
+						collectionName,
+					),
+					memberId,
+				},
+			},
+		})),
+	moveCollectionPreviewMember: (collectionName, delta) =>
+		set((s) => ({
+			collectionPreview: {
+				...s.collectionPreview,
+				[collectionName]: movedPreview(
+					s.collectionPreview,
+					collectionsWithDrafts(s.collections, s.collectionDrafts),
+					collectionName,
+					delta,
+				),
+			},
+		})),
 
 	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
 		set((s) => {
@@ -236,7 +417,6 @@ export const useStore = create<AppState>((set, get) => ({
 			localStorage.setItem("maket-focused-doc", docName ?? "");
 			return {
 				focusedDocName: docName,
-				focusedCollectionName: null,
 				selectedIds: [],
 			};
 		}),

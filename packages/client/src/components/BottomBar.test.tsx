@@ -23,6 +23,9 @@ beforeEach(() => {
 		workspaceDocNames: [],
 		focusedDocName: null,
 		pending: [],
+		collections: [],
+		collectionDrafts: {},
+		collectionPreview: {},
 		activePanel: null,
 		barPosition: "bottom",
 		darkMode: false,
@@ -61,7 +64,38 @@ describe("BottomBar", () => {
 		render(<BottomBar />);
 		const print = screen.getByRole("link");
 		expect(print.getAttribute("href")).toBe(
-			"/print?name=flyer%20%C3%A9t%C3%A9%202026",
+			"/print?name=flyer+%C3%A9t%C3%A9+2026",
+		);
+	});
+
+	it("adds the collection preview selection to the Print href", () => {
+		const doc = makeDoc("poster");
+		doc.pages[0].collection = { name: "clients" };
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			collections: [
+				{
+					name: "clients",
+					schema: {
+						type: "object",
+						properties: { client_name: { type: "string" } },
+					},
+					members: [{ id: "member_2", position: 0, data: {} }],
+				},
+			],
+			collectionPreview: {
+				clients: { mode: "rendered", memberId: "member_2" },
+			},
+		});
+		render(<BottomBar />);
+		const print = screen.getByRole("link");
+		const url = new URL(`http://localhost${print.getAttribute("href")}`);
+		expect(url.searchParams.get("name")).toBe("poster");
+		expect(url.searchParams.get("collection_preview")).toBe(
+			JSON.stringify({
+				clients: { mode: "rendered", memberId: "member_2" },
+			}),
 		);
 	});
 

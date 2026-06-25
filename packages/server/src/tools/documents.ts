@@ -24,13 +24,13 @@ import { writeBundleAssets } from "../lib/asset-writer.js";
 import {
 	bundleFilename,
 	decodeBundle,
-	encodeBundleV1,
 	encodeBundleV2,
 	MAKET_BUNDLE_EXT,
 	uniqueName,
 } from "../lib/maket-format.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { Bus } from "../services/bus.js";
+import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { Pending } from "../services/pending.js";
@@ -50,6 +50,7 @@ export interface DocumentsDeps {
 	store: Store;
 	config: Config;
 	pending: Pending;
+	collections: Pick<Collections, "referencedBy">;
 }
 
 const ActionSchema = z.enum([
@@ -189,7 +190,7 @@ function totalElementCount(pages: Page[]): number {
 }
 
 export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
-	const { documents, bus, store, config, pending } = deps;
+	const { documents, bus, store, config, pending, collections } = deps;
 	return {
 		metadata: {
 			name: "maket_doc",
@@ -197,7 +198,14 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 			schema: MaketDocSchema,
 		},
 		handler: (rawArgs) =>
-			handleMaketDocTool(rawArgs, { documents, bus, store, config, pending }),
+			handleMaketDocTool(rawArgs, {
+				documents,
+				bus,
+				store,
+				config,
+				pending,
+				collections,
+			}),
 	};
 }
 
@@ -209,6 +217,7 @@ interface MaketDocToolDeps {
 	store: Store;
 	config: Config;
 	pending: Pending;
+	collections: Pick<Collections, "referencedBy">;
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -229,7 +238,13 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 		case "meta":
 			return runMeta(args, deps.documents, deps.bus);
 		case "export":
-			return runExport(args, deps.documents, deps.store, deps.config);
+			return runExport(
+				args,
+				deps.documents,
+				deps.store,
+				deps.config,
+				deps.collections,
+			);
 		case "import":
 			return runImport(args, deps.documents, deps.store, deps.bus, deps.config);
 	}
@@ -404,6 +419,7 @@ async function runExport(
 	documents: Documents,
 	store: Store,
 	config: Config,
+	collections: Pick<Collections, "referencedBy">,
 ) {
 	const all = documents.all();
 	const names: string[] =
@@ -436,6 +452,7 @@ async function runExport(
 	}
 
 	const includeAssets = args.include_assets !== false;
+	const collectionRefs = collections.referencedBy(selected);
 	let buf: Buffer;
 	let assetReport = "";
 	if (includeAssets) {
@@ -444,13 +461,13 @@ async function runExport(
 			refs,
 			config.ASSETS_DIR,
 		);
-		buf = await encodeBundleV2(selected, chartes, assets);
+		buf = await encodeBundleV2(selected, chartes, collectionRefs, assets);
 		assetReport = assets.length > 0 ? ` + ${assets.length} asset(s)` : "";
 		if (missingAssets.length > 0) {
 			assetReport += ` (${missingAssets.length} missing: ${missingAssets.slice(0, 3).join(", ")}${missingAssets.length > 3 ? "…" : ""})`;
 		}
 	} else {
-		buf = encodeBundleV1(selected, chartes);
+		buf = await encodeBundleV2(selected, chartes, collectionRefs, []);
 	}
 
 	const defaultName =
@@ -581,7 +598,7 @@ async function runImport(
 export const documentsPack: ToolPack = {
 	id: "documents",
 	name: "Documents",
-	requires: ["documents", "bus", "store", "config", "pending"],
+	requires: ["documents", "bus", "store", "config", "pending", "collections"],
 	declaresTools: ["maket_doc"],
 	register(container) {
 		container.register({

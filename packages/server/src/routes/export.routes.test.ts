@@ -1,8 +1,13 @@
+import type { Collection } from "@maket/shared";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startTestApp } from "../../tests/helpers.js";
 import { encodeBundleV1 } from "../lib/maket-format.js";
 import { createBus } from "../services/bus.js";
+import {
+	type Collections,
+	createCollections,
+} from "../services/collections.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
@@ -12,6 +17,7 @@ import { createExportRouter } from "./export.routes.js";
 describe("export routes — .maket bundle", () => {
 	let store: Store;
 	let documents: Documents;
+	let collections: Collections;
 	let baseUrl: string;
 	let close: () => Promise<void>;
 	let bus: ReturnType<typeof createBus>;
@@ -21,6 +27,7 @@ describe("export routes — .maket bundle", () => {
 		store = createSQLiteStore(":memory:");
 		bus = createBus();
 		documents = createDocuments({ store });
+		collections = createCollections({ bus, documents, store });
 		pdfService = {
 			render: vi.fn(async () => ({
 				buffer: Buffer.from("%PDF-test"),
@@ -32,6 +39,7 @@ describe("export routes — .maket bundle", () => {
 		app.use(
 			createExportRouter({
 				documents,
+				collections,
 				pdfService: pdfService as unknown as PdfService,
 				store,
 				bus,
@@ -66,6 +74,20 @@ describe("export routes — .maket bundle", () => {
 				{ name: "P1", elements: [], html: `<div data-id="e0">${name}</div>` },
 			],
 		});
+	}
+
+	function makeCollection(): Collection {
+		return {
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client_name: { type: "string" } },
+			},
+			members: [
+				{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+				{ id: "member_2", position: 1, data: { client_name: "Globex" } },
+			],
+		};
 	}
 
 	it("GET /api/export-maket?name=... streams a v2 ZIP bundle that re-imports", async () => {
@@ -188,6 +210,57 @@ describe("export routes — .maket bundle", () => {
 		expect(html).toContain("window.print()");
 		expect(html).toContain('data-id="e0"');
 		expect(html).toContain("poster");
+	});
+
+	it("GET /print follows the selected collection row", async () => {
+		const doc = makeDoc("poster");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.collection = { name: "clients" };
+		page.html = '<div data-id="e0">{{ client_name }}</div>';
+		store.saveDoc(doc);
+		store.saveCollection(makeCollection());
+		documents.loadAll();
+		const selection = encodeURIComponent(
+			JSON.stringify({
+				clients: { mode: "rendered", memberId: "member_2" },
+			}),
+		);
+
+		const res = await fetch(
+			`${baseUrl}/print?name=poster&collection_preview=${selection}`,
+		);
+
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain("Globex");
+		expect(html).not.toContain("Acme");
+		expect(html).not.toContain("{{ client_name }}");
+	});
+
+	it("GET /print follows the all rows collection mode", async () => {
+		const doc = makeDoc("poster");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.collection = { name: "clients" };
+		page.html = '<div data-id="e0">{{ client_name }}</div>';
+		store.saveDoc(doc);
+		store.saveCollection(makeCollection());
+		documents.loadAll();
+		const selection = encodeURIComponent(
+			JSON.stringify({
+				clients: { mode: "all", memberId: "member_2" },
+			}),
+		);
+
+		const res = await fetch(
+			`${baseUrl}/print?name=poster&collection_preview=${selection}`,
+		);
+
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain("Acme");
+		expect(html).toContain("Globex");
 	});
 
 	it("GET /api/export-pdf streams the rendered PDF with the default quality", async () => {
