@@ -18,6 +18,12 @@ import type {
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
 import { composeCharteCss } from "../lib/charte-css.js";
+import {
+	createOnboardingDocument,
+	localizeOnboardingDocument,
+	onboardingDocumentName,
+	onboardingLocale,
+} from "../lib/onboarding-document.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import {
 	type Charte,
@@ -158,6 +164,9 @@ function dispatchWorkspaceCommand(
 		case "lock_document":
 			handleLockDocument(ctx, msg);
 			break;
+		case "open_onboarding":
+			handleOpenOnboarding(ctx, msg, ws);
+			break;
 		case "text_edit":
 			handleTextEdit(ctx, msg);
 			break;
@@ -261,6 +270,41 @@ function handleLoadDocument(
 		focus: true,
 	};
 	ws.send(JSON.stringify(state));
+}
+
+function handleOpenOnboarding(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "open_onboarding" }>,
+	ws: WebSocket,
+): void {
+	const doc = onboardingDocument(ctx, onboardingLocale(msg.lang));
+	const state: WorkspaceStateSignal = {
+		type: "state",
+		doc: ctx.documents.lightView(doc),
+		docList: ctx.documents.list(),
+		collections: ctx.collections.loadAll(),
+		charteCss: ctx.documents.charteCss(doc),
+		addToWorkspace: true,
+		focus: true,
+	};
+	ws.send(JSON.stringify(state));
+}
+
+function onboardingDocument(
+	ctx: WsHandlerContext,
+	locale: ReturnType<typeof onboardingLocale>,
+): Document {
+	const name = onboardingDocumentName();
+	const existing = ctx.documents.resolveOrLoad(name);
+	if (existing) {
+		localizeOnboardingDocument(existing, locale);
+		ctx.documents.persist(existing.name);
+		return existing;
+	}
+	const doc = createOnboardingDocument(locale);
+	ctx.documents.all().set(doc.name, doc);
+	ctx.documents.persist(doc.name);
+	return doc;
 }
 
 function handleWorkspaceUpdate(

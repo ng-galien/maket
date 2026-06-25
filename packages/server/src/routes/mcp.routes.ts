@@ -28,6 +28,7 @@ const ACTIVITY_ICONS: Record<string, string> = {
 	maket_workspace: "pin",
 	maket_charte: "palette",
 	maket_collection: "table",
+	maket_learn: "graduation-cap",
 	maket_image: "images",
 	maket_preview: "eye",
 	maket_mermaid: "git-branch",

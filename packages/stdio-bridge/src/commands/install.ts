@@ -1,5 +1,5 @@
 /**
- * `maket install <claude|codex>` — register Maket as an MCP server in a client.
+ * `maket install <claude|codex|gemini>` — register Maket as an MCP server in a client.
  *
  * Print-only by default, `--apply` to actually write/run. Claude Code prefers
  * `claude mcp add` when the CLI is on PATH, falls back to editing
@@ -19,9 +19,10 @@ const CMD = "npx";
 const ARGS = ["-y", PKG];
 
 export type ClaudeScope = "user" | "project";
+export type InstallClient = "claude" | "codex" | "gemini";
 
 export interface InstallOpts {
-	client: "claude" | "codex";
+	client: InstallClient;
 	apply: boolean;
 	scope: ClaudeScope;
 }
@@ -139,7 +140,61 @@ function installCodex(opts: InstallOpts): void {
 	process.stdout.write(`maket: wrote Codex MCP config → ${target}\n`);
 }
 
+function installGemini(opts: InstallOpts): void {
+	const target = join(homedir(), ".gemini", "settings.json");
+
+	if (!opts.apply) {
+		process.stdout.write(
+			"maket: Gemini CLI MCP install (preview)\n\n" +
+				`Add the following mcpServers entry to ${target}:\n\n` +
+				`${geminiJsonSnippet()}\n\n` +
+				"Re-run with --apply to write the config.\n",
+		);
+		return;
+	}
+
+	writeGeminiConfig(target);
+}
+
+function geminiJsonSnippet(): string {
+	return JSON.stringify(
+		{ mcpServers: { maket: { command: CMD, args: ARGS } } },
+		null,
+		2,
+	);
+}
+
+function writeGeminiConfig(path: string): void {
+	if (refuseSymlink(path)) return;
+	let json: Record<string, unknown> = {};
+	if (existsSync(path)) {
+		try {
+			json = JSON.parse(readFileSync(path, "utf-8"));
+		} catch {
+			process.stderr.write(
+				`maket: ${path} is not valid JSON — refusing to overwrite.\n`,
+			);
+			process.exitCode = 1;
+			return;
+		}
+		backup(path);
+	} else {
+		mkdirSync(dirname(path), { recursive: true });
+	}
+
+	const servers = ((json.mcpServers as Record<string, unknown>) ??
+		{}) as Record<string, unknown>;
+	servers.maket = { command: CMD, args: ARGS };
+	json.mcpServers = servers;
+	writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`, {
+		encoding: "utf-8",
+		mode: 0o600,
+	});
+	process.stdout.write(`maket: wrote Gemini MCP config → ${path}\n`);
+}
+
 export function runInstall(opts: InstallOpts): void {
 	if (opts.client === "claude") installClaude(opts);
-	else installCodex(opts);
+	else if (opts.client === "codex") installCodex(opts);
+	else installGemini(opts);
 }

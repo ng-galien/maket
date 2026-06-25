@@ -134,6 +134,11 @@ export interface LockDocumentCommand {
 	locked: boolean;
 }
 
+export interface OpenOnboardingCommand {
+	type: "open_onboarding";
+	lang?: "en" | "fr";
+}
+
 export interface UpdateCanvasCommand {
 	type: "update_canvas";
 	docName: string;
@@ -351,6 +356,7 @@ export type WorkspaceCommand =
 	| RenameDocumentCommand
 	| DuplicateDocumentCommand
 	| LockDocumentCommand
+	| OpenOnboardingCommand
 	| UpdateCanvasCommand
 	| UpdateDocumentMetadataCommand
 	| DeleteAssetCommand

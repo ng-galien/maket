@@ -1,48 +1,21 @@
 ---
-description: Design a visual document or get a guided tour of Maket
-argument-hint: What to design (e.g. "A3 poster for a jazz festival") — leave empty for a guided tour
+description: Design a visual document with Maket
+argument-hint: What to design (e.g. "A3 poster for a jazz festival")
 ---
 
 # /maket — Visual document creation with Maket
 
 Brief: $ARGUMENTS
 
-## When $ARGUMENTS is empty — Onboarding
+## When $ARGUMENTS is empty
 
-If the user typed `/maket` with no arguments, they might be discovering Maket.
-
-**First, check if the onboarding has already been done:** call `maket_doc list` and look for a document named "Welcome to Maket".
-
-- **If it exists** — the user already has the tutorial. Skip onboarding and instead ask: "What would you like to create? Give me a format (A3, A4, DESKTOP, TABLET, MOBILE...), the type (poster, flyer, card, label, wireframe) and the main content."
-- **If it doesn't exist** — this is the first experience. Ask:
-
-> "Welcome to Maket! Want a guided tour? I'll create a small document that shows you how it works."
-
-If they accept, load the pre-built tutorial pages from the plugin assets:
-
-### How to load the onboarding
-
-1. `maket_doc new(doc: "Welcome to Maket", format: "A5", orientation: "landscape", category: "tutorial")`
-2. `maket_preview open`
-3. Read `assets/onboarding/page1-bienvenue.html` and pass its content to `maket_html set`
-4. `maket_page add(name: "Your images")` → Read `assets/onboarding/page2-images.html` → `maket_html set`
-5. `maket_page add(name: "Brand guides")` → Read `assets/onboarding/page3-chartes.html` → `maket_html set`
-6. `maket_page add(name: "Messages")` → Read `assets/onboarding/page4-messages.html` → `maket_html set`
-7. `maket_workspace focus(doc, 1)` to go back to the welcome page
-
-The asset files are located at: `plugin/claude/skills/maket/assets/onboarding/`
-
-Page 2 (Images) has a placeholder for the library section — after loading, use `maket_image list` to get the actual categories and update the `library` element via `maket_html patch` with the real data.
-
-### After the tutorial
-
-Tell the user their guide is ready and invite them to try the messaging loop on the tutorial itself. Wait for their first message via `maket_workspace list_messages`.
-
-When they're ready, ask what they'd like to design for real.
+Call `maket_learn action=overview audience=agent`, then ask what the user wants to create. The user-facing onboarding is opened from Maket's Help button; do not generate a tutorial document here.
 
 ---
 
 ## When $ARGUMENTS has a brief — Design workflow
+
+First call `maket_learn action=topic topic=workflow`.
 
 ### Step 1 — Analyze the brief
 

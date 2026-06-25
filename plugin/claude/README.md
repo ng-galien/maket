@@ -1,13 +1,13 @@
 # Maket — Claude Code Plugin
 
-Turns Claude into a visual design director. Claude composes HTML/CSS documents with typographic hierarchy, brand chartes, and a structured design workflow.
+Turns Claude into a visual design collaborator for Maket. The skill orients Claude toward `maket_learn`, then Claude composes HTML/CSS documents through MCP tools.
 
 ## What's included
 
 | Type | Name | Description |
 |------|------|-------------|
-| **Skill** | `maket` | Auto-triggers when the user asks to create a visual document. Encodes design principles, composition rules, and workflow. |
-| **Command** | `/maket` | Guided document creation from a creative brief. Analyze brief, check assets/chartes, compose, iterate, export. |
+| **Skill** | `maket` | Auto-triggers when the user asks to create a visual document. Calls `maket_learn` for live workflow and composition guidance. |
+| **Command** | `/maket` | Guided document creation from a creative brief. Starts with `maket_learn`, then checks assets/chartes, composes, iterates, exports. |
 
 ## Installation
 
@@ -31,7 +31,7 @@ Just describe what you want:
 
 > "Create an A3 poster for a jazz festival on June 21st at Parc de la Tete d'Or"
 
-Claude will automatically activate the maket skill and follow the structured workflow.
+Claude will automatically activate the maket skill, call `maket_learn`, and follow the structured workflow.
 
 ### Explicit command
 
@@ -41,12 +41,13 @@ Claude will automatically activate the maket skill and follow the structured wor
 
 ### What happens
 
-1. Claude analyzes your brief (format, hierarchy, tone)
-2. Reads brand charte if one exists (`maket_charte view`)
-3. Creates the document and composes the layout with `maket_html set`
-4. Opens live preview (`maket_preview open`)
-5. Iterates with `maket_html patch` based on user feedback (`maket_workspace list_messages`)
-6. Exports as PDF or standalone HTML
+1. Claude reads Maket guidance with `maket_learn`
+2. Claude analyzes your brief (format, hierarchy, tone)
+3. Reads brand charte if one exists (`maket_charte view`)
+4. Creates the document and composes the layout with `maket_html set`
+5. Opens live preview (`maket_preview open`)
+6. Iterates with `maket_html patch` based on user feedback (`maket_workspace list_messages`)
+7. Exports as PDF or standalone HTML
 
 ## Plugin structure
 

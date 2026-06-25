@@ -1,8 +1,10 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
+import * as wsClient from "../store/ws";
 import { BottomBar } from "./BottomBar";
 
 function makeDoc(name: string): Document {
@@ -17,6 +19,7 @@ function makeDoc(name: string): Document {
 }
 
 beforeEach(() => {
+	setLang("en");
 	useStore.setState({
 		connected: false,
 		docs: new Map(),
@@ -102,16 +105,16 @@ describe("BottomBar", () => {
 	it("toggles the active panel when a panel icon is clicked", async () => {
 		const user = userEvent.setup();
 		render(<BottomBar />);
-		await user.click(screen.getByTitle(/chartes/i));
+		await user.click(screen.getByTitle(/brand|chartes/i));
 		expect(useStore.getState().activePanel).toBe("chartes");
-		await user.click(screen.getByTitle(/chartes/i));
+		await user.click(screen.getByTitle(/brand|chartes/i));
 		expect(useStore.getState().activePanel).toBeNull();
 	});
 
 	it("switches between panels", async () => {
 		const user = userEvent.setup();
 		render(<BottomBar />);
-		await user.click(screen.getByTitle(/chartes/i));
+		await user.click(screen.getByTitle(/brand|chartes/i));
 		await user.click(screen.getByTitle(/photos/i));
 		expect(useStore.getState().activePanel).toBe("photos");
 	});
@@ -147,6 +150,15 @@ describe("BottomBar", () => {
 		render(<BottomBar />);
 		await user.click(screen.getByTitle(/recadrer|fit to view/i));
 		expect(fitCalls).toBe(1);
+	});
+
+	it("opens the built-in help document", async () => {
+		const user = userEvent.setup();
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		render(<BottomBar />);
+		await user.click(screen.getByRole("button", { name: /help|aide/i }));
+		expect(send).toHaveBeenCalledWith({ type: "open_onboarding", lang: "en" });
+		send.mockRestore();
 	});
 
 	it("toggles dark mode via the sun/moon button", async () => {
