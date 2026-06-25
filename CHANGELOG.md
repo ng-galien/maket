@@ -13,6 +13,48 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Added
+- **Typed collections and document placeholders.** Collections are now first-class
+  resources with JSON Schema metadata and ordered rows. Pages can be bound to a
+  collection and render placeholder-driven variants from the current row or from
+  the full collection.
+- **Collection editing workflow in the UI and MCP.** The workspace exposes
+  collection data beside documents, with row insertion/update/delete, schema
+  changes, validation feedback, paste-oriented data editing, and print preview
+  modes that follow the active collection selection.
+- **Agent onboarding via `maket_learn`.** New MCP tool that gives Claude, Codex,
+  and Gemini agents live Maket operating guidance: workflow, HTML composition,
+  chartes, collections, review loop, and client install notes.
+- **User Help document.** The bottom toolbar now includes a Help button that
+  opens a built-in, localized onboarding document in the workspace without
+  mixing it with agent-facing `maket_learn` content.
+- **Gemini CLI install support.** `maket install gemini --apply` and
+  `maket uninstall gemini --apply` manage the `~/.gemini/settings.json` MCP
+  server entry. Thin Codex/Gemini orientation files now point agents to
+  `maket_learn`.
+
+### Changed
+- **WebSocket contract boundaries clarified.** Shared WS types keep command and
+  signal direction explicit while preserving the complete union for dispatching.
+- **Document/server responsibilities split.** Persistence, asset concerns, page
+  identity, and workspace contracts were extracted back into clearer services
+  instead of being carried by document objects or ad-hoc helpers.
+- **Maket skills are now orientation-only.** Product knowledge moved out of the
+  bulky Claude skill and into the MCP `maket_learn` source of truth.
+
+### Fixed
+- **Workspace message schema is stricter.** Pending/user-message retrieval now
+  uses the intended Zod contract.
+- **Client list rendering avoids array-index keys** in newly touched flows,
+  preserving stable React identity during row/document changes.
+
+### Internal
+- **Code-moniker quality gate.** Structural smell rules and architecture
+  boundary checks now run through `npm run quality`; the current gate reports
+  zero violations.
+- Cleaned code-smell follow-ups around item action contracts, client
+  deduplication, page identity migration, and server responsibility boundaries.
+
 ## [1.3.0] — 2026-05-03
 
 ### Added
