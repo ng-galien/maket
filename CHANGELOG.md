@@ -13,6 +13,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-06-26
+
 ### Added
 - **Typed collections and document placeholders.** Collections are now first-class
   resources with JSON Schema metadata and ordered rows. Pages can be bound to a
@@ -255,7 +257,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ng-galien/maket/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ng-galien/maket/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ng-galien/maket/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ng-galien/maket/compare/v1.0.1...v1.1.0
