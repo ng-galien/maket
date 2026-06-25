@@ -1,5 +1,5 @@
 /**
- * `maket uninstall <claude|codex>` — symmetric inverse of `install`.
+ * `maket uninstall <claude|codex|gemini>` — symmetric inverse of `install`.
  * Print-only by default, `--apply` to execute.
  */
 
@@ -10,10 +10,10 @@ import { join } from "node:path";
 import { hasBin } from "./_bin.ts";
 import { stripMaketSection } from "./_codex-toml.ts";
 import { backup, refuseSymlink } from "./_fs-safety.ts";
-import type { ClaudeScope } from "./install.ts";
+import type { ClaudeScope, InstallClient } from "./install.ts";
 
 export interface UninstallOpts {
-	client: "claude" | "codex";
+	client: InstallClient;
 	apply: boolean;
 	scope: ClaudeScope;
 }
@@ -133,7 +133,71 @@ function uninstallCodex(opts: UninstallOpts): void {
 	process.stdout.write(`maket: removed maket section from ${target}\n`);
 }
 
+function uninstallGemini(opts: UninstallOpts): void {
+	const target = join(homedir(), ".gemini", "settings.json");
+
+	if (!opts.apply) {
+		process.stdout.write(
+			"maket: Gemini CLI MCP uninstall (preview)\n\n" +
+				`Remove the "maket" entry from ${target}.\n\n` +
+				"Re-run with --apply to execute.\n",
+		);
+		return;
+	}
+
+	removeGeminiEntry(target);
+}
+
+function removeGeminiEntry(path: string): void {
+	if (!existsSync(path)) {
+		process.stdout.write(
+			`maket: ${path} does not exist — nothing to remove.\n`,
+		);
+		return;
+	}
+	if (refuseSymlink(path)) return;
+
+	let json: Record<string, unknown>;
+	try {
+		json = JSON.parse(readFileSync(path, "utf-8"));
+	} catch {
+		process.stderr.write(
+			`maket: ${path} is not valid JSON — refusing to edit.\n`,
+		);
+		process.exitCode = 1;
+		return;
+	}
+
+	const servers = geminiServers(json);
+	if (!servers || !("maket" in servers)) {
+		process.stdout.write(`maket: no "maket" entry found in ${path}.\n`);
+		return;
+	}
+
+	backup(path);
+	delete servers.maket;
+	if (Object.keys(servers).length === 0) delete json.mcpServers;
+	writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`, {
+		encoding: "utf-8",
+		mode: 0o600,
+	});
+	process.stdout.write(`maket: removed maket from Gemini config → ${path}\n`);
+}
+
+function geminiServers(json: Record<string, unknown>) {
+	const rawServers = json.mcpServers;
+	if (
+		rawServers === null ||
+		typeof rawServers !== "object" ||
+		Array.isArray(rawServers)
+	) {
+		return undefined;
+	}
+	return rawServers as Record<string, unknown>;
+}
+
 export function runUninstall(opts: UninstallOpts): void {
 	if (opts.client === "claude") uninstallClaude(opts);
-	else uninstallCodex(opts);
+	else if (opts.client === "codex") uninstallCodex(opts);
+	else uninstallGemini(opts);
 }

@@ -42,12 +42,63 @@ interface GlobalOpts {
 	host?: string;
 }
 
+type SupportedClient = "claude" | "codex" | "gemini";
+
 function envOverrides(opts: GlobalOpts): MaketEnvOverrides {
 	const out: MaketEnvOverrides = {};
 	if (opts.dataDir) out.dataDir = opts.dataDir;
 	if (typeof opts.port === "number") out.port = opts.port;
 	if (opts.host) out.host = opts.host;
 	return out;
+}
+
+function supportedClient(client: string): SupportedClient | null {
+	return client === "claude" || client === "codex" || client === "gemini"
+		? client
+		: null;
+}
+
+function clientScope(scope: string | undefined) {
+	return scope === "project" ? "project" : "user";
+}
+
+function handleInstall(
+	client: string,
+	opts: { apply?: boolean; scope?: string },
+) {
+	const selected = supportedClient(client);
+	if (!selected) {
+		unsupportedClient("install", client);
+		return;
+	}
+	runInstall({
+		client: selected,
+		apply: opts.apply === true,
+		scope: clientScope(opts.scope),
+	});
+}
+
+function handleUninstall(
+	client: string,
+	opts: { apply?: boolean; scope?: string },
+) {
+	const selected = supportedClient(client);
+	if (!selected) {
+		unsupportedClient("uninstall", client);
+		return;
+	}
+	runUninstall({
+		client: selected,
+		apply: opts.apply === true,
+		scope: clientScope(opts.scope),
+	});
+}
+
+function unsupportedClient(command: string, client: string): void {
+	process.stderr.write(
+		`maket ${command}: client must be "claude", "codex", or "gemini" (got "${client}")\n`,
+	);
+	process.exitCode = 1;
 }
 
 function buildCli(): CAC {
@@ -138,20 +189,7 @@ function buildCli(): CAC {
 		.option("--scope <scope>", "Claude scope: user | project", {
 			default: "user",
 		})
-		.action((client: string, opts: { apply?: boolean; scope?: string }) => {
-			if (client !== "claude" && client !== "codex") {
-				process.stderr.write(
-					`maket install: client must be "claude" or "codex" (got "${client}")\n`,
-				);
-				process.exitCode = 1;
-				return;
-			}
-			runInstall({
-				client,
-				apply: opts.apply === true,
-				scope: opts.scope === "project" ? "project" : "user",
-			});
-		});
+		.action(handleInstall);
 
 	cli
 		.command("uninstall <client>", "Remove Maket from an MCP client")
@@ -159,20 +197,7 @@ function buildCli(): CAC {
 		.option("--scope <scope>", "Claude scope: user | project", {
 			default: "user",
 		})
-		.action((client: string, opts: { apply?: boolean; scope?: string }) => {
-			if (client !== "claude" && client !== "codex") {
-				process.stderr.write(
-					`maket uninstall: client must be "claude" or "codex" (got "${client}")\n`,
-				);
-				process.exitCode = 1;
-				return;
-			}
-			runUninstall({
-				client,
-				apply: opts.apply === true,
-				scope: opts.scope === "project" ? "project" : "user",
-			});
-		});
+		.action(handleUninstall);
 
 	cli
 		.command("gmail [sub]", "Manage Gmail OAuth state (status | reset)")

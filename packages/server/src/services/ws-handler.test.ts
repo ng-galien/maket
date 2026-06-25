@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
+import { onboardingDocumentName } from "../lib/onboarding-document.js";
 import { computeCanvasDims, createDocument } from "../types.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
@@ -237,6 +238,48 @@ describe("ws-handler — document and canvas flows", () => {
 
 		expect(documents.resolve("a")?._displayed).toBe(false);
 		expect(documents.resolve("b")?._displayed).toBe(true);
+		dispose();
+	});
+
+	it("open_onboarding creates and focuses the built-in help document", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler({ type: "open_onboarding", lang: "fr" }, ws);
+
+		const name = onboardingDocumentName();
+		const stored = store.loadOne(name);
+		expect(stored?.category).toBe("help");
+		expect(documents.resolve(name)?.meta.locked).toBe(true);
+		expect(ws.send).toHaveBeenCalledOnce();
+		const payload = JSON.parse(String(ws.send.mock.calls[0]?.[0])) as {
+			type: string;
+			doc: { name: string };
+			addToWorkspace: boolean;
+			focus: boolean;
+		};
+		expect(payload.type).toBe("state");
+		expect(payload.doc.name).toBe(name);
+		expect(payload.addToWorkspace).toBe(true);
+		expect(payload.focus).toBe(true);
+		dispose();
+	});
+
+	it("open_onboarding keeps one stable help document across locales", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler({ type: "open_onboarding", lang: "fr" }, ws);
+		handler({ type: "open_onboarding", lang: "en" }, ws);
+
+		const name = onboardingDocumentName();
+		expect(
+			[...documents.all().keys()].filter((key) => key === name),
+		).toHaveLength(1);
+		expect(store.loadOne(name)?.pages[0]?.name).toBe("Help");
+		expect(
+			store.loadAll().filter((doc) => doc.category === "help"),
+		).toHaveLength(1);
 		dispose();
 	});
 

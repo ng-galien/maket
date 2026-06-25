@@ -13,6 +13,7 @@ import { collectionsPack } from "./tools/collections.js";
 import { documentsPack } from "./tools/documents.js";
 import { gmailPack } from "./tools/gmail.js";
 import { htmlPack } from "./tools/html.js";
+import { learnPack } from "./tools/learn.js";
 import { mermaidPack } from "./tools/mermaid.js";
 import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
@@ -122,6 +123,7 @@ describe("registerToolPacks", () => {
 		assetsPack,
 		chartesPack,
 		collectionsPack,
+		learnPack,
 		pagesPack,
 		documentsPack,
 		canvasPack,
@@ -137,6 +139,7 @@ describe("registerToolPacks", () => {
 		assets: {},
 		chartes: {},
 		collections: {},
+		learn: {},
 		pages: {},
 		documents: {},
 		canvas: {},

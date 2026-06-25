@@ -3,6 +3,7 @@ import {
 	ChevronDown,
 	ChevronUp,
 	FileText,
+	HelpCircle,
 	Image,
 	Lock,
 	LockOpen,
@@ -21,6 +22,7 @@ import {
 	useFocusedDoc,
 	useStore,
 } from "../store/useStore";
+import { wsSend } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
@@ -49,7 +51,6 @@ export function BottomBar() {
 		? printHrefForDoc(focusedDoc, collectionPreview, effectiveCollections)
 		: "";
 
-	const hasDoc = focusedDoc !== null;
 	const togglePosition = () =>
 		setBarPosition(position === "bottom" ? "top" : "bottom");
 
@@ -117,18 +118,9 @@ export function BottomBar() {
 					onToggle={togglePanel}
 				/>
 
-				{hasDoc && (
-					<a
-						href={printHref}
-						target="_blank"
-						rel="noopener"
-						title={t("print")}
-						aria-label={t("print")}
-						className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors no-underline"
-					>
-						<Printer size={16} />
-					</a>
-				)}
+				<HelpButton label={t("help")} />
+
+				{focusedDoc && <PrintLink href={printHref} label={t("print")} />}
 
 				<button
 					type="button"
@@ -156,6 +148,39 @@ export function BottomBar() {
 				<PositionToggle direction="top" onToggle={togglePosition} />
 			)}
 		</div>
+	);
+}
+
+function HelpButton({ label }: { label: string }) {
+	return (
+		<button
+			type="button"
+			onClick={() => wsSend({ type: "open_onboarding", lang: helpLang() })}
+			title={label}
+			aria-label={label}
+			className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
+		>
+			<HelpCircle size={16} />
+		</button>
+	);
+}
+
+function helpLang(): "en" | "fr" {
+	return getLang() === "fr" ? "fr" : "en";
+}
+
+function PrintLink({ href, label }: { href: string; label: string }) {
+	return (
+		<a
+			href={href}
+			target="_blank"
+			rel="noopener"
+			title={label}
+			aria-label={label}
+			className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors no-underline"
+		>
+			<Printer size={16} />
+		</a>
 	);
 }
 

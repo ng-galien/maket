@@ -65,15 +65,16 @@ AI     — maket_pdf doc="Jazz flyer"
 # Wire Maket into your AI client (one-shot — drop --apply for a dry run)
 npx -y @ng-galien/maket install claude --apply
 npx -y @ng-galien/maket install codex  --apply
+npx -y @ng-galien/maket install gemini --apply
 
 # Start the local server and open the preview
 npx -y @ng-galien/maket start
 npx -y @ng-galien/maket open
 ```
 
-The CLI registers an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed) and a `[mcp_servers.maket]` section in `~/.codex/config.toml`. Without arguments, the binary runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, and other MCP clients invoke automatically.
+The CLI registers an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed), a `[mcp_servers.maket]` section in `~/.codex/config.toml`, or an `mcpServers.maket` entry in `~/.gemini/settings.json`. Without arguments, the binary runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, Gemini, and other MCP clients invoke automatically.
 
-Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
+Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex|gemini> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
 
 ### Option B — Clone and hack on it
 
@@ -105,7 +106,7 @@ node scripts/pack-mcpb.ts
 
 Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions).
 
-**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, Codex, or similar).
+**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, Codex, Gemini, or similar).
 
 ### CLI reference
 
@@ -122,8 +123,8 @@ maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
   config                Print the resolved runtime config
   doctor                One-shot diagnostic (node, port, data dir, Chromium, Gmail, npm)
   update [<version>]    Upgrade the CLI (or pin to <version>); --check for a no-op compare
-  install <client>      Wire Maket into an MCP client  (claude | codex)
-  uninstall <client>    Remove Maket from an MCP client (claude | codex)
+  install <client>      Wire Maket into an MCP client  (claude | codex | gemini)
+  uninstall <client>    Remove Maket from an MCP client (claude | codex | gemini)
                           install/uninstall flags: --apply, --scope=user|project
   gmail <sub>           Manage Gmail OAuth state       (status | reset [--force])
   help, version
@@ -131,11 +132,12 @@ maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
 ## Tools
 
-Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
+Maket exposes 12 compound MCP tools. Each one dispatches multiple actions:
 
 | Tool | What it does |
 |------|--------------|
 | `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
+| `maket_learn` | Agent onboarding — workflow, HTML composition, chartes, collections, review, install |
 | `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
 | `maket_page` | Page structure — add, remove, rename, reorder, list |
 | `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
@@ -151,13 +153,15 @@ Maket exposes 11 compound MCP tools. Each one dispatches multiple actions:
 
 ## Plugin & skills
 
-The `plugin/claude/` directory ships three agent skills that give your AI assistant the judgment layer on top of the tools:
+The MCP server exposes `maket_learn`, the source of truth for agent onboarding. Skills stay thin: they orient Claude, Codex, or Gemini toward the live tool guidance instead of duplicating product knowledge. Human onboarding is separate and opens from the Help button in the Maket UI.
 
-- **`maket`** — Design director. Plans layouts, applies typographic hierarchy, composes step-by-step. Triggers on creative briefs ("make me a poster", "design a flyer for…").
+The `plugin/claude/` directory ships three agent skills:
+
+- **`maket`** — Orientation skill. Starts with `maket_learn`, then uses the MCP tools for design work.
 - **`maket-charte`** — Brand-identity expert. Builds coherent design-token systems from a brief, an industry, or a reference URL.
 - **`maket-review`** — QA agent. Audits charte compliance, image paths, layout overflow; fixes issues via `maket_html patch`.
 
-These skills are auto-loaded by MCP-compatible agents (e.g. Claude Code) when opened in a Maket-enabled workspace.
+Claude, Codex, and Gemini compatibility files live under `plugin/`.
 
 ## Configuration
 

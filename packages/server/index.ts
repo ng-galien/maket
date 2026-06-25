@@ -33,6 +33,7 @@ import { collectionsPack } from "./src/tools/collections.js";
 import { documentsPack } from "./src/tools/documents.js";
 import { gmailPack } from "./src/tools/gmail.js";
 import { htmlPack } from "./src/tools/html.js";
+import { learnPack } from "./src/tools/learn.js";
 import { mermaidPack } from "./src/tools/mermaid.js";
 import { pagesPack } from "./src/tools/pages.js";
 import { pdfPack } from "./src/tools/pdf.js";
@@ -111,6 +112,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 			assets: {},
 			chartes: {},
 			collections: {},
+			learn: {},
 			pages: {},
 			documents: {},
 			canvas: {},
@@ -126,6 +128,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		assetsPack,
 		chartesPack,
 		collectionsPack,
+		learnPack,
 		pagesPack,
 		documentsPack,
 		canvasPack,
