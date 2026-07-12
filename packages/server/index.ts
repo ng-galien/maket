@@ -301,11 +301,13 @@ app.use((req, res, next) => {
 	next();
 });
 
-// CSP: block inline scripts to mitigate XSS in dangerouslySetInnerHTML canvas
+// CSP: block inline scripts to mitigate XSS in dangerouslySetInnerHTML canvas.
+// Ajv compiles collection schemas with new Function in the packaged client.
+// Keep inline scripts blocked while allowing that local validation path.
 app.use((_req, res, next) => {
 	res.setHeader(
 		"Content-Security-Policy",
-		"default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src * data: blob:; connect-src 'self' ws: wss: http: https:; script-src 'self'",
+		"default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src * data: blob:; connect-src 'self' ws: wss: http: https:; script-src 'self' 'unsafe-eval'",
 	);
 	next();
 });
