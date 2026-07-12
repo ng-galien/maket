@@ -13,6 +13,13 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-07-12
+
+### Fixed
+- **Dataset previews survive document layout refreshes.** Editing a document
+  bound to a collection no longer temporarily drops its dataset and shows a
+  false “Collection not found” error until the browser is reloaded.
+
 ## [1.4.0] — 2026-06-26
 
 ### Added
