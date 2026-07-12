@@ -13,6 +13,13 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-07-12
+
+### Fixed
+- **Collection previews work in the packaged application.** The local Content
+  Security Policy now permits Ajv's schema-validation compilation without
+  allowing inline scripts, preventing false placeholder errors after edits.
+
 ## [1.4.1] — 2026-07-12
 
 ### Fixed
