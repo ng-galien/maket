@@ -337,8 +337,9 @@ function applyStateMessage(
 ): void {
 	const doc = msg.doc as Document | null;
 	const docList = (msg.docList ?? []) as DocSummary[];
-	const collections = (msg.collections ?? []) as Collection[];
-	useStore.getState().setCollections(collections);
+	if (msg.collections !== undefined) {
+		useStore.getState().setCollections(msg.collections as Collection[]);
+	}
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 	if (!doc) {
 		useStore.setState({ docList });

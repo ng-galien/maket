@@ -1,4 +1,5 @@
 import type {
+	Collection,
 	LayoutCheckResult,
 	WorkspaceCommand,
 	WorkspaceSignal,
@@ -78,6 +79,22 @@ function summary(name: string): DocSummary {
 		elementCount: 0,
 	};
 }
+
+const clientsCollection: Collection = {
+	name: "clients",
+	schema: {
+		type: "object",
+		properties: { client_name: { type: "string" } },
+		required: ["client_name"],
+	},
+	members: [
+		{
+			id: "member_1",
+			position: 0,
+			data: { client_name: "Acme" },
+		},
+	],
+};
 
 // Re-import the store and ws module in isolation for each test so
 // `let ws` / `initialStateReceived` / `pendingLoadDoc` inside ws.ts start fresh.
@@ -254,6 +271,28 @@ describe("state message", () => {
 		const s = useStore.getState();
 		expect(s.docList).toHaveLength(2);
 		expect(s.docs.size).toBe(0);
+	});
+
+	it("preserves collections when a layout state refresh omits them", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha")],
+			collections: [clientsCollection],
+			charteCss: "",
+		});
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha")],
+			charteCss: "",
+		});
+
+		expect(useStore.getState().collections).toEqual([clientsCollection]);
 	});
 });
 
