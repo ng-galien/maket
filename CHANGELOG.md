@@ -13,6 +13,13 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-07-13
+
+### Fixed
+- **Headless renders complete reliably on recent macOS.** Snapshots, layout
+  checks, thumbnails, and PDF exports now use `chrome-headless-shell`, avoiding
+  the `Page.captureScreenshot` stall seen with unified headless Chrome.
+
 ## [1.4.2] — 2026-07-12
 
 ### Fixed
