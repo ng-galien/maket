@@ -24,7 +24,10 @@
 import { parseHTML } from "linkedom";
 import puppeteer, { type Browser } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
-import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
+import {
+	CHROMIUM_HEADLESS,
+	shouldDisableSandbox,
+} from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import {
@@ -91,7 +94,7 @@ export function createLayoutService(
 		opts.browserLaunch ??
 		(() =>
 			puppeteer.launch({
-				headless: true,
+				headless: CHROMIUM_HEADLESS,
 				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
 			}));
 	const getAssetBaseUrl =
