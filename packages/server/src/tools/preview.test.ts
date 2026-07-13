@@ -133,7 +133,9 @@ describe("maket_preview — action=snapshot", () => {
 			previewMocks.page,
 			"offline",
 		);
-		expect(previewMocks.launch).toHaveBeenCalledOnce();
+		expect(previewMocks.launch).toHaveBeenCalledWith(
+			expect.objectContaining({ headless: "shell" }),
+		);
 		expect(previewMocks.browser.close).toHaveBeenCalledOnce();
 		expect(readFileSync(join(config.EXPORTS_DIR, "d.png"))).toEqual(
 			Buffer.from("png"),

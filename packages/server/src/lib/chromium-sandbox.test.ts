@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { shouldDisableSandbox } from "./chromium-sandbox.js";
+import { CHROMIUM_HEADLESS, shouldDisableSandbox } from "./chromium-sandbox.js";
+
+describe("CHROMIUM_HEADLESS", () => {
+	it("uses chrome-headless-shell for render workloads", () => {
+		expect(CHROMIUM_HEADLESS).toBe("shell");
+	});
+});
 
 describe("shouldDisableSandbox", () => {
 	it("honors the explicit opt-out env flag", () => {

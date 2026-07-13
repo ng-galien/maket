@@ -10,7 +10,10 @@
  */
 
 import puppeteer, { type Browser } from "puppeteer";
-import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
+import {
+	CHROMIUM_HEADLESS,
+	shouldDisableSandbox,
+} from "../lib/chromium-sandbox.js";
 
 export interface BrowserPool {
 	/** Returns the shared Browser, launching it on first use or after a
@@ -33,7 +36,7 @@ export function createBrowserPool(
 		opts.launch ??
 		(() =>
 			puppeteer.launch({
-				headless: true,
+				headless: CHROMIUM_HEADLESS,
 				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
 			}));
 

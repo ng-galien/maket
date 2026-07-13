@@ -14,7 +14,10 @@ import puppeteer from "puppeteer";
 import { z } from "zod";
 import type { ToolHandler, ToolResult } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import { shouldDisableSandbox } from "../lib/chromium-sandbox.js";
+import {
+	CHROMIUM_HEADLESS,
+	shouldDisableSandbox,
+} from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
@@ -136,7 +139,7 @@ async function runSnapshot(
 
 	const scale = 3.78;
 	const browser = await puppeteer.launch({
-		headless: true,
+		headless: CHROMIUM_HEADLESS,
 		args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
 	});
 	try {
