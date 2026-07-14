@@ -1,6 +1,6 @@
 # Maket
 
-**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, and your image library. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
+**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, your image library, and typed data collections for repeatable variants. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
@@ -14,14 +14,14 @@
 </p>
 
 <p align="center">
-  <em>60 seconds · charte → library → AI composition → every kind of doc → export.</em>
+  <em>60 seconds · charte → library → data → AI composition → every kind of doc → export.</em>
 </p>
 
 ---
 
 ## Why Maket
 
-Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives the AI assistant a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, and an **asset + brand library** so output stays consistent across documents. You stay in the conversation; the AI assistant handles the craft.
+Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives the AI assistant a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, an **asset + brand library** so output stays consistent, and **typed data collections** that turn one page template into a validated series of variants. You stay in the conversation; the AI assistant handles the craft.
 
 ## Features
 
@@ -29,6 +29,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 - **HTML/CSS canvas** — Pages are real HTML sized in mm. No lock-in to a proprietary format.
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
 - **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
+- **Data-driven collections** — Define typed fields with JSON Schema, paste or edit ordered rows, bind a page to placeholders such as `{{ product_name }}`, preview one row or the full series, and render one output page per row.
 - **PDF export** — Print-ready output via headless Chromium.
 - **Gmail drafts** — Compose an email document and hand it off to Gmail as a draft; you review and send yourself.
 - **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
@@ -55,6 +56,33 @@ You    — parfait, exporte
 
 AI     — maket_pdf doc="Jazz flyer"
          → ~/.maket/exports/jazz-flyer.pdf
+```
+
+## Data-driven documents
+
+Collections turn a page into a reusable template for product labels, event badges, personalized flyers, certificates, catalog pages, or any other repeated document. Each collection owns a **JSON Schema** and a set of ordered rows. Bind it to a page, place typed values in the HTML with `{{ field_name }}`, and Maket renders one variant per row.
+
+The Collections workspace and `maket_collection` tool both support schema changes, row insertion/update/delete, paste-oriented tabular editing, and validation feedback. Maket validates the schema, every row, and every placeholder before rendering. In the preview you can keep the raw template visible, inspect one selected row, or display the complete generated series; print and PDF output expand the bound page across all rows.
+
+```text
+You    — crée une série d'étiquettes produit avec le nom et le prix
+
+AI     — maket_doc new doc="Product labels" format=A6 orientation=portrait
+         maket_collection action=create name=products
+           schema='{"type":"object","properties":{"product_name":{"type":"string"},"price":{"type":"string"}},"required":["product_name","price"]}'
+         maket_collection action=add_row name=products
+           data='{"product_name":"Earl Grey","price":"12 €"}'
+         maket_collection action=add_row name=products
+           data='{"product_name":"Sencha","price":"14 €"}'
+         maket_collection action=bind doc="Product labels" page=1 name=products
+         maket_html set doc="Product labels" page=1
+           html='<article data-id="label"><h1 data-id="name">{{ product_name }}</h1><p data-id="price">{{ price }}</p></article>'
+         → The preview can show the template, either product, or both generated labels.
+
+You    — exporte toute la série
+
+AI     — maket_pdf doc="Product labels"
+         → One PDF page per collection row.
 ```
 
 ## Install
@@ -132,7 +160,7 @@ maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
 ## Tools
 
-Maket exposes 12 compound MCP tools. Each one dispatches multiple actions:
+Maket exposes 13 compound MCP tools. Each one dispatches multiple actions:
 
 | Tool | What it does |
 |------|--------------|
@@ -143,6 +171,7 @@ Maket exposes 12 compound MCP tools. Each one dispatches multiple actions:
 | `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
 | `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow / overlap / margin clearance) |
 | `maket_charte` | Brand chartes — list, view, set, delete |
+| `maket_collection` | Typed data collections — list, view, create, validate/change schema, add/update/delete rows, bind/unbind a page |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
 | `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
@@ -167,7 +196,7 @@ Claude, Codex, and Gemini compatibility files live under `plugin/`.
 
 By default Maket stores data in `~/.maket/`:
 
-- `documents.db` — SQLite (documents, chartes, assets metadata)
+- `documents.db` — SQLite (documents, chartes, collections, assets metadata)
 - `assets/`, `documents/`, `exports/` — user files
 
 Override with environment variables:
