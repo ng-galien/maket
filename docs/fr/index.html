@@ -4,1092 +4,1278 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light only" />
-  <title>Maket · Un outil de design visuel pour votre IA</title>
-  <meta name="description" content="Maket transforme votre assistant IA en designer visuel — composez des documents HTML/CSS avec votre charte de marque, une bibliothèque d'images et un aperçu en direct. Exportez en PDF ou partagez via un bundle .maket." />
+  <title>Maket · Créez des documents avec Claude, Codex ou Gemini</title>
+  <meta
+    name="description"
+    content="Créez des affiches, présentations, wireframes et séries de documents avec votre agent IA. Relisez, annotez, corrigez et exportez, tout en gardant vos ressources sur votre machine."
+  />
 
-  <!-- Social -->
-  <meta property="og:title" content="Maket — Un outil de design visuel pour votre IA" />
-  <meta property="og:description" content="Votre marque, vos images, vos agents. Un seul modèle de document." />
+  <meta property="og:title" content="Maket — Créez des documents avec votre agent IA" />
+  <meta
+    property="og:description"
+    content="Affiches, présentations, wireframes et séries personnalisées : décrivez, annotez, corrigez et exportez."
+  />
   <meta property="og:image" content="https://ng-galien.github.io/maket/demo.gif" />
   <meta property="og:type" content="website" />
   <meta property="og:locale" content="fr_FR" />
   <meta property="og:locale:alternate" content="en_US" />
+
   <link rel="alternate" hreflang="en" href="https://ng-galien.github.io/maket/" />
   <link rel="alternate" hreflang="fr" href="https://ng-galien.github.io/maket/fr/" />
   <link rel="alternate" hreflang="x-default" href="https://ng-galien.github.io/maket/" />
 
-  <!-- Pin language preference when arrived via ?lang=fr; no auto-redirect here
-       (we're already on the FR variant). -->
-  <script>
-    (function () {
-      try {
-        var qs = new URLSearchParams(location.search);
-        var override = qs.get('lang');
-        if (override) { localStorage.setItem('maket-lang', override); }
-      } catch (e) { /* no-op */ }
-    })();
-  </script>
-
-  <!-- Fonts: Newsreader (variable serif) + Inter (body) + JetBrains Mono (code). -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
+    href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap"
     rel="stylesheet"
-    href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,200..700;1,6..72,300..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  />
+  <link
+    rel="icon"
+    type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23101c19'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-family='Arial,sans-serif' font-size='62' fill='%23f4f0e8' font-weight='700'%3EM%3C/text%3E%3Ccircle cx='78' cy='74' r='7' fill='%2300b8a9'/%3E%3C/svg%3E"
   />
 
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230D1B2A'/%3E%3Ctext x='50%25' y='50%25' dy='.32em' text-anchor='middle' font-family='serif' font-size='70' fill='%23fff' font-weight='300'%3EM%3Ctspan fill='%2300A8B5'%3E.%3C/tspan%3E%3C/text%3E%3C/svg%3E" />
-
   <style>
-    /* ─────────────────────────────────────────────────────────────
-       Maket blueprint — landing page
-       Editorial direction: architect's drafting paper. Deep ink on
-       pure white (no beige — anti-Anthropic). One signal colour,
-       cyan, used sparingly. Serif hero, sans body, mono numerals.
-       ───────────────────────────────────────────────────────────── */
-
     :root {
-      /* Brand — mirrors the product charte 1:1 */
-      --primary:   #0D1B2A;
-      --accent:    #00A8B5;
-      --bg:        #FFFFFF;
-      --text:      #1B263B;
-      --muted:     #94A3B8;
-      --ink-soft:  #415A77;
-
-      /* Fluid type scale, clamped between phone and wide desktop */
-      --fs-kicker:  clamp(0.85rem, 0.75rem + 0.4vw, 1.05rem);
-      --fs-meta:    clamp(0.78rem, 0.74rem + 0.2vw, 0.88rem);
-      --fs-body:    clamp(0.95rem, 0.9rem + 0.3vw, 1.05rem);
-      --fs-lede:    clamp(1.1rem, 1rem + 0.6vw, 1.35rem);
-      --fs-title:   clamp(2.25rem, 1.6rem + 3vw, 3.25rem);
-      --fs-hero:    clamp(3.5rem, 2.2rem + 8vw, 9rem);
-
-      /* Geometry — 8pt baseline, but we steal the "mm" feel for section rhythm */
-      --rail:       clamp(1.25rem, 1rem + 2vw, 3rem);  /* outer side padding */
-      --gutter:     clamp(1rem, 0.75rem + 1vw, 1.5rem);
+      --ink: #101c19;
+      --ink-soft: #263530;
+      --paper: #f4f0e8;
+      --paper-light: #fbfaf6;
+      --line: rgba(16, 28, 25, 0.16);
+      --muted: #66716d;
+      --accent: #00a99d;
+      --accent-light: #72e2d7;
+      --max: 1240px;
+      --gutter: clamp(1.25rem, 4vw, 4rem);
+      --type-label: 0.98rem;
+      --type-body: clamp(1.08rem, 1.35vw, 1.22rem);
+      --type-h3: clamp(2rem, 2.65vw, 2.8rem);
+      --type-h2: clamp(2.85rem, 4.1vw, 4.3rem);
+      --type-display: clamp(3.25rem, 5vw, 5.25rem);
+      --tracking-display: -0.035em;
+      --tracking-heading: -0.025em;
     }
 
-    /* Reset / base */
-    *, *::before, *::after { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
+
     html {
       scroll-behavior: smooth;
-      text-rendering: geometricPrecision;
-      -webkit-font-smoothing: antialiased;
     }
+
     body {
       margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: "Inter", system-ui, sans-serif;
-      font-size: var(--fs-body);
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Manrope", sans-serif;
+      font-size: 16px;
       line-height: 1.55;
-      letter-spacing: -0.003em;
-
-      /* Blueprint drafting grid — 32px cells, cyan at 4% opacity.
-         Deliberately almost-invisible: it's texture, not decoration. */
-      background-image:
-        linear-gradient(to right,  rgba(0, 168, 181, 0.05) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(0, 168, 181, 0.05) 1px, transparent 1px);
-      background-size: 32px 32px;
+      text-rendering: optimizeLegibility;
     }
-    img, svg { display: block; max-width: 100%; height: auto; }
-    a { color: inherit; text-decoration: none; }
-    a:focus-visible,
-    button:focus-visible {
-      outline: 2px solid var(--accent);
-      outline-offset: 3px;
-    }
-    ::selection { background: var(--accent); color: #fff; }
 
-    /* Typography primitives */
-    .serif  { font-family: "Newsreader", Georgia, serif; font-weight: 300; }
-    .mono   { font-family: "JetBrains Mono", ui-monospace, monospace; }
-    .kicker {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.8rem;
-      font-family: "Inter", sans-serif;
-      font-size: var(--fs-kicker);
-      font-weight: 600;
-      letter-spacing: 0.2em;
-      text-transform: uppercase;
+    body,
+    a,
+    button {
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img,
+    video {
+      display: block;
+      max-width: 100%;
+    }
+
+    button,
+    a {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    ::selection {
+      color: var(--ink);
+      background: var(--accent-light);
+    }
+
+    .shell {
+      width: min(var(--max), calc(100% - (2 * var(--gutter))));
+      margin-inline: auto;
+    }
+
+    .mono,
+    .eyebrow,
+    .section-index,
+    .nav__links,
+    .proof__item,
+    .use__number,
+    .workflow__number,
+    .template__field,
+    .collection__row,
+    .terminal {
+      font-family: "DM Mono", monospace;
+    }
+
+    .dot {
       color: var(--accent);
     }
-    /* The measurement-tick before every kicker — echoes architectural
-       dimension lines. One decorative detail, done well. */
-    .kicker::before {
-      content: "";
-      width: 2rem;
-      height: 1px;
-      background: var(--accent);
-      flex-shrink: 0;
-    }
 
-    /* Dot accent — the product signature. "Maket." with a cyan period. */
-    .dot { color: var(--accent); }
-
-    /* ─────────────────────────────────────────────────────────────
-       Layout rails
-       ───────────────────────────────────────────────────────────── */
-    .shell {
-      max-width: 1280px;
-      margin: 0 auto;
-      /* `padding-inline` (not the `padding` shorthand) so this doesn't
-         clobber `section { padding-block }`. Sections also carry the
-         shell class — using `padding: 0 X` zeroed their vertical air. */
-      padding-inline: var(--rail);
-    }
-
-    section {
-      position: relative;
-      padding-block: clamp(4rem, 2.5rem + 5vw, 8rem);
-      scroll-margin-top: 2rem;
-    }
-    section + section {
-      border-top: 1px solid rgba(11, 27, 42, 0.06);
-    }
-
-    /* ─────────────────────────────────────────────────────────────
-       Nav — slim, sticky, mostly invisible
-       ───────────────────────────────────────────────────────────── */
     .nav {
-      position: sticky;
-      top: 0;
+      position: absolute;
       z-index: 10;
-      background: color-mix(in srgb, var(--bg) 92%, transparent);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      border-bottom: 1px solid rgba(11, 27, 42, 0.06);
+      top: 0;
+      right: 0;
+      left: 0;
+      color: var(--paper-light);
     }
+
     .nav__inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-block: 0.9rem;
+      height: 5.25rem;
+      border-bottom: 1px solid rgba(244, 240, 232, 0.18);
     }
+
     .nav__brand {
-      font-family: "Newsreader", serif;
-      font-size: 1.4rem;
-      font-weight: 400;
-      color: var(--primary);
-      letter-spacing: -0.02em;
+      font-size: var(--type-body);
+      font-weight: 700;
+      letter-spacing: -0.04em;
     }
+
     .nav__links {
       display: flex;
-      gap: clamp(0.9rem, 0.5rem + 1.6vw, 2.5rem);
-      font-size: var(--fs-kicker);
-      font-weight: 500;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--ink-soft);
-      align-items: baseline;
-    }
-    .nav__links a { transition: color 0.2s; }
-    .nav__links a:hover { color: var(--accent); }
-    /* Section anchors are nice on desktop but redundant on mobile —
-       you can scroll. Keep GitHub + language switcher always reachable. */
-    @media (max-width: 720px) { .nav__link--section { display: none; } }
-
-    /* ─────────────────────────────────────────────────────────────
-       HERO
-       ───────────────────────────────────────────────────────────── */
-    .hero {
-      display: flex;
-      flex-direction: column;
-      padding-block: clamp(3rem, 2rem + 3vw, 5rem) clamp(3rem, 2rem + 3vw, 5rem);
-      overflow: hidden;
-    }
-    /* Generous air between the slug, the wordmark and the preview —
-       the 1fr grid was collapsing on short viewports. */
-    .hero__body { margin-top: clamp(4rem, 2.5rem + 5vw, 8rem); }
-    .hero__preview { margin-top: clamp(3.5rem, 2rem + 4vw, 6rem); }
-    /* Decorative fractal bleeding off the right margin. Subtle. */
-    .hero__deco {
-      position: absolute;
-      top: -10%;
-      right: -18%;
-      width: 70%;
-      max-width: 780px;
-      opacity: 0.12;
-      mix-blend-mode: multiply;
-      pointer-events: none;
-      user-select: none;
-    }
-    .hero__top {
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-      font-size: var(--fs-meta);
-      color: var(--muted);
-      font-family: "JetBrains Mono", monospace;
-    }
-    .hero__slug { letter-spacing: 0.08em; }
-    .hero__body {
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      gap: clamp(1.5rem, 1rem + 2vw, 2.75rem);
-      position: relative;
-      z-index: 1;
-    }
-    .hero__wordmark {
-      font-family: "Newsreader", serif;
-      font-weight: 200;
-      font-size: var(--fs-hero);
-      line-height: 0.88;
-      letter-spacing: -0.045em;
-      color: var(--primary);
-      margin: 0;
-    }
-    .hero__tagline {
-      font-family: "Newsreader", serif;
-      font-style: italic;
-      font-weight: 300;
-      font-size: var(--fs-lede);
-      line-height: 1.35;
-      color: var(--ink-soft);
-      max-width: 42ch;
-      margin: 0;
-    }
-    .hero__ctas {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.9rem;
-      margin-top: 0.5rem;
-    }
-    .btn {
-      display: inline-flex;
       align-items: center;
-      gap: 0.55rem;
-      padding: 0.85em 1.6em;
-      border: 1px solid currentColor;
-      font-family: "Inter", sans-serif;
-      font-size: var(--fs-meta);
-      font-weight: 600;
-      letter-spacing: 0.08em;
+      gap: clamp(1rem, 2.4vw, 2.25rem);
+      font-size: var(--type-label);
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      color: var(--primary);
-      background: transparent;
-      cursor: pointer;
-      transition: all 0.2s ease;
     }
-    .btn:hover { background: var(--primary); color: var(--bg); }
-    .btn--primary {
-      background: var(--primary);
-      color: var(--bg);
-      border-color: var(--primary);
-    }
-    .btn--primary:hover { background: var(--accent); border-color: var(--accent); }
 
-    .hero__preview {
+    .nav__links a {
       position: relative;
+      opacity: 0.78;
+      transition: opacity 180ms ease;
     }
-    .hero__preview-frame {
-      position: relative;
-      border: 1px solid rgba(11, 27, 42, 0.12);
-      box-shadow: 0 30px 60px -20px rgba(11, 27, 42, 0.25),
-                  0 10px 20px -10px rgba(11, 27, 42, 0.1);
-      background: var(--bg);
-      overflow: hidden;
-    }
-    /* Corner ticks on the preview frame — drafting-paper crop marks */
-    .hero__preview-frame::before,
-    .hero__preview-frame::after {
+
+    .nav__links a::after {
+      position: absolute;
+      right: 0;
+      bottom: -0.45rem;
+      left: 0;
+      height: 1px;
+      background: var(--accent-light);
       content: "";
-      position: absolute;
-      width: 14px;
-      height: 14px;
-      border: 1.5px solid var(--accent);
-    }
-    .hero__preview-frame::before { top: -8px;    left: -8px;    border-right: none; border-bottom: none; }
-    .hero__preview-frame::after  { bottom: -8px; right: -8px;   border-left: none;  border-top: none; }
-    .hero__preview img,
-    .hero__preview video { width: 100%; display: block; }
-    .hero__preview-caption {
-      margin-top: 0.9rem;
-      font-family: "JetBrains Mono", monospace;
-      font-size: var(--fs-meta);
-      color: var(--muted);
-      display: flex;
-      justify-content: space-between;
-      align-items: baseline;
+      transform: scaleX(0);
+      transform-origin: right;
+      transition: transform 180ms ease;
     }
 
-    /* ─────────────────────────────────────────────────────────────
-       Section header — repeated pattern
-       ───────────────────────────────────────────────────────────── */
-    .shead {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1.75rem;
-      margin-bottom: clamp(4rem, 2.5rem + 4vw, 6.5rem);
-    }
-    @media (min-width: 768px) {
-      .shead { grid-template-columns: 1.1fr 1fr; gap: 3rem; align-items: start; }
-    }
-    .shead__title {
-      font-family: "Newsreader", serif;
-      font-weight: 300;
-      font-size: var(--fs-title);
-      line-height: 0.98;
-      letter-spacing: -0.025em;
-      color: var(--primary);
-      margin: 0.75rem 0 0 0;
-      max-width: 14ch;
-    }
-    .shead__lede {
-      font-size: var(--fs-lede);
-      line-height: 1.55;
-      color: var(--ink-soft);
-      max-width: 46ch;
-      margin: 0;
+    .nav__links a:hover,
+    .nav__links a:focus-visible {
+      opacity: 1;
     }
 
-    /* ─────────────────────────────────────────────────────────────
-       DOC TYPES — 4×2 grid of CSS-drawn miniatures
-       ───────────────────────────────────────────────────────────── */
-    .docs-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: clamp(1.5rem, 0.75rem + 2vw, 2.5rem);
+    .nav__links a:hover::after,
+    .nav__links a:focus-visible::after {
+      transform: scaleX(1);
+      transform-origin: left;
     }
-    .doc {
-      background: var(--bg);
-      padding: 1.5rem;
-      border: 1px solid rgba(11, 27, 42, 0.08);
-      transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
-    }
-    .doc:hover {
-      transform: translateY(-3px);
-      border-color: var(--accent);
-      box-shadow: 0 12px 24px -12px rgba(0, 168, 181, 0.25);
-    }
-    .doc__mini {
-      aspect-ratio: 4 / 3;
-      background: #F7F9FC;
-      border: 1px solid rgba(11, 27, 42, 0.08);
+
+    .hero {
       position: relative;
+      display: grid;
+      min-height: 100svh;
       overflow: hidden;
-      margin-bottom: 0.85rem;
-    }
-    .doc__label {
-      font-family: "Newsreader", serif;
-      font-size: 1.05rem;
-      font-weight: 500;
-      color: var(--primary);
-      line-height: 1.2;
-    }
-    .doc__tag {
-      font-family: "JetBrains Mono", monospace;
-      font-size: 0.72rem;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-top: 0.35rem;
+      color: var(--paper-light);
+      background:
+        radial-gradient(circle at 82% 18%, rgba(0, 169, 157, 0.2), transparent 27rem),
+        var(--ink);
     }
 
-    /* Each miniature: pure CSS, no images. Every silhouette different. */
-    /* 1. Pitch deck — accent bar, title bar, body line, bottom-aligned */
-    .m-deck {
-      display: flex; flex-direction: column; justify-content: flex-end; padding: 12%;
-      gap: 5%;
-    }
-    .m-deck i {
-      display: block; border-radius: 1px;
-    }
-    .m-deck .bar-a { width: 35%; height: 5%; background: var(--accent); }
-    .m-deck .bar-t { width: 78%; height: 14%; background: var(--primary); }
-    .m-deck .bar-b { width: 55%; height: 5%; background: rgba(65, 90, 119, 0.45); }
-
-    /* 2. Brochure — 3-panel tri-fold, middle panel dark */
-    .m-brochure {
-      display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4%; padding: 10%;
-    }
-    .m-brochure i {
-      border-radius: 1px;
-    }
-    .m-brochure .p1 { background: rgba(0, 168, 181, 0.2); }
-    .m-brochure .p2 {
-      background: var(--primary);
-      display: flex; align-items: flex-end; padding: 12% 10%;
-    }
-    .m-brochure .p2::after {
-      content: ""; display: block; width: 80%; height: 8%; background: rgba(255,255,255,0.7);
-      border-radius: 1px;
-    }
-    .m-brochure .p3 { background: rgba(65, 90, 119, 0.2); }
-
-    /* 3. UX mockup — sidebar + content grid */
-    .m-ux {
-      display: flex; gap: 4%; padding: 10%;
-    }
-    .m-ux .side {
-      width: 22%; background: var(--primary); border-radius: 1px;
-      display: flex; flex-direction: column; justify-content: flex-start; gap: 12%; padding: 10% 8%;
-    }
-    .m-ux .side::before,
-    .m-ux .side::after {
-      content: ""; display: block; height: 10%; background: rgba(255,255,255,0.55); border-radius: 1px;
-    }
-    .m-ux .side::after { background: var(--accent); width: 70%; }
-    .m-ux .main {
-      flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6%;
-    }
-    .m-ux .main i {
-      background: rgba(148, 163, 184, 0.35); border-radius: 1px;
-    }
-    .m-ux .main i:last-child {
-      grid-column: span 2; background: rgba(0, 168, 181, 0.3);
-    }
-
-    /* 4. Résumé — header bar + avatar + two columns */
-    .m-cv {
-      display: flex; flex-direction: column; gap: 6%; padding: 10%;
-    }
-    .m-cv .head {
-      height: 15%; background: var(--primary); border-radius: 1px;
-      display: flex; align-items: center; gap: 6%; padding: 0 6%;
-    }
-    .m-cv .head::before {
-      content: ""; width: 9%; aspect-ratio: 1; background: var(--accent); border-radius: 50%;
-    }
-    .m-cv .head::after {
-      content: ""; flex: 1; max-width: 45%; height: 24%; background: rgba(255,255,255,0.6); border-radius: 1px;
-    }
-    .m-cv .cols {
-      flex: 1; display: grid; grid-template-columns: 1fr 2fr; gap: 6%;
-    }
-    .m-cv .cols > * {
-      display: flex; flex-direction: column; gap: 10%; justify-content: flex-start;
-    }
-    .m-cv .cols i {
-      height: 8%; background: rgba(65, 90, 119, 0.3); border-radius: 1px;
-    }
-    .m-cv .cols i:nth-child(2) { width: 75%; }
-    .m-cv .cols i:nth-child(4) { width: 60%; }
-
-    /* 5. Poster — dark bg, centered title, accent underline */
-    .m-poster {
-      background: var(--primary);
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8%;
-      padding: 15%;
-    }
-    .m-poster i {
-      border-radius: 1px;
-    }
-    .m-poster .t { width: 75%; height: 18%; background: #fff; }
-    .m-poster .u { width: 35%; height: 5%; background: var(--accent); }
-
-    /* 6. Report — lines + chart block */
-    .m-report {
-      display: flex; flex-direction: column; gap: 5%; padding: 10%;
-    }
-    .m-report i {
-      background: rgba(65, 90, 119, 0.35); border-radius: 1px;
-    }
-    .m-report .h  { width: 60%; height: 8%; background: var(--primary); }
-    .m-report .l1 { width: 95%; height: 4%; }
-    .m-report .l2 { width: 90%; height: 4%; }
-    .m-report .l3 { width: 75%; height: 4%; }
-    .m-report .chart {
-      width: 100%; height: 28%; background: rgba(0, 168, 181, 0.15); border-radius: 1px;
-      display: flex; align-items: flex-end; gap: 4%; padding: 6%;
-    }
-    .m-report .chart::before,
-    .m-report .chart::after,
-    .m-report .chart { position: relative; }
-    .m-report .chart i {
-      flex: 1; background: var(--accent); border-radius: 1px 1px 0 0;
-    }
-    .m-report .chart i:nth-child(1) { height: 40%; }
-    .m-report .chart i:nth-child(2) { height: 75%; }
-    .m-report .chart i:nth-child(3) { height: 55%; }
-    .m-report .chart i:nth-child(4) { height: 90%; }
-
-    /* 7. Editorial — image left, text right */
-    .m-editorial {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 5%; padding: 10%;
-    }
-    .m-editorial .img {
-      background: rgba(65, 90, 119, 0.6); border-radius: 1px;
-    }
-    .m-editorial .txt {
-      display: flex; flex-direction: column; justify-content: center; gap: 8%;
-    }
-    .m-editorial .txt i {
-      background: rgba(65, 90, 119, 0.3); border-radius: 1px;
-    }
-    .m-editorial .txt i:nth-child(1) { height: 14%; background: var(--primary); }
-    .m-editorial .txt i:nth-child(2) { height: 5%; }
-    .m-editorial .txt i:nth-child(3) { height: 5%; width: 85%; }
-    .m-editorial .txt i:nth-child(4) { height: 5%; width: 70%; }
-
-    /* 8. Social card — square, accent bg, centered copy */
-    .m-social {
-      background: var(--accent);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 6%; padding: 15%;
-    }
-    .m-social i { border-radius: 1px; }
-    .m-social .t { width: 80%; height: 14%; background: #fff; }
-    .m-social .s { width: 45%; height: 4%; background: rgba(255,255,255,0.65); }
-
-    /* ─────────────────────────────────────────────────────────────
-       HOW IT WORKS — numbered steps, architectural drawing style
-       ───────────────────────────────────────────────────────────── */
-    .how {
-      position: relative;
-    }
-    .how__deco {
+    .hero::before {
       position: absolute;
-      bottom: -20%;
-      left: -15%;
-      width: 45%;
-      max-width: 500px;
-      opacity: 0.08;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(244, 240, 232, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(244, 240, 232, 0.045) 1px, transparent 1px);
+      background-size: 4.5rem 4.5rem;
+      content: "";
+      mask-image: linear-gradient(to bottom, black, transparent 75%);
       pointer-events: none;
-      user-select: none;
     }
-    .steps {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: clamp(2rem, 1.25rem + 2.5vw, 3.5rem);
+
+    .hero__inner {
       position: relative;
       z-index: 1;
+      display: grid;
+      grid-template-rows: auto 1fr;
     }
-    .step {
-      padding: 2.25rem 0 0.5rem;
-      border-top: 1px solid var(--primary);
-      position: relative;
+
+    .hero__copy {
+      display: grid;
+      align-content: center;
+      max-width: 69rem;
+      padding: 9rem 0 2.5rem;
     }
-    .step__num {
-      font-family: "JetBrains Mono", monospace;
-      font-size: 0.85rem;
-      font-weight: 500;
-      letter-spacing: 0.15em;
-      color: var(--accent);
-      margin-bottom: 1.5rem;
+
+    .eyebrow {
       display: flex;
-      justify-content: space-between;
-      align-items: baseline;
-    }
-    .step__num::after {
-      content: "→";
-      color: var(--muted);
-      font-size: 1rem;
-    }
-    .step:last-child .step__num::after { content: "·"; color: var(--accent); }
-    .step__title {
-      font-family: "Newsreader", serif;
-      font-weight: 400;
-      font-size: 1.65rem;
-      line-height: 1.2;
-      color: var(--primary);
-      margin: 0 0 1.1rem;
-      letter-spacing: -0.015em;
-    }
-    .step__body {
-      font-size: var(--fs-body);
-      line-height: 1.75;
-      color: var(--ink-soft);
-      margin: 0;
+      align-items: center;
+      gap: 0.75rem;
+      margin: 0 0 1.6rem;
+      color: var(--accent-light);
+      font-size: var(--type-label);
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
     }
 
-    /* ─────────────────────────────────────────────────────────────
-       FEATURES — 3×2 grid with CSS-drawn icons
-       ───────────────────────────────────────────────────────────── */
-    .features {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: clamp(1.75rem, 1rem + 2vw, 3rem);
+    .eyebrow::before {
+      width: 2.5rem;
+      height: 1px;
+      background: currentColor;
+      content: "";
     }
-    .feat {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 1.5rem;
-      padding: 2rem 0;
-      border-top: 1px solid rgba(11, 27, 42, 0.08);
-    }
-    .feat__icon {
-      width: 44px;
-      height: 44px;
-      flex-shrink: 0;
-      position: relative;
-    }
-    .feat__body h3 {
-      font-family: "Newsreader", serif;
+
+    .hero h1 {
+      max-width: 17ch;
+      margin: 0;
+      font-size: var(--type-display);
       font-weight: 500;
-      font-size: 1.25rem;
-      color: var(--primary);
-      margin: 0 0 0.65rem;
-      letter-spacing: -0.01em;
-    }
-    .feat__body p {
-      font-size: 0.95rem;
-      line-height: 1.7;
-      color: var(--ink-soft);
-      margin: 0;
+      letter-spacing: var(--tracking-display);
+      line-height: 0.96;
     }
 
-    /* Feature icons — each one different, monochrome navy/cyan */
-    .ico-live     { background: var(--accent); border-radius: 50%; display: grid; place-items: center; }
-    .ico-live::after {
-      content: ""; width: 12px; height: 12px; background: #fff; border-radius: 50%;
-    }
-    .ico-tokens   {
-      background: var(--primary); border-radius: 6px; overflow: hidden;
-      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
-    }
-    .ico-tokens::before  { content:""; background: var(--accent); }
-    .ico-tokens::after   { content:""; background: rgba(255,255,255,0.2); grid-column: 2; grid-row: 2; }
-
-    .ico-library  {
-      background: var(--accent); border-radius: 6px; padding: 6px;
-      display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 3px;
-    }
-    .ico-library::before,
-    .ico-library::after {
-      content: ""; background: rgba(255,255,255,0.9); border-radius: 1px;
-    }
-    .ico-library::before { grid-column: 1; grid-row: 1; }
-    .ico-library::after  { grid-column: 2; grid-row: 2; background: rgba(255,255,255,0.5); }
-    .ico-library { background: var(--accent); }
-
-    .ico-ai       {
-      background: var(--primary); border-radius: 6px;
-      display: grid; place-items: center;
-    }
-    .ico-ai::after {
-      content: ""; width: 18px; height: 18px; background: var(--accent);
-      transform: rotate(45deg); border-radius: 2px;
-    }
-
-    .ico-notes    {
-      background: #fff; border: 1.5px solid var(--primary); border-radius: 6px;
-      display: grid; place-items: center;
-    }
-    .ico-notes::after {
-      content:""; width: 14px; height: 14px; background: var(--accent); border-radius: 50%;
-    }
-
-    .ico-export   {
-      background: var(--accent); border-radius: 6px;
-      display: flex; align-items: flex-end; justify-content: center; gap: 3px; padding: 0 7px 7px;
-    }
-    .ico-export::before,
-    .ico-export::after,
-    .ico-export i {
-      content:""; display: block; width: 4px; background: #fff; border-radius: 1px;
-    }
-    .ico-export::before { content:""; height: 40%; }
-    .ico-export::after  { content:""; height: 70%; }
-
-    /* ─────────────────────────────────────────────────────────────
-       INSTALL — terminal-style code block
-       ───────────────────────────────────────────────────────────── */
-    .install {
+    .hero__bottom {
       display: grid;
-      grid-template-columns: 1fr;
-      gap: clamp(2.5rem, 1.5rem + 3vw, 4.5rem);
+      grid-template-columns: minmax(17rem, 0.65fr) minmax(27rem, 1.35fr);
+      gap: clamp(2rem, 5vw, 5.5rem);
       align-items: start;
     }
-    @media (min-width: 900px) {
-      .install { grid-template-columns: 1fr 1.2fr; }
-    }
-    .install__note {
-      font-size: var(--fs-body);
-      color: var(--ink-soft);
-      line-height: 1.8;
-    }
-    .install__note p { margin: 0 0 1.4rem; }
-    .install__note a {
-      color: var(--accent);
-      border-bottom: 1px solid currentColor;
-      padding-bottom: 1px;
-    }
-    .install__note a:hover { color: var(--primary); }
 
-    .terminal {
-      background: var(--primary);
-      color: #F7F9FC;
-      font-family: "JetBrains Mono", monospace;
-      font-size: 0.9rem;
-      line-height: 2;
-      padding: 2rem 2.25rem;
-      border-radius: 2px;
-      position: relative;
-      overflow-x: auto;
-      box-shadow: 0 30px 60px -20px rgba(11, 27, 42, 0.4);
+    .hero__intro {
+      padding-bottom: 4rem;
     }
-    .terminal::before {
-      content: "$ SHELL";
-      position: absolute;
-      top: 0.85rem;
-      right: 1rem;
-      font-size: 0.65rem;
-      letter-spacing: 0.2em;
-      color: rgba(255,255,255,0.4);
-    }
-    .terminal pre { margin: 0; }
-    .terminal .prompt { color: var(--accent); user-select: none; margin-right: 0.75rem; }
-    .terminal .cmd { color: #fff; }
-    .terminal .c   { color: var(--muted); }
 
-    /* ─────────────────────────────────────────────────────────────
-       FOOTER
-       ───────────────────────────────────────────────────────────── */
-    .foot {
-      padding: 4.5rem 0 5rem;
-      border-top: 1px solid var(--primary);
-      margin-top: 4rem;
+    .hero__intro p {
+      max-width: 34rem;
+      margin: 0 0 2rem;
+      color: rgba(251, 250, 246, 0.72);
+      font-size: var(--type-body);
     }
-    .foot__inner {
+
+    .actions {
       display: flex;
       flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 2rem;
-      font-family: "JetBrains Mono", monospace;
-      font-size: var(--fs-meta);
-      color: var(--muted);
-      letter-spacing: 0.05em;
+      gap: 0.75rem;
     }
-    .foot__mark { color: var(--primary); font-family: "Newsreader", serif; font-size: 1.1rem; letter-spacing: -0.02em; }
-    .foot__links { display: flex; flex-direction: column; gap: 0.4rem; text-align: right; }
-    .foot__links a:hover { color: var(--accent); }
 
-    /* ─────────────────────────────────────────────────────────────
-       Motion — single on-load cascade, respects reduced-motion
-       ───────────────────────────────────────────────────────────── */
-    @media (prefers-reduced-motion: no-preference) {
-      .reveal {
-        opacity: 0;
-        transform: translateY(18px);
-        animation: reveal 0.9s cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 3.2rem;
+      padding: 0.9rem 1.25rem;
+      border: 1px solid rgba(251, 250, 246, 0.3);
+      border-radius: 999px;
+      font-size: var(--type-label);
+      font-weight: 600;
+      transition:
+        color 180ms ease,
+        background 180ms ease,
+        border-color 180ms ease,
+        transform 180ms ease;
+    }
+
+    .button:hover,
+    .button:focus-visible {
+      transform: translateY(-2px);
+    }
+
+    .button--primary {
+      color: var(--ink);
+      background: var(--accent-light);
+      border-color: var(--accent-light);
+    }
+
+    .button--primary:hover,
+    .button--primary:focus-visible {
+      background: #a3f2ea;
+      border-color: #a3f2ea;
+    }
+
+    .button--ghost:hover,
+    .button--ghost:focus-visible {
+      background: rgba(251, 250, 246, 0.08);
+      border-color: rgba(251, 250, 246, 0.55);
+    }
+
+    .demo {
+      position: relative;
+      align-self: start;
+      transform: translateY(var(--demo-shift, 0));
+      transition: transform 100ms linear;
+    }
+
+    .demo::before {
+      position: absolute;
+      inset: -2rem 10% 20% -2rem;
+      background: rgba(0, 169, 157, 0.22);
+      filter: blur(5rem);
+      content: "";
+    }
+
+    .demo__chrome {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(251, 250, 246, 0.26);
+      border-bottom: 0;
+      border-radius: 1rem 1rem 0 0;
+      background: #e8e5de;
+      box-shadow: 0 2.2rem 6rem rgba(0, 0, 0, 0.42);
+    }
+
+    .demo__bar {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      height: 2.3rem;
+      padding: 0 0.9rem;
+      background: #d8d6d0;
+      border-bottom: 1px solid rgba(16, 28, 25, 0.15);
+    }
+
+    .demo__bar i {
+      width: 0.52rem;
+      height: 0.52rem;
+      border-radius: 50%;
+      background: rgba(16, 28, 25, 0.22);
+    }
+
+    .demo video {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      background: #e8e5de;
+      object-fit: cover;
+      object-position: top;
+    }
+
+    .section {
+      padding: clamp(6rem, 10vw, 10rem) 0;
+    }
+
+    .ownership {
+      padding: clamp(5rem, 8vw, 8rem) 0;
+      background: var(--paper-light);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .ownership__inner {
+      display: grid;
+      grid-template-columns: minmax(12rem, 0.55fr) minmax(20rem, 1.45fr);
+      gap: 2rem;
+      align-items: start;
+    }
+
+    .ownership h2 {
+      max-width: 16ch;
+      margin: 0;
+      font-size: var(--type-h2);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 1;
+    }
+
+    .ownership p {
+      max-width: 44rem;
+      margin: 1.75rem 0 0;
+      color: var(--muted);
+      font-size: var(--type-body);
+    }
+
+    .story-layout {
+      display: grid;
+      grid-template-columns: minmax(17rem, 0.78fr) minmax(0, 1.22fr);
+      gap: clamp(3rem, 8vw, 8rem);
+      align-items: start;
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: minmax(12rem, 0.55fr) minmax(20rem, 1.45fr);
+      gap: 2rem;
+      align-items: start;
+      margin-bottom: clamp(4rem, 7vw, 7rem);
+    }
+
+    .section-head--sticky {
+      position: sticky;
+      top: 3rem;
+      display: block;
+      align-self: start;
+      margin: 0;
+    }
+
+    .section-head--sticky .section-index {
+      display: block;
+      margin-bottom: 1.6rem;
+    }
+
+    .section-index {
+      color: var(--muted);
+      font-size: var(--type-label);
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .section-head h2,
+    .collection h2,
+    .install h2 {
+      max-width: 15ch;
+      margin: 0;
+      font-size: var(--type-h2);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 1;
+    }
+
+    .section-head p {
+      max-width: 40rem;
+      margin: 1.75rem 0 0;
+      color: var(--muted);
+      font-size: var(--type-body);
+    }
+
+    .uses {
+      background: var(--paper);
+    }
+
+    .uses__grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .use {
+      min-height: 16rem;
+      padding: 2.25rem 0 2.5rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .use:first-child {
+      border-top: 0;
+    }
+
+    .use__number {
+      color: var(--accent);
+      font-size: var(--type-label);
+    }
+
+    .use h3 {
+      max-width: 15ch;
+      margin: 2.75rem 0 1rem;
+      font-size: var(--type-h3);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 1.02;
+    }
+
+    .use p {
+      max-width: 25rem;
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--type-body);
+    }
+
+    .workflow {
+      color: var(--paper-light);
+      background: var(--ink);
+    }
+
+    .workflow .section-index,
+    .workflow .section-head p {
+      color: rgba(251, 250, 246, 0.56);
+    }
+
+    .workflow__list {
+      border-top: 1px solid rgba(251, 250, 246, 0.2);
+    }
+
+    .workflow__step {
+      display: grid;
+      grid-template-columns: 0.35fr 1fr 1fr;
+      gap: 2rem;
+      align-items: start;
+      padding: clamp(2rem, 4vw, 3.75rem) 0;
+      border-bottom: 1px solid rgba(251, 250, 246, 0.2);
+    }
+
+    .workflow__number {
+      color: var(--accent-light);
+      font-size: var(--type-label);
+    }
+
+    .workflow__step h3 {
+      max-width: 15ch;
+      margin: 0;
+      font-size: var(--type-h3);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 1.08;
+    }
+
+    .workflow__step p {
+      max-width: 32rem;
+      margin: 0;
+      color: rgba(251, 250, 246, 0.62);
+    }
+
+    .resources {
+      background: var(--paper-light);
+    }
+
+    .resources__list {
+      display: grid;
+      grid-template-columns: 1fr;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .resource {
+      display: grid;
+      grid-template-columns: 1fr;
+      min-height: 12rem;
+      padding: 2.25rem 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .resource:first-child {
+      border-top: 0;
+    }
+
+    .resource h3 {
+      margin: 0 0 0.7rem;
+      font-size: var(--type-h3);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+    }
+
+    .resource p {
+      max-width: 34rem;
+      margin: 0;
+      color: var(--muted);
+      font-size: var(--type-body);
+    }
+
+    .collection {
+      position: relative;
+      overflow: hidden;
+      background: var(--accent);
+    }
+
+    .collection::after {
+      position: absolute;
+      top: -14rem;
+      right: -10rem;
+      width: 32rem;
+      height: 32rem;
+      border: 1px solid rgba(16, 28, 25, 0.18);
+      border-radius: 50%;
+      box-shadow:
+        0 0 0 4rem rgba(16, 28, 25, 0.04),
+        0 0 0 8rem rgba(16, 28, 25, 0.03);
+      content: "";
+      pointer-events: none;
+    }
+
+    .collection__inner {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 0.9fr 1.1fr;
+      gap: clamp(3rem, 8vw, 8rem);
+      align-items: center;
+    }
+
+    .collection__copy p {
+      max-width: 33rem;
+      margin: 1.75rem 0 0;
+      color: rgba(16, 28, 25, 0.74);
+      font-size: var(--type-body);
+    }
+
+    .collection__visual {
+      display: grid;
+      grid-template-columns: 1fr 0.9fr;
+      gap: 1rem;
+      align-items: center;
+      transform: rotate(1.5deg);
+    }
+
+    .template {
+      aspect-ratio: 0.72;
+      padding: clamp(1.4rem, 3vw, 2.6rem);
+      color: var(--paper-light);
+      background: var(--ink);
+      box-shadow: 0 2.5rem 5rem rgba(16, 28, 25, 0.22);
+    }
+
+    .template__field {
+      color: var(--accent-light);
+      font-size: var(--type-label);
+    }
+
+    .template h3 {
+      max-width: 7ch;
+      margin: 35% 0 1rem;
+      font-size: var(--type-h2);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 0.98;
+    }
+
+    .template p {
+      margin: 0;
+      color: rgba(251, 250, 246, 0.6);
+    }
+
+    .collection__rows {
+      background: var(--paper-light);
+      border: 1px solid rgba(16, 28, 25, 0.18);
+      box-shadow: 0 2.5rem 5rem rgba(16, 28, 25, 0.12);
+    }
+
+    .collection__row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1rem;
+      padding: 1rem;
+      border-top: 1px solid var(--line);
+      font-size: var(--type-label);
+    }
+
+    .collection__row:first-child {
+      color: var(--muted);
+      background: var(--paper);
+      border-top: 0;
+      text-transform: uppercase;
+    }
+
+    .install {
+      color: var(--paper-light);
+      background: #0a100e;
+    }
+
+    .install__layout {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: clamp(3rem, 8vw, 8rem);
+      align-items: start;
+    }
+
+    .install__layout > * {
+      min-width: 0;
+    }
+
+    .install__copy p {
+      max-width: 31rem;
+      margin: 1.75rem 0 2rem;
+      color: rgba(251, 250, 246, 0.6);
+    }
+
+    .terminal {
+      width: 100%;
+      max-width: 100%;
+      padding: clamp(1.3rem, 3vw, 2.2rem);
+      border: 1px solid rgba(251, 250, 246, 0.18);
+      border-radius: 0.8rem;
+      color: #e8eee9;
+      background: #111916;
+      font-size: var(--type-label);
+      line-height: 1.9;
+      box-shadow: 0 2.5rem 6rem rgba(0, 0, 0, 0.3);
+    }
+
+    .terminal__group + .terminal__group {
+      margin-top: 1.5rem;
+    }
+
+    .terminal__comment {
+      margin: 0;
+    }
+
+    .terminal__command {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 0.75rem;
+      color: inherit;
+      font: inherit;
+    }
+
+    .terminal__command span:last-child {
+      overflow-wrap: anywhere;
+    }
+
+    .terminal .comment {
+      color: #72827b;
+    }
+
+    .terminal .prompt {
+      color: var(--accent-light);
+    }
+
+    .footer {
+      color: var(--paper-light);
+      background: #0a100e;
+      border-top: 1px solid rgba(251, 250, 246, 0.15);
+    }
+
+    .footer__inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 8rem;
+      gap: 2rem;
+    }
+
+    .footer__brand {
+      font-size: var(--type-body);
+      font-weight: 700;
+      letter-spacing: -0.04em;
+    }
+
+    .footer__links {
+      display: flex;
+      gap: 1.5rem;
+      color: rgba(251, 250, 246, 0.56);
+      font-size: var(--type-label);
+    }
+
+    .footer__links a:hover,
+    .footer__links a:focus-visible {
+      color: var(--paper-light);
+    }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(2rem);
+      transition:
+        opacity 700ms cubic-bezier(0.2, 0.65, 0.3, 1),
+        transform 700ms cubic-bezier(0.2, 0.65, 0.3, 1);
+    }
+
+    .reveal.is-visible {
+      opacity: 1;
+      transform: none;
+    }
+
+    .hero .eyebrow,
+    .hero h1,
+    .hero__intro,
+    .demo {
+      opacity: 0;
+      transform: translateY(1.5rem);
+      animation: hero-in 750ms cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
+    }
+
+    .hero h1 {
+      animation-delay: 100ms;
+    }
+
+    .hero__intro {
+      animation-delay: 220ms;
+    }
+
+    .demo {
+      animation-delay: 320ms;
+    }
+
+    @keyframes hero-in {
+      to {
+        opacity: 1;
+        transform: translateY(0);
       }
-      .reveal[data-delay="1"] { animation-delay: 0.1s; }
-      .reveal[data-delay="2"] { animation-delay: 0.25s; }
-      .reveal[data-delay="3"] { animation-delay: 0.4s; }
-      .reveal[data-delay="4"] { animation-delay: 0.6s; }
-      .reveal[data-delay="5"] { animation-delay: 0.8s; }
+    }
 
-      /* Scroll-reveal helper, toggled by the IntersectionObserver below */
-      .in-view {
-        opacity: 0;
-        transform: translateY(24px);
-        transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2, 0.65, 0.3, 1);
+    @media (max-width: 900px) {
+      .nav__links a:not(.nav__github, .nav__lang) {
+        display: none;
       }
-      .in-view.is-visible { opacity: 1; transform: none; }
 
-      @keyframes reveal {
-        to { opacity: 1; transform: none; }
+      .hero__inner {
+        padding-top: 0;
+      }
+
+      .hero__copy {
+        padding: 8rem 0 3rem;
+      }
+
+      .hero__bottom,
+      .ownership__inner,
+      .section-head,
+      .story-layout,
+      .collection__inner,
+      .install__layout {
+        grid-template-columns: 1fr;
+      }
+
+      .section-head--sticky {
+        position: static;
+        display: block;
+        margin-bottom: 3.5rem;
+      }
+
+      .hero__intro {
+        padding-bottom: 1rem;
+      }
+
+      .demo {
+        width: min(100%, 46rem);
+        margin-left: auto;
+      }
+
+      .uses__grid {
+        grid-template-columns: 1fr;
+      }
+
+      .use,
+      .use:first-child {
+        min-height: auto;
+        padding: 2rem 0 2.5rem;
+        border-left: 0;
+        border-top: 1px solid var(--line);
+      }
+
+      .use:first-child {
+        border-top: 0;
+      }
+
+      .use h3 {
+        margin: 2.5rem 0 1rem;
+      }
+
+      .resources__list {
+        grid-template-columns: 1fr;
+      }
+
+      .resource,
+      .resource:nth-child(odd) {
+        min-height: auto;
+        padding: 2rem 0;
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+
+      .resource:first-child {
+        border-top: 0;
+      }
+
+      .collection__visual {
+        width: min(100%, 43rem);
+        margin-inline: auto;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .nav__inner {
+        height: 4.5rem;
+      }
+
+      .nav__links {
+        gap: 1rem;
+      }
+
+      .hero {
+        min-height: auto;
+      }
+
+      .hero__inner {
+        padding-top: 0;
+      }
+
+      .hero__copy {
+        padding: 7rem 0 3rem;
+      }
+
+      .hero__bottom {
+        gap: 2.5rem;
+      }
+
+      .section {
+        padding: 5rem 0;
+      }
+
+      .section-head {
+        margin-bottom: 3.5rem;
+      }
+
+      .workflow__step {
+        grid-template-columns: 3rem 1fr;
+        gap: 1rem;
+      }
+
+      .workflow__step p {
+        grid-column: 2;
+      }
+
+      .resource {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+      }
+
+      .collection__visual {
+        grid-template-columns: 1fr;
+        max-width: 22rem;
+        transform: rotate(0);
+      }
+
+      .install__layout {
+        gap: 2.75rem;
+      }
+
+      .terminal {
+        padding: 1.15rem;
+        font-size: 0.86rem;
+        line-height: 1.75;
+      }
+
+      .template {
+        aspect-ratio: 0.82;
+      }
+
+      .footer__inner {
+        align-items: flex-start;
+        flex-direction: column;
+        justify-content: center;
+      }
+
+      .footer__links {
+        flex-wrap: wrap;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      .reveal,
+      .hero .eyebrow,
+      .hero h1,
+      .hero__intro,
+      .demo {
+        animation: none;
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+
+      .button,
+      .nav__links a,
+      .nav__links a::after {
+        transition: none;
       }
     }
   </style>
 </head>
-<body>
 
+<body>
   <header class="nav">
     <div class="shell nav__inner">
-      <a href="#" class="nav__brand">Maket<span class="dot">.</span></a>
-      <nav class="nav__links" aria-label="Sections">
-        <a class="nav__link--section" href="#surface">Surface</a>
-        <a class="nav__link--section" href="#loop">Boucle</a>
-        <a class="nav__link--section" href="#features">Capacités</a>
-        <a class="nav__link--section" href="#install">Installer</a>
-        <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
-        <a href="../?lang=en" aria-label="English version" title="English version">EN</a>
+      <a class="nav__brand" href="#top" aria-label="Maket, accueil">Maket<span class="dot">.</span></a>
+      <nav class="nav__links" aria-label="Navigation principale">
+        <a href="#usages">Usages</a>
+        <a href="#fonctionnement">Fonctionnement</a>
+        <a href="#ressources">Ressources</a>
+        <a href="#installer">Installer</a>
+        <a class="nav__github" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
+        <a class="nav__lang" href="../" aria-label="English version" title="English version">EN</a>
       </nav>
     </div>
   </header>
 
   <main>
-
-    <!-- ══════════════════════════ HERO ══════════════════════════ -->
-    <section class="hero shell" id="top">
-      <img class="hero__deco" src="../assets/fractal-branches.svg" alt="" aria-hidden="true" />
-
-      <div class="hero__top reveal">
-        <span class="hero__slug">MAKET · UN OUTIL DE DESIGN VISUEL POUR VOTRE IA</span>
-      </div>
-
-      <div class="hero__body">
-        <h1 class="hero__wordmark reveal" data-delay="1">Maket<span class="dot">.</span></h1>
-        <p class="hero__tagline reveal" data-delay="2">
-          Votre marque, vos images, vos agents.<br />
-          Un seul modèle de document.
-        </p>
-        <div class="hero__ctas reveal" data-delay="3">
-          <a class="btn btn--primary" href="#install">Commencer <span aria-hidden="true">↓</span></a>
-          <a class="btn" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub <span aria-hidden="true">↗</span></a>
+    <section class="hero" id="top">
+      <div class="shell hero__inner">
+        <div class="hero__copy">
+          <p class="eyebrow">Affiches · présentations · wireframes</p>
+          <h1>Des documents faits avec votre agent<span class="dot">.</span></h1>
         </div>
-      </div>
 
-      <figure class="hero__preview reveal" data-delay="4">
-        <div class="hero__preview-frame">
-          <video
-            src="../demo.mp4"
-            autoplay
-            loop
-            muted
-            playsinline
-            preload="metadata"
-            aria-label="Maket compose un deck A4 paysage — la vue défile entre les pages pendant que l'IA écrit le HTML."
-          ></video>
-        </div>
-        <figcaption class="hero__preview-caption">
-          <span>FIG. 01 — COMPOSITION EN DIRECT, 60 s</span>
-          <span>297 × 210 MM · A4 PAYSAGE</span>
-        </figcaption>
-      </figure>
-    </section>
-
-    <!-- ══════════════════════════ DOC TYPES ══════════════════════════ -->
-    <section id="surface" class="shell in-view">
-      <header class="shead">
-        <div>
-          <span class="kicker">Étape 01 · La surface</span>
-          <h2 class="shead__title">Tous les<br />types de docs<span class="dot">.</span></h2>
-        </div>
-        <p class="shead__lede">
-          Présentations, brochures, maquettes, CV, affiches, rapports, doubles pages
-          éditoriales, posts pour les réseaux sociaux. Tout ce qui tient sur papier ou sur écran.
-        </p>
-      </header>
-
-      <div class="docs-grid">
-        <article class="doc">
-          <div class="doc__mini m-deck"><i class="bar-a"></i><i class="bar-t"></i><i class="bar-b"></i></div>
-          <div class="doc__label">Présentation</div>
-          <div class="doc__tag">A4 Paysage</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-brochure"><i class="p1"></i><i class="p2"></i><i class="p3"></i></div>
-          <div class="doc__label">Brochure</div>
-          <div class="doc__tag">Tri-volet</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-ux">
-            <div class="side"></div>
-            <div class="main"><i></i><i></i><i></i></div>
-          </div>
-          <div class="doc__label">Maquette UX</div>
-          <div class="doc__tag">Desktop 16 / 9</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-cv">
-            <div class="head"></div>
-            <div class="cols">
-              <div><i></i><i></i><i></i></div>
-              <div><i></i><i></i><i></i></div>
+        <div class="hero__bottom">
+          <div class="hero__intro">
+            <p>
+              Décrivez ce dont vous avez besoin dans Claude, Codex ou Gemini.
+              Maket affiche le résultat, recueille vos annotations et permet à
+              l’agent de poursuivre.
+            </p>
+            <div class="actions">
+              <a class="button button--primary" href="#installer">Installer Maket</a>
+              <a class="button button--ghost" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">Voir sur GitHub ↗</a>
             </div>
           </div>
-          <div class="doc__label">CV</div>
-          <div class="doc__tag">A4 Portrait</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-poster"><i class="t"></i><i class="u"></i></div>
-          <div class="doc__label">Affiche</div>
-          <div class="doc__tag">A2 Portrait</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-report">
-            <i class="h"></i>
-            <i class="l1"></i><i class="l2"></i><i class="l3"></i>
-            <div class="chart"><i></i><i></i><i></i><i></i></div>
-          </div>
-          <div class="doc__label">Rapport</div>
-          <div class="doc__tag">Multi-pages</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-editorial">
-            <div class="img"></div>
-            <div class="txt"><i></i><i></i><i></i><i></i></div>
-          </div>
-          <div class="doc__label">Éditorial</div>
-          <div class="doc__tag">Double page</div>
-        </article>
-        <article class="doc">
-          <div class="doc__mini m-social"><i class="t"></i><i class="s"></i></div>
-          <div class="doc__label">Réseaux sociaux</div>
-          <div class="doc__tag">Carré 1 : 1</div>
-        </article>
-      </div>
-    </section>
 
-    <!-- ══════════════════════════ HOW IT WORKS ══════════════════════════ -->
-    <section id="loop" class="shell how in-view">
-      <img class="how__deco" src="../assets/fractal-circles.svg" alt="" aria-hidden="true" />
-
-      <header class="shead">
-        <div>
-          <span class="kicker">Étape 02 · La boucle</span>
-          <h2 class="shead__title">Vous décrivez<span class="dot">,</span><br />Maket compose.</h2>
-        </div>
-        <p class="shead__lede">
-          Vous décrivez votre intention. L'IA lit la charte attachée au document, choisit
-          dans votre bibliothèque d'images, et compose la page. Vous corrigez ensuite ce
-          qui doit l'être.
-        </p>
-      </header>
-
-      <ol class="steps" style="list-style:none;padding:0;margin:0;">
-        <li class="step">
-          <div class="step__num"><span>01 · Vos chartes</span></div>
-          <h3 class="step__title">Une charte graphique par marque ou par projet.</h3>
-          <p class="step__body">
-            Une charte graphique réunit des couleurs, des polices, des espacements et
-            des ombres. Vous en créez autant que nécessaire — une par marque, par client
-            ou par campagne. Chaque document s'attache à une charte, et l'IA la respecte
-            à chaque itération.
-          </p>
-        </li>
-        <li class="step">
-          <div class="step__num"><span>02 · Vos images</span></div>
-          <h3 class="step__title">Une bibliothèque indexée par mots-clés.</h3>
-          <p class="step__body">
-            Vous déposez vos images avec quelques mots-clés. L'IA choisit celle qui correspond
-            au brief plutôt qu'au nom de fichier.
-          </p>
-        </li>
-        <li class="step">
-          <div class="step__num"><span>03 · L'IA compose</span></div>
-          <h3 class="step__title">Vous décrivez, l'IA dessine.</h3>
-          <p class="step__body">
-            La page s'affiche dans votre navigateur. Pour la corriger, cliquez sur l'élément
-            à modifier et indiquez ce qui doit changer.
-          </p>
-        </li>
-      </ol>
-    </section>
-
-    <!-- ══════════════════════════ FEATURES ══════════════════════════ -->
-    <section id="features" class="shell in-view">
-      <header class="shead">
-        <div>
-          <span class="kicker">Étape 03 · Ce qu'il y a dans la boîte</span>
-          <h2 class="shead__title">Six capacités<span class="dot">,</span><br />un seul outil.</h2>
-        </div>
-        <p class="shead__lede">
-          Composition, marque, images, annotations, IA, export. Six fonctions structurées
-          autour de la même idée : un document est attaché à une charte graphique,
-          et l'IA s'y tient.
-        </p>
-      </header>
-
-      <div class="features">
-        <article class="feat">
-          <div class="feat__icon ico-live"></div>
-          <div class="feat__body">
-            <h3>Aperçu en direct</h3>
-            <p>Chaque modification s'affiche dans votre navigateur au fur et à mesure.</p>
-          </div>
-        </article>
-        <article class="feat">
-          <div class="feat__icon ico-tokens"></div>
-          <div class="feat__body">
-            <h3>Vos chartes</h3>
-            <p>Couleurs, polices et espacements définis par charte, appliqués à chaque document qui s'y rattache.</p>
-          </div>
-        </article>
-        <article class="feat">
-          <div class="feat__icon ico-library"></div>
-          <div class="feat__body">
-            <h3>Bibliothèque d'images</h3>
-            <p>Vos images sont classées par mots-clés. L'IA choisit celle qui convient au brief.</p>
-          </div>
-        </article>
-        <article class="feat">
-          <div class="feat__icon ico-ai"></div>
-          <div class="feat__body">
-            <h3>Composition par IA</h3>
-            <p>Vous décrivez ce que vous voulez. L'IA compose la page et chaque détail reste modifiable séparément.</p>
-          </div>
-        </article>
-        <article class="feat">
-          <div class="feat__icon ico-notes"></div>
-          <div class="feat__body">
-            <h3>Annotations</h3>
-            <p>Cliquez sur un élément et laissez une note. L'IA la prend en compte à l'itération suivante.</p>
-          </div>
-        </article>
-        <article class="feat">
-          <div class="feat__icon ico-export"></div>
-          <div class="feat__body">
-            <h3>Export</h3>
-            <p>PDF prêt à imprimer, page autonome à publier, ou archive à partager.</p>
-          </div>
-        </article>
-      </div>
-    </section>
-
-    <!-- ══════════════════════════ INSTALL ══════════════════════════ -->
-    <section id="install" class="shell in-view">
-      <header class="shead">
-        <div>
-          <span class="kicker">Étape 04 · Lancer</span>
-          <h2 class="shead__title">Cinq minutes<span class="dot">.</span></h2>
-        </div>
-        <p class="shead__lede">
-          Installez, démarrez, ouvrez. L'aperçu s'ouvre automatiquement — n'importe quel assistant IA compatible MCP se connecte via le protocole.
-        </p>
-      </header>
-
-      <div class="install">
-        <div class="terminal" role="region" aria-label="Commandes d'installation">
-<pre><span class="c"># Brancher Maket sur votre client IA (one-shot)</span>
-<span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket install claude --apply</span>
-<span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket install codex  --apply</span>
-
-<span class="c"># Lancer le serveur et ouvrir l'aperçu</span>
-<span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket start</span>
-<span class="prompt">$</span><span class="cmd">npx -y @ng-galien/maket open</span>
-
-<span class="c"># Aperçu → http://127.0.0.1:24842</span></pre>
-        </div>
-        <div class="install__note">
-          <p>Maket fonctionne avec <strong>Node 22</strong> ou plus récent. Sans l'option <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">--apply</code>, les commandes d'installation affichent un aperçu sans rien modifier sur votre machine.</p>
-          <p>Le serveur reste pilotable depuis le terminal : <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket status</code> pour vérifier qu'il tourne, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket logs</code> pour suivre son activité, <code style="font-family:'JetBrains Mono',monospace;font-size:0.9em;color:var(--accent);">maket stop</code> pour l'arrêter.</p>
-          <p><a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Toutes les options sont décrites dans le README →</a></p>
+          <figure class="demo" aria-label="Démonstration de Maket">
+            <div class="demo__chrome">
+              <div class="demo__bar" aria-hidden="true"><i></i><i></i><i></i></div>
+              <video
+                src="../demo.mp4"
+                autoplay
+                loop
+                muted
+                playsinline
+                preload="metadata"
+                aria-label="Maket compose un document pendant que l’agent travaille."
+              ></video>
+            </div>
+          </figure>
         </div>
       </div>
     </section>
 
+    <section class="ownership" aria-labelledby="ownership-title">
+      <div class="shell ownership__inner reveal">
+        <span class="section-index">Vos documents restent à vous</span>
+        <div>
+          <h2 id="ownership-title">Changez d’agent<span class="dot">.</span> Gardez tout votre travail.</h2>
+          <p>
+            Passez d’un agent à l’autre sans exporter ni reconstruire votre bibliothèque.
+            Vos documents et leurs ressources restent sur votre machine, indépendamment
+            d’une plateforme ou d’un abonnement.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section uses" id="usages">
+      <div class="shell story-layout">
+        <header class="section-head section-head--sticky reveal">
+          <span class="section-index">01 — Usages</span>
+          <div>
+            <h2>Du premier croquis au document final<span class="dot">.</span></h2>
+            <p>
+              Maket sert aussi bien à mettre une idée en forme qu’à produire un livrable
+              prêt à présenter, imprimer ou décliner.
+            </p>
+          </div>
+        </header>
+
+        <div class="uses__grid reveal">
+          <article class="use">
+            <span class="use__number">01 / Idée</span>
+            <h3>Wireframes d’applications</h3>
+            <p>Transformez un besoin fonctionnel en écrans que vous pouvez regarder, annoter et faire évoluer.</p>
+          </article>
+          <article class="use">
+            <span class="use__number">02 / Travail</span>
+            <h3>Présentations et rapports</h3>
+            <p>Composez des pages cohérentes avec votre charte et réutilisez les mêmes ressources d’un projet à l’autre.</p>
+          </article>
+          <article class="use">
+            <span class="use__number">03 / Partage</span>
+            <h3>Affiches et supports</h3>
+            <p>Créez une affiche, un flyer, une brochure, un CV ou un visuel pour les réseaux sociaux.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section workflow" id="fonctionnement">
+      <div class="shell story-layout">
+        <header class="section-head section-head--sticky reveal">
+          <span class="section-index">02 — Fonctionnement</span>
+          <div>
+            <h2>Vous guidez<span class="dot">.</span> L’agent compose.</h2>
+            <p>
+              Vous gardez le regard et la décision. L’agent prend en charge la composition
+              et les corrections.
+            </p>
+          </div>
+        </header>
+
+        <div class="workflow__list">
+          <article class="workflow__step reveal">
+            <span class="workflow__number">01</span>
+            <h3>Décrivez ce que vous voulez</h3>
+            <p>Donnez le contenu, le format et l’ambiance depuis votre client IA habituel. L’agent crée le document dans Maket.</p>
+          </article>
+          <article class="workflow__step reveal">
+            <span class="workflow__number">02</span>
+            <h3>Regardez le document se construire</h3>
+            <p>Les pages apparaissent dans le navigateur au fur et à mesure. Vous contrôlez immédiatement la hiérarchie, les images et la mise en page.</p>
+          </article>
+          <article class="workflow__step reveal">
+            <span class="workflow__number">03</span>
+            <h3>Annotez ce qui doit changer</h3>
+            <p>Cliquez sur une zone et laissez une note à l’agent. Pour une correction rapide, le texte reste directement modifiable.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section resources" id="ressources">
+      <div class="shell story-layout">
+        <header class="section-head section-head--sticky reveal">
+          <span class="section-index">03 — Ressources</span>
+          <div>
+            <h2>Votre atelier reste en place<span class="dot">.</span></h2>
+            <p>
+              Maket rassemble les documents, leur identité visuelle, leurs images et
+              leurs données afin que chaque agent puisse reprendre le travail.
+            </p>
+          </div>
+        </header>
+
+        <div class="resources__list">
+          <article class="resource reveal">
+            <div>
+              <h3>Documents</h3>
+              <p>Affiches, présentations, wireframes et documents multipages restent disponibles d’une session à l’autre.</p>
+            </div>
+          </article>
+          <article class="resource reveal">
+            <div>
+              <h3>Chartes graphiques</h3>
+              <p>Couleurs, polices et règles visuelles peuvent être appliquées à tous les documents d’une marque ou d’un projet.</p>
+            </div>
+          </article>
+          <article class="resource reveal">
+            <div>
+              <h3>Galerie d’images</h3>
+              <p>Classez vos images par mots-clés pour que l’agent retrouve les bonnes ressources sans dépendre du nom des fichiers.</p>
+            </div>
+          </article>
+          <article class="resource reveal">
+            <div>
+              <h3>Collections de données</h3>
+              <p>Reliez un modèle à des données structurées et générez une version contrôlée pour chaque personne, produit ou événement.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section collection" aria-labelledby="collection-title">
+      <div class="shell collection__inner">
+        <div class="collection__copy reveal">
+          <span class="section-index">04 — Collections</span>
+          <h2 id="collection-title">Un modèle, autant de versions qu’il vous faut<span class="dot">.</span></h2>
+          <p>
+            Préparez une invitation, une étiquette ou une fiche. Ajoutez vos données,
+            puis laissez Maket produire une page par entrée — comme un publipostage,
+            avec validation des champs avant l’export.
+          </p>
+        </div>
+
+        <div class="collection__visual reveal" aria-label="Exemple d’un modèle relié à une collection de données">
+          <div class="template">
+            <span class="template__field">&#123;&#123; prénom &#125;&#125;</span>
+            <h3>Vous êtes invité<span class="dot">.</span></h3>
+            <p>&#123;&#123; date &#125;&#125; · &#123;&#123; lieu &#125;&#125;</p>
+          </div>
+          <div class="collection__rows">
+            <div class="collection__row"><span>prénom</span><span>date</span></div>
+            <div class="collection__row"><span>Agathe</span><span>12.09</span></div>
+            <div class="collection__row"><span>Noé</span><span>12.09</span></div>
+            <div class="collection__row"><span>Fatou</span><span>12.09</span></div>
+            <div class="collection__row"><span>Lucas</span><span>12.09</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section install" id="installer">
+      <div class="shell install__layout">
+        <div class="install__copy reveal">
+          <span class="section-index">05 — Installation</span>
+          <h2>Connectez Maket à votre agent<span class="dot">.</span></h2>
+          <p>
+            Choisissez votre client, lancez les commandes ci-contre, puis ouvrez
+            l’interface.
+          </p>
+          <div class="actions">
+            <a class="button button--primary" href="https://github.com/ng-galien/maket#install" target="_blank" rel="noopener">Lire le guide complet ↗</a>
+          </div>
+        </div>
+
+        <div class="reveal">
+          <div class="terminal" role="region" aria-label="Commandes d’installation">
+            <div class="terminal__group">
+              <p class="terminal__comment comment"># Connecter Maket à votre agent</p>
+              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install claude --apply</span></code>
+              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install codex --apply</span></code>
+              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install gemini --apply</span></code>
+            </div>
+            <div class="terminal__group">
+              <p class="terminal__comment comment"># Démarrer Maket et ouvrir l’interface</p>
+              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket start</span></code>
+              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket open</span></code>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <footer class="foot">
-    <div class="shell foot__inner">
-      <div>
-        <div class="foot__mark">Maket<span class="dot">.</span></div>
-        <div style="margin-top:0.3rem;">MIT · 2026</div>
-      </div>
-      <nav class="foot__links" aria-label="Liens externes">
-        <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">→ github.com/ng-galien/maket</a>
-        <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener">→ modelcontextprotocol.io</a>
+  <footer class="footer">
+    <div class="shell footer__inner">
+      <div class="footer__brand">Maket<span class="dot">.</span></div>
+      <nav class="footer__links" aria-label="Liens externes">
+        <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Documentation</a>
+        <a href="https://github.com/ng-galien/maket/discussions" target="_blank" rel="noopener">Discussions</a>
+        <span>MIT · 2026</span>
       </nav>
     </div>
   </footer>
 
   <script>
-    // Tiny scroll-reveal — adds `is-visible` once a section enters the viewport.
-    // Gracefully skipped if IntersectionObserver isn't available.
+    const reveals = document.querySelectorAll('.reveal');
     if ('IntersectionObserver' in window) {
-      const io = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('is-visible');
-            io.unobserve(entry.target);
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('is-visible');
+              observer.unobserve(entry.target);
+            }
           }
-        }
-      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
-      document.querySelectorAll('.in-view').forEach((el) => {
-        io.observe(el);
-      });
+        },
+        { threshold: 0.12 }
+      );
+      for (const element of reveals) observer.observe(element);
     } else {
-      document.querySelectorAll('.in-view').forEach((el) => {
-        el.classList.add('is-visible');
-      });
+      for (const element of reveals) element.classList.add('is-visible');
     }
+
+    const demo = document.querySelector('.demo');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    let ticking = false;
+
+    function updateDemoDepth() {
+      if (demo && !reducedMotion.matches) {
+        const shift = Math.min(window.scrollY * 0.055, 28);
+        demo.style.setProperty('--demo-shift', `${shift}px`);
+      }
+      ticking = false;
+    }
+
+    window.addEventListener(
+      'scroll',
+      () => {
+        if (!ticking) {
+          window.requestAnimationFrame(updateDemoDepth);
+          ticking = true;
+        }
+      },
+      { passive: true }
+    );
   </script>
 </body>
 </html>

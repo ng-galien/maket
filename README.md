@@ -2,12 +2,16 @@
 
 **Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, your image library, and typed data collections for repeatable variants. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
 
+[![npm version](https://img.shields.io/npm/v/@ng-galien/maket.svg)](https://www.npmjs.com/package/@ng-galien/maket)
+[![npm downloads](https://img.shields.io/npm/dm/@ng-galien/maket.svg)](https://www.npmjs.com/package/@ng-galien/maket)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A2BE2.svg)](https://modelcontextprotocol.io/)
 [![CI](https://github.com/ng-galien/maket/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ng-galien/maket/main/.github/badges/coverage.json)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+
+**[Visit the Maket website →](https://ng-galien.github.io/maket/)**
 
 <p align="center">
   <img src="docs/demo.gif" alt="Maket demo walkthrough" width="800" />
