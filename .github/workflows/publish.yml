@@ -1,4 +1,4 @@
-name: Publish to npm
+name: Publish npm and GitHub Release
 
 # Uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret required.
 # One-time setup on npmjs.com: Settings → Trusted Publishers → add a pending
@@ -13,14 +13,14 @@ on:
 
 jobs:
   publish:
-    name: Stage & publish @ng-galien/maket
+    name: Publish @ng-galien/maket and create release
     runs-on: ubuntu-latest
 
     # `id-token: write` is what lets GitHub mint the short-lived OIDC token
     # that npm verifies against the trusted publisher config. Without it,
     # `npm publish` falls back to token auth and fails.
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -32,6 +32,24 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Require a release tag
+        run: |
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "::error::Run this workflow from an existing v* tag."
+            exit 1
+          fi
+
+      - name: Resolve and validate package version
+        id: version
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package version ${VERSION}"
+            exit 1
+          fi
+          npm run version:check
+
       # Trusted publishing requires npm CLI >= 11.5.1. Node 22's bundled npm
       # is 10.9.x — upgrade in place. `--force` avoids the self-modification
       # corruption (`Cannot find module 'promise-retry'`) that bites
@@ -42,8 +60,43 @@ jobs:
           npm install -g --force npm@11.5.1
           npm --version
 
+      - name: Check npm publication
+        id: npm
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ERROR_FILE="$(mktemp)"
+          if npm view "@ng-galien/maket@${VERSION}" version >/dev/null 2>"$ERROR_FILE"; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "@ng-galien/maket@${VERSION} is already published; skipping npm publish."
+          elif grep -q "E404" "$ERROR_FILE"; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            cat "$ERROR_FILE" >&2
+            exit 1
+          fi
+
       - name: Install dependencies
+        if: steps.npm.outputs.publish == 'true'
         run: npm install --no-audit
 
       - name: Stage & publish
+        if: steps.npm.outputs.publish == 'true'
         run: node scripts/pack-npm.ts --publish
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub Release $GITHUB_REF_NAME already exists; nothing to do."
+            exit 0
+          fi
+          node scripts/release-notes.mjs "$VERSION" > release-notes.md
+          printf "\nFull changelog: https://github.com/%s/blob/%s/CHANGELOG.md\n" \
+            "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md
