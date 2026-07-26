@@ -13,6 +13,22 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-07-26
+
+### Added
+- **Official MCP Registry metadata.** Maket now publishes a verified
+  `io.github.ng-galien/maket` identity and a `server.json` descriptor for its
+  npm package and stdio transport, making the server ready for listing in the
+  official MCP Registry.
+
+### Changed
+- **Release metadata stays aligned automatically.** Version bumps and quality
+  checks now keep the npm package, workspaces, and MCP Registry descriptor on
+  the same version.
+- **Typed data collections are documented in the packaged README.** Installation
+  and feature discovery now explain how one template can render a validated
+  series of document variants from ordered data rows.
+
 ## [1.4.3] — 2026-07-13
 
 ### Fixed

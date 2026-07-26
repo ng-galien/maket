@@ -1,0 +1,30 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ng-galien/maket",
+  "title": "Maket",
+  "description": "Compose branded visual documents with live preview, data collections, validation, and PDF export.",
+  "version": "1.4.4",
+  "websiteUrl": "https://ng-galien.github.io/maket/",
+  "repository": {
+    "url": "https://github.com/ng-galien/maket",
+    "source": "github",
+    "id": "1214501358"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@ng-galien/maket",
+      "version": "1.4.4",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "-y"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

@@ -28,7 +28,7 @@ if (!version || !/^\d+\.\d+\.\d+(?:-[\w.]+)?$/.test(version)) {
  */
 function rewriteVersion(file) {
   const src = readFileSync(file, "utf-8");
-  const next = src.replace(/("version"\s*:\s*")[^"]+(")/, `$1${version}$2`);
+  const next = src.replace(/("version"\s*:\s*")[^"]+(")/g, `$1${version}$2`);
   if (next === src) {
     process.stderr.write(`bump-version: no version field in ${file}\n`);
     process.exit(1);
@@ -36,7 +36,7 @@ function rewriteVersion(file) {
   writeFileSync(file, next);
 }
 
-const targets = [join(ROOT, "package.json")];
+const targets = [join(ROOT, "package.json"), join(ROOT, "server.json")];
 for (const d of readdirSync(join(ROOT, "packages"), { withFileTypes: true })) {
   if (d.isDirectory()) {
     targets.push(join(ROOT, "packages", d.name, "package.json"));

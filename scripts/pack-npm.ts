@@ -86,6 +86,7 @@ function stage(): void {
   const npmPkg = {
     name: "@ng-galien/maket",
     version: rootPkg.version,
+    mcpName: rootPkg.mcpName,
     description: rootPkg.description,
     keywords: ["mcp", "model-context-protocol", "ai", "design", "html", "pdf", "visual", "maket"],
     homepage: "https://ng-galien.github.io/maket/",
