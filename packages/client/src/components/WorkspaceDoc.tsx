@@ -429,6 +429,7 @@ function PageCollectionBindingBar({
 	actions: PageCollectionActions;
 }) {
 	const t = useT();
+	const readOnly = useStore((s) => s.readOnly);
 	const {
 		docName,
 		pageIndex,
@@ -444,6 +445,7 @@ function PageCollectionBindingBar({
 				<Database size={14} className="text-text-3 shrink-0" />
 				<select
 					value={collectionName}
+					disabled={readOnly}
 					onChange={(event) =>
 						bindCollection(docName, pageIndex, event.target.value)
 					}
@@ -464,16 +466,18 @@ function PageCollectionBindingBar({
 			</div>
 			{boundCollection && (
 				<div className="flex items-center gap-1 shrink-0">
-					<button
-						type="button"
-						title={t("collection_open_data")}
-						aria-label={t("collection_open_data")}
-						onClick={() => actions.openCollection(boundCollection.name)}
-						className="h-7 px-2 rounded-md inline-flex items-center gap-1 text-2xs font-semibold text-text-2 bg-panel hover:text-text-1 hover:bg-input transition-colors"
-					>
-						<Database size={12} />
-						<span>{t("collection_data")}</span>
-					</button>
+					{!readOnly && (
+						<button
+							type="button"
+							title={t("collection_open_data")}
+							aria-label={t("collection_open_data")}
+							onClick={() => actions.openCollection(boundCollection.name)}
+							className="h-7 px-2 rounded-md inline-flex items-center gap-1 text-2xs font-semibold text-text-2 bg-panel hover:text-text-1 hover:bg-input transition-colors"
+						>
+							<Database size={12} />
+							<span>{t("collection_data")}</span>
+						</button>
+					)}
 					<ModeButton
 						active={preview.mode === "template"}
 						title={t("collection_mode_template")}

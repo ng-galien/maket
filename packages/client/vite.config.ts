@@ -17,6 +17,12 @@ export default defineConfig({
 	build: {
 		outDir: path.resolve(__dirname, "../../public"),
 		emptyOutDir: false,
+		rollupOptions: {
+			input: {
+				main: path.resolve(__dirname, "index.html"),
+				viewer: path.resolve(__dirname, "viewer.html"),
+			},
+		},
 	},
 	server: {
 		proxy: {

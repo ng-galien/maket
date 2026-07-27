@@ -230,7 +230,7 @@ let initialStateReceived = false;
  * Dedupes by URL so switching between docs with the same charte is a no-op.
  */
 const loadedCharteFontUrls = new Set<string>();
-function ensureCharteFonts(charteCss: string): void {
+export function ensureCharteFonts(charteCss: string): void {
 	if (!charteCss) return;
 	const imports = charteCss.matchAll(/@import\s+url\(['"]?([^'")]+)['"]?\)/g);
 	for (const m of imports) {
