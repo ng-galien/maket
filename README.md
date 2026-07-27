@@ -7,6 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A2BE2.svg)](https://modelcontextprotocol.io/)
+[![ng-galien/maket MCP server](https://glama.ai/mcp/servers/ng-galien/maket/badges/score.svg)](https://glama.ai/mcp/servers/ng-galien/maket)
 [![CI](https://github.com/ng-galien/maket/actions/workflows/ci.yml/badge.svg)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/ng-galien/maket/main/.github/badges/coverage.json)](https://github.com/ng-galien/maket/actions/workflows/ci.yml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
