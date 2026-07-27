@@ -50,6 +50,36 @@ test.describe("Maket Demo", () => {
 		await expect(canvases.getByText("Walnut Oil")).toBeVisible();
 	});
 
+	test("scenario picker switches to the event poster", async ({ page }) => {
+		await page.goto("/demo.html");
+		await page.getByRole("button", { name: "Event poster" }).click();
+		await expect(page.getByTestId("demo-caption")).toContainText(
+			"brass festival",
+		);
+		await page.getByRole("button", { name: "Step 5" }).click();
+		await expect(
+			page
+				.locator('[data-doc="event-poster"]')
+				.getByRole("heading", { name: "MIDNIGHT BRASS FESTIVAL" }),
+		).toBeVisible();
+	});
+
+	test("deep link ?scenario=app-wireframe shows the multi-page growth", async ({
+		page,
+	}) => {
+		await page.goto("/demo.html?scenario=app-wireframe");
+		await expect(page.getByTestId("demo-caption")).toContainText(
+			"grocery-delivery",
+		);
+		await page.getByRole("button", { name: "Step 5" }).click();
+		await expect(
+			page.locator('[data-doc="app-wireframe"] .page-canvas'),
+		).toHaveCount(3);
+		await expect(
+			page.locator('[data-doc="app-wireframe"]').getByText("Pay now"),
+		).toBeVisible();
+	});
+
 	test("download round-trips into the standalone viewer", async ({ page }) => {
 		await page.goto("/demo.html");
 		await page.getByRole("button", { name: "Step 7" }).click();

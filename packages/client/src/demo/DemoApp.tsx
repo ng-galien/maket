@@ -17,6 +17,14 @@ import {
 	type DemoWorkspace,
 	productCatalogScenario,
 } from "./scenario";
+import { eventPosterScenario } from "./scenario-poster";
+import { appWireframeScenario } from "./scenario-wireframe";
+
+const SCENARIOS: DemoScenario[] = [
+	productCatalogScenario,
+	eventPosterScenario,
+	appWireframeScenario,
+];
 
 const STEP_MS = 3800;
 const EMPTY: DemoWorkspace = { documents: [], chartes: [], collections: [] };
@@ -67,7 +75,14 @@ function applyStep(scenario: DemoScenario, stepIndex: number): void {
 }
 
 export default function DemoApp() {
-	const scenario = productCatalogScenario;
+	const [scenarioId, setScenarioId] = useState<string>(() => {
+		const requested = new URLSearchParams(location.search).get("scenario");
+		return SCENARIOS.some((s) => s.id === requested) && requested
+			? requested
+			: productCatalogScenario.id;
+	});
+	const scenario =
+		SCENARIOS.find((s) => s.id === scenarioId) ?? productCatalogScenario;
 	const [stepIndex, setStepIndex] = useState(0);
 	const [playing, setPlaying] = useState(true);
 	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -97,11 +112,17 @@ export default function DemoApp() {
 		return () => {
 			if (timerRef.current) clearInterval(timerRef.current);
 		};
-	}, [playing, scenario.steps.length]);
+	}, [playing, scenario]);
 
 	const goTo = useCallback((i: number) => {
 		setPlaying(false);
 		setStepIndex(i);
+	}, []);
+
+	const pickScenario = useCallback((id: string) => {
+		setScenarioId(id);
+		setStepIndex(0);
+		setPlaying(true);
 	}, []);
 
 	const download = useCallback(() => {
@@ -118,6 +139,22 @@ export default function DemoApp() {
 			{/* Caption bar */}
 			<div className="fixed top-4 left-1/2 z-50 w-[min(640px,92vw)] -translate-x-1/2">
 				<div className="rounded-2xl border border-border bg-panel px-5 py-3 shadow-lg">
+					<div className="mb-2 flex gap-1.5">
+						{SCENARIOS.map((s) => (
+							<button
+								key={s.id}
+								type="button"
+								onClick={() => pickScenario(s.id)}
+								className={`rounded-full px-2.5 py-1 text-2xs font-semibold transition-colors ${
+									s.id === scenario.id
+										? "bg-accent text-white"
+										: "bg-input text-text-2 hover:text-text-1"
+								}`}
+							>
+								{s.title}
+							</button>
+						))}
+					</div>
 					<div className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-text-3">
 						<span
 							className={`inline-block h-2 w-2 rounded-full ${
