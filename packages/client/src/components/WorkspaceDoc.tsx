@@ -231,7 +231,13 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 
 	const docWidthPx = doc.canvas.w * 3.78;
 	const labelScale = 1 / Math.max(zoomK, 0.1);
-	const labelMaxWidth = docWidthPx / labelScale;
+	// Chip tracks the doc's on-screen width, but never below a readable floor
+	// (a narrow doc at far zoom would crush the name span to 0px) and never
+	// above the doc's natural width (the floor must not balloon tiny docs).
+	const labelMaxWidth = Math.min(
+		docWidthPx,
+		Math.max(160, docWidthPx / labelScale),
+	);
 
 	return (
 		<div

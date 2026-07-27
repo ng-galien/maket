@@ -73,6 +73,33 @@ const labels = createDocument({
 	],
 });
 
+const brochure = createDocument({
+	name: "brochure",
+	category: "brochure",
+	canvas: { w: 148, h: 210, background: "#ffffff", format: "A5" },
+	meta: { charte: "smokehouse" },
+	pages: [
+		{
+			id: "p1",
+			name: "Cover",
+			elements: [],
+			html: '<div style="padding:10mm"><h2 data-id="e1">Our Smokehouse</h2></div>',
+		},
+		{
+			id: "p2",
+			name: "Story",
+			elements: [],
+			html: '<div style="padding:10mm"><p data-id="e1">Since 1987, slow oak smoke.</p></div>',
+		},
+		{
+			id: "p3",
+			name: "Contact",
+			elements: [],
+			html: '<div style="padding:10mm"><p data-id="e1">Visit us in Bergen.</p></div>',
+		},
+	],
+});
+
 const products = {
 	name: "products",
 	schema: {
@@ -90,7 +117,7 @@ const products = {
 const assets: BundleAsset[] = [{ relPath: "logo.png", bytes: RED_PIXEL_PNG }];
 
 const buf = await encodeBundleV2(
-	[poster, labels],
+	[poster, labels, brochure],
 	[charte],
 	[products],
 	assets,

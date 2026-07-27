@@ -189,6 +189,37 @@ test.describe("Maket Viewer", () => {
 		expect(evilRequests).toEqual([]);
 	});
 
+	test("renders every page of a multi-page document", async ({ page }) => {
+		await openFixture(page);
+		const brochure = page.locator('[data-doc="brochure"]');
+		await expect(brochure.locator(".page-canvas")).toHaveCount(3);
+		await expect(brochure.getByText("Our Smokehouse")).toBeVisible();
+		await expect(
+			brochure.getByText("Since 1987, slow oak smoke."),
+		).toBeVisible();
+		await expect(brochure.getByText("Visit us in Bergen.")).toBeVisible();
+		// Per-page labels appear on multi-page docs.
+		await expect(brochure.getByText("Cover")).toBeVisible();
+	});
+
+	test("mobile: board auto-fits and viewer bar stays usable", async ({
+		page,
+	}) => {
+		await page.setViewportSize({ width: 375, height: 812 });
+		await openFixture(page);
+		// The initial fit must bring the whole workspace into the viewport.
+		const box = await page
+			.locator('[data-doc="poster"] .page-canvas')
+			.boundingBox();
+		expect(box).not.toBeNull();
+		if (box) {
+			expect(box.x).toBeGreaterThanOrEqual(-1);
+			expect(box.x + box.width).toBeLessThanOrEqual(376);
+			expect(box.y).toBeGreaterThanOrEqual(-1);
+		}
+		await expect(page.getByText("Maket Viewer")).toBeVisible();
+	});
+
 	test("makes no network requests after the bundle is opened", async ({
 		page,
 	}) => {
