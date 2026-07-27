@@ -21,6 +21,7 @@ export default defineConfig({
 			input: {
 				main: path.resolve(__dirname, "index.html"),
 				viewer: path.resolve(__dirname, "viewer.html"),
+				demo: path.resolve(__dirname, "demo.html"),
 			},
 		},
 	},
