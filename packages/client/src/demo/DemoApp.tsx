@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, Download, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Board } from "../components/Board";
 import { useStore } from "../store/useStore";
-import { fitToDoc, fitToView } from "../store/zoomBridge";
+import { requestFit } from "../store/zoomBridge";
 import { hydrateViewerWorkspace } from "../viewer/hydrate";
 import { downloadWorkspaceBundle } from "./export";
 import {
@@ -89,28 +89,13 @@ export default function DemoApp() {
 		applyStep(scenario, stepIndex);
 		const current = scenario.steps[stepIndex];
 		const docName = workspaceAt(scenario, stepIndex).documents[0]?.name;
-		const frame = () => {
-			if (typeof current?.focusPage === "number" && docName) {
-				fitToDoc(docName, current.focusPage);
-			} else {
-				fitToView();
-			}
-		};
-		// Fit twice: once after the next paint, and again once React has
-		// committed the hydrated content — a single early fit can measure the
-		// previous step's board and leave the view mis-framed. Both are
-		// cancelled on the next step (or unmount) so a stale fit never stomps
-		// a user's pan/zoom.
-		let raf2 = 0;
-		const raf1 = requestAnimationFrame(() => {
-			raf2 = requestAnimationFrame(frame);
-		});
-		const settle = setTimeout(frame, 250);
-		return () => {
-			cancelAnimationFrame(raf1);
-			cancelAnimationFrame(raf2);
-			clearTimeout(settle);
-		};
+		// Board fits once the hydrated content has actually laid out; a new
+		// request replaces any pending one, so step changes never stack fits.
+		if (typeof current?.focusPage === "number" && docName) {
+			requestFit({ docName, pageIndex: current.focusPage });
+		} else {
+			requestFit();
+		}
 	}, [scenario, stepIndex]);
 
 	useEffect(() => {

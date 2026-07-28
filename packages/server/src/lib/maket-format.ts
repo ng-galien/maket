@@ -18,15 +18,22 @@
  */
 
 import { gunzipSync, gzipSync } from "node:zlib";
-import type { Collection } from "@maket/shared";
+import {
+	buildBundleManifest,
+	type Collection,
+	isGzipMagic,
+	isSafeAssetEntry as isSafeAssetEntryShared,
+	isZipMagic,
+	parseBundleManifest,
+	MAKET_BUNDLE_EXT as SHARED_BUNDLE_EXT,
+	MAKET_BUNDLE_KIND as SHARED_BUNDLE_KIND,
+	validateBundleManifest,
+} from "@maket/shared";
 import JSZip from "jszip";
 import type { Charte, Document } from "../types.js";
 
-export const MAKET_BUNDLE_KIND = "maket-bundle";
-export const MAKET_BUNDLE_EXT = ".maket";
-
-/** Versions this server can read. Increment on format changes. */
-const SUPPORTED_VERSIONS = new Set([1, 2]);
+export const MAKET_BUNDLE_KIND = SHARED_BUNDLE_KIND;
+export const MAKET_BUNDLE_EXT = SHARED_BUNDLE_EXT;
 
 export interface BundleDocument {
 	id?: string;
@@ -57,26 +64,15 @@ export interface DecodedBundle {
 	assets: BundleAsset[];
 }
 
-/** Strip runtime-only fields so the snapshot round-trips cleanly. */
+/** Strip runtime-only fields so the snapshot round-trips cleanly. Field
+ * picking lives in @maket/shared (snapshotBundleDocument via buildManifest)
+ * so browser encoders share the exact wire shape. */
 export function snapshotDocument(doc: Document): BundleDocument {
-	const { canvas, meta, pages, activePage, nextId, id, name, category } = doc;
-	return {
-		id,
-		name,
-		category: category || "general",
-		canvas,
-		meta: meta ? { ...meta } : {},
-		pages: pages.map((p) => ({
-			id: p.id,
-			name: p.name,
-			elements: p.elements,
-			html: p.html,
-			canvas: p.canvas,
-			collection: p.collection,
-		})),
-		activePage,
-		nextId,
-	};
+	return buildManifestDocuments([doc])[0] as BundleDocument;
+}
+
+function buildManifestDocuments(documents: Document[]): unknown[] {
+	return buildManifest(documents, [], [], 2).documents as unknown[];
 }
 
 // ── v1 (legacy gzip-JSON) ────────────────────────────────────────────────────
@@ -87,14 +83,10 @@ function buildManifest(
 	collections: Collection[],
 	version: number,
 ) {
-	return {
+	return buildBundleManifest(documents, chartes, collections, {
 		version,
-		kind: MAKET_BUNDLE_KIND,
 		exportedAt: new Date().toISOString(),
-		documents: documents.map(snapshotDocument),
-		chartes,
-		collections,
-	};
+	}) as { documents: unknown[] };
 }
 
 /** v1 encoder — kept exported for deliberate "structure-only" exports. */
@@ -155,14 +147,7 @@ export async function encodeBundleV2(
  * `assets/` are dropped. Flat filenames are what `normalizeImageSrc` /
  * `ASSETS_DIR` expect, so anything else is suspect and never useful.
  */
-function isSafeAssetEntry(entryPath: string): boolean {
-	if (!entryPath.startsWith("assets/")) return false;
-	const rel = entryPath.slice("assets/".length);
-	if (rel.length === 0) return false;
-	if (rel.includes("..")) return false;
-	if (rel.includes("/") || rel.includes("\\")) return false;
-	return true;
-}
+const isSafeAssetEntry = isSafeAssetEntryShared;
 
 async function decodeV2(buf: Buffer): Promise<DecodedBundle> {
 	let zip: JSZip;
@@ -193,43 +178,20 @@ async function decodeV2(buf: Buffer): Promise<DecodedBundle> {
 
 // ── Shared manifest validation ───────────────────────────────────────────────
 
-function parseManifest(json: string): Record<string, unknown> {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(json);
-	} catch {
-		throw new Error("Invalid .maket file: JSON parse failed");
-	}
-	if (!parsed || typeof parsed !== "object")
-		throw new Error("Invalid .maket file: manifest is not an object");
-	return parsed as Record<string, unknown>;
-}
+const parseManifest = parseBundleManifest;
 
 function finalizeManifest(
 	m: Record<string, unknown>,
 	assets: BundleAsset[],
 ): DecodedBundle {
-	if (m.kind !== MAKET_BUNDLE_KIND)
-		throw new Error(
-			`Invalid .maket file: kind="${String(m.kind)}" (expected "${MAKET_BUNDLE_KIND}")`,
-		);
-	const version = typeof m.version === "number" ? m.version : NaN;
-	if (!SUPPORTED_VERSIONS.has(version))
-		throw new Error(
-			`Unsupported .maket bundle version ${m.version} (this server handles ${[...SUPPORTED_VERSIONS].join(", ")})`,
-		);
-	if (!Array.isArray(m.documents))
-		throw new Error("Invalid .maket file: missing documents[]");
-
+	const data = validateBundleManifest(m);
 	return {
-		version,
+		version: data.version,
 		kind: MAKET_BUNDLE_KIND,
-		exportedAt: typeof m.exportedAt === "string" ? m.exportedAt : "",
-		documents: m.documents as BundleDocument[],
-		chartes: Array.isArray(m.chartes) ? (m.chartes as Charte[]) : [],
-		collections: Array.isArray(m.collections)
-			? (m.collections as Collection[])
-			: [],
+		exportedAt: data.exportedAt,
+		documents: data.documents as BundleDocument[],
+		chartes: data.chartes as Charte[],
+		collections: data.collections as Collection[],
 		assets,
 	};
 }
@@ -244,15 +206,8 @@ export async function decodeBundle(buf: Buffer): Promise<DecodedBundle> {
 	if (buf.length < 4) {
 		throw new Error("Invalid .maket file: too small");
 	}
-	if (buf[0] === 0x1f && buf[1] === 0x8b) return decodeV1(buf);
-	if (
-		buf[0] === 0x50 &&
-		buf[1] === 0x4b &&
-		buf[2] === 0x03 &&
-		buf[3] === 0x04
-	) {
-		return decodeV2(buf);
-	}
+	if (isGzipMagic(buf)) return decodeV1(buf);
+	if (isZipMagic(buf)) return decodeV2(buf);
 	throw new Error(
 		`Invalid .maket file: unknown magic bytes ${buf.subarray(0, 4).toString("hex")} (expected gzip 1f8b or zip 504b0304)`,
 	);

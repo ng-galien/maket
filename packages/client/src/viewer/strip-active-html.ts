@@ -8,49 +8,7 @@
  * from untrusted `.maket` files, so it is such a code path.
  */
 
-const FORBIDDEN_TAGS = [
-	"script",
-	"iframe",
-	"object",
-	"embed",
-	"frame",
-	"frameset",
-	"meta",
-	"base",
-];
-
-const URL_ATTRS = new Set([
-	"href",
-	"src",
-	"action",
-	"formaction",
-	"poster",
-	"background",
-	"cite",
-	"data",
-	"usemap",
-]);
-
-function scrubAttributes(el: Element): void {
-	for (const attr of [...el.attributes]) {
-		const name = attr.name.toLowerCase();
-		if (name.startsWith("on")) {
-			el.removeAttribute(attr.name);
-			continue;
-		}
-		if (URL_ATTRS.has(name)) {
-			const value = (attr.value ?? "").trim().toLowerCase();
-			if (
-				value.startsWith("javascript:") ||
-				value.startsWith("vbscript:") ||
-				value.startsWith("data:text/html")
-			) {
-				el.removeAttribute(attr.name);
-			}
-		}
-		if (name === "srcdoc") el.removeAttribute(attr.name);
-	}
-}
+import { stripActiveIn } from "@maket/shared";
 
 export function stripActiveHtml(html: string): string {
 	if (!html) return html;
@@ -60,11 +18,6 @@ export function stripActiveHtml(html: string): string {
 	);
 	const body = doc.body;
 	if (!body) return html;
-
-	for (const tag of FORBIDDEN_TAGS) {
-		for (const node of [...body.querySelectorAll(tag)]) node.remove();
-	}
-	for (const el of [...body.querySelectorAll("*")]) scrubAttributes(el);
-
+	stripActiveIn(body);
 	return body.innerHTML;
 }

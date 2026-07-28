@@ -4,6 +4,7 @@
  * bundle re-imports into any Maket install.
  */
 
+import { buildBundleManifest } from "@maket/shared";
 import JSZip from "jszip";
 import type { DemoWorkspace } from "./scenario";
 
@@ -11,28 +12,12 @@ export async function encodeWorkspaceBundle(
 	workspace: DemoWorkspace,
 ): Promise<Blob> {
 	const zip = new JSZip();
-	const manifest = {
-		version: 2,
-		kind: "maket-bundle",
-		exportedAt: new Date().toISOString(),
-		documents: workspace.documents.map((doc) => ({
-			id: doc.id,
-			name: doc.name,
-			category: doc.category || "general",
-			canvas: doc.canvas,
-			meta: doc.meta ?? {},
-			pages: doc.pages.map((page) => ({
-				id: page.id,
-				name: page.name,
-				elements: page.elements ?? [],
-				html: page.html,
-				collection: page.collection,
-			})),
-			activePage: doc.activePage ?? 0,
-		})),
-		chartes: workspace.chartes,
-		collections: workspace.collections,
-	};
+	const manifest = buildBundleManifest(
+		workspace.documents,
+		workspace.chartes,
+		workspace.collections,
+		{ version: 2, exportedAt: new Date().toISOString() },
+	);
 	zip.file("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
 	return zip.generateAsync({
 		type: "blob",

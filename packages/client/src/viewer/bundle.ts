@@ -7,7 +7,14 @@
  * so nothing ever leaves the browser.
  */
 
-import type { Collection } from "@maket/shared";
+import {
+	type Collection,
+	isGzipMagic,
+	isSafeAssetEntry,
+	isZipMagic,
+	parseBundleManifest,
+	validateBundleManifest,
+} from "@maket/shared";
 import JSZip from "jszip";
 import type { Document } from "../store/types";
 
@@ -40,54 +47,11 @@ function assetMime(name: string): string {
 	return ASSET_MIME[ext] ?? "application/octet-stream";
 }
 
-function isZip(bytes: Uint8Array): boolean {
-	return (
-		bytes[0] === 0x50 &&
-		bytes[1] === 0x4b &&
-		bytes[2] === 0x03 &&
-		bytes[3] === 0x04
-	);
-}
-
-function isGzip(bytes: Uint8Array): boolean {
-	return bytes[0] === 0x1f && bytes[1] === 0x8b;
-}
-
-/** Same guard as the server: flat filenames under assets/ only. */
-function isSafeAssetEntry(entryPath: string): boolean {
-	if (!entryPath.startsWith("assets/")) return false;
-	const rel = entryPath.slice("assets/".length);
-	if (rel.length === 0) return false;
-	if (rel.includes("..")) return false;
-	if (rel.includes("/") || rel.includes("\\")) return false;
-	return true;
-}
-
 async function gunzipText(data: ArrayBuffer): Promise<string> {
 	const stream = new Blob([data])
 		.stream()
 		.pipeThrough(new DecompressionStream("gzip"));
 	return new Response(stream).text();
-}
-
-function parseManifest(json: string): Record<string, unknown> {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(json);
-	} catch {
-		throw new Error("Invalid .maket file: manifest is not valid JSON");
-	}
-	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-		throw new Error("Invalid .maket file: manifest is not an object");
-	}
-	const manifest = parsed as Record<string, unknown>;
-	if (manifest.kind !== "maket-bundle") {
-		throw new Error("Invalid .maket file: not a maket bundle");
-	}
-	if (!Array.isArray(manifest.documents)) {
-		throw new Error("Invalid .maket file: missing documents");
-	}
-	return manifest;
 }
 
 function toViewerDocument(raw: Record<string, unknown>): Document {
@@ -108,23 +72,19 @@ function finalizeManifest(
 	manifest: Record<string, unknown>,
 	assetUrls: Map<string, string>,
 ): ViewerWorkspace {
-	const documents = (manifest.documents as Record<string, unknown>[]).map(
+	const data = validateBundleManifest(manifest);
+	const documents = (data.documents as Record<string, unknown>[]).map(
 		toViewerDocument,
 	);
 	if (documents.length === 0) {
 		throw new Error("This .maket file contains no documents");
 	}
 	return {
-		version: typeof manifest.version === "number" ? manifest.version : 0,
-		exportedAt:
-			typeof manifest.exportedAt === "string" ? manifest.exportedAt : undefined,
+		version: data.version,
+		exportedAt: data.exportedAt || undefined,
 		documents,
-		chartes: Array.isArray(manifest.chartes)
-			? (manifest.chartes as ViewerCharte[])
-			: [],
-		collections: Array.isArray(manifest.collections)
-			? (manifest.collections as Collection[])
-			: [],
+		chartes: data.chartes as ViewerCharte[],
+		collections: data.collections as Collection[],
 		assetUrls,
 	};
 }
@@ -140,7 +100,7 @@ async function decodeV2(data: ArrayBuffer): Promise<ViewerWorkspace> {
 	if (!manifestFile) {
 		throw new Error("Invalid .maket file: missing manifest.json");
 	}
-	const manifest = parseManifest(await manifestFile.async("string"));
+	const manifest = parseBundleManifest(await manifestFile.async("string"));
 
 	// Revoke on any failure past this point — created object URLs would
 	// otherwise leak for the tab's lifetime on every failed open.
@@ -164,9 +124,12 @@ export async function decodeMaketFile(
 	data: ArrayBuffer,
 ): Promise<ViewerWorkspace> {
 	const bytes = new Uint8Array(data.slice(0, 4));
-	if (isZip(bytes)) return decodeV2(data);
-	if (isGzip(bytes)) {
-		return finalizeManifest(parseManifest(await gunzipText(data)), new Map());
+	if (isZipMagic(bytes)) return decodeV2(data);
+	if (isGzipMagic(bytes)) {
+		return finalizeManifest(
+			parseBundleManifest(await gunzipText(data)),
+			new Map(),
+		);
 	}
 	throw new Error("Invalid .maket file: unrecognized format");
 }

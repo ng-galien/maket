@@ -9,7 +9,7 @@ import { FileUp, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Board } from "../components/Board";
 import { useStore } from "../store/useStore";
-import { fitToView } from "../store/zoomBridge";
+import { requestFit } from "../store/zoomBridge";
 import { decodeMaketFile } from "./bundle";
 import { hydrateViewerWorkspace } from "./hydrate";
 
@@ -41,9 +41,8 @@ export default function ViewerApp() {
 			hydrateViewerWorkspace(workspace);
 			setFileName(name);
 			setLoaded(true);
-			// Fit once the board has mounted and laid the docs out (double rAF,
-			// same dance as the editor's post-state layout).
-			requestAnimationFrame(() => requestAnimationFrame(() => fitToView()));
+			// Board fits once the hydrated content has actually laid out.
+			requestFit();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
 		} finally {

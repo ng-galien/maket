@@ -10,8 +10,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import {
+	type FitTarget,
 	registerFitToDoc,
 	registerFitToView,
+	registerRequestFit,
 	registerZoomTo,
 } from "../store/zoomBridge";
 import { CollectionWorkspace } from "./CollectionWorkspace";
@@ -199,14 +201,20 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	registerBoardZoomCommands(el, zoomBehavior, wrap, context.boardRef);
 	const fit = createFitToView(el, zoomBehavior, wrap, context.boardRef);
 	registerFitToView(fit);
-	registerFitToDoc(createFitToDoc(el, zoomBehavior, wrap, context.boardRef));
+	const fitDoc = createFitToDoc(el, zoomBehavior, wrap, context.boardRef);
+	registerFitToDoc(fitDoc);
+	const deferredFit = createDeferredFit(fit, fitDoc);
+	registerRequestFit(deferredFit.request);
 	const boardRo = observeInitialBoardFit(
 		context.boardRef,
 		fit,
 		context.setBoardVisible,
 	);
 	const wrapResize = observeWrapResize(wrap, el, zoomBehavior);
-	return () => cleanupBoardZoom(el, boardRo, wrapResize);
+	return () => {
+		deferredFit.dispose();
+		cleanupBoardZoom(el, boardRo, wrapResize);
+	};
 }
 
 function createBoardZoomBehavior(
@@ -344,6 +352,39 @@ function boardDocFrame(wrap: HTMLDivElement, docEl: HTMLElement) {
 	};
 }
 
+/**
+ * "Fit when the content has actually laid out": runs the requested fit after
+ * a double rAF (next paint after commit) and again after a short settle —
+ * both idempotent. A new request replaces any pending one, so callers never
+ * stack timers or stomp a later frame with a stale fit.
+ */
+function createDeferredFit(
+	fitView: () => void,
+	fitDoc: (docName: string, pageIndex?: number) => void,
+): { request: (target?: FitTarget) => void; dispose: () => void } {
+	let raf1 = 0;
+	let raf2 = 0;
+	let settle: ReturnType<typeof setTimeout> | null = null;
+	const cancel = () => {
+		cancelAnimationFrame(raf1);
+		cancelAnimationFrame(raf2);
+		if (settle) clearTimeout(settle);
+	};
+	return {
+		request: (target) => {
+			const fit = target
+				? () => fitDoc(target.docName, target.pageIndex)
+				: fitView;
+			cancel();
+			raf1 = requestAnimationFrame(() => {
+				raf2 = requestAnimationFrame(fit);
+			});
+			settle = setTimeout(fit, 300);
+		},
+		dispose: cancel,
+	};
+}
+
 function observeInitialBoardFit(
 	boardRef: React.RefObject<HTMLDivElement | null>,
 	fit: () => void,
@@ -405,5 +446,6 @@ function cleanupBoardZoom(
 	window.removeEventListener("orientationchange", wrapResize.onOrientation);
 	registerFitToView(() => {});
 	registerFitToDoc(() => {});
+	registerRequestFit(null);
 	registerZoomTo(() => {});
 }
