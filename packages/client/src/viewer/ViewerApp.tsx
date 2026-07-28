@@ -13,6 +13,29 @@ import { requestFit } from "../store/zoomBridge";
 import { decodeMaketFile } from "./bundle";
 import { hydrateViewerWorkspace } from "./hydrate";
 
+function revokeAssetUrls(assetUrls: Map<string, string> | null): void {
+	if (!assetUrls) return;
+	for (const url of assetUrls.values()) URL.revokeObjectURL(url);
+}
+
+async function fetchPublishedBundle(src: string): Promise<{
+	data: ArrayBuffer;
+	name: string;
+}> {
+	const url = new URL(src, location.href);
+	if (url.origin !== location.origin) {
+		throw new Error("Bundle URL must use the same origin as the viewer");
+	}
+	const response = await fetch(url);
+	if (!response.ok) {
+		throw new Error(`Could not fetch bundle (${response.status})`);
+	}
+	return {
+		data: await response.arrayBuffer(),
+		name: url.pathname.split("/").pop() ?? "bundle.maket",
+	};
+}
+
 export default function ViewerApp() {
 	const [loaded, setLoaded] = useState(false);
 	const [busy, setBusy] = useState(false);
@@ -30,18 +53,11 @@ export default function ViewerApp() {
 		setError(null);
 		try {
 			const workspace = await decodeMaketFile(data);
-			// Release the previous bundle's blobs before swapping workspaces —
-			// "Open another file" would otherwise leak them for the tab's life.
-			if (currentAssetUrls.current) {
-				for (const url of currentAssetUrls.current.values()) {
-					URL.revokeObjectURL(url);
-				}
-			}
+			revokeAssetUrls(currentAssetUrls.current);
 			currentAssetUrls.current = workspace.assetUrls;
 			hydrateViewerWorkspace(workspace);
 			setFileName(name);
 			setLoaded(true);
-			// Board fits once the hydrated content has actually laid out.
 			requestFit();
 		} catch (e) {
 			setError(e instanceof Error ? e.message : String(e));
@@ -57,20 +73,14 @@ export default function ViewerApp() {
 		[openData],
 	);
 
-	// Optional ?src=<same-origin url> — lets a static page embed the viewer
-	// pointing at a published bundle (demo, starter projects, docs).
 	useEffect(() => {
 		const src = new URLSearchParams(location.search).get("src");
 		if (!src) return;
 		(async () => {
 			setBusy(true);
 			try {
-				const res = await fetch(src);
-				if (!res.ok) throw new Error(`Could not fetch bundle (${res.status})`);
-				await openData(
-					await res.arrayBuffer(),
-					src.split("/").pop() ?? "bundle.maket",
-				);
+				const bundle = await fetchPublishedBundle(src);
+				await openData(bundle.data, bundle.name);
 			} catch (e) {
 				setError(e instanceof Error ? e.message : String(e));
 				setBusy(false);
@@ -117,7 +127,7 @@ function DropZone({
 			}}
 		>
 			<div
-				className={`flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed px-16 py-14 transition-colors ${
+				className={`mx-4 flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed px-8 py-12 transition-colors sm:px-16 sm:py-14 ${
 					dragOver ? "border-accent bg-accent/5" : "border-border bg-panel"
 				}`}
 			>
@@ -172,7 +182,7 @@ function ViewerBar({
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	return (
-		<div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-border bg-panel px-4 py-2 shadow-lg">
+		<div className="fixed right-2 bottom-2 left-2 z-50 flex items-center justify-center gap-3 rounded-full border border-border bg-panel px-4 py-2 shadow-lg sm:right-auto sm:bottom-4 sm:left-1/2 sm:w-auto sm:-translate-x-1/2">
 			<span className="text-sm font-bold text-text-1">Maket Viewer</span>
 			{fileName && (
 				<span className="max-w-48 truncate text-xs text-text-3">

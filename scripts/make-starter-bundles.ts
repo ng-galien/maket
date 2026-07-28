@@ -25,6 +25,8 @@ import { type BundleAsset, encodeBundleV2 } from "../packages/server/src/lib/mak
 import type { Charte, Document } from "../packages/server/src/types.js";
 
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "starters");
+const STARTER_EXPORTED_AT = "2000-01-01T00:00:00.000Z";
+const STARTER_ENTRY_DATE = new Date(STARTER_EXPORTED_AT);
 
 const DATA_URI_ASSETS: Record<string, string> = {
   [FARM_LOGO_DATA_URI]: "farm-logo.svg",
@@ -54,8 +56,6 @@ function extractAssets(doc: Document): { doc: Document; used: Set<string> } {
 async function writeStarter(scenario: DemoScenario): Promise<void> {
   const workspace = finalWorkspace(scenario);
   const used = new Set<string>();
-  // Demo workspaces use the client-side Document shape; it is a structural
-  // subset of the server's (missing fields default on import).
   const docs = (workspace.documents as unknown as Document[]).map((d) => {
     const { doc, used: docUsed } = extractAssets(d);
     for (const f of docUsed) used.add(f);
@@ -64,7 +64,10 @@ async function writeStarter(scenario: DemoScenario): Promise<void> {
   const assets: BundleAsset[] = Object.entries(DATA_URI_ASSETS)
     .filter(([, file]) => used.has(file))
     .map(([uri, file]) => ({ relPath: file, bytes: svgBytes(uri) }));
-  const buf = await encodeBundleV2(docs, workspace.chartes as unknown as Charte[], workspace.collections, assets);
+  const buf = await encodeBundleV2(docs, workspace.chartes as unknown as Charte[], workspace.collections, assets, {
+    exportedAt: STARTER_EXPORTED_AT,
+    entryDate: STARTER_ENTRY_DATE,
+  });
   const out = join(OUT_DIR, scenario.downloadName);
   writeFileSync(out, buf);
   console.log(`Wrote ${out} (${buf.length} bytes)`);

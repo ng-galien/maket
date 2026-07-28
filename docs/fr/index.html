@@ -364,6 +364,128 @@
       object-position: top;
     }
 
+    .live {
+      overflow: hidden;
+      background: var(--paper-light);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .live__grid {
+      display: grid;
+      grid-template-columns: minmax(18rem, 0.62fr) minmax(0, 1.38fr);
+      gap: clamp(3rem, 7vw, 7rem);
+      align-items: center;
+    }
+
+    .live__copy h2 {
+      max-width: 11ch;
+      margin: 1.4rem 0 1.5rem;
+      font-size: var(--type-h2);
+      font-weight: 500;
+      letter-spacing: var(--tracking-heading);
+      line-height: 0.98;
+    }
+
+    .live__copy > p {
+      max-width: 34rem;
+      margin: 0 0 2rem;
+      color: var(--muted);
+      font-size: var(--type-body);
+    }
+
+    .live .button {
+      border-color: var(--line);
+    }
+
+    .button--ink {
+      color: var(--paper-light);
+      background: var(--ink);
+      border-color: var(--ink) !important;
+    }
+
+    .button--ink:hover,
+    .button--ink:focus-visible {
+      background: var(--ink-soft);
+    }
+
+    .button--outline:hover,
+    .button--outline:focus-visible {
+      background: rgba(16, 28, 25, 0.05);
+      border-color: rgba(16, 28, 25, 0.38);
+    }
+
+    .live__stage {
+      position: relative;
+      min-width: 0;
+      padding: 0.6rem;
+      border-radius: 1.2rem;
+      background: var(--ink);
+      box-shadow: 0 2rem 5rem rgba(16, 28, 25, 0.2);
+    }
+
+    .live__stage::before {
+      position: absolute;
+      inset: 12% -12% -16% 18%;
+      z-index: -1;
+      background: rgba(0, 169, 157, 0.22);
+      filter: blur(4rem);
+      content: "";
+    }
+
+    .live__stage iframe {
+      display: block;
+      width: 100%;
+      height: min(68svh, 44rem);
+      min-height: 34rem;
+      border: 0;
+      border-radius: 0.8rem;
+      background: #e8e5de;
+    }
+
+    .live__starters {
+      display: grid;
+      grid-template-columns: minmax(13rem, 0.62fr) minmax(0, 1.38fr);
+      gap: 2rem;
+      align-items: start;
+      margin-top: clamp(4rem, 7vw, 7rem);
+      padding-top: 2rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .live__starters h3 {
+      margin: 0;
+      font-size: var(--type-body);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    .starter-list {
+      display: grid;
+    }
+
+    .starter-list a {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1rem;
+      padding: 0.9rem 0;
+      border-bottom: 1px solid var(--line);
+      font-size: var(--type-label);
+      font-weight: 600;
+      transition:
+        color 180ms ease,
+        transform 180ms ease;
+    }
+
+    .starter-list a:first-child {
+      padding-top: 0;
+    }
+
+    .starter-list a:hover,
+    .starter-list a:focus-visible {
+      color: var(--accent);
+      transform: translateX(0.3rem);
+    }
+
     .section {
       padding: clamp(6rem, 10vw, 10rem) 0;
     }
@@ -818,6 +940,8 @@
 
       .hero__bottom,
       .ownership__inner,
+      .live__grid,
+      .live__starters,
       .section-head,
       .story-layout,
       .collection__inner,
@@ -838,6 +962,14 @@
       .demo {
         width: min(100%, 46rem);
         margin-left: auto;
+      }
+
+      .live__copy h2 {
+        max-width: 14ch;
+      }
+
+      .live__stage iframe {
+        height: 38rem;
       }
 
       .uses__grid {
@@ -915,6 +1047,19 @@
         margin-bottom: 3.5rem;
       }
 
+      .live__stage {
+        width: calc(100% + 1rem);
+        margin-left: -0.5rem;
+        padding: 0.35rem;
+        border-radius: 0.9rem;
+      }
+
+      .live__stage iframe {
+        height: 34rem;
+        min-height: 0;
+        border-radius: 0.65rem;
+      }
+
       .workflow__step {
         grid-template-columns: 3rem 1fr;
         gap: 1rem;
@@ -977,6 +1122,7 @@
       }
 
       .button,
+      .starter-list a,
       .nav__links a,
       .nav__links a::after {
         transition: none;
@@ -990,6 +1136,7 @@
     <div class="shell nav__inner">
       <a class="nav__brand" href="#top" aria-label="Maket, accueil">Maket<span class="dot">.</span></a>
       <nav class="nav__links" aria-label="Navigation principale">
+        <a href="#live">Démo</a>
         <a href="#usages">Usages</a>
         <a href="#fonctionnement">Fonctionnement</a>
         <a href="#ressources">Ressources</a>
@@ -1016,8 +1163,8 @@
               l’agent de poursuivre.
             </p>
             <div class="actions">
-              <a class="button button--primary" href="#installer">Installer Maket</a>
-              <a class="button button--ghost" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">Voir sur GitHub ↗</a>
+              <a class="button button--primary" href="#live">Essayer la démo</a>
+              <a class="button button--ghost" href="#installer">Installer Maket</a>
             </div>
           </div>
 
@@ -1053,10 +1200,52 @@
       </div>
     </section>
 
+    <section class="section live" id="live" aria-labelledby="live-title">
+      <div class="shell">
+        <div class="live__grid">
+          <div class="live__copy reveal">
+            <span class="section-index">01 — Essayer en direct</span>
+            <h2 id="live-title">Voyez le parcours<span class="dot">.</span> Gardez le fichier.</h2>
+            <p>
+              Rejouez cinq sessions de création complètes dans votre navigateur,
+              puis ouvrez un starter réel ou votre propre fichier <code>.maket</code>.
+              Rien n’est envoyé.
+            </p>
+            <div class="actions">
+              <a class="button button--ink" href="../app/demo.html">Ouvrir la démo complète</a>
+              <a class="button button--outline" href="../app/viewer.html">Ouvrir un fichier .maket</a>
+            </div>
+          </div>
+
+          <div class="live__stage reveal">
+            <iframe
+              src="../app/demo.html?scenario=product-catalog"
+              title="Démo interactive de Maket"
+              loading="lazy"
+            ></iframe>
+          </div>
+        </div>
+
+        <div class="live__starters reveal">
+          <div>
+            <h3>Commencez avec un vrai document</h3>
+            <p class="mono">Bundles .maket v2 portables</p>
+          </div>
+          <nav class="starter-list" aria-label="Documents de démarrage Maket">
+            <a href="../app/viewer.html?src=../starters/product-catalog.maket"><span>Étiquettes produit + collection</span><span>Ouvrir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/event-poster.maket"><span>Affiche événementielle</span><span>Ouvrir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/app-wireframe.maket"><span>Wireframe d’application</span><span>Ouvrir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/bistro-menu.maket"><span>Menu de bistrot</span><span>Ouvrir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/social-series.maket"><span>Série sociale + collection</span><span>Ouvrir ↗</span></a>
+          </nav>
+        </div>
+      </div>
+    </section>
+
     <section class="section uses" id="usages">
       <div class="shell story-layout">
         <header class="section-head section-head--sticky reveal">
-          <span class="section-index">01 — Usages</span>
+          <span class="section-index">02 — Usages</span>
           <div>
             <h2>Du premier croquis au document final<span class="dot">.</span></h2>
             <p>
@@ -1089,7 +1278,7 @@
     <section class="section workflow" id="fonctionnement">
       <div class="shell story-layout">
         <header class="section-head section-head--sticky reveal">
-          <span class="section-index">02 — Fonctionnement</span>
+          <span class="section-index">03 — Fonctionnement</span>
           <div>
             <h2>Vous guidez<span class="dot">.</span> L’agent compose.</h2>
             <p>
@@ -1122,7 +1311,7 @@
     <section class="section resources" id="ressources">
       <div class="shell story-layout">
         <header class="section-head section-head--sticky reveal">
-          <span class="section-index">03 — Ressources</span>
+          <span class="section-index">04 — Ressources</span>
           <div>
             <h2>Votre atelier reste en place<span class="dot">.</span></h2>
             <p>
@@ -1164,7 +1353,7 @@
     <section class="section collection" aria-labelledby="collection-title">
       <div class="shell collection__inner">
         <div class="collection__copy reveal">
-          <span class="section-index">04 — Collections</span>
+          <span class="section-index">05 — Collections</span>
           <h2 id="collection-title">Un modèle, autant de versions qu’il vous faut<span class="dot">.</span></h2>
           <p>
             Préparez une invitation, une étiquette ou une fiche. Ajoutez vos données,
@@ -1193,7 +1382,7 @@
     <section class="section install" id="installer">
       <div class="shell install__layout">
         <div class="install__copy reveal">
-          <span class="section-index">05 — Installation</span>
+          <span class="section-index">06 — Installation</span>
           <h2>Connectez Maket à votre agent<span class="dot">.</span></h2>
           <p>
             Choisissez votre client, lancez les commandes ci-contre, puis ouvrez
@@ -1227,6 +1416,8 @@
     <div class="shell footer__inner">
       <div class="footer__brand">Maket<span class="dot">.</span></div>
       <nav class="footer__links" aria-label="Liens externes">
+        <a href="../app/demo.html">Démo</a>
+        <a href="../app/viewer.html">Viewer</a>
         <a href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/ng-galien/maket#readme" target="_blank" rel="noopener">Documentation</a>
         <a href="https://github.com/ng-galien/maket/discussions" target="_blank" rel="noopener">Discussions</a>

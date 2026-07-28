@@ -27,6 +27,7 @@ import {
 	parseBundleManifest,
 	MAKET_BUNDLE_EXT as SHARED_BUNDLE_EXT,
 	MAKET_BUNDLE_KIND as SHARED_BUNDLE_KIND,
+	snapshotBundleDocument,
 	validateBundleManifest,
 } from "@maket/shared";
 import JSZip from "jszip";
@@ -64,15 +65,16 @@ export interface DecodedBundle {
 	assets: BundleAsset[];
 }
 
+export interface EncodeBundleOptions {
+	exportedAt?: string;
+	entryDate?: Date;
+}
+
 /** Strip runtime-only fields so the snapshot round-trips cleanly. Field
  * picking lives in @maket/shared (snapshotBundleDocument via buildManifest)
  * so browser encoders share the exact wire shape. */
 export function snapshotDocument(doc: Document): BundleDocument {
-	return buildManifestDocuments([doc])[0] as BundleDocument;
-}
-
-function buildManifestDocuments(documents: Document[]): unknown[] {
-	return buildManifest(documents, [], [], 2).documents as unknown[];
+	return snapshotBundleDocument(doc) as unknown as BundleDocument;
 }
 
 // ── v1 (legacy gzip-JSON) ────────────────────────────────────────────────────
@@ -82,10 +84,11 @@ function buildManifest(
 	chartes: Charte[],
 	collections: Collection[],
 	version: number,
+	exportedAt = new Date().toISOString(),
 ) {
 	return buildBundleManifest(documents, chartes, collections, {
 		version,
-		exportedAt: new Date().toISOString(),
+		exportedAt,
 	}) as { documents: unknown[] };
 }
 
@@ -124,16 +127,25 @@ export async function encodeBundleV2(
 	chartes: Charte[],
 	collectionsOrAssets: Collection[] | BundleAsset[],
 	assetsArg?: BundleAsset[],
+	options: EncodeBundleOptions = {},
 ): Promise<Buffer> {
 	const collections = assetsArg ? (collectionsOrAssets as Collection[]) : [];
 	const assets = assetsArg ?? (collectionsOrAssets as BundleAsset[]);
 	const zip = new JSZip();
+	const entryOptions = options.entryDate
+		? { createFolders: false, date: options.entryDate }
+		: undefined;
 	zip.file(
 		"manifest.json",
-		`${JSON.stringify(buildManifest(documents, chartes, collections, 2), null, 2)}\n`,
+		`${JSON.stringify(
+			buildManifest(documents, chartes, collections, 2, options.exportedAt),
+			null,
+			2,
+		)}\n`,
+		entryOptions,
 	);
 	for (const a of assets) {
-		zip.file(`assets/${a.relPath}`, a.bytes);
+		zip.file(`assets/${a.relPath}`, a.bytes, entryOptions);
 	}
 	return zip.generateAsync({
 		type: "nodebuffer",

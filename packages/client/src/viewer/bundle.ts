@@ -57,13 +57,20 @@ async function gunzipText(data: ArrayBuffer): Promise<string> {
 function toViewerDocument(raw: Record<string, unknown>): Document {
 	const name = typeof raw.name === "string" ? raw.name : "untitled";
 	const pages = Array.isArray(raw.pages) ? raw.pages : [];
+	const requestedActivePage =
+		typeof raw.activePage === "number" ? raw.activePage : 0;
 	return {
 		id: typeof raw.id === "string" ? raw.id : name,
 		name,
 		category: typeof raw.category === "string" ? raw.category : "general",
 		canvas: raw.canvas as Document["canvas"],
 		pages: pages.map((p) => ({ elements: [], ...p })),
-		activePage: typeof raw.activePage === "number" ? raw.activePage : 0,
+		activePage:
+			Number.isInteger(requestedActivePage) &&
+			requestedActivePage >= 0 &&
+			requestedActivePage < pages.length
+				? requestedActivePage
+				: 0,
 		meta: (raw.meta as Document["meta"]) ?? {},
 	};
 }
@@ -89,33 +96,48 @@ function finalizeManifest(
 	};
 }
 
-async function decodeV2(data: ArrayBuffer): Promise<ViewerWorkspace> {
-	let zip: JSZip;
+async function openBundleZip(data: ArrayBuffer): Promise<JSZip> {
 	try {
-		zip = await JSZip.loadAsync(data);
+		return await JSZip.loadAsync(data);
 	} catch {
 		throw new Error("Invalid .maket file: not a valid ZIP container");
 	}
+}
+
+async function readZipManifest(zip: JSZip): Promise<Record<string, unknown>> {
 	const manifestFile = zip.file("manifest.json");
 	if (!manifestFile) {
 		throw new Error("Invalid .maket file: missing manifest.json");
 	}
-	const manifest = parseBundleManifest(await manifestFile.async("string"));
+	return parseBundleManifest(await manifestFile.async("string"));
+}
 
-	// Revoke on any failure past this point — created object URLs would
-	// otherwise leak for the tab's lifetime on every failed open.
+async function populateAssetUrls(
+	zip: JSZip,
+	assetUrls: Map<string, string>,
+): Promise<void> {
+	for (const [entryPath, entry] of Object.entries(zip.files)) {
+		if (entry.dir || !isSafeAssetEntry(entryPath)) continue;
+		const relPath = entryPath.slice("assets/".length);
+		const bytes = await entry.async("uint8array");
+		const blob = new Blob([bytes as BlobPart], { type: assetMime(relPath) });
+		assetUrls.set(relPath, URL.createObjectURL(blob));
+	}
+}
+
+function revokeAssetUrls(assetUrls: Map<string, string>): void {
+	for (const url of assetUrls.values()) URL.revokeObjectURL(url);
+}
+
+async function decodeV2(data: ArrayBuffer): Promise<ViewerWorkspace> {
+	const zip = await openBundleZip(data);
+	const manifest = await readZipManifest(zip);
 	const assetUrls = new Map<string, string>();
 	try {
-		for (const [entryPath, entry] of Object.entries(zip.files)) {
-			if (entry.dir || !isSafeAssetEntry(entryPath)) continue;
-			const relPath = entryPath.slice("assets/".length);
-			const bytes = await entry.async("uint8array");
-			const blob = new Blob([bytes as BlobPart], { type: assetMime(relPath) });
-			assetUrls.set(relPath, URL.createObjectURL(blob));
-		}
+		await populateAssetUrls(zip, assetUrls);
 		return finalizeManifest(manifest, assetUrls);
 	} catch (error) {
-		for (const url of assetUrls.values()) URL.revokeObjectURL(url);
+		revokeAssetUrls(assetUrls);
 		throw error;
 	}
 }

@@ -54,6 +54,96 @@ export interface BundleManifestData {
 	collections: unknown[];
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasPositiveDimension(
+	canvas: Record<string, unknown>,
+	key: "w" | "h",
+): boolean {
+	const value = canvas[key];
+	return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function validateBundleDocument(value: unknown, index: number): void {
+	if (!isPlainRecord(value)) {
+		throw new Error(
+			`Invalid .maket file: documents[${index}] is not an object`,
+		);
+	}
+	if (typeof value.name !== "string" || value.name.trim().length === 0) {
+		throw new Error(`Invalid .maket file: documents[${index}].name is missing`);
+	}
+	if (
+		!isPlainRecord(value.canvas) ||
+		!hasPositiveDimension(value.canvas, "w") ||
+		!hasPositiveDimension(value.canvas, "h")
+	) {
+		throw new Error(
+			`Invalid .maket file: documents[${index}].canvas needs positive w/h`,
+		);
+	}
+	if (!Array.isArray(value.pages)) {
+		throw new Error(
+			`Invalid .maket file: documents[${index}].pages is missing`,
+		);
+	}
+	for (const [pageIndex, page] of value.pages.entries()) {
+		if (!isPlainRecord(page)) {
+			throw new Error(
+				`Invalid .maket file: documents[${index}].pages[${pageIndex}] is not an object`,
+			);
+		}
+		if (page.html !== undefined && typeof page.html !== "string") {
+			throw new Error(
+				`Invalid .maket file: documents[${index}].pages[${pageIndex}].html is not text`,
+			);
+		}
+		if (page.elements !== undefined && !Array.isArray(page.elements)) {
+			throw new Error(
+				`Invalid .maket file: documents[${index}].pages[${pageIndex}].elements is not an array`,
+			);
+		}
+	}
+}
+
+function validateBundleCharte(value: unknown, index: number): void {
+	if (
+		!isPlainRecord(value) ||
+		typeof value.name !== "string" ||
+		value.name.trim().length === 0 ||
+		(value.css !== undefined && typeof value.css !== "string")
+	) {
+		throw new Error(`Invalid .maket file: chartes[${index}] is malformed`);
+	}
+}
+
+function validateBundleCollection(value: unknown, index: number): void {
+	if (
+		!isPlainRecord(value) ||
+		typeof value.name !== "string" ||
+		value.name.trim().length === 0 ||
+		!isPlainRecord(value.schema) ||
+		!Array.isArray(value.members)
+	) {
+		throw new Error(`Invalid .maket file: collections[${index}] is malformed`);
+	}
+	for (const [memberIndex, member] of value.members.entries()) {
+		if (
+			!isPlainRecord(member) ||
+			typeof member.id !== "string" ||
+			typeof member.position !== "number" ||
+			!Number.isFinite(member.position) ||
+			!isPlainRecord(member.data)
+		) {
+			throw new Error(
+				`Invalid .maket file: collections[${index}].members[${memberIndex}] is malformed`,
+			);
+		}
+	}
+}
+
 export function parseBundleManifest(json: string): Record<string, unknown> {
 	let parsed: unknown;
 	try {
@@ -80,13 +170,18 @@ export function validateBundleManifest(
 		);
 	if (!Array.isArray(m.documents))
 		throw new Error("Invalid .maket file: missing documents[]");
+	const chartes = Array.isArray(m.chartes) ? m.chartes : [];
+	const collections = Array.isArray(m.collections) ? m.collections : [];
+	m.documents.forEach(validateBundleDocument);
+	chartes.forEach(validateBundleCharte);
+	collections.forEach(validateBundleCollection);
 
 	return {
 		version,
 		exportedAt: typeof m.exportedAt === "string" ? m.exportedAt : "",
 		documents: m.documents,
-		chartes: Array.isArray(m.chartes) ? m.chartes : [],
-		collections: Array.isArray(m.collections) ? m.collections : [],
+		chartes,
+		collections,
 	};
 }
 

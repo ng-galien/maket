@@ -9,7 +9,7 @@ import type { DocSummary, Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import { ensureCharteFonts } from "../store/ws";
 import { rewriteAssetRefs, type ViewerWorkspace } from "./bundle";
-import { stripActiveHtml } from "./strip-active-html";
+import { stripActiveHtml, stripNetworkCss } from "./strip-active-html";
 
 /**
  * Bundles are untrusted, so charte `@import` font URLs are only honoured for
@@ -45,27 +45,36 @@ function toDocSummary(doc: Document): DocSummary {
 	};
 }
 
-export function hydrateViewerWorkspace(workspace: ViewerWorkspace): void {
-	const charteCssByName = new Map(
-		workspace.chartes.map((c) => [c.name, c.css ?? ""]),
-	);
-
+function hydrateDocuments(
+	workspace: ViewerWorkspace,
+	charteCssByName: Map<string, string>,
+): { docs: Map<string, Document>; chartesCss: Map<string, string> } {
 	const docs = new Map<string, Document>();
 	const chartesCss = new Map<string, string>();
 	for (const doc of workspace.documents) {
 		const pages = doc.pages.map((page) => ({
 			...page,
 			html: page.html
-				? rewriteAssetRefs(stripActiveHtml(page.html), workspace.assetUrls)
+				? stripActiveHtml(rewriteAssetRefs(page.html, workspace.assetUrls))
 				: page.html,
 		}));
 		docs.set(doc.name, { ...doc, pages });
 		const charteName = doc.meta?.charte;
 		const css = charteName ? (charteCssByName.get(charteName) ?? "") : "";
-		chartesCss.set(doc.name, rewriteAssetRefs(css, workspace.assetUrls));
+		chartesCss.set(
+			doc.name,
+			stripNetworkCss(rewriteAssetRefs(css, workspace.assetUrls)),
+		);
 		if (css) ensureCharteFonts(trustedFontImports(css));
 	}
+	return { docs, chartesCss };
+}
 
+export function hydrateViewerWorkspace(workspace: ViewerWorkspace): void {
+	const charteCssByName = new Map(
+		workspace.chartes.map((charte) => [charte.name, charte.css ?? ""]),
+	);
+	const { docs, chartesCss } = hydrateDocuments(workspace, charteCssByName);
 	const state = useStore.getState();
 	useStore.setState({
 		readOnly: true,

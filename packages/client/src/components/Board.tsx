@@ -8,9 +8,12 @@ import {
 } from "d3-zoom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import {
+	cancelDeferredFitOnUserZoom,
+	createDeferredFit,
+} from "../store/deferredFit";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import {
-	type FitTarget,
 	registerFitToDoc,
 	registerFitToView,
 	registerRequestFit,
@@ -204,6 +207,9 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	const fitDoc = createFitToDoc(el, zoomBehavior, wrap, context.boardRef);
 	registerFitToDoc(fitDoc);
 	const deferredFit = createDeferredFit(fit, fitDoc);
+	zoomBehavior.on("start.deferred-fit", (event) => {
+		cancelDeferredFitOnUserZoom(deferredFit, event);
+	});
 	registerRequestFit(deferredFit.request);
 	const boardRo = observeInitialBoardFit(
 		context.boardRef,
@@ -213,6 +219,7 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	const wrapResize = observeWrapResize(wrap, el, zoomBehavior);
 	return () => {
 		deferredFit.dispose();
+		zoomBehavior.on("start.deferred-fit", null);
 		cleanupBoardZoom(el, boardRo, wrapResize);
 	};
 }
@@ -349,39 +356,6 @@ function boardDocFrame(wrap: HTMLDivElement, docEl: HTMLElement) {
 		top: (docRect.top - wrapRect.top - t.y) / k,
 		width: docRect.width / k,
 		height: docRect.height / k,
-	};
-}
-
-/**
- * "Fit when the content has actually laid out": runs the requested fit after
- * a double rAF (next paint after commit) and again after a short settle —
- * both idempotent. A new request replaces any pending one, so callers never
- * stack timers or stomp a later frame with a stale fit.
- */
-function createDeferredFit(
-	fitView: () => void,
-	fitDoc: (docName: string, pageIndex?: number) => void,
-): { request: (target?: FitTarget) => void; dispose: () => void } {
-	let raf1 = 0;
-	let raf2 = 0;
-	let settle: ReturnType<typeof setTimeout> | null = null;
-	const cancel = () => {
-		cancelAnimationFrame(raf1);
-		cancelAnimationFrame(raf2);
-		if (settle) clearTimeout(settle);
-	};
-	return {
-		request: (target) => {
-			const fit = target
-				? () => fitDoc(target.docName, target.pageIndex)
-				: fitView;
-			cancel();
-			raf1 = requestAnimationFrame(() => {
-				raf2 = requestAnimationFrame(fit);
-			});
-			settle = setTimeout(fit, 300);
-		},
-		dispose: cancel,
 	};
 }
 

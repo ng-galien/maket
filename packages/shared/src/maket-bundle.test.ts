@@ -47,12 +47,65 @@ describe("manifest parse + validate", () => {
 		const data = validateBundleManifest({
 			kind: MAKET_BUNDLE_KIND,
 			version: 2,
-			documents: [{ name: "a" }],
+			documents: [{ name: "a", canvas: { w: 10, h: 10 }, pages: [] }],
 		});
 		expect(data.version).toBe(2);
 		expect(data.exportedAt).toBe("");
 		expect(data.chartes).toEqual([]);
 		expect(data.collections).toEqual([]);
+	});
+
+	it("rejects documents that would crash a reader after hydration", () => {
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [{ name: "broken" }],
+			}),
+		).toThrow(/canvas needs positive w\/h/);
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [
+					{
+						name: "broken",
+						canvas: { w: 10, h: 10 },
+						pages: [{ html: 42 }],
+					},
+				],
+			}),
+		).toThrow(/html is not text/);
+	});
+
+	it("rejects malformed chartes and collections", () => {
+		const doc = { name: "a", canvas: { w: 10, h: 10 }, pages: [] };
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [doc],
+				chartes: [null],
+			}),
+		).toThrow(/chartes\[0\] is malformed/);
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [doc],
+				collections: [{ name: "c", schema: {}, members: [{}] }],
+			}),
+		).toThrow(/members\[0\] is malformed/);
+	});
+
+	it("keeps duplicate document names for the server import renamer", () => {
+		const doc = { name: "a", canvas: { w: 10, h: 10 }, pages: [] };
+		const data = validateBundleManifest({
+			kind: MAKET_BUNDLE_KIND,
+			version: 2,
+			documents: [doc, { ...doc }],
+		});
+		expect(data.documents).toHaveLength(2);
 	});
 });
 
@@ -84,7 +137,7 @@ describe("manifest building", () => {
 
 	it("round-trips through validateBundleManifest", () => {
 		const manifest = buildBundleManifest(
-			[{ name: "doc", pages: [] }],
+			[{ name: "doc", canvas: { w: 10, h: 10 }, pages: [] }],
 			[{ name: "charte" }],
 			[],
 			{ version: 2, exportedAt: "2026-01-01T00:00:00.000Z" },
