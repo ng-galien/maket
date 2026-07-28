@@ -9,7 +9,7 @@ import { ChevronLeft, ChevronRight, Download, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Board } from "../components/Board";
 import { useStore } from "../store/useStore";
-import { fitToView } from "../store/zoomBridge";
+import { fitToDoc, fitToView } from "../store/zoomBridge";
 import { hydrateViewerWorkspace } from "../viewer/hydrate";
 import { downloadWorkspaceBundle } from "./export";
 import {
@@ -17,13 +17,17 @@ import {
 	type DemoWorkspace,
 	productCatalogScenario,
 } from "./scenario";
+import { bistroMenuScenario } from "./scenario-menu";
 import { eventPosterScenario } from "./scenario-poster";
+import { socialSeriesScenario } from "./scenario-social";
 import { appWireframeScenario } from "./scenario-wireframe";
 
 const SCENARIOS: DemoScenario[] = [
 	productCatalogScenario,
 	eventPosterScenario,
 	appWireframeScenario,
+	bistroMenuScenario,
+	socialSeriesScenario,
 ];
 
 const STEP_MS = 3800;
@@ -95,6 +99,15 @@ export default function DemoApp() {
 
 	useEffect(() => {
 		applyStep(scenario, stepIndex);
+		const current = scenario.steps[stepIndex];
+		const docName = lastWorkspaceAt(scenario, stepIndex).documents[0]?.name;
+		const frame = () => {
+			if (typeof current?.focusPage === "number" && docName) {
+				fitToDoc(docName, current.focusPage);
+			} else {
+				fitToView();
+			}
+		};
 		// Fit twice: once after the next paint, and again once React has
 		// committed the hydrated content — a single early fit can measure the
 		// previous step's board and leave the view mis-framed. Both are
@@ -102,9 +115,9 @@ export default function DemoApp() {
 		// a user's pan/zoom.
 		let raf2 = 0;
 		const raf1 = requestAnimationFrame(() => {
-			raf2 = requestAnimationFrame(() => fitToView());
+			raf2 = requestAnimationFrame(frame);
 		});
-		const settle = setTimeout(() => fitToView(), 250);
+		const settle = setTimeout(frame, 250);
 		return () => {
 			cancelAnimationFrame(raf1);
 			cancelAnimationFrame(raf2);

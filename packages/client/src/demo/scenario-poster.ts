@@ -1,17 +1,19 @@
 /**
- * Demo scenario 2 — event poster: draft → charte (site identity on dark
- * ink: Manrope display, DM Mono meta, teal accent) → user annotation →
- * revision with artwork, schedule grid and ticket strip.
+ * Demo scenario 2 — event poster. Fine-grained journey: content draft →
+ * charte → schedule grid arrives → artwork arrives → annotation → display
+ * type revision → ticket strip and footer.
  */
 
 import type { Document } from "../store/types";
 import type { ViewerCharte } from "../viewer/bundle";
-import { type DemoScenario, SITE_FONTS_IMPORT } from "./scenario";
+import { POSTER_WAVES } from "./illustrations";
+import {
+	type DemoScenario,
+	SITE_CHARTE_TOKENS,
+	SITE_FONTS_IMPORT,
+} from "./scenario";
 
-/** Teal night-tide artwork — strictly the site palette (teal/mint on ink). */
-export const POSTER_ART_DATA_URI = `data:image/svg+xml,${encodeURIComponent(
-	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#00a99d"/><stop offset="1" stop-color="#72e2d7"/></linearGradient></defs><circle cx="320" cy="70" r="55" fill="#a3f2ea" opacity="0.9"/><path d="M0 220 Q100 160 200 210 T400 200 V300 H0 Z" fill="url(#g)" opacity="0.45"/><path d="M0 250 Q120 200 240 245 T400 240 V300 H0 Z" fill="url(#g)" opacity="0.85"/></svg>',
-)}`;
+export const POSTER_ART_DATA_URI = POSTER_WAVES;
 
 const midnightCharte: ViewerCharte = {
 	name: "midnight-brass",
@@ -19,14 +21,8 @@ const midnightCharte: ViewerCharte = {
 		SITE_FONTS_IMPORT,
 		":root {",
 		"  --charte-color-bg: #101c19;",
-		"  --charte-color-ink: #101c19;",
-		"  --charte-color-paper: #fbfaf6;",
-		"  --charte-color-accent: #00a99d;",
-		"  --charte-color-accent-light: #a3f2ea;",
+		...SITE_CHARTE_TOKENS,
 		"  --charte-color-muted: #72827b;",
-		"  --charte-font-heading: 'Manrope', sans-serif;",
-		"  --charte-font-display: 'Fraunces', serif;",
-		"  --charte-font-mono: 'DM Mono', monospace;",
 		"}",
 	].join("\n"),
 };
@@ -68,6 +64,16 @@ const lineupRows = [
 	)
 	.join("");
 
+const kickerRow = `<div style="display:flex;align-items:center;gap:4mm">
+      <span style="width:10mm;height:1px;background:var(--charte-color-accent-light)"></span>
+      <span data-id="kicker" style="font-family:var(--charte-font-mono);letter-spacing:0.3em;font-size:12px;color:var(--charte-color-accent-light)">LES DOCKS · SEASON 12</span>
+      <span style="flex:1;height:1px;background:rgba(251,250,246,0.25)"></span>
+    </div>`;
+
+const dateChip = `<div data-id="date" style="display:inline-block;margin-top:9mm;font-family:var(--charte-font-mono);font-size:16px;color:var(--charte-color-ink);background:var(--charte-color-accent-light);border-radius:999px;padding:2mm 5mm">Fri 13 – Sun 15 March · 8pm</div>`;
+
+const artImg = `<img data-id="art" data-name="artwork" src="${POSTER_ART_DATA_URI}" alt="" style="position:absolute;inset:auto 0 0 0;width:100%"/>`;
+
 const draftHtml = `<div style="padding:18mm 16mm;font-family:sans-serif;color:#222">
   <div data-id="kicker" style="font-size:13px;text-transform:uppercase">Les Docks · Season 12</div>
   <h1 data-id="title" style="font-size:44px;margin:8mm 0 0">Midnight Brass Festival</h1>
@@ -75,29 +81,45 @@ const draftHtml = `<div style="padding:18mm 16mm;font-family:sans-serif;color:#2
   <div data-id="lineup" style="margin-top:6mm;font-size:14px;line-height:1.8">The Copper Section · Nora Vane Quartet<br/>Balkan Tide · Saint-Louis Brass Band<br/>Late set: DJ Mille-Feuille</div>
 </div>`;
 
-const chartedHtml = `<div style="position:relative;width:100%;height:100%;font-family:var(--charte-font-heading);color:var(--charte-color-paper)">
-  <div style="position:relative;padding:16mm 16mm 0">
-    <div style="display:flex;align-items:center;gap:4mm">
-      <span style="width:7mm;height:7mm;background:var(--charte-color-accent)"></span>
-      <span data-id="kicker" style="font-family:var(--charte-font-mono);letter-spacing:0.3em;font-size:12px;color:var(--charte-color-accent-light)">LES DOCKS · SEASON 12</span>
-      <span style="flex:1;height:1px;background:rgba(251,250,246,0.25)"></span>
-    </div>
-    <h1 data-id="title" style="font-family:var(--charte-font-display);font-size:54px;font-weight:500;line-height:1.05;margin:9mm 0 0">Midnight Brass Festival</h1>
-    <div data-id="date" style="display:inline-block;margin-top:8mm;font-family:var(--charte-font-mono);font-size:17px;color:var(--charte-color-ink);background:var(--charte-color-accent-light);padding:2mm 4mm">Fri 13 – Sun 15 March · 8pm</div>
-    <div data-id="lineup" style="margin-top:8mm">${lineupRows}</div>
-  </div>
+const posterShell = (inner: string, withArt = false) =>
+	`<div style="position:relative;width:100%;height:100%;overflow:hidden;font-family:var(--charte-font-heading);color:var(--charte-color-paper)">
+  ${withArt ? artImg : ""}
+  <div style="position:relative;padding:15mm 16mm 0">${inner}</div>
 </div>`;
 
-const revisedHtml = `<div style="position:relative;width:100%;height:100%;overflow:hidden;font-family:var(--charte-font-heading);color:var(--charte-color-paper)">
-  <img data-id="art" data-name="artwork" src="${POSTER_ART_DATA_URI}" alt="" style="position:absolute;inset:auto 0 0 0;width:100%"/>
+const chartedHtml = posterShell(`${kickerRow}
+    <h1 data-id="title" style="font-family:var(--charte-font-display);font-size:54px;font-weight:500;line-height:1.05;margin:9mm 0 0">Midnight Brass Festival</h1>
+    ${dateChip}`);
+
+const lineupHtml = posterShell(`${kickerRow}
+    <h1 data-id="title" style="font-family:var(--charte-font-display);font-size:54px;font-weight:500;line-height:1.05;margin:9mm 0 0">Midnight Brass Festival</h1>
+    ${dateChip}
+    <div data-id="lineup" style="margin-top:8mm;max-width:118mm">${lineupRows}</div>`);
+
+const artHtml = posterShell(
+	`${kickerRow}
+    <h1 data-id="title" style="font-family:var(--charte-font-display);font-size:54px;font-weight:500;line-height:1.05;margin:9mm 0 0">Midnight Brass Festival</h1>
+    ${dateChip}
+    <div data-id="lineup" style="margin-top:8mm;max-width:118mm">${lineupRows}</div>`,
+	true,
+);
+
+const bigTitle = `<h1 data-id="title" style="font-family:var(--charte-font-display);font-size:74px;font-weight:500;line-height:0.98;margin:10mm 0 0">MIDNIGHT<br/>BRASS<br/>FESTIVAL</h1>`;
+
+const revisedHtml = posterShell(
+	`${kickerRow}
+    ${bigTitle}
+    ${dateChip}
+    <div data-id="lineup" style="margin-top:8mm;max-width:118mm">${lineupRows}</div>`,
+	true,
+);
+
+const finalHtml = `<div style="position:relative;width:100%;height:100%;overflow:hidden;font-family:var(--charte-font-heading);color:var(--charte-color-paper)">
+  ${artImg}
   <div style="position:relative;padding:15mm 16mm 0">
-    <div style="display:flex;align-items:center;gap:4mm">
-      <span style="width:10mm;height:1px;background:var(--charte-color-accent-light)"></span>
-      <span data-id="kicker" style="font-family:var(--charte-font-mono);letter-spacing:0.3em;font-size:12px;color:var(--charte-color-accent-light)">LES DOCKS · SEASON 12</span>
-      <span style="flex:1;height:1px;background:rgba(251,250,246,0.25)"></span>
-    </div>
-    <h1 data-id="title" style="font-family:var(--charte-font-display);font-size:74px;font-weight:500;line-height:0.98;margin:10mm 0 0">MIDNIGHT<br/>BRASS<br/>FESTIVAL</h1>
-    <div data-id="date" style="display:inline-block;margin-top:9mm;font-family:var(--charte-font-mono);font-size:16px;color:var(--charte-color-ink);background:var(--charte-color-accent-light);border-radius:999px;padding:2mm 5mm">Fri 13 – Sun 15 March · 8pm</div>
+    ${kickerRow}
+    ${bigTitle}
+    ${dateChip}
     <div data-id="lineup" style="margin-top:8mm;max-width:118mm">${lineupRows}</div>
     <div data-id="tickets" style="margin-top:7mm;display:flex;gap:3mm;align-items:center">
       <span style="font-family:var(--charte-font-mono);font-size:12px;border:1px solid rgba(251,250,246,0.35);border-radius:999px;color:var(--charte-color-paper);padding:1.5mm 4mm">EARLY BIRD 18 €</span>
@@ -109,9 +131,15 @@ const revisedHtml = `<div style="position:relative;width:100%;height:100%;overfl
   </div>
 </div>`;
 
+const ink = (html: string) => ({
+	documents: [posterDoc({ charte: true, html, background: "#101c19" })],
+	chartes: [midnightCharte],
+	collections: [],
+});
+
 export const eventPosterScenario: DemoScenario = {
 	id: "event-poster",
-	title: "Event poster",
+	title: "Poster",
 	downloadName: "event-poster.maket",
 	steps: [
 		{
@@ -134,14 +162,20 @@ export const eventPosterScenario: DemoScenario = {
 			id: "charte",
 			actor: "agent",
 			caption:
-				"The midnight-brass charte lands: ink, teal and real web fonts, schedule as a grid.",
-			workspace: {
-				documents: [
-					posterDoc({ charte: true, html: chartedHtml, background: "#101c19" }),
-				],
-				chartes: [midnightCharte],
-				collections: [],
-			},
+				"The midnight-brass charte lands: ink, serif display, mono details.",
+			workspace: ink(chartedHtml),
+		},
+		{
+			id: "lineup",
+			actor: "agent",
+			caption: "The schedule arrives as a timed grid, act by act.",
+			workspace: ink(lineupHtml),
+		},
+		{
+			id: "artwork",
+			actor: "agent",
+			caption: "Artwork joins: teal night tide and a mint moon.",
+			workspace: ink(artHtml),
 		},
 		{
 			id: "annotate",
@@ -153,15 +187,14 @@ export const eventPosterScenario: DemoScenario = {
 		{
 			id: "revise",
 			actor: "agent",
-			caption:
-				"Revision: stacked 76px display type, artwork, ticket strip, venue footer.",
-			workspace: {
-				documents: [
-					posterDoc({ charte: true, html: revisedHtml, background: "#101c19" }),
-				],
-				chartes: [midnightCharte],
-				collections: [],
-			},
+			caption: "Revision: stacked 74px display type.",
+			workspace: ink(revisedHtml),
+		},
+		{
+			id: "finish",
+			actor: "agent",
+			caption: "Finishing touches: ticket strip and venue footer.",
+			workspace: ink(finalHtml),
 		},
 		{
 			id: "own-it",

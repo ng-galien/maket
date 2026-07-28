@@ -49,6 +49,24 @@ test.describe("Starter bundles", () => {
 		await expect(doc.getByText("Pay now")).toBeVisible();
 	});
 
+	test("bistro-menu: full menu renders with illustration", async ({ page }) => {
+		await openStarter(page, "bistro-menu.maket", "bistro-menu");
+		const canvas = page.locator('[data-doc="bistro-menu"] .page-canvas');
+		await expect(canvas.getByText("Chez Lucette")).toBeVisible();
+		await expect(canvas.getByText("Steak frites")).toBeVisible();
+		await expect(canvas.getByText("Paris-Brest")).toBeVisible();
+	});
+
+	test("social-series: four announcement cards fan out", async ({ page }) => {
+		await openStarter(page, "social-series.maket", "launch-posts");
+		const doc = page.locator('[data-doc="launch-posts"]');
+		await doc.getByRole("button", { name: "All rows" }).click();
+		await expect(doc.locator(".page-canvas")).toHaveCount(4);
+		await expect(
+			doc.locator(".page-canvas").getByText("The Copper Section"),
+		).toBeVisible();
+	});
+
 	test("product-catalog: collection fans out all six labels", async ({
 		page,
 	}) => {

@@ -36,7 +36,7 @@ test.describe("Maket Demo", () => {
 		page,
 	}) => {
 		await page.goto("/demo.html");
-		await goToStep(page, 3);
+		await goToStep(page, 4);
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"stand out more",
 		);
@@ -47,20 +47,22 @@ test.describe("Maket Demo", () => {
 		page,
 	}) => {
 		await page.goto("/demo.html");
-		await goToStep(page, 5);
+		await goToStep(page, 7);
 		const canvases = page.locator('[data-doc="price-labels"] .page-canvas');
 		await expect(canvases).toHaveCount(6);
 		await expect(canvases.getByText("Heritage Tomatoes")).toBeVisible();
 		await expect(canvases.getByText("Walnut Oil")).toBeVisible();
+		// Each rendered label carries its per-row image from the collection.
+		await expect(canvases.locator('img[data-name="photo"]')).toHaveCount(6);
 	});
 
 	test("scenario picker switches to the event poster", async ({ page }) => {
 		await page.goto("/demo.html");
-		await page.getByRole("button", { name: "Event poster" }).click();
+		await page.getByRole("button", { name: "Poster", exact: true }).click();
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"brass festival",
 		);
-		await goToStep(page, 4);
+		await goToStep(page, 6);
 		await expect(
 			page
 				.locator('[data-doc="event-poster"]')
@@ -75,7 +77,7 @@ test.describe("Maket Demo", () => {
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"grocery-delivery",
 		);
-		await goToStep(page, 4);
+		await goToStep(page, 7);
 		await expect(
 			page.locator('[data-doc="app-wireframe"] .page-canvas'),
 		).toHaveCount(3);
@@ -84,9 +86,34 @@ test.describe("Maket Demo", () => {
 		).toBeVisible();
 	});
 
+	test("menu scenario builds section by section with dotted leaders", async ({
+		page,
+	}) => {
+		await page.goto("/demo.html?scenario=bistro-menu");
+		await expect(page.getByTestId("demo-caption")).toContainText("bistro");
+		const canvas = page.locator('[data-doc="bistro-menu"] .page-canvas');
+		await goToStep(page, 3);
+		await expect(canvas.getByText("Leek vinaigrette")).toBeVisible();
+		await expect(canvas.getByText("Paris-Brest")).toHaveCount(0);
+		await goToStep(page, 9);
+		await expect(canvas.getByText("Paris-Brest")).toBeVisible();
+		await expect(canvas.getByText("Chez Lucette")).toBeVisible();
+		await expect(canvas.locator('img[data-name="plate"]')).toHaveCount(1);
+	});
+
+	test("social series fans out one card per act", async ({ page }) => {
+		await page.goto("/demo.html?scenario=social-series");
+		await goToStep(page, 6);
+		const canvases = page.locator('[data-doc="launch-posts"] .page-canvas');
+		await expect(canvases).toHaveCount(4);
+		await expect(canvases.getByText("Balkan Tide")).toBeVisible();
+		await expect(canvases.getByText("DJ Mille-Feuille")).toBeVisible();
+		await expect(canvases.locator('img[data-name="mark"]')).toHaveCount(4);
+	});
+
 	test("download round-trips into the standalone viewer", async ({ page }) => {
 		await page.goto("/demo.html");
-		await goToStep(page, 6);
+		await goToStep(page, 8);
 		const downloadPromise = page.waitForEvent("download");
 		await page.getByRole("button", { name: ".maket" }).click();
 		const download = await downloadPromise;

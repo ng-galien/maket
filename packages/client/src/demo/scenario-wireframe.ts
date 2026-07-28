@@ -1,12 +1,17 @@
 /**
- * Demo scenario 3 — app wireframe: one screen grows into a three-screen
- * flow. Site identity on paper-light: Manrope, DM Mono prices, teal
- * primary, ink lines.
+ * Demo scenario 3 — app wireframe. Fine-grained journey: the onboarding
+ * screen is built, illustrated and revised, then the catalog and checkout
+ * pages arrive one by one (each step zooms on the new page).
  */
 
 import type { Document, Page } from "../store/types";
 import type { ViewerCharte } from "../viewer/bundle";
-import { type DemoScenario, SITE_FONTS_IMPORT } from "./scenario";
+import { BASKET_HERO, PRODUCT_ICONS } from "./illustrations";
+import {
+	type DemoScenario,
+	SITE_CHARTE_TOKENS,
+	SITE_FONTS_IMPORT,
+} from "./scenario";
 
 const inkCharte: ViewerCharte = {
 	name: "wireframe-ink",
@@ -14,12 +19,7 @@ const inkCharte: ViewerCharte = {
 		SITE_FONTS_IMPORT,
 		":root {",
 		"  --charte-color-bg: #fbfaf6;",
-		"  --charte-color-ink: #101c19;",
-		"  --charte-color-accent: #00a99d;",
-		"  --charte-color-muted: #66716d;",
-		"  --charte-color-line: rgba(16, 28, 25, 0.16);",
-		"  --charte-font-heading: 'Manrope', sans-serif;",
-		"  --charte-font-mono: 'DM Mono', monospace;",
+		...SITE_CHARTE_TOKENS,
 		"}",
 	].join("\n"),
 };
@@ -41,14 +41,46 @@ const screen = (title: string, inner: string) =>
   </div>
 </div>`;
 
-const chips = `<div data-id="chips" style="display:flex;gap:2mm">
-  <span style="background:var(--charte-color-accent);color:#fff;border-radius:999px;padding:1.5mm 3mm;font-size:11px;font-weight:700">All</span>
-  ${["Veggies", "Dairy", "Bakery", "Drinks"].map((c) => `<span style="border:1px solid var(--charte-color-line);border-radius:999px;padding:1.5mm 3mm;font-size:11px;color:var(--charte-color-muted)">${c}</span>`).join("")}
-</div>`;
+const dots = `<div data-id="dots" style="display:flex;justify-content:center;gap:1.5mm"><span style="width:5mm;height:1.5mm;border-radius:999px;background:var(--charte-color-accent)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span></div>`;
+const pitch = `<div data-id="pitch" style="text-align:center;font-size:15px;font-weight:600;line-height:1.5">Fresh produce,<br/>delivered before breakfast.</div>`;
+const cta = `<div data-id="cta" style="margin-top:auto;background:var(--charte-color-accent);color:#fff;border-radius:10px;text-align:center;padding:4mm;font-weight:700">Get started</div>`;
+const social = `<div data-id="social" style="display:flex;gap:2.5mm">
+       <span style="${box("height:9mm")};flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600"> Apple</span>
+       <span style="${box("height:9mm")};flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">G Google</span>
+     </div>`;
+const heroBox = `<div data-id="hero" style="${box("height:48mm")};display:flex;align-items:center;justify-content:center;color:var(--charte-color-muted)">Illustration</div>`;
+const heroImg = (h = "48mm") =>
+	`<div data-id="hero" style="height:${h};border-radius:10px;overflow:hidden;border:1px solid var(--charte-color-line)"><img data-name="hero" src="${BASKET_HERO}" alt="" style="width:100%;height:100%;object-fit:cover"/></div>`;
 
-const card = (id: string, name: string, price: string) =>
+const onboardingSkeleton: Page = {
+	id: "s1",
+	name: "Onboarding",
+	elements: [],
+	html: screen(
+		"Welcome",
+		`${heroBox}\n     ${dots}\n     ${pitch}\n     ${cta}`,
+	),
+};
+
+const onboardingIllustrated: Page = {
+	...onboardingSkeleton,
+	html: screen(
+		"Welcome",
+		`${heroImg()}\n     ${dots}\n     ${pitch}\n     ${cta}`,
+	),
+};
+
+const onboardingRevised: Page = {
+	...onboardingSkeleton,
+	html: screen(
+		"Welcome",
+		`${heroImg("42mm")}\n     ${dots}\n     ${pitch}\n     ${social}\n     ${cta}`,
+	),
+};
+
+const card = (id: string, name: string, price: string, icon: string) =>
 	`<div data-id="${id}" style="${box("height:17mm")};display:flex;align-items:center;gap:4mm;padding:0 4mm">
-    <span style="width:11mm;height:11mm;${box()};flex-shrink:0"></span>
+    <span style="width:11mm;height:11mm;border-radius:6px;background:rgba(163,242,234,0.3);display:flex;align-items:center;justify-content:center;flex-shrink:0"><img src="${icon}" alt="" style="width:8.5mm;height:8.5mm"/></span>
     <span style="flex:1;min-width:0">
       <span style="display:block;font-size:13px;font-weight:700">${name}</span>
       <span style="display:block;height:2.5mm;width:55%;background:var(--charte-color-line);border-radius:2px;margin-top:1.5mm"></span>
@@ -56,54 +88,40 @@ const card = (id: string, name: string, price: string) =>
     <span style="font-family:var(--charte-font-mono);font-size:13px;color:var(--charte-color-accent);flex-shrink:0">${price}</span>
   </div>`;
 
-const basketRow = (name: string, qty: string, price: string) =>
-	`<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--charte-color-line);padding:2mm 0">
-    <span style="font-size:13px;font-weight:600">${name} <span style="font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)">× ${qty}</span></span>
-    <span style="font-family:var(--charte-font-mono);font-size:13px">${price}</span>
-  </div>`;
+const search = `<div data-id="search" style="${box("height:9mm")};display:flex;align-items:center;padding:0 4mm;color:var(--charte-color-muted);font-size:12px">Search…</div>`;
+const chips = `<div data-id="chips" style="display:flex;gap:2mm">
+  <span style="background:var(--charte-color-accent);color:#fff;border-radius:999px;padding:1.5mm 3mm;font-size:11px;font-weight:700">All</span>
+  ${["Veggies", "Dairy", "Bakery", "Drinks"].map((c) => `<span style="border:1px solid var(--charte-color-line);border-radius:999px;padding:1.5mm 3mm;font-size:11px;color:var(--charte-color-muted)">${c}</span>`).join("")}
+</div>`;
 
-const onboarding: Page = {
-	id: "s1",
-	name: "Onboarding",
-	elements: [],
-	html: screen(
-		"Welcome",
-		`<div data-id="hero" style="${box("height:48mm")};display:flex;align-items:center;justify-content:center;color:var(--charte-color-muted)">Illustration</div>
-     <div data-id="dots" style="display:flex;justify-content:center;gap:1.5mm"><span style="width:5mm;height:1.5mm;border-radius:999px;background:var(--charte-color-accent)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span></div>
-     <div data-id="pitch" style="text-align:center;font-size:15px;font-weight:600;line-height:1.5">Fresh produce,<br/>delivered before breakfast.</div>
-     <div data-id="cta" style="margin-top:auto;background:var(--charte-color-accent);color:#fff;border-radius:10px;text-align:center;padding:4mm;font-weight:700">Get started</div>`,
-	),
-};
-
-const onboardingRevised: Page = {
-	...onboarding,
-	html: screen(
-		"Welcome",
-		`<div data-id="hero" style="${box("height:44mm")};display:flex;align-items:center;justify-content:center;color:var(--charte-color-muted)">Illustration</div>
-     <div data-id="dots" style="display:flex;justify-content:center;gap:1.5mm"><span style="width:5mm;height:1.5mm;border-radius:999px;background:var(--charte-color-accent)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span><span style="width:1.5mm;height:1.5mm;border-radius:50%;background:var(--charte-color-line)"></span></div>
-     <div data-id="pitch" style="text-align:center;font-size:15px;font-weight:600;line-height:1.5">Fresh produce,<br/>delivered before breakfast.</div>
-     <div data-id="social" style="display:flex;gap:2.5mm">
-       <span style="${box("height:9mm")};flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600"> Apple</span>
-       <span style="${box("height:9mm")};flex:1;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600">G Google</span>
-     </div>
-     <div data-id="cta" style="margin-top:auto;background:var(--charte-color-accent);color:#fff;border-radius:10px;text-align:center;padding:4mm;font-weight:700">Get started</div>`,
-	),
-};
-
-const catalog: Page = {
+const catalogEmpty: Page = {
 	id: "s2",
 	name: "Catalog",
 	elements: [],
 	html: screen(
 		"Market",
-		`<div data-id="search" style="${box("height:9mm")};display:flex;align-items:center;padding:0 4mm;color:var(--charte-color-muted);font-size:12px">Search…</div>
-     ${chips}
-     ${card("item1", "Heritage Tomatoes", "4,20 €")}
-     ${card("item2", "Raw Honey", "7,80 €")}
-     ${card("item3", "Sourdough Loaf", "5,00 €")}
-     ${card("item4", "Goat Cheese", "3,50 €")}`,
+		`${search}\n     ${chips}\n     <div data-id="list" style="${box("flex:1")};display:flex;align-items:center;justify-content:center;color:var(--charte-color-muted);font-size:12px">Product list</div>`,
 	),
 };
+
+const catalogFull: Page = {
+	...catalogEmpty,
+	html: screen(
+		"Market",
+		`${search}
+     ${chips}
+     ${card("item1", "Heritage Tomatoes", "4,20 €", PRODUCT_ICONS.tomato ?? "")}
+     ${card("item2", "Raw Honey", "7,80 €", PRODUCT_ICONS.honey ?? "")}
+     ${card("item3", "Sourdough Loaf", "5,00 €", PRODUCT_ICONS.bread ?? "")}
+     ${card("item4", "Goat Cheese", "3,50 €", PRODUCT_ICONS.cheese ?? "")}`,
+	),
+};
+
+const basketRow = (name: string, qty: string, price: string) =>
+	`<div style="display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid var(--charte-color-line);padding:2mm 0">
+    <span style="font-size:13px;font-weight:600">${name} <span style="font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)">× ${qty}</span></span>
+    <span style="font-family:var(--charte-font-mono);font-size:13px">${price}</span>
+  </div>`;
 
 const checkout: Page = {
 	id: "s3",
@@ -132,9 +150,15 @@ function wireDoc(pages: Page[]): Document {
 	};
 }
 
+const wire = (pages: Page[]) => ({
+	documents: [wireDoc(pages)],
+	chartes: [inkCharte],
+	collections: [],
+});
+
 export const appWireframeScenario: DemoScenario = {
 	id: "app-wireframe",
-	title: "Mobile app wireframe",
+	title: "Wireframe",
 	downloadName: "app-wireframe.maket",
 	steps: [
 		{
@@ -147,12 +171,14 @@ export const appWireframeScenario: DemoScenario = {
 		{
 			id: "first-screen",
 			actor: "agent",
-			caption: "The agent starts with the onboarding screen.",
-			workspace: {
-				documents: [wireDoc([onboarding])],
-				chartes: [inkCharte],
-				collections: [],
-			},
+			caption: "The agent starts with the onboarding screen — structure first.",
+			workspace: wire([onboardingSkeleton]),
+		},
+		{
+			id: "hero-image",
+			actor: "agent",
+			caption: "An illustration lands in the hero slot.",
+			workspace: wire([onboardingIllustrated]),
 		},
 		{
 			id: "annotate",
@@ -164,22 +190,29 @@ export const appWireframeScenario: DemoScenario = {
 			id: "revise",
 			actor: "agent",
 			caption: "Revision: Apple/Google sign-in slots in above the CTA.",
-			workspace: {
-				documents: [wireDoc([onboardingRevised])],
-				chartes: [inkCharte],
-				collections: [],
-			},
+			workspace: wire([onboardingRevised]),
 		},
 		{
-			id: "grow",
+			id: "catalog-page",
+			actor: "agent",
+			caption: "A second page arrives: the catalog screen, still empty.",
+			workspace: wire([onboardingRevised, catalogEmpty]),
+			focusPage: 1,
+		},
+		{
+			id: "catalog-items",
+			actor: "agent",
+			caption: "Product cards fill in — thumbnails, names, mono prices.",
+			workspace: wire([onboardingRevised, catalogFull]),
+			focusPage: 1,
+		},
+		{
+			id: "checkout-page",
 			actor: "agent",
 			caption:
-				"The flow grows: catalog and checkout join as pages of the same document.",
-			workspace: {
-				documents: [wireDoc([onboardingRevised, catalog, checkout])],
-				chartes: [inkCharte],
-				collections: [],
-			},
+				"Third page: checkout, with itemized basket, delivery and total.",
+			workspace: wire([onboardingRevised, catalogFull, checkout]),
+			focusPage: 2,
 		},
 		{
 			id: "own-it",

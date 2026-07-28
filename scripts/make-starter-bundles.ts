@@ -16,7 +16,9 @@ import {
   finalWorkspace,
   productCatalogScenario,
 } from "../packages/client/src/demo/scenario.js";
+import { bistroMenuScenario } from "../packages/client/src/demo/scenario-menu.js";
 import { eventPosterScenario, POSTER_ART_DATA_URI } from "../packages/client/src/demo/scenario-poster.js";
+import { socialSeriesScenario } from "../packages/client/src/demo/scenario-social.js";
 import { appWireframeScenario } from "../packages/client/src/demo/scenario-wireframe.js";
 import { type BundleAsset, encodeBundleV2 } from "../packages/server/src/lib/maket-format.js";
 import type { Charte, Document } from "../packages/server/src/types.js";
@@ -71,7 +73,13 @@ async function writeStarter(scenario: DemoScenario): Promise<void> {
 
 async function main(): Promise<void> {
   mkdirSync(OUT_DIR, { recursive: true });
-  for (const scenario of [eventPosterScenario, appWireframeScenario, productCatalogScenario]) {
+  for (const scenario of [
+    eventPosterScenario,
+    appWireframeScenario,
+    productCatalogScenario,
+    bistroMenuScenario,
+    socialSeriesScenario,
+  ]) {
     await writeStarter(scenario);
   }
 }
