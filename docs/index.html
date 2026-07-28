@@ -281,6 +281,7 @@
       padding: 0.9rem 1.25rem;
       border: 1px solid rgba(251, 250, 246, 0.3);
       border-radius: 999px;
+      font-family: inherit;
       font-size: var(--type-label);
       font-weight: 600;
       transition:
@@ -288,6 +289,11 @@
         background 180ms ease,
         border-color 180ms ease,
         transform 180ms ease;
+    }
+
+    .button[data-copy-install] {
+      min-width: 12rem;
+      cursor: pointer;
     }
 
     .button:hover,
@@ -1380,10 +1386,32 @@
         <div class="install__copy reveal">
           <span class="section-index">06 — Installation</span>
           <h2>Connect Maket to your agent<span class="dot">.</span></h2>
-          <p>Choose your client, run the commands, then open the interface.</p>
+          <p>Copy the ready-made prompt into Codex, Claude, or Gemini. Your agent will install, start, and verify Maket for you.</p>
           <div class="actions">
-            <a class="button button--primary" href="https://github.com/ng-galien/maket#install" target="_blank" rel="noopener">Read the full guide ↗</a>
+            <button
+              class="button button--primary"
+              type="button"
+              data-copy-install
+              data-copy-target="agent-install-prompt"
+              data-label="Copy instructions"
+              data-success-label="Copied"
+              data-error-label="Copy failed"
+            ><span aria-live="polite">Copy instructions</span></button>
+            <a class="button button--ghost" href="https://github.com/ng-galien/maket#install" target="_blank" rel="noopener">Read the full guide ↗</a>
           </div>
+          <script type="text/plain" id="agent-install-prompt">Install Maket in this environment and complete the setup end to end.
+
+1. Check that Node.js 22 or newer is available.
+2. Determine whether the current agent client is Claude Code, Codex, or Gemini. Then run:
+   npx -y @ng-galien/maket install <claude|codex|gemini> --apply
+3. Preserve every existing MCP configuration entry and server.
+4. Start Maket:
+   npx -y @ng-galien/maket start
+5. Run `npx -y @ng-galien/maket doctor` and verify that the Maket MCP server and its tools are reachable from this client.
+6. Open the interface with `npx -y @ng-galien/maket open`. If the client must be restarted, tell me exactly what to restart.
+7. Report what you changed, the verification result, and the local Maket URL.
+
+Do not stop at explaining the commands: perform the installation and verification. Ask before any permission-sensitive action.</script>
         </div>
 
         <div class="reveal">
@@ -1460,6 +1488,52 @@
       },
       { passive: true }
     );
+
+    async function writeToClipboard(value) {
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value);
+          return;
+        } catch {
+          // Fall through for browsers that expose the API but deny access.
+        }
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.append(textarea);
+      textarea.select();
+      let copied = false;
+      try {
+        copied = document.execCommand('copy');
+      } finally {
+        textarea.remove();
+      }
+      if (!copied) throw new Error('Clipboard copy failed');
+    }
+
+    for (const button of document.querySelectorAll('[data-copy-install]')) {
+      button.addEventListener('click', async () => {
+        const target = document.getElementById(button.dataset.copyTarget);
+        const label = button.querySelector('[aria-live]');
+        if (!target || !label) return;
+
+        try {
+          await writeToClipboard(target.textContent.trim());
+          button.dataset.state = 'copied';
+          label.textContent = button.dataset.successLabel;
+          window.setTimeout(() => {
+            delete button.dataset.state;
+            label.textContent = button.dataset.label;
+          }, 2400);
+        } catch {
+          label.textContent = button.dataset.errorLabel;
+        }
+      });
+    }
   </script>
 </body>
 </html>
