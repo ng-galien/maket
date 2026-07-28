@@ -47,9 +47,11 @@ export interface DemoScenario {
 	steps: DemoStep[];
 }
 
-/** Site fonts, shared by every demo charte. */
+/** Site fonts, shared by every demo charte. Manrope + DM Mono are the site
+ * chrome; Fraunces is the editorial serif of the documents themselves (the
+ * site's hero document). */
 export const SITE_FONTS_IMPORT =
-	"@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap');";
+	"@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap');";
 
 export const FARM_LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(
 	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#00a99d"/><path d="M32 14 C40 24 44 32 32 50 C20 32 24 24 32 14 Z" fill="#f4f0e8"/></svg>',
@@ -60,13 +62,14 @@ const greenmarketCharte: ViewerCharte = {
 	css: [
 		SITE_FONTS_IMPORT,
 		":root {",
-		"  --charte-color-bg: #f4f0e8;",
+		"  --charte-color-bg: #fbfaf6;",
 		"  --charte-color-ink: #101c19;",
 		"  --charte-color-accent: #00a99d;",
 		"  --charte-color-accent-light: #a3f2ea;",
 		"  --charte-color-muted: #66716d;",
 		"  --charte-color-line: rgba(16, 28, 25, 0.16);",
 		"  --charte-font-heading: 'Manrope', sans-serif;",
+		"  --charte-font-display: 'Fraunces', serif;",
 		"  --charte-font-mono: 'DM Mono', monospace;",
 		"}",
 	].join("\n"),
@@ -158,7 +161,7 @@ function labelsDoc(opts: {
 		id: "price-labels",
 		name: "price-labels",
 		category: "label",
-		canvas: { w: 90, h: 54, background: "#f4f0e8", format: "custom" },
+		canvas: { w: 90, h: 54, background: "#fbfaf6", format: "custom" },
 		activePage: 0,
 		meta: opts.charte ? { charte: "greenmarket" } : {},
 		pages: [
@@ -179,31 +182,29 @@ const draftHtml = `<div style="width:100%;height:100%;font-family:sans-serif;dis
   <div data-id="price" style="font-size:14px;margin-top:2mm">{{ price }} / {{ unit }}</div>
 </div>`;
 
-const chartedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4mm 5mm;border:1.5px solid var(--charte-color-ink);border-radius:3px;position:relative;overflow:hidden">
-  <div style="position:absolute;top:0;left:0;right:0;height:2mm;background:var(--charte-color-accent)"></div>
-  <div style="display:flex;align-items:center;gap:2.5mm;margin-top:2mm">
-    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:9px;letter-spacing:0.18em;color:var(--charte-color-muted)">GREENMARKET · FARM SHOP</span>
-    <span data-id="origin" style="margin-left:auto;font-size:9px;font-weight:700;color:var(--charte-color-accent);border:1px solid var(--charte-color-accent);border-radius:999px;padding:0.5mm 2mm">{{ origin }}</span>
+const chartedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4.5mm 5mm;border:1px solid var(--charte-color-ink)">
+  <div style="display:flex;align-items:baseline;gap:2.5mm">
+    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:8.5px;letter-spacing:0.22em;color:var(--charte-color-accent)">GREENMARKET · FARM SHOP</span>
+    <span data-id="origin" style="margin-left:auto;font-family:var(--charte-font-mono);font-size:8.5px;color:var(--charte-color-muted)">{{ origin }}</span>
   </div>
-  <div data-id="name" style="font-size:20px;font-weight:800;letter-spacing:-0.02em;margin-top:2.5mm;line-height:1.05">{{ name }}</div>
-  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px dashed var(--charte-color-line);padding-top:2mm">
-    <span data-id="price" style="font-size:15px;font-weight:700">{{ price }}</span>
+  <div data-id="name" style="font-size:19px;font-weight:600;letter-spacing:-0.02em;margin-top:3mm;line-height:1.05">{{ name }}</div>
+  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px solid var(--charte-color-line);padding-top:2.5mm">
+    <span data-id="price" style="font-size:14px;font-weight:600">{{ price }}</span>
     <span data-id="unit" style="font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)">/ {{ unit }}</span>
   </div>
 </div>`;
 
-const revisedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4mm 5mm;border:1.5px solid var(--charte-color-ink);border-radius:3px;position:relative;overflow:hidden">
-  <div style="position:absolute;top:0;left:0;right:0;height:2mm;background:var(--charte-color-accent)"></div>
-  <div style="display:flex;align-items:center;gap:2.5mm;margin-top:2mm">
-    <img data-id="logo" data-name="logo" src="${FARM_LOGO_DATA_URI}" alt="" style="width:8mm;height:8mm;flex-shrink:0"/>
-    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:9px;letter-spacing:0.18em;color:var(--charte-color-muted)">GREENMARKET · FARM SHOP</span>
-    <span data-id="origin" style="margin-left:auto;font-size:9px;font-weight:700;color:var(--charte-color-accent);border:1px solid var(--charte-color-accent);border-radius:999px;padding:0.5mm 2mm;white-space:nowrap">{{ origin }}</span>
+const revisedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4.5mm 5mm;border:1px solid var(--charte-color-ink)">
+  <div style="display:flex;align-items:center;gap:2.5mm">
+    <img data-id="logo" data-name="logo" src="${FARM_LOGO_DATA_URI}" alt="" style="width:6.5mm;height:6.5mm;flex-shrink:0"/>
+    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:8.5px;letter-spacing:0.22em;color:var(--charte-color-accent)">GREENMARKET · FARM SHOP</span>
+    <span data-id="origin" style="margin-left:auto;font-family:var(--charte-font-mono);font-size:8.5px;color:var(--charte-color-muted);white-space:nowrap">{{ origin }}</span>
   </div>
-  <div data-id="name" style="font-size:21px;font-weight:800;letter-spacing:-0.02em;margin-top:2.5mm;line-height:1.05">{{ name }}</div>
-  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px dashed var(--charte-color-line);padding-top:2mm">
-    <span data-id="price" style="font-family:var(--charte-font-mono);font-size:25px;font-weight:500;color:var(--charte-color-accent)">{{ price }}</span>
-    <span data-id="unit" style="font-family:var(--charte-font-mono);font-size:11px;color:var(--charte-color-muted)">/ {{ unit }}</span>
-    <span style="margin-left:auto;font-family:var(--charte-font-mono);font-size:8px;color:var(--charte-color-muted)">maket.dev</span>
+  <div data-id="name" style="font-family:var(--charte-font-display);font-size:23px;font-weight:600;line-height:1;margin-top:3mm">{{ name }}</div>
+  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px solid var(--charte-color-line);padding-top:2.5mm">
+    <span data-id="price" style="font-family:var(--charte-font-mono);font-size:23px">{{ price }}</span>
+    <span data-id="unit" style="font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)">/ {{ unit }}</span>
+    <span style="margin-left:auto;width:6mm;height:1.2mm;background:var(--charte-color-accent)"></span>
   </div>
 </div>`;
 

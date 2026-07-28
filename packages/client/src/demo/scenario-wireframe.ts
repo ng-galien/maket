@@ -31,7 +31,7 @@ const screen = (title: string, inner: string) =>
 	`<div style="width:100%;height:100%;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column">
   <div data-id="statusbar" style="display:flex;justify-content:space-between;align-items:center;padding:3mm 6mm 0;font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)"><span>9:41</span><span>●●●</span></div>
   <div data-id="header" style="display:flex;align-items:center;justify-content:space-between;padding:3mm 6mm 4mm">
-    <span style="font-size:19px;font-weight:800;letter-spacing:-0.02em">${title}</span>
+    <span style="font-size:19px;font-weight:600;letter-spacing:-0.02em">${title}</span>
     <span style="width:9mm;height:9mm;${box("border-radius:50%")}"></span>
   </div>
   <div style="flex:1;padding:0 6mm;display:flex;flex-direction:column;gap:3.5mm;overflow:hidden">${inner}</div>
@@ -115,7 +115,7 @@ const checkout: Page = {
      ${basketRow("Raw Honey", "1", "7,80 €")}
      ${basketRow("Sourdough Loaf", "1", "5,00 €")}
      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--charte-color-muted);padding:1.5mm 0"><span>Delivery — tomorrow 7:00</span><span style="font-family:var(--charte-font-mono)">3,70 €</span></div>
-     <div data-id="total" style="display:flex;justify-content:space-between;font-weight:800;font-size:16px;margin-top:1mm"><span>Total</span><span style="font-family:var(--charte-font-mono);color:var(--charte-color-accent)">24,90 €</span></div>
+     <div data-id="total" style="display:flex;justify-content:space-between;font-weight:600;font-size:16px;margin-top:1mm"><span>Total</span><span style="font-family:var(--charte-font-mono);color:var(--charte-color-accent)">24,90 €</span></div>
      <div data-id="pay" style="margin-top:auto;background:var(--charte-color-accent);color:#fff;border-radius:10px;text-align:center;padding:4mm;font-weight:700">Pay now</div>`,
 	),
 };

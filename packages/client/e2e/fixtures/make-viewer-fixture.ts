@@ -25,9 +25,9 @@ const charte = {
 	name: "smokehouse",
 	css: [
 		":root {",
-		"  --charte-color-bg: #f7f1e6;",
-		"  --charte-color-primary: #b3542a;",
-		"  --charte-color-text: #2d2118;",
+		"  --charte-color-bg: #fbfaf6;",
+		"  --charte-color-primary: #00a99d;",
+		"  --charte-color-text: #101c19;",
 		"}",
 	].join("\n"),
 };

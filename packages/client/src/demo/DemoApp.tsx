@@ -177,9 +177,9 @@ export default function DemoApp() {
 						<span
 							className={`inline-block h-2 w-2 rounded-full ${
 								step?.actor === "user"
-									? "bg-accent"
+									? "bg-text-1"
 									: step?.actor === "agent"
-										? "bg-warning"
+										? "bg-accent"
 										: "bg-text-3"
 							}`}
 						/>

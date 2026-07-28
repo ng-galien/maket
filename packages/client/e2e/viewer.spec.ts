@@ -54,7 +54,7 @@ test.describe("Maket Viewer", () => {
 			hasText: "Grand Cru Smoked Salmon",
 		});
 		await expect(title).toBeVisible();
-		await expect(title).toHaveCSS("color", "rgb(179, 84, 42)");
+		await expect(title).toHaveCSS("color", "rgb(0, 169, 157)");
 
 		// The bundled asset is served from an object URL, not the server.
 		const logo = page.locator('img[data-name="logo"]');
