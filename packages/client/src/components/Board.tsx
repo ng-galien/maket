@@ -8,10 +8,15 @@ import {
 } from "d3-zoom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import {
+	cancelDeferredFitOnUserZoom,
+	createDeferredFit,
+} from "../store/deferredFit";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import {
 	registerFitToDoc,
 	registerFitToView,
+	registerRequestFit,
 	registerZoomTo,
 } from "../store/zoomBridge";
 import { CollectionWorkspace } from "./CollectionWorkspace";
@@ -52,6 +57,7 @@ function Watermark() {
 export function Board({ locked }: { locked: boolean }) {
 	const workspaceDocNames = useWorkspaceDocNames();
 	const focusedCollectionName = useStore((s) => s.focusedCollectionName);
+	const readOnly = useStore((s) => s.readOnly);
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const boardRef = useRef<HTMLDivElement>(null);
 	const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
@@ -102,7 +108,7 @@ export function Board({ locked }: { locked: boolean }) {
 				{workspaceDocNames.map((name) => (
 					<WorkspaceDoc key={name} docName={name} zoomK={transform.k} />
 				))}
-				{focusedCollectionName && (
+				{focusedCollectionName && !readOnly && (
 					<CollectionWorkspace
 						key={focusedCollectionName}
 						zoomK={transform.k}
@@ -198,14 +204,24 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	registerBoardZoomCommands(el, zoomBehavior, wrap, context.boardRef);
 	const fit = createFitToView(el, zoomBehavior, wrap, context.boardRef);
 	registerFitToView(fit);
-	registerFitToDoc(createFitToDoc(el, zoomBehavior, wrap, context.boardRef));
+	const fitDoc = createFitToDoc(el, zoomBehavior, wrap, context.boardRef);
+	registerFitToDoc(fitDoc);
+	const deferredFit = createDeferredFit(fit, fitDoc);
+	zoomBehavior.on("start.deferred-fit", (event) => {
+		cancelDeferredFitOnUserZoom(deferredFit, event);
+	});
+	registerRequestFit(deferredFit.request);
 	const boardRo = observeInitialBoardFit(
 		context.boardRef,
 		fit,
 		context.setBoardVisible,
 	);
 	const wrapResize = observeWrapResize(wrap, el, zoomBehavior);
-	return () => cleanupBoardZoom(el, boardRo, wrapResize);
+	return () => {
+		deferredFit.dispose();
+		zoomBehavior.on("start.deferred-fit", null);
+		cleanupBoardZoom(el, boardRo, wrapResize);
+	};
 }
 
 function createBoardZoomBehavior(
@@ -404,5 +420,6 @@ function cleanupBoardZoom(
 	window.removeEventListener("orientationchange", wrapResize.onOrientation);
 	registerFitToView(() => {});
 	registerFitToDoc(() => {});
+	registerRequestFit(null);
 	registerZoomTo(() => {});
 }

@@ -22,6 +22,8 @@
   },
   "scripts": {
     "build:client": "npm run build -w @maket/client",
+    "starters:build": "tsx scripts/make-starter-bundles.ts",
+    "build:pages": "npm run starters:build && npm run build:pages -w @maket/client && node scripts/sync-pages.mjs",
     "start": "npx tsx packages/server/index.ts",
     "dev": "node scripts/dev.mjs dev",
     "dev:watch": "node scripts/dev.mjs dev:watch",

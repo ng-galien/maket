@@ -106,6 +106,18 @@ describe("maket-format v2 (ZIP with assets)", () => {
 		expect(decoded.assets).toEqual([]);
 	});
 
+	it("is reproducible when generation metadata is fixed", async () => {
+		const options = {
+			exportedAt: "2000-01-01T00:00:00.000Z",
+			entryDate: new Date("2000-01-01T00:00:00.000Z"),
+		};
+		const document = makeDoc("stable");
+		const asset = { relPath: "stable.svg", bytes: Buffer.from("<svg/>") };
+		const first = await encodeBundleV2([document], [], [], [asset], options);
+		const second = await encodeBundleV2([document], [], [], [asset], options);
+		expect(first.equals(second)).toBe(true);
+	});
+
 	it("strips entries that escape the assets/ folder", async () => {
 		// Forge a v2 ZIP with an entry named `../../etc/passwd` and verify
 		// `decodeBundle` drops it rather than returning path-traversal bytes.

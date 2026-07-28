@@ -58,6 +58,8 @@ interface AppState extends CollectionSlice {
 	chartesVersion: number;
 
 	// UI
+	/** Viewer mode: hides edit affordances and disables workspace persistence */
+	readOnly: boolean;
 	selectedIds: string[];
 	editingElementId: string | null;
 	showPopover: boolean;
@@ -137,8 +139,17 @@ function loadWorkspace(): string[] {
 	}
 }
 
+// Invariant: workspace STATE (doc list, focused doc) is never persisted in
+// readOnly/viewer mode — gate every such helper below. UI PREFS (dark mode,
+// bar position, auto-focus-fit) deliberately persist everywhere.
 function saveWorkspace(names: string[]) {
+	if (useStore.getState().readOnly) return;
 	localStorage.setItem("maket-workspace", JSON.stringify(names));
+}
+
+function saveFocusedDoc(name: string) {
+	if (useStore.getState().readOnly) return;
+	localStorage.setItem("maket-focused-doc", name);
 }
 
 function reconcileCollectionPreview(
@@ -243,6 +254,7 @@ export const useStore = create<AppState>((set, get) => ({
 	chartesCss: new Map(),
 	chartesVersion: 0,
 	collections: [],
+	readOnly: false,
 	selectedIds: [],
 	editingElementId: null,
 	showPopover: false,
@@ -377,8 +389,7 @@ export const useStore = create<AppState>((set, get) => ({
 			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
 			saveWorkspace(workspaceDocNames);
 			syncWorkspace();
-			if (focusedDocName)
-				localStorage.setItem("maket-focused-doc", focusedDocName);
+			if (focusedDocName) saveFocusedDoc(focusedDocName);
 			return { docs, workspaceDocNames, focusedDocName, docList, chartesCss };
 		}),
 
@@ -414,7 +425,7 @@ export const useStore = create<AppState>((set, get) => ({
 	setFocusedDoc: (docName) =>
 		set((s) => {
 			if (s.focusedDocName === docName) return {};
-			localStorage.setItem("maket-focused-doc", docName ?? "");
+			saveFocusedDoc(docName ?? "");
 			return {
 				focusedDocName: docName,
 				selectedIds: [],

@@ -38,6 +38,16 @@ jobs:
       - name: Build client
         run: npm run build:client
 
+      - name: Build GitHub Pages demo
+        run: npm run build:pages
+
+      - name: Verify committed Pages artifacts
+        run: |
+          if [ -n "$(git status --porcelain -- docs/app docs/starters starters)" ]; then
+            git status --short -- docs/app docs/starters starters
+            exit 1
+          fi
+
       - name: Test with coverage
         run: npm run test:coverage
 

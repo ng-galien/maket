@@ -145,6 +145,7 @@ export const PageCanvas = memo(function PageCanvas({
 	const { canvas } = doc;
 	const pending = useStore((s) => s.pending);
 	const isEditing = useStore((s) => s.editingElementId !== null);
+	const readOnly = useStore((s) => s.readOnly);
 	const canEditTemplate = preview?.mode !== "rendered";
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
 	const placeholderOptions = useMemo(
@@ -317,7 +318,7 @@ export const PageCanvas = memo(function PageCanvas({
 	);
 
 	useEffect(() => {
-		if (!pageRef.current || !focused) return;
+		if (!pageRef.current || !focused || readOnly) return;
 		const el = pageRef.current;
 
 		const onClick = (e: MouseEvent) => {
@@ -360,7 +361,7 @@ export const PageCanvas = memo(function PageCanvas({
 			if (editingRef.current) exitEdit(false);
 			el.removeEventListener("click", onClick);
 		};
-	}, [html, focused, toolbar?.id, canEditTemplate]);
+	}, [html, focused, toolbar?.id, canEditTemplate, readOnly]);
 
 	useEffect(() => {
 		if (!pageRef.current) return;

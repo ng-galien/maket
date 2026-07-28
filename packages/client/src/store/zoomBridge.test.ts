@@ -1,8 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	type FitTarget,
 	fitToView,
+	registerFitToDoc,
 	registerFitToView,
+	registerRequestFit,
 	registerZoomTo,
+	requestFit,
 	zoomTo,
 } from "./zoomBridge";
 
@@ -44,5 +48,28 @@ describe("zoomBridge", () => {
 		zoomTo(80);
 		expect(first).not.toHaveBeenCalled();
 		expect(second).toHaveBeenCalledExactlyOnceWith(80);
+	});
+});
+
+describe("requestFit", () => {
+	it("routes through a registered deferred handler", () => {
+		const calls: (FitTarget | undefined)[] = [];
+		registerRequestFit((target) => calls.push(target));
+		requestFit();
+		requestFit({ docName: "doc", pageIndex: 2 });
+		registerRequestFit(null);
+		expect(calls).toEqual([undefined, { docName: "doc", pageIndex: 2 }]);
+	});
+
+	it("falls back to immediate fits when no Board is registered", () => {
+		registerRequestFit(null);
+		const fits: string[] = [];
+		registerFitToView(() => fits.push("view"));
+		registerFitToDoc((name, page) => fits.push(`doc:${name}:${page}`));
+		requestFit();
+		requestFit({ docName: "d", pageIndex: 1 });
+		expect(fits).toEqual(["view", "doc:d:1"]);
+		registerFitToView(() => {});
+		registerFitToDoc(() => {});
 	});
 });
