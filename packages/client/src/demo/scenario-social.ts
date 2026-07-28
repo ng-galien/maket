@@ -6,25 +6,18 @@
 
 import type { Collection } from "@maket/shared";
 import type { Document } from "../store/types";
-import type { ViewerCharte } from "../viewer/bundle";
 import { TRUMPET_MARK } from "./illustrations";
 import {
 	type DemoScenario,
-	SITE_CHARTE_TOKENS,
-	SITE_FONTS_IMPORT,
+	EMPTY_WORKSPACE,
+	ownItStep,
+	siteCharte,
 } from "./scenario";
 
-const socialCharte: ViewerCharte = {
-	name: "midnight-social",
-	css: [
-		SITE_FONTS_IMPORT,
-		":root {",
-		"  --charte-color-bg: #101c19;",
-		...SITE_CHARTE_TOKENS,
-		"  --charte-color-muted: #72827b;",
-		"}",
-	].join("\n"),
-};
+const socialCharte = siteCharte("midnight-social", {
+	bg: "#101c19",
+	extraTokens: ["  --charte-color-muted: #72827b;"],
+});
 
 const announcements: Collection = {
 	name: "announcements",
@@ -146,7 +139,7 @@ export const socialSeriesScenario: DemoScenario = {
 			id: "request",
 			actor: "user",
 			caption: "“One announcement post per act — same look, square format.”",
-			workspace: { documents: [], chartes: [], collections: [] },
+			workspace: EMPTY_WORKSPACE,
 		},
 		{
 			id: "draft",
@@ -207,12 +200,6 @@ export const socialSeriesScenario: DemoScenario = {
 			caption: "Four acts, four ready-to-post cards — one template.",
 			collectionMode: "all",
 		},
-		{
-			id: "own-it",
-			actor: "info",
-			caption:
-				"This is a real .maket file — download it and keep working with any agent.",
-			collectionMode: "all",
-		},
+		ownItStep("all"),
 	],
 };

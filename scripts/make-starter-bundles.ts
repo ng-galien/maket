@@ -10,6 +10,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { POSTER_WAVES } from "../packages/client/src/demo/illustrations.js";
 import {
   type DemoScenario,
   FARM_LOGO_DATA_URI,
@@ -17,7 +18,7 @@ import {
   productCatalogScenario,
 } from "../packages/client/src/demo/scenario.js";
 import { bistroMenuScenario } from "../packages/client/src/demo/scenario-menu.js";
-import { eventPosterScenario, POSTER_ART_DATA_URI } from "../packages/client/src/demo/scenario-poster.js";
+import { eventPosterScenario } from "../packages/client/src/demo/scenario-poster.js";
 import { socialSeriesScenario } from "../packages/client/src/demo/scenario-social.js";
 import { appWireframeScenario } from "../packages/client/src/demo/scenario-wireframe.js";
 import { type BundleAsset, encodeBundleV2 } from "../packages/server/src/lib/maket-format.js";
@@ -27,7 +28,7 @@ const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "starters");
 
 const DATA_URI_ASSETS: Record<string, string> = {
   [FARM_LOGO_DATA_URI]: "farm-logo.svg",
-  [POSTER_ART_DATA_URI]: "poster-art.svg",
+  [POSTER_WAVES]: "poster-art.svg",
 };
 
 function svgBytes(dataUri: string): Buffer {
@@ -60,11 +61,9 @@ async function writeStarter(scenario: DemoScenario): Promise<void> {
     for (const f of docUsed) used.add(f);
     return doc;
   });
-  const assets: BundleAsset[] = [...used].map((file) => {
-    const uri = Object.entries(DATA_URI_ASSETS).find(([, f]) => f === file);
-    if (!uri) throw new Error(`Unknown asset file ${file}`);
-    return { relPath: file, bytes: svgBytes(uri[0]) };
-  });
+  const assets: BundleAsset[] = Object.entries(DATA_URI_ASSETS)
+    .filter(([, file]) => used.has(file))
+    .map(([uri, file]) => ({ relPath: file, bytes: svgBytes(uri) }));
   const buf = await encodeBundleV2(docs, workspace.chartes as unknown as Charte[], workspace.collections, assets);
   const out = join(OUT_DIR, scenario.downloadName);
   writeFileSync(out, buf);

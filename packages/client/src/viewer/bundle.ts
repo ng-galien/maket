@@ -142,15 +142,22 @@ async function decodeV2(data: ArrayBuffer): Promise<ViewerWorkspace> {
 	}
 	const manifest = parseManifest(await manifestFile.async("string"));
 
+	// Revoke on any failure past this point — created object URLs would
+	// otherwise leak for the tab's lifetime on every failed open.
 	const assetUrls = new Map<string, string>();
-	for (const [entryPath, entry] of Object.entries(zip.files)) {
-		if (entry.dir || !isSafeAssetEntry(entryPath)) continue;
-		const relPath = entryPath.slice("assets/".length);
-		const bytes = await entry.async("uint8array");
-		const blob = new Blob([bytes as BlobPart], { type: assetMime(relPath) });
-		assetUrls.set(relPath, URL.createObjectURL(blob));
+	try {
+		for (const [entryPath, entry] of Object.entries(zip.files)) {
+			if (entry.dir || !isSafeAssetEntry(entryPath)) continue;
+			const relPath = entryPath.slice("assets/".length);
+			const bytes = await entry.async("uint8array");
+			const blob = new Blob([bytes as BlobPart], { type: assetMime(relPath) });
+			assetUrls.set(relPath, URL.createObjectURL(blob));
+		}
+		return finalizeManifest(manifest, assetUrls);
+	} catch (error) {
+		for (const url of assetUrls.values()) URL.revokeObjectURL(url);
+		throw error;
 	}
-	return finalizeManifest(manifest, assetUrls);
 }
 
 export async function decodeMaketFile(

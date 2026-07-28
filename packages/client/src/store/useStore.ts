@@ -139,6 +139,9 @@ function loadWorkspace(): string[] {
 	}
 }
 
+// Invariant: workspace STATE (doc list, focused doc) is never persisted in
+// readOnly/viewer mode — gate every such helper below. UI PREFS (dark mode,
+// bar position, auto-focus-fit) deliberately persist everywhere.
 function saveWorkspace(names: string[]) {
 	if (useStore.getState().readOnly) return;
 	localStorage.setItem("maket-workspace", JSON.stringify(names));

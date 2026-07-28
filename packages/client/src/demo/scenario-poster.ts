@@ -5,27 +5,18 @@
  */
 
 import type { Document } from "../store/types";
-import type { ViewerCharte } from "../viewer/bundle";
 import { POSTER_WAVES } from "./illustrations";
 import {
 	type DemoScenario,
-	SITE_CHARTE_TOKENS,
-	SITE_FONTS_IMPORT,
+	EMPTY_WORKSPACE,
+	ownItStep,
+	siteCharte,
 } from "./scenario";
 
-export const POSTER_ART_DATA_URI = POSTER_WAVES;
-
-const midnightCharte: ViewerCharte = {
-	name: "midnight-brass",
-	css: [
-		SITE_FONTS_IMPORT,
-		":root {",
-		"  --charte-color-bg: #101c19;",
-		...SITE_CHARTE_TOKENS,
-		"  --charte-color-muted: #72827b;",
-		"}",
-	].join("\n"),
-};
+const midnightCharte = siteCharte("midnight-brass", {
+	bg: "#101c19",
+	extraTokens: ["  --charte-color-muted: #72827b;"],
+});
 
 function posterDoc(opts: {
 	charte?: boolean;
@@ -72,7 +63,7 @@ const kickerRow = `<div style="display:flex;align-items:center;gap:4mm">
 
 const dateChip = `<div data-id="date" style="display:inline-block;margin-top:9mm;font-family:var(--charte-font-mono);font-size:16px;color:var(--charte-color-ink);background:var(--charte-color-accent-light);border-radius:999px;padding:2mm 5mm">Fri 13 – Sun 15 March · 8pm</div>`;
 
-const artImg = `<img data-id="art" data-name="artwork" src="${POSTER_ART_DATA_URI}" alt="" style="position:absolute;inset:auto 0 0 0;width:100%"/>`;
+const artImg = `<img data-id="art" data-name="artwork" src="${POSTER_WAVES}" alt="" style="position:absolute;inset:auto 0 0 0;width:100%"/>`;
 
 const draftHtml = `<div style="padding:18mm 16mm;font-family:sans-serif;color:#222">
   <div data-id="kicker" style="font-size:13px;text-transform:uppercase">Les Docks · Season 12</div>
@@ -146,7 +137,7 @@ export const eventPosterScenario: DemoScenario = {
 			id: "request",
 			actor: "user",
 			caption: "“I need a poster for our brass festival in March.”",
-			workspace: { documents: [], chartes: [], collections: [] },
+			workspace: EMPTY_WORKSPACE,
 		},
 		{
 			id: "draft",
@@ -196,11 +187,6 @@ export const eventPosterScenario: DemoScenario = {
 			caption: "Finishing touches: ticket strip and venue footer.",
 			workspace: ink(finalHtml),
 		},
-		{
-			id: "own-it",
-			actor: "info",
-			caption:
-				"This is a real .maket file — download it and keep working with any agent.",
-		},
+		ownItStep(),
 	],
 };

@@ -1,0 +1,13 @@
+/* Site accent for the standalone viewer/demo pages — the editor keeps its
+   emerald default. Mirrors index.css token shapes (light-dark aware). */
+:root {
+	--color-accent: #00a99d;
+	--color-accent-soft: light-dark(
+		rgba(0, 169, 157, 0.08),
+		rgba(0, 169, 157, 0.12)
+	);
+	--color-accent-border: light-dark(
+		rgba(0, 169, 157, 0.2),
+		rgba(0, 169, 157, 0.25)
+	);
+}

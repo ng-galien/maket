@@ -5,24 +5,15 @@
  */
 
 import type { Document, Page } from "../store/types";
-import type { ViewerCharte } from "../viewer/bundle";
 import { BASKET_HERO, PRODUCT_ICONS } from "./illustrations";
 import {
 	type DemoScenario,
-	SITE_CHARTE_TOKENS,
-	SITE_FONTS_IMPORT,
+	EMPTY_WORKSPACE,
+	ownItStep,
+	siteCharte,
 } from "./scenario";
 
-const inkCharte: ViewerCharte = {
-	name: "wireframe-ink",
-	css: [
-		SITE_FONTS_IMPORT,
-		":root {",
-		"  --charte-color-bg: #fbfaf6;",
-		...SITE_CHARTE_TOKENS,
-		"}",
-	].join("\n"),
-};
+const inkCharte = siteCharte("wireframe-ink");
 
 const box = (extra = "") =>
 	`border:1.5px dashed var(--charte-color-line);border-radius:8px;${extra}`;
@@ -166,7 +157,7 @@ export const appWireframeScenario: DemoScenario = {
 			actor: "user",
 			caption:
 				"“Wireframe a grocery-delivery app: onboarding, catalog, checkout.”",
-			workspace: { documents: [], chartes: [], collections: [] },
+			workspace: EMPTY_WORKSPACE,
 		},
 		{
 			id: "first-screen",
@@ -214,11 +205,6 @@ export const appWireframeScenario: DemoScenario = {
 			workspace: wire([onboardingRevised, catalogFull, checkout]),
 			focusPage: 2,
 		},
-		{
-			id: "own-it",
-			actor: "info",
-			caption:
-				"This is a real .maket file — download it and keep working with any agent.",
-		},
+		ownItStep(),
 	],
 };

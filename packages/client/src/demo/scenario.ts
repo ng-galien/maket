@@ -35,13 +35,57 @@ export interface DemoStep {
 	focusPage?: number;
 }
 
-/** Workspace of the last step that carries one — what the download contains. */
-export function finalWorkspace(scenario: DemoScenario): DemoWorkspace {
-	for (let i = scenario.steps.length - 1; i >= 0; i--) {
+export const EMPTY_WORKSPACE: DemoWorkspace = {
+	documents: [],
+	chartes: [],
+	collections: [],
+};
+
+/** Workspace in effect at a step (last step at or before it carrying one). */
+export function workspaceAt(
+	scenario: DemoScenario,
+	index: number,
+): DemoWorkspace {
+	for (let i = index; i >= 0; i--) {
 		const workspace = scenario.steps[i]?.workspace;
 		if (workspace) return workspace;
 	}
-	return { documents: [], chartes: [], collections: [] };
+	return EMPTY_WORKSPACE;
+}
+
+/** Workspace of the last step that carries one — what the download contains. */
+export const finalWorkspace = (scenario: DemoScenario): DemoWorkspace =>
+	workspaceAt(scenario, scenario.steps.length - 1);
+
+/** Every scenario closes on the same pitch. */
+export function ownItStep(
+	collectionMode?: DemoStep["collectionMode"],
+): DemoStep {
+	return {
+		id: "own-it",
+		actor: "info",
+		caption:
+			"This is a real .maket file — download it and keep working with any agent.",
+		...(collectionMode ? { collectionMode } : {}),
+	};
+}
+
+/** Site-identity charte; scenarios only vary name, background and overrides. */
+export function siteCharte(
+	name: string,
+	opts?: { bg?: string; extraTokens?: string[] },
+): ViewerCharte {
+	return {
+		name,
+		css: [
+			SITE_FONTS_IMPORT,
+			":root {",
+			`  --charte-color-bg: ${opts?.bg ?? "#fbfaf6"};`,
+			...SITE_CHARTE_TOKENS,
+			...(opts?.extraTokens ?? []),
+			"}",
+		].join("\n"),
+	};
 }
 
 export interface DemoScenario {
@@ -74,16 +118,7 @@ export const SITE_CHARTE_TOKENS = [
 	"  --charte-font-mono: 'DM Mono', monospace;",
 ];
 
-const greenmarketCharte: ViewerCharte = {
-	name: "greenmarket",
-	css: [
-		SITE_FONTS_IMPORT,
-		":root {",
-		"  --charte-color-bg: #fbfaf6;",
-		...SITE_CHARTE_TOKENS,
-		"}",
-	].join("\n"),
-};
+const greenmarketCharte = siteCharte("greenmarket");
 
 const productsCollection: Collection = {
 	name: "products",
@@ -257,7 +292,7 @@ export const productCatalogScenario: DemoScenario = {
 			actor: "user",
 			caption:
 				"“Create price labels for my farm shop — here's my product list.”",
-			workspace: { documents: [], chartes: [], collections: [] },
+			workspace: EMPTY_WORKSPACE,
 		},
 		{
 			id: "page",
@@ -326,12 +361,6 @@ export const productCatalogScenario: DemoScenario = {
 			caption: "One template, six real labels — data and images per row.",
 			collectionMode: "all",
 		},
-		{
-			id: "own-it",
-			actor: "info",
-			caption:
-				"This is a real .maket file — download it and keep working with any agent.",
-			collectionMode: "all",
-		},
+		ownItStep("all"),
 	],
 };

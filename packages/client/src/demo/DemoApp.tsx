@@ -6,7 +6,7 @@
  */
 
 import { ChevronLeft, ChevronRight, Download, Pause, Play } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Board } from "../components/Board";
 import { useStore } from "../store/useStore";
 import { fitToDoc, fitToView } from "../store/zoomBridge";
@@ -14,8 +14,9 @@ import { hydrateViewerWorkspace } from "../viewer/hydrate";
 import { downloadWorkspaceBundle } from "./export";
 import {
 	type DemoScenario,
-	type DemoWorkspace,
+	finalWorkspace,
 	productCatalogScenario,
+	workspaceAt,
 } from "./scenario";
 import { bistroMenuScenario } from "./scenario-menu";
 import { eventPosterScenario } from "./scenario-poster";
@@ -31,23 +32,11 @@ const SCENARIOS: DemoScenario[] = [
 ];
 
 const STEP_MS = 3800;
-const EMPTY: DemoWorkspace = { documents: [], chartes: [], collections: [] };
-
-function lastWorkspaceAt(
-	scenario: DemoScenario,
-	stepIndex: number,
-): DemoWorkspace {
-	for (let i = stepIndex; i >= 0; i--) {
-		const workspace = scenario.steps[i]?.workspace;
-		if (workspace) return workspace;
-	}
-	return EMPTY;
-}
 
 function applyStep(scenario: DemoScenario, stepIndex: number): void {
 	const step = scenario.steps[stepIndex];
 	if (!step) return;
-	const workspace = lastWorkspaceAt(scenario, stepIndex);
+	const workspace = workspaceAt(scenario, stepIndex);
 	hydrateViewerWorkspace({
 		version: 2,
 		documents: workspace.documents,
@@ -88,7 +77,6 @@ export default function DemoApp() {
 		SCENARIOS.find((s) => s.id === scenarioId) ?? productCatalogScenario;
 	const [stepIndex, setStepIndex] = useState(0);
 	const [playing, setPlaying] = useState(true);
-	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const darkMode = useStore((s) => s.darkMode);
 	const step = scenario.steps[stepIndex];
 	const isLast = stepIndex === scenario.steps.length - 1;
@@ -100,7 +88,7 @@ export default function DemoApp() {
 	useEffect(() => {
 		applyStep(scenario, stepIndex);
 		const current = scenario.steps[stepIndex];
-		const docName = lastWorkspaceAt(scenario, stepIndex).documents[0]?.name;
+		const docName = workspaceAt(scenario, stepIndex).documents[0]?.name;
 		const frame = () => {
 			if (typeof current?.focusPage === "number" && docName) {
 				fitToDoc(docName, current.focusPage);
@@ -127,7 +115,7 @@ export default function DemoApp() {
 
 	useEffect(() => {
 		if (!playing) return;
-		timerRef.current = setInterval(() => {
+		const timer = setInterval(() => {
 			setStepIndex((i) => {
 				if (i >= scenario.steps.length - 1) {
 					setPlaying(false);
@@ -136,9 +124,7 @@ export default function DemoApp() {
 				return i + 1;
 			});
 		}, STEP_MS);
-		return () => {
-			if (timerRef.current) clearInterval(timerRef.current);
-		};
+		return () => clearInterval(timer);
 	}, [playing, scenario]);
 
 	const goTo = useCallback((i: number) => {
@@ -153,10 +139,7 @@ export default function DemoApp() {
 	}, []);
 
 	const download = useCallback(() => {
-		downloadWorkspaceBundle(
-			lastWorkspaceAt(scenario, scenario.steps.length - 1),
-			scenario.downloadName,
-		);
+		downloadWorkspaceBundle(finalWorkspace(scenario), scenario.downloadName);
 	}, [scenario]);
 
 	return (

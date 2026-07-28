@@ -5,24 +5,15 @@
  */
 
 import type { Document } from "../store/types";
-import type { ViewerCharte } from "../viewer/bundle";
 import { MENU_PLATE } from "./illustrations";
 import {
 	type DemoScenario,
-	SITE_CHARTE_TOKENS,
-	SITE_FONTS_IMPORT,
+	EMPTY_WORKSPACE,
+	ownItStep,
+	siteCharte,
 } from "./scenario";
 
-const bistroCharte: ViewerCharte = {
-	name: "chez-lucette",
-	css: [
-		SITE_FONTS_IMPORT,
-		":root {",
-		"  --charte-color-bg: #fbfaf6;",
-		...SITE_CHARTE_TOKENS,
-		"}",
-	].join("\n"),
-};
+const bistroCharte = siteCharte("chez-lucette");
 
 function menuDoc(opts: { charte?: boolean; html: string }): Document {
 	return {
@@ -138,7 +129,7 @@ export const bistroMenuScenario: DemoScenario = {
 			id: "request",
 			actor: "user",
 			caption: "“A menu for my bistro — starters, mains, desserts, our wines.”",
-			workspace: { documents: [], chartes: [], collections: [] },
+			workspace: EMPTY_WORKSPACE,
 		},
 		{
 			id: "masthead",
@@ -194,11 +185,6 @@ export const bistroMenuScenario: DemoScenario = {
 			caption: "A line-art plate tops the masthead.",
 			workspace: paper(finalHtml),
 		},
-		{
-			id: "own-it",
-			actor: "info",
-			caption:
-				"This is a real .maket file — download it and keep working with any agent.",
-		},
+		ownItStep(),
 	],
 };
