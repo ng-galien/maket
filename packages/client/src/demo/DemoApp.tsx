@@ -71,7 +71,6 @@ function applyStep(scenario: DemoScenario, stepIndex: number): void {
 				.setCollectionPreviewMode(collection.name, step.collectionMode);
 		}
 	}
-	requestAnimationFrame(() => requestAnimationFrame(() => fitToView()));
 }
 
 export default function DemoApp() {
@@ -96,6 +95,21 @@ export default function DemoApp() {
 
 	useEffect(() => {
 		applyStep(scenario, stepIndex);
+		// Fit twice: once after the next paint, and again once React has
+		// committed the hydrated content — a single early fit can measure the
+		// previous step's board and leave the view mis-framed. Both are
+		// cancelled on the next step (or unmount) so a stale fit never stomps
+		// a user's pan/zoom.
+		let raf2 = 0;
+		const raf1 = requestAnimationFrame(() => {
+			raf2 = requestAnimationFrame(() => fitToView());
+		});
+		const settle = setTimeout(() => fitToView(), 250);
+		return () => {
+			cancelAnimationFrame(raf1);
+			cancelAnimationFrame(raf2);
+			clearTimeout(settle);
+		};
 	}, [scenario, stepIndex]);
 
 	useEffect(() => {
@@ -134,7 +148,11 @@ export default function DemoApp() {
 
 	return (
 		<div className="relative h-full w-full">
-			<Board locked={false} />
+			{/* Constrained between the caption and playback bars so fitToView
+			    frames documents in the actually visible band. */}
+			<div className="absolute inset-x-0 top-32 bottom-20">
+				<Board locked={false} />
+			</div>
 
 			{/* Caption bar */}
 			<div className="fixed top-4 left-1/2 z-50 w-[min(640px,92vw)] -translate-x-1/2">
@@ -214,19 +232,17 @@ export default function DemoApp() {
 				>
 					<ChevronRight size={15} />
 				</button>
-				<div className="mx-1 flex items-center gap-1.5">
-					{scenario.steps.map((s, i) => (
-						<button
-							key={s.id}
-							type="button"
-							aria-label={`Step ${i + 1}`}
-							onClick={() => goTo(i)}
-							className={`h-1.5 rounded-full transition-all ${
-								i === stepIndex ? "w-5 bg-accent" : "w-1.5 bg-border"
-							}`}
-						/>
-					))}
-				</div>
+				<input
+					type="range"
+					min={0}
+					max={scenario.steps.length - 1}
+					step={1}
+					value={stepIndex}
+					aria-label="Timeline"
+					onChange={(e) => goTo(Number(e.target.value))}
+					className="mx-1 w-44 cursor-pointer"
+					style={{ accentColor: "var(--color-accent)" }}
+				/>
 				<button
 					type="button"
 					onClick={download}

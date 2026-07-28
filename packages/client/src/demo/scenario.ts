@@ -4,6 +4,9 @@
  * — replaying a step just re-hydrates the viewer store, no diffing. Every
  * artifact is a genuine Maket document frozen at that moment, and the final
  * state is downloadable as a real `.maket` bundle.
+ *
+ * Visual identity mirrors the Maket site: Manrope + DM Mono, paper #f4f0e8,
+ * ink #101c19, teal accent #00a99d.
  */
 
 import type { Collection } from "@maket/shared";
@@ -28,6 +31,15 @@ export interface DemoStep {
 	collectionMode?: "template" | "rendered" | "all";
 }
 
+/** Workspace of the last step that carries one — what the download contains. */
+export function finalWorkspace(scenario: DemoScenario): DemoWorkspace {
+	for (let i = scenario.steps.length - 1; i >= 0; i--) {
+		const workspace = scenario.steps[i]?.workspace;
+		if (workspace) return workspace;
+	}
+	return { documents: [], chartes: [], collections: [] };
+}
+
 export interface DemoScenario {
 	id: string;
 	title: string;
@@ -35,19 +47,27 @@ export interface DemoScenario {
 	steps: DemoStep[];
 }
 
-const FARM_LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(
-	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#2f6b4f"/><path d="M32 14 C40 24 44 32 32 50 C20 32 24 24 32 14 Z" fill="#eaf3e2"/></svg>',
+/** Site fonts, shared by every demo charte. */
+export const SITE_FONTS_IMPORT =
+	"@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;600;700;800&display=swap');";
+
+export const FARM_LOGO_DATA_URI = `data:image/svg+xml,${encodeURIComponent(
+	'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#00a99d"/><path d="M32 14 C40 24 44 32 32 50 C20 32 24 24 32 14 Z" fill="#f4f0e8"/></svg>',
 )}`;
 
 const greenmarketCharte: ViewerCharte = {
 	name: "greenmarket",
 	css: [
+		SITE_FONTS_IMPORT,
 		":root {",
-		"  --charte-color-bg: #f6f3ea;",
-		"  --charte-color-primary: #2f6b4f;",
-		"  --charte-color-accent: #c85a19;",
-		"  --charte-color-text: #2b2a26;",
-		"  --charte-font-body: Georgia, serif;",
+		"  --charte-color-bg: #f4f0e8;",
+		"  --charte-color-ink: #101c19;",
+		"  --charte-color-accent: #00a99d;",
+		"  --charte-color-accent-light: #a3f2ea;",
+		"  --charte-color-muted: #66716d;",
+		"  --charte-color-line: rgba(16, 28, 25, 0.16);",
+		"  --charte-font-heading: 'Manrope', sans-serif;",
+		"  --charte-font-mono: 'DM Mono', monospace;",
 		"}",
 	].join("\n"),
 };
@@ -130,7 +150,7 @@ const productsCollection: Collection = {
 };
 
 function labelsDoc(opts: {
-	charte?: string;
+	charte?: boolean;
 	html: string;
 	collection?: boolean;
 }): Document {
@@ -138,9 +158,9 @@ function labelsDoc(opts: {
 		id: "price-labels",
 		name: "price-labels",
 		category: "label",
-		canvas: { w: 90, h: 54, background: "#f6f3ea", format: "custom" },
+		canvas: { w: 90, h: 54, background: "#f4f0e8", format: "custom" },
 		activePage: 0,
-		meta: opts.charte ? { charte: opts.charte } : {},
+		meta: opts.charte ? { charte: "greenmarket" } : {},
 		pages: [
 			{
 				id: "l1",
@@ -159,21 +179,31 @@ const draftHtml = `<div style="width:100%;height:100%;font-family:sans-serif;dis
   <div data-id="price" style="font-size:14px;margin-top:2mm">{{ price }} / {{ unit }}</div>
 </div>`;
 
-const chartedHtml = `<div style="width:100%;height:100%;font-family:var(--charte-font-body);color:var(--charte-color-text);display:flex;flex-direction:column;justify-content:center;gap:1mm;padding:5mm;border:2px solid var(--charte-color-primary);border-radius:4px">
-  <div data-id="name" style="font-size:18px;font-weight:700;color:var(--charte-color-primary)">{{ name }}</div>
-  <div data-id="origin" style="font-size:11px;font-style:italic">{{ origin }}</div>
-  <div data-id="price" style="font-size:14px;margin-top:1mm">{{ price }} / {{ unit }}</div>
+const chartedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4mm 5mm;border:1.5px solid var(--charte-color-ink);border-radius:3px;position:relative;overflow:hidden">
+  <div style="position:absolute;top:0;left:0;right:0;height:2mm;background:var(--charte-color-accent)"></div>
+  <div style="display:flex;align-items:center;gap:2.5mm;margin-top:2mm">
+    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:9px;letter-spacing:0.18em;color:var(--charte-color-muted)">GREENMARKET · FARM SHOP</span>
+    <span data-id="origin" style="margin-left:auto;font-size:9px;font-weight:700;color:var(--charte-color-accent);border:1px solid var(--charte-color-accent);border-radius:999px;padding:0.5mm 2mm">{{ origin }}</span>
+  </div>
+  <div data-id="name" style="font-size:20px;font-weight:800;letter-spacing:-0.02em;margin-top:2.5mm;line-height:1.05">{{ name }}</div>
+  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px dashed var(--charte-color-line);padding-top:2mm">
+    <span data-id="price" style="font-size:15px;font-weight:700">{{ price }}</span>
+    <span data-id="unit" style="font-family:var(--charte-font-mono);font-size:10px;color:var(--charte-color-muted)">/ {{ unit }}</span>
+  </div>
 </div>`;
 
-const revisedHtml = `<div style="width:100%;height:100%;font-family:var(--charte-font-body);color:var(--charte-color-text);display:flex;align-items:center;gap:5mm;padding:5mm;border:2px solid var(--charte-color-primary);border-radius:4px">
-  <img data-id="logo" data-name="logo" src="${FARM_LOGO_DATA_URI}" alt="" style="width:13mm;height:13mm;flex-shrink:0"/>
-  <div style="flex:1;min-width:0">
-    <div data-id="name" style="font-size:19px;font-weight:700;color:var(--charte-color-primary)">{{ name }}</div>
-    <div data-id="origin" style="font-size:12px;font-style:italic;margin-top:1mm">{{ origin }}</div>
+const revisedHtml = `<div style="width:100%;height:100%;box-sizing:border-box;font-family:var(--charte-font-heading);color:var(--charte-color-ink);display:flex;flex-direction:column;padding:4mm 5mm;border:1.5px solid var(--charte-color-ink);border-radius:3px;position:relative;overflow:hidden">
+  <div style="position:absolute;top:0;left:0;right:0;height:2mm;background:var(--charte-color-accent)"></div>
+  <div style="display:flex;align-items:center;gap:2.5mm;margin-top:2mm">
+    <img data-id="logo" data-name="logo" src="${FARM_LOGO_DATA_URI}" alt="" style="width:8mm;height:8mm;flex-shrink:0"/>
+    <span data-id="brand" style="font-family:var(--charte-font-mono);font-size:9px;letter-spacing:0.18em;color:var(--charte-color-muted)">GREENMARKET · FARM SHOP</span>
+    <span data-id="origin" style="margin-left:auto;font-size:9px;font-weight:700;color:var(--charte-color-accent);border:1px solid var(--charte-color-accent);border-radius:999px;padding:0.5mm 2mm;white-space:nowrap">{{ origin }}</span>
   </div>
-  <div style="text-align:right;flex-shrink:0">
-    <div data-id="price" style="font-size:24px;font-weight:700;color:var(--charte-color-accent)">{{ price }}</div>
-    <div data-id="unit" style="font-size:11px;color:var(--charte-color-primary)">per {{ unit }}</div>
+  <div data-id="name" style="font-size:21px;font-weight:800;letter-spacing:-0.02em;margin-top:2.5mm;line-height:1.05">{{ name }}</div>
+  <div style="margin-top:auto;display:flex;align-items:baseline;gap:2mm;border-top:1px dashed var(--charte-color-line);padding-top:2mm">
+    <span data-id="price" style="font-family:var(--charte-font-mono);font-size:25px;font-weight:500;color:var(--charte-color-accent)">{{ price }}</span>
+    <span data-id="unit" style="font-family:var(--charte-font-mono);font-size:11px;color:var(--charte-color-muted)">/ {{ unit }}</span>
+    <span style="margin-left:auto;font-family:var(--charte-font-mono);font-size:8px;color:var(--charte-color-muted)">maket.dev</span>
   </div>
 </div>`;
 
@@ -203,9 +233,9 @@ export const productCatalogScenario: DemoScenario = {
 			id: "charte",
 			actor: "agent",
 			caption:
-				"A charte is applied: the greenmarket palette and typography become design tokens.",
+				"A charte is applied: paper, ink and teal become design tokens with real web fonts.",
 			workspace: {
-				documents: [labelsDoc({ charte: "greenmarket", html: chartedHtml })],
+				documents: [labelsDoc({ charte: true, html: chartedHtml })],
 				chartes: [greenmarketCharte],
 				collections: [],
 			},
@@ -220,9 +250,9 @@ export const productCatalogScenario: DemoScenario = {
 			id: "revise",
 			actor: "agent",
 			caption:
-				"The agent revises: bigger accent price, logo added, tighter layout.",
+				"The agent revises: monospace accent price, logo, brand line — a label worth printing.",
 			workspace: {
-				documents: [labelsDoc({ charte: "greenmarket", html: revisedHtml })],
+				documents: [labelsDoc({ charte: true, html: revisedHtml })],
 				chartes: [greenmarketCharte],
 				collections: [],
 			},
@@ -234,11 +264,7 @@ export const productCatalogScenario: DemoScenario = {
 				"Your product list becomes a collection — one template, six real labels.",
 			workspace: {
 				documents: [
-					labelsDoc({
-						charte: "greenmarket",
-						html: revisedHtml,
-						collection: true,
-					}),
+					labelsDoc({ charte: true, html: revisedHtml, collection: true }),
 				],
 				chartes: [greenmarketCharte],
 				collections: [productsCollection],

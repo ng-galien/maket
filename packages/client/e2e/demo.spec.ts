@@ -4,6 +4,10 @@ import { expect, test } from "@playwright/test";
 // explicit "Replayed session" labelling, stepping through real workspace
 // states, and a download that round-trips back into the standalone viewer.
 
+async function goToStep(page: import("@playwright/test").Page, index: number) {
+	await page.getByRole("slider", { name: "Timeline" }).fill(String(index));
+}
+
 test.describe("Maket Demo", () => {
 	test("loads with the replay labelling and the opening request", async ({
 		page,
@@ -32,7 +36,7 @@ test.describe("Maket Demo", () => {
 		page,
 	}) => {
 		await page.goto("/demo.html");
-		await page.getByRole("button", { name: "Step 4" }).click();
+		await goToStep(page, 3);
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"stand out more",
 		);
@@ -43,7 +47,7 @@ test.describe("Maket Demo", () => {
 		page,
 	}) => {
 		await page.goto("/demo.html");
-		await page.getByRole("button", { name: "Step 6" }).click();
+		await goToStep(page, 5);
 		const canvases = page.locator('[data-doc="price-labels"] .page-canvas');
 		await expect(canvases).toHaveCount(6);
 		await expect(canvases.getByText("Heritage Tomatoes")).toBeVisible();
@@ -56,7 +60,7 @@ test.describe("Maket Demo", () => {
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"brass festival",
 		);
-		await page.getByRole("button", { name: "Step 5" }).click();
+		await goToStep(page, 4);
 		await expect(
 			page
 				.locator('[data-doc="event-poster"]')
@@ -71,7 +75,7 @@ test.describe("Maket Demo", () => {
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"grocery-delivery",
 		);
-		await page.getByRole("button", { name: "Step 5" }).click();
+		await goToStep(page, 4);
 		await expect(
 			page.locator('[data-doc="app-wireframe"] .page-canvas'),
 		).toHaveCount(3);
@@ -82,7 +86,7 @@ test.describe("Maket Demo", () => {
 
 	test("download round-trips into the standalone viewer", async ({ page }) => {
 		await page.goto("/demo.html");
-		await page.getByRole("button", { name: "Step 7" }).click();
+		await goToStep(page, 6);
 		const downloadPromise = page.waitForEvent("download");
 		await page.getByRole("button", { name: ".maket" }).click();
 		const download = await downloadPromise;
