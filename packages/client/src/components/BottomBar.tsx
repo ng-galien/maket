@@ -24,6 +24,7 @@ import {
 } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
+import { DataSourceToolbarControl } from "./DataSourceToolbarControl";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
 
@@ -56,13 +57,16 @@ export function BottomBar() {
 
 	return (
 		<div
-			className={`fixed left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
+			className={`fixed left-1/2 -translate-x-1/2 z-[var(--z-bar)] flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
 		>
 			{position === "top" && (
 				<PositionToggle direction="bottom" onToggle={togglePosition} />
 			)}
 
-			<div className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1">
+			<div
+				data-toolbar-shell
+				className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1"
+			>
 				<PanelButton
 					panel="chartes"
 					icon={<Palette size={16} />}
@@ -100,7 +104,7 @@ export function BottomBar() {
 					autoOffLabel={t("auto_focus_fit_off")}
 				/>
 
-				<div className="flex items-center gap-1.5 px-2">
+				<div className="flex items-center gap-1.5 px-2 max-md:hidden">
 					<div
 						className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
 					/>
@@ -108,6 +112,8 @@ export function BottomBar() {
 						{focusedDoc?.name ?? t("no_document")}
 					</span>
 				</div>
+
+				<DataSourceToolbarControl />
 
 				<PanelButton
 					panel="exchange"

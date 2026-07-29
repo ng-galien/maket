@@ -332,6 +332,7 @@ export const PageCanvas = memo(function PageCanvas({
 			const id = target.dataset.id;
 			if (!id) return;
 
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
 			const docRoot = el.closest("[data-doc]");
 			if (docRoot) {
 				docRoot.querySelectorAll("[data-id].selected").forEach((e) => {
@@ -361,7 +362,15 @@ export const PageCanvas = memo(function PageCanvas({
 			if (editingRef.current) exitEdit(false);
 			el.removeEventListener("click", onClick);
 		};
-	}, [html, focused, toolbar?.id, canEditTemplate, readOnly]);
+	}, [
+		html,
+		focused,
+		toolbar?.id,
+		canEditTemplate,
+		readOnly,
+		doc.name,
+		pageIndex,
+	]);
 
 	useEffect(() => {
 		if (!pageRef.current) return;

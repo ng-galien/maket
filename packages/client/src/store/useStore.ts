@@ -51,6 +51,7 @@ interface AppState extends CollectionSlice {
 	docs: Map<string, Document>;
 	workspaceDocNames: string[];
 	focusedDocName: string | null;
+	focusedPageIndex: number;
 
 	// Global
 	docList: DocSummary[];
@@ -91,6 +92,7 @@ interface AppState extends CollectionSlice {
 	addDocToWorkspace: (docName: string) => void;
 	removeDocFromWorkspace: (docName: string) => void;
 	setFocusedDoc: (docName: string | null) => void;
+	setFocusedPage: (docName: string, pageIndex: number) => void;
 	selectElement: (id: string | null, toggle?: boolean) => void;
 	setEditingElement: (id: string | null) => void;
 	setActivePanel: (
@@ -236,6 +238,26 @@ function sortedCollectionMembers(collection: Collection | undefined) {
 		: [];
 }
 
+function clampPageIndex(doc: Document | undefined, pageIndex: number): number {
+	if (!doc || doc.pages.length === 0) return 0;
+	return Math.min(doc.pages.length - 1, Math.max(0, Math.trunc(pageIndex)));
+}
+
+function preservePageIndex(
+	previousDoc: Document | undefined,
+	nextDoc: Document | undefined,
+	previousIndex: number,
+): number {
+	const previousPageId =
+		previousDoc?.pages[clampPageIndex(previousDoc, previousIndex)]?.id;
+	const nextIndex = previousPageId
+		? nextDoc?.pages.findIndex((page) => page.id === previousPageId)
+		: -1;
+	return nextIndex !== undefined && nextIndex >= 0
+		? nextIndex
+		: clampPageIndex(nextDoc, nextDoc?.activePage ?? 0);
+}
+
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
 
@@ -247,6 +269,7 @@ export const useStore = create<AppState>((set, get) => ({
 		_savedFocused && _savedWorkspace.includes(_savedFocused)
 			? _savedFocused
 			: null,
+	focusedPageIndex: 0,
 	focusedCollectionName: null,
 	collectionPreview: {},
 	collectionDrafts: {},
@@ -348,6 +371,7 @@ export const useStore = create<AppState>((set, get) => ({
 
 	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
 		set((s) => {
+			const previousFocusedDoc = s.docs.get(s.focusedDocName ?? "");
 			const docs = new Map(s.docs);
 			docs.set(doc.name, doc);
 			const inWorkspace = s.workspaceDocNames.includes(doc.name);
@@ -385,12 +409,28 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedDocName =
 					s.focusedDocName ?? (workspaceDocNames.length > 0 ? doc.name : null);
 			}
+			const focusedPageIndex =
+				focusedDocName === doc.name &&
+				(focus || focusedDocName !== s.focusedDocName)
+					? clampPageIndex(doc, doc.activePage)
+					: preservePageIndex(
+							previousFocusedDoc,
+							docs.get(focusedDocName ?? ""),
+							s.focusedPageIndex,
+						);
 			const chartesCss = new Map(s.chartesCss);
 			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
 			saveWorkspace(workspaceDocNames);
 			syncWorkspace();
 			if (focusedDocName) saveFocusedDoc(focusedDocName);
-			return { docs, workspaceDocNames, focusedDocName, docList, chartesCss };
+			return {
+				docs,
+				workspaceDocNames,
+				focusedDocName,
+				focusedPageIndex,
+				docList,
+				chartesCss,
+			};
 		}),
 
 	addDocToWorkspace: (docName) =>
@@ -414,11 +454,19 @@ export const useStore = create<AppState>((set, get) => ({
 				s.focusedDocName === docName
 					? (workspaceDocNames[workspaceDocNames.length - 1] ?? null)
 					: s.focusedDocName;
+			const focusChanged = focusedDocName !== s.focusedDocName;
+			const focusedPageIndex = clampPageIndex(
+				docs.get(focusedDocName ?? ""),
+				focusChanged
+					? (docs.get(focusedDocName ?? "")?.activePage ?? 0)
+					: s.focusedPageIndex,
+			);
 			return {
 				workspaceDocNames,
 				docs,
 				focusedDocName,
-				selectedIds: focusedDocName !== s.focusedDocName ? [] : s.selectedIds,
+				focusedPageIndex,
+				selectedIds: focusChanged ? [] : s.selectedIds,
 			};
 		}),
 
@@ -428,6 +476,27 @@ export const useStore = create<AppState>((set, get) => ({
 			saveFocusedDoc(docName ?? "");
 			return {
 				focusedDocName: docName,
+				focusedPageIndex: clampPageIndex(
+					s.docs.get(docName ?? ""),
+					s.docs.get(docName ?? "")?.activePage ?? 0,
+				),
+				selectedIds: [],
+			};
+		}),
+
+	setFocusedPage: (docName, pageIndex) =>
+		set((s) => {
+			const focusedPageIndex = clampPageIndex(s.docs.get(docName), pageIndex);
+			if (
+				s.focusedDocName === docName &&
+				s.focusedPageIndex === focusedPageIndex
+			) {
+				return {};
+			}
+			saveFocusedDoc(docName);
+			return {
+				focusedDocName: docName,
+				focusedPageIndex,
 				selectedIds: [],
 			};
 		}),

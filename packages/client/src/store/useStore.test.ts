@@ -23,6 +23,7 @@ function resetStore() {
 			docs: new Map(),
 			workspaceDocNames: [],
 			focusedDocName: null,
+			focusedPageIndex: 0,
 			docList: [],
 			chartesCss: new Map(),
 			chartesVersion: 0,
@@ -55,14 +56,23 @@ const clientsCollection: Collection = {
 	],
 };
 
-function makeDoc(name: string, category = "flyer"): Document {
+function makeDoc(
+	name: string,
+	category = "flyer",
+	pageCount = 1,
+	activePage = 0,
+): Document {
 	return {
 		id: `id-${name}`,
 		name,
 		category,
 		canvas: { w: 210, h: 297, background: "#fff" },
-		pages: [{ id: `${name}-page-1`, name: "p1", elements: [] }],
-		activePage: 0,
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			id: `${name}-page-${index + 1}`,
+			name: `p${index + 1}`,
+			elements: [],
+		})),
+		activePage,
 	};
 }
 
@@ -103,12 +113,61 @@ describe("upsertDoc", () => {
 
 	it("steals focus when focus=true", () => {
 		const a = makeDoc("alpha");
-		const b = makeDoc("beta");
+		const b = makeDoc("beta", "flyer", 3, 2);
 		useStore.getState().upsertDoc(a, [summary("alpha")], "");
 		useStore
 			.getState()
 			.upsertDoc(b, [summary("alpha"), summary("beta")], "", true, true);
 		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("preserves the locally selected page on background state updates", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 2);
+
+		useStore
+			.getState()
+			.upsertDoc({ ...doc, activePage: 0 }, [summary("alpha")], "");
+
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("tracks the selected page by id when pages are reordered", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		useStore.getState().upsertDoc(
+			{
+				...doc,
+				pages: [doc.pages[1], doc.pages[0], doc.pages[2]],
+				activePage: 2,
+			},
+			[summary("alpha")],
+			"",
+		);
+
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+	});
+
+	it("falls back to the server active page when the selected page is removed", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		useStore.getState().upsertDoc(
+			{
+				...doc,
+				pages: [doc.pages[0], doc.pages[2]],
+				activePage: 1,
+			},
+			[summary("alpha")],
+			"",
+		);
+
+		expect(useStore.getState().focusedPageIndex).toBe(1);
 	});
 
 	it("skips workspace insertion when addToWorkspace=false", () => {
@@ -196,7 +255,9 @@ describe("pending messages", () => {
 
 describe("workspace / focus", () => {
 	it("removeDocFromWorkspace reassigns focus to the last remaining doc", () => {
-		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+		useStore
+			.getState()
+			.upsertDoc(makeDoc("alpha", "flyer", 2, 1), [summary("alpha")], "");
 		useStore
 			.getState()
 			.upsertDoc(
@@ -211,6 +272,7 @@ describe("workspace / focus", () => {
 		const s = useStore.getState();
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
 		expect(s.focusedDocName).toBe("alpha");
+		expect(s.focusedPageIndex).toBe(1);
 		expect(s.selectedIds).toEqual([]);
 	});
 
@@ -239,9 +301,46 @@ describe("workspace / focus", () => {
 	});
 
 	it("setFocusedDoc clears selection when changing doc", () => {
-		useStore.setState({ focusedDocName: "alpha", selectedIds: ["x"] });
+		const beta = makeDoc("beta", "flyer", 3, 2);
+		useStore.setState({
+			docs: new Map([["beta", beta]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			selectedIds: ["x"],
+		});
 		useStore.getState().setFocusedDoc("beta");
 		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("setFocusedPage focuses the doc, clamps the page, and clears selection", () => {
+		const beta = makeDoc("beta", "flyer", 3);
+		useStore.setState({
+			docs: new Map([["beta", beta]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			selectedIds: ["x"],
+		});
+
+		useStore.getState().setFocusedPage("beta", 99);
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		expect(useStore.getState().selectedIds).toEqual([]);
+	});
+
+	it("setFocusedPage is a no-op when the active page is unchanged", () => {
+		const alpha = makeDoc("alpha", "flyer", 2);
+		useStore.setState({
+			docs: new Map([["alpha", alpha]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 1,
+			selectedIds: ["x"],
+		});
+
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		expect(useStore.getState().selectedIds).toEqual(["x"]);
 	});
 
 	it("setFocusedDoc keeps the opened collection workspace", () => {

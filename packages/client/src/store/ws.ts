@@ -52,10 +52,10 @@ function findPageCanvas(
 		) as HTMLElement | null;
 		if (exact) return exact;
 	}
-	const focusedName = useStore.getState().focusedDocName;
+	const { focusedDocName: focusedName, focusedPageIndex } = useStore.getState();
 	if (focusedName) {
 		const focused = document.querySelector(
-			`[data-doc="${focusedName}"] .page-canvas`,
+			`[data-doc="${focusedName}"] [data-page="${focusedPageIndex}"].page-canvas`,
 		) as HTMLElement | null;
 		if (focused) return focused;
 	}

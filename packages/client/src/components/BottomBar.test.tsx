@@ -1,3 +1,4 @@
+import type { Collection } from "@maket/shared";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +7,20 @@ import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import * as wsClient from "../store/ws";
 import { BottomBar } from "./BottomBar";
+
+const clientsCollection: Collection = {
+	name: "clients",
+	schema: {
+		type: "object",
+		properties: { client_name: { type: "string" } },
+		required: ["client_name"],
+		additionalProperties: false,
+	},
+	members: [
+		{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+		{ id: "member_2", position: 1, data: { client_name: "Globex" } },
+	],
+};
 
 function makeDoc(name: string): Document {
 	return {
@@ -25,6 +40,8 @@ beforeEach(() => {
 		docs: new Map(),
 		workspaceDocNames: [],
 		focusedDocName: null,
+		focusedPageIndex: 0,
+		focusedCollectionName: null,
 		pending: [],
 		collections: [],
 		collectionDrafts: {},
@@ -32,6 +49,7 @@ beforeEach(() => {
 		activePanel: null,
 		barPosition: "bottom",
 		darkMode: false,
+		readOnly: false,
 	});
 });
 
@@ -100,6 +118,122 @@ describe("BottomBar", () => {
 				clients: { mode: "rendered", memberId: "member_2" },
 			}),
 		);
+	});
+
+	it("opens the active page data-source addon on the toolbar free side", async () => {
+		const user = userEvent.setup();
+		const doc = makeDoc("poster");
+		doc.pages.push({ id: "poster-page-2", name: "p2", elements: [] });
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 1,
+			collections: [clientsCollection],
+		});
+
+		render(<BottomBar />);
+		await user.click(screen.getByRole("button", { name: "Link data" }));
+
+		const addon = screen.getByRole("dialog", { name: "Data source" });
+		expect(addon).toHaveAttribute("data-side", "bottom");
+		expect(screen.getByText(/Page 2 \/ 2/)).toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: /move to top/i }));
+		expect(
+			screen.queryByRole("dialog", { name: "Data source" }),
+		).not.toBeInTheDocument();
+		await user.click(screen.getByRole("button", { name: "Link data" }));
+		expect(screen.getByRole("dialog", { name: "Data source" })).toHaveAttribute(
+			"data-side",
+			"top",
+		);
+	});
+
+	it("binds a collection to the active page without optimistic state", async () => {
+		const user = userEvent.setup();
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const doc = makeDoc("poster");
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 0,
+			collections: [clientsCollection],
+		});
+
+		render(<BottomBar />);
+		await user.click(screen.getByRole("button", { name: "Link data" }));
+		await user.selectOptions(
+			screen.getByRole("combobox", { name: "Page binding" }),
+			"clients",
+		);
+
+		expect(send).toHaveBeenCalledWith({
+			type: "collection_bind_page",
+			docName: "poster",
+			pageIndex: 0,
+			collectionName: "clients",
+		});
+		expect(doc.pages[0].collection).toBeUndefined();
+		send.mockRestore();
+	});
+
+	it("keeps detach explicit and scoped to the active page", async () => {
+		const user = userEvent.setup();
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const doc = makeDoc("poster");
+		doc.pages[0].collection = { name: "clients" };
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 0,
+			collections: [clientsCollection],
+			collectionPreview: {
+				clients: { mode: "template", memberId: "member_1" },
+			},
+		});
+
+		render(<BottomBar />);
+		await user.click(screen.getByRole("button", { name: /clients · 2/i }));
+		await user.click(screen.getByRole("button", { name: "Detach" }));
+
+		expect(send).toHaveBeenCalledWith({
+			type: "collection_clear_page",
+			docName: "poster",
+			pageIndex: 0,
+		});
+		send.mockRestore();
+	});
+
+	it("controls preview rows and opens the bound collection workspace", async () => {
+		const user = userEvent.setup();
+		const doc = makeDoc("poster");
+		doc.pages[0].collection = { name: "clients" };
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 0,
+			collections: [clientsCollection],
+			collectionPreview: {
+				clients: { mode: "template", memberId: "member_1" },
+			},
+		});
+
+		render(<BottomBar />);
+		await user.click(screen.getByRole("button", { name: /clients · 2/i }));
+		await user.click(
+			screen.getByRole("button", { name: "Current row render" }),
+		);
+		await user.click(screen.getByRole("button", { name: "Next row" }));
+
+		expect(useStore.getState().collectionPreview.clients).toEqual({
+			mode: "rendered",
+			memberId: "member_2",
+		});
+
+		await user.click(screen.getByRole("button", { name: "Open data" }));
+		expect(useStore.getState().focusedCollectionName).toBe("clients");
+		expect(useStore.getState().focusedDocName).toBe("poster");
+		expect(useStore.getState().activePanel).toBeNull();
 	});
 
 	it("toggles the active panel when a panel icon is clicked", async () => {
