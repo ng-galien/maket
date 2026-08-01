@@ -99,16 +99,14 @@ export function CollectionWorkspace() {
 		barPosition === "top"
 			? { top: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` }
 			: { bottom: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` };
-	// Saved rows move the shared server cursor; draft-only rows get a local
-	// preview override until the collection is saved (then it is promoted).
 	const selectMember = (memberId: string) => {
 		if (!cursorDocName) return;
 		if (isSavedRow(collection, memberId)) {
 			setDraftCursorOverride(cursorDocName, cursorPageIndex, null);
 			setCursorMember(cursorDocName, cursorPageIndex, memberId);
-		} else {
-			setDraftCursorOverride(cursorDocName, cursorPageIndex, memberId);
+			return;
 		}
+		setDraftCursorOverride(cursorDocName, cursorPageIndex, memberId);
 	};
 
 	return (
@@ -184,18 +182,16 @@ function CollectionEditor({
 	return (
 		<div className="flex min-h-0 flex-col overflow-hidden">
 			<CollectionEditorHeader
-				draft={draft}
-				dirty={dirty}
-				canSave={canSave}
-				pinned={pinned}
-				onTogglePinned={onTogglePinned}
-				onClose={onClose}
-				onDescription={(description) =>
-					updateDescription(description, setDraft)
-				}
-				onReset={() => {
-					clearCollectionDraft(collection.name);
-					setDraftState(collection);
+				model={{ draft, dirty, canSave, pinned }}
+				actions={{
+					togglePinned: onTogglePinned,
+					close: onClose,
+					setDescription: (description) =>
+						updateDescription(description, setDraft),
+					reset: () => {
+						clearCollectionDraft(collection.name);
+						setDraftState(collection);
+					},
 				}}
 			/>
 			<SchemaToolbar
@@ -221,25 +217,26 @@ function CollectionEditor({
 	);
 }
 
-function CollectionEditorHeader({
-	draft,
-	dirty,
-	canSave,
-	pinned,
-	onTogglePinned,
-	onClose,
-	onDescription,
-	onReset,
-}: {
+type CollectionEditorHeaderModel = {
 	draft: Collection;
 	dirty: boolean;
 	canSave: boolean;
 	pinned: boolean;
-	onTogglePinned: () => void;
-	onClose: () => void;
-	onDescription: (description: string) => void;
-	onReset: () => void;
+};
+
+type CollectionEditorHeaderActions = {
+	togglePinned: () => void;
+	close: () => void;
+	setDescription: (description: string) => void;
+	reset: () => void;
+};
+
+function CollectionEditorHeader(props: {
+	model: CollectionEditorHeaderModel;
+	actions: CollectionEditorHeaderActions;
 }) {
+	const { model, actions } = props;
+	const { draft, dirty, canSave, pinned } = model;
 	const t = useT();
 	return (
 		<header className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border">
@@ -257,7 +254,7 @@ function CollectionEditorHeader({
 			</span>
 			<input
 				value={draft.description ?? ""}
-				onChange={(event) => onDescription(event.target.value)}
+				onChange={(event) => actions.setDescription(event.target.value)}
 				placeholder={t("collection_description_placeholder")}
 				title={draft.description ?? ""}
 				className="min-w-0 flex-1 bg-transparent text-xs text-text-3 outline-none"
@@ -269,7 +266,7 @@ function CollectionEditorHeader({
 							type="button"
 							title={t("collection_reset_changes")}
 							aria-label={t("collection_reset_changes")}
-							onClick={onReset}
+							onClick={actions.reset}
 							className="w-7 h-7 rounded-md flex items-center justify-center text-text-2 hover:bg-input transition-colors"
 						>
 							<RotateCcw size={13} />
@@ -294,7 +291,7 @@ function CollectionEditorHeader({
 					title={t("collection_pin_view")}
 					aria-label={t("collection_pin_view")}
 					aria-pressed={pinned}
-					onClick={onTogglePinned}
+					onClick={actions.togglePinned}
 					className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
 						pinned
 							? "bg-accent-soft text-accent"
@@ -307,7 +304,7 @@ function CollectionEditorHeader({
 					type="button"
 					title={t("close")}
 					aria-label={t("close")}
-					onClick={onClose}
+					onClick={actions.close}
 					className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
 				>
 					<X size={13} />
@@ -474,14 +471,15 @@ function CollectionTable({
 						members.map((member, index) => (
 							<DataRow
 								key={member.id}
-								draft={draft}
-								member={member}
-								index={index}
-								fields={fields}
-								selected={member.id === previewMemberId}
-								unsaved={!savedMemberIds.has(member.id)}
-								setDraft={setDraft}
-								onSelectMember={onSelectMember}
+								model={{
+									draft,
+									member,
+									index,
+									fields,
+									selected: member.id === previewMemberId,
+									unsaved: !savedMemberIds.has(member.id),
+								}}
+								actions={{ setDraft, selectMember: onSelectMember }}
 							/>
 						))
 					)}
@@ -505,30 +503,28 @@ function EmptyRows({ colSpan }: { colSpan: number }) {
 	);
 }
 
-function DataRow({
-	draft,
-	member,
-	index,
-	fields,
-	selected,
-	unsaved,
-	setDraft,
-	onSelectMember,
-}: {
+type DataRowModel = {
 	draft: Collection;
 	member: Collection["members"][number];
 	index: number;
 	fields: CollectionField[];
 	selected: boolean;
 	unsaved: boolean;
+};
+
+type DataRowActions = {
 	setDraft: SetCollectionDraft;
-	onSelectMember: (memberId: string) => void;
-}) {
+	selectMember: (memberId: string) => void;
+};
+
+function DataRow(props: { model: DataRowModel; actions: DataRowActions }) {
+	const { model, actions } = props;
+	const { draft, member, index, fields, selected, unsaved } = model;
 	const t = useT();
 	return (
 		<tr
 			className={`border-b border-border/60 transition-colors ${selected ? "bg-accent-soft" : ""}`}
-			onClick={() => onSelectMember(member.id)}
+			onClick={() => actions.selectMember(member.id)}
 		>
 			<td className="px-1.5 py-0.5 text-text-3 whitespace-nowrap">
 				<button
@@ -541,7 +537,7 @@ function DataRow({
 					}
 					onClick={(event) => {
 						event.stopPropagation();
-						onSelectMember(member.id);
+						actions.selectMember(member.id);
 					}}
 					className={`w-5 h-5 rounded inline-flex items-center justify-center text-2xs font-bold ${
 						unsaved
@@ -560,8 +556,8 @@ function DataRow({
 						draft={draft}
 						member={member}
 						field={field}
-						setDraft={setDraft}
-						onSelectMember={onSelectMember}
+						setDraft={actions.setDraft}
+						onSelectMember={actions.selectMember}
 					/>
 				</td>
 			))}
@@ -572,7 +568,7 @@ function DataRow({
 					aria-label={t("collection_delete_row")}
 					onClick={(event) => {
 						event.stopPropagation();
-						removeRow(member.id, setDraft);
+						removeRow(member.id, actions.setDraft);
 					}}
 					className="w-6 h-6 rounded inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors"
 				>
@@ -846,7 +842,7 @@ function addField(
 		setFieldError(messages.duplicate);
 		return;
 	}
-	setDraft(withAddedField(draft, key, type));
+	setDraft(withOptionalSchemaField(draft, key, type));
 	setFieldName("");
 	setFieldError("");
 }
@@ -918,12 +914,12 @@ function removeRow(memberId: string, setDraft: SetCollectionDraft): void {
 	}));
 }
 
-function withAddedField(
+/** Adds a schema property without requiring it on existing rows. */
+function withOptionalSchemaField(
 	collection: Collection,
 	key: string,
 	type: FieldType,
 ): Collection {
-	// The new field is optional: existing rows validate with the key absent.
 	return {
 		...collection,
 		schema: {

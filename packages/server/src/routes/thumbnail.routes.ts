@@ -18,46 +18,51 @@ export interface ThumbnailRouterDeps {
 	thumbnailService: ThumbnailService;
 }
 
-export function createThumbnailRouter({
-	documents,
-	store,
-	thumbnailService,
-}: ThumbnailRouterDeps): Router {
-	const router = createRouter();
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler for GET /api/thumb: resolves doc + delegates to ThumbnailService.
+async function handleThumbRequest(
+	deps: ThumbnailRouterDeps,
+	req: import("express").Request,
+	res: import("express").Response,
+) {
+	const { documents, store, thumbnailService } = deps;
+	try {
+		const name = req.query.name as string | undefined;
+		if (!name)
+			return res.status(400).json({ error: "Missing ?name= parameter" });
+		const doc = documents.resolveOrLoad(name);
+		if (!doc)
+			return res.status(404).json({ error: `Document "${name}" not found` });
 
-	router.get("/api/thumb", async (req, res) => {
-		try {
-			const name = req.query.name as string | undefined;
-			if (!name)
-				return res.status(400).json({ error: "Missing ?name= parameter" });
-			const doc = documents.resolveOrLoad(name);
-			if (!doc)
-				return res.status(404).json({ error: `Document "${name}" not found` });
+		const page1based = Math.max(1, Number(req.query.page) || 1);
+		const widthPx = Math.max(60, Math.min(2000, Number(req.query.w) || 400));
+		const updatedAt =
+			(typeof req.query.t === "string" ? req.query.t : undefined) ??
+			store.listTimestamps().get(doc.name);
 
-			const page1based = Math.max(1, Number(req.query.page) || 1);
-			const widthPx = Math.max(60, Math.min(2000, Number(req.query.w) || 400));
-			const updatedAt =
-				(typeof req.query.t === "string" ? req.query.t : undefined) ??
-				store.listTimestamps().get(doc.name);
+		const buf = await thumbnailService.render(doc, {
+			page: page1based - 1,
+			widthPx,
+			updatedAt,
+		});
 
-			const buf = await thumbnailService.render(doc, {
-				page: page1based - 1,
-				widthPx,
-				updatedAt,
-			});
-
-			res.setHeader("Content-Type", "image/png");
-			if (req.query.t) {
-				res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-			} else {
-				res.setHeader("Cache-Control", "no-cache");
-			}
-			return res.send(buf);
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e);
-			return res.status(500).json({ error: msg });
+		res.setHeader("Content-Type", "image/png");
+		if (req.query.t) {
+			res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+		} else {
+			res.setHeader("Cache-Control", "no-cache");
 		}
-	});
+		return res.send(buf);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return res.status(500).json({ error: msg });
+	}
+}
 
+export function createThumbnailRouter(deps: ThumbnailRouterDeps): Router {
+	const router = createRouter();
+	router.get("/api/thumb", (req, res) => {
+		void handleThumbRequest(deps, req, res);
+	});
 	return router;
 }

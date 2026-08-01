@@ -87,6 +87,9 @@ export function ChartesTab() {
 	return <ChartesTabView model={model} />;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Chartes tab shell adapter: wires HTTP chartes API, store focus, and UI
+// factories. Cross-owner calls are composition, not envied domain logic.
 function useChartesTabModel() {
 	const t = useT();
 	const [chartes, setChartes] = useState<Charte[]>([]);

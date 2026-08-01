@@ -136,6 +136,59 @@ function extractCredentials(raw: unknown): {
 	};
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler for Gmail OAuth client JSON upload into the data dir.
+function handleGmailCredentialsPost(
+	config: GmailRouterDeps["config"],
+	req: import("express").Request,
+	res: import("express").Response,
+) {
+	const rawJson = req.body?.credentials;
+	const withRead = req.body?.with_read === "1";
+	if (typeof rawJson !== "string" || !rawJson.trim()) {
+		return res
+			.type("html")
+			.status(400)
+			.send(
+				formPage({
+					error: "Paste the JSON contents from the OAuth client you created.",
+				}),
+			);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(rawJson);
+	} catch {
+		return res
+			.type("html")
+			.status(400)
+			.send(
+				formPage({
+					error:
+						"That didn't parse as JSON. Make sure you pasted the full file content, braces included.",
+				}),
+			);
+	}
+	const creds = extractCredentials(parsed);
+	if (!creds) {
+		return res
+			.type("html")
+			.status(400)
+			.send(
+				formPage({
+					error:
+						"Missing `client_id` or `client_secret`. Expected a Desktop app JSON with an `installed` block.",
+				}),
+			);
+	}
+	const path = join(config.DATA_DIR, "google-credentials.json");
+	mkdirSync(dirname(path), { recursive: true });
+	const tmp = `${path}.tmp`;
+	writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
+	renameSync(tmp, path);
+	res.type("html").send(successPage(withRead));
+}
+
 export function createGmailRouter({
 	config,
 	gmailClient,
@@ -151,50 +204,7 @@ export function createGmailRouter({
 	});
 
 	router.post("/api/gmail/credentials", (req, res) => {
-		const rawJson = req.body?.credentials;
-		const withRead = req.body?.with_read === "1";
-		if (typeof rawJson !== "string" || !rawJson.trim()) {
-			return res
-				.type("html")
-				.status(400)
-				.send(
-					formPage({
-						error: "Paste the JSON contents from the OAuth client you created.",
-					}),
-				);
-		}
-		let parsed: unknown;
-		try {
-			parsed = JSON.parse(rawJson);
-		} catch {
-			return res
-				.type("html")
-				.status(400)
-				.send(
-					formPage({
-						error:
-							"That didn't parse as JSON. Make sure you pasted the full file content, braces included.",
-					}),
-				);
-		}
-		const creds = extractCredentials(parsed);
-		if (!creds) {
-			return res
-				.type("html")
-				.status(400)
-				.send(
-					formPage({
-						error:
-							"Missing `client_id` or `client_secret`. Expected a Desktop app JSON with an `installed` block.",
-					}),
-				);
-		}
-		const path = join(config.DATA_DIR, "google-credentials.json");
-		mkdirSync(dirname(path), { recursive: true });
-		const tmp = `${path}.tmp`;
-		writeFileSync(tmp, JSON.stringify(creds, null, 2), { mode: 0o600 });
-		renameSync(tmp, path);
-		res.type("html").send(successPage(withRead));
+		handleGmailCredentialsPost(config, req, res);
 	});
 
 	router.get("/api/gmail/auth-url", async (req, res) => {

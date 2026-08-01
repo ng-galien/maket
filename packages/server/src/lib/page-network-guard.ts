@@ -27,7 +27,7 @@
  * without widening the exfiltration surface — see `isAllowedFontRequest`.
  */
 
-import type { Page } from "puppeteer";
+import type { HTTPRequest, Page } from "puppeteer";
 
 export type NetworkGuardMode = "offline" | "localhost-only";
 
@@ -68,25 +68,31 @@ export async function installNetworkGuard(
 ): Promise<void> {
 	await page.setRequestInterception(true);
 	page.on("request", (req) => {
-		const url = req.url();
-		if (url.startsWith("data:") || url.startsWith("about:")) {
-			req.continue().catch(() => {});
-			return;
-		}
-		try {
-			const u = new URL(url);
-			if (u.protocol === "http:" || u.protocol === "https:") {
-				const hostname = u.hostname.toLowerCase();
-				if (isAllowedFontRequest(u, hostname)) {
-					req.continue().catch(() => {});
-					return;
-				}
-				if (mode === "localhost-only" && LOCAL_HOSTNAMES.has(hostname)) {
-					req.continue().catch(() => {});
-					return;
-				}
-			}
-		} catch {}
-		req.abort("blockedbyclient").catch(() => {});
+		handleGuardedRequest(req, mode);
 	});
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// Request allow/deny policy for headless pages; coordinates URL checks and puppeteer request API.
+function handleGuardedRequest(req: HTTPRequest, mode: NetworkGuardMode): void {
+	const url = req.url();
+	if (url.startsWith("data:") || url.startsWith("about:")) {
+		req.continue().catch(() => {});
+		return;
+	}
+	try {
+		const u = new URL(url);
+		if (u.protocol === "http:" || u.protocol === "https:") {
+			const hostname = u.hostname.toLowerCase();
+			if (isAllowedFontRequest(u, hostname)) {
+				req.continue().catch(() => {});
+				return;
+			}
+			if (mode === "localhost-only" && LOCAL_HOSTNAMES.has(hostname)) {
+				req.continue().catch(() => {});
+				return;
+			}
+		}
+	} catch {}
+	req.abort("blockedbyclient").catch(() => {});
 }

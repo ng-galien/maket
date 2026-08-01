@@ -4,21 +4,20 @@
  * Two entry points:
  *
  * - `measure(doc, html, pageIdx)` — used by `set_html` / `patch_html`. First
- *   broadcasts the new state to connected browsers (fire-and-forget, so the
- *   live preview refreshes immediately), then returns a canvas-authoritative
- *   layout summary computed server-side (mm-math walker, with a headless
- *   Chromium fallback for content-driven overflow).
+ *   emits `document:saved` so index listeners refresh live previews, then
+ *   returns a canvas-authoritative layout summary (mm-math walker, with a
+ *   headless Chromium fallback for content-driven overflow).
  *
  * - `check(doc, html, pageIdx)` — used by `check_layout`. Same measurement
- *   path as `measure` but without the state broadcast, and the result is
+ *   path as `measure` but without the preview emit, and the result is
  *   trimmed (no leading newline).
  *
  * Earlier revisions awaited a browser-measured layout report via WebSocket
  * (measureId correlation). That reported the *thumbnail's* container size,
  * not the canvas, so agents routinely saw phantom overflow on pages that
- * fit the canvas perfectly. We kept the broadcast (for live preview sync,
- * which is independent of measurement) but dropped the round-trip wait
- * and report nothing but canvas-authoritative numbers.
+ * fit the canvas perfectly. We kept the preview emit (independent of
+ * measurement) but dropped the round-trip wait and report nothing but
+ * canvas-authoritative numbers.
  */
 
 import { parseHTML } from "linkedom";
@@ -35,8 +34,8 @@ import {
 	waitForPageStable,
 } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
+import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
-import type { WsRegistry } from "./ws-registry.js";
 
 /** px per mm at 96 DPI — matches the viewport puppeteer renders into. */
 const PX_PER_MM = 96 / 25.4;
@@ -54,7 +53,7 @@ export interface LayoutResult {
 }
 
 export interface LayoutService {
-	/** Broadcasts state for live preview, then measures. */
+	/** Emits document:saved for live preview, then measures. */
 	measure(
 		doc: Document,
 		pageHtml: string,
@@ -68,8 +67,8 @@ export interface LayoutService {
 }
 
 export interface LayoutServiceDeps {
+	bus: Bus;
 	documents: Documents;
-	wsRegistry: WsRegistry;
 }
 
 export interface LayoutServiceOptions {
@@ -85,11 +84,78 @@ export interface LayoutServiceOptions {
  * optional test overrides there would require registering `undefined` for
  * them at the container level.
  */
+
+// code-moniker: ignore[smell-feature-envy-local]
+// Headless layout path coordinates browser, network guard, and DOM measure.
+async function runHeadlessLayoutCheck(ctx: {
+	doc: Document;
+	pageHtml: string;
+	documents: Documents;
+	getBrowser: () => Promise<Browser>;
+	getAssetBaseUrl: () => string;
+}): Promise<LayoutReport | null> {
+	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl } = ctx;
+	let b: Browser;
+	try {
+		b = await getBrowser();
+	} catch {
+		return null;
+	}
+	const page = await b.newPage();
+	try {
+		const { w, h, bg } = doc.canvas;
+		const charteCss = documents.charteCss(doc);
+		const html = pageHtml.replaceAll(
+			"/assets/",
+			`${getAssetBaseUrl()}/assets/`,
+		);
+		const safeBg = escapeCssValue(bg || "#ffffff");
+		const safeCharteCss = stripStyleClose(charteCss);
+		const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+${safeCharteCss}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
+</style>
+</head>
+<body>${html}</body>
+</html>`;
+		await installNetworkGuard(page, "localhost-only");
+		await page.setViewport({
+			width: Math.ceil(w * PX_PER_MM),
+			height: Math.ceil(h * PX_PER_MM),
+		});
+		await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await waitForPageStable(page);
+		const m = doc.canvas.margins;
+		const marginsPx = m
+			? {
+					top: m.top * PX_PER_MM,
+					right: m.right * PX_PER_MM,
+					bottom: m.bottom * PX_PER_MM,
+					left: m.left * PX_PER_MM,
+				}
+			: null;
+		return (await page.evaluate(
+			measureInBrowser,
+			PAGE_BLOCK_SELECTOR,
+			marginsPx,
+		)) as LayoutReport | null;
+	} catch {
+		return null;
+	} finally {
+		await page.close();
+	}
+}
+
 export function createLayoutService(
 	deps: LayoutServiceDeps,
 	opts: LayoutServiceOptions = {},
 ): LayoutService {
-	const { documents, wsRegistry } = deps;
+	const { bus, documents } = deps;
 	const browserLaunch =
 		opts.browserLaunch ??
 		(() =>
@@ -115,60 +181,13 @@ export function createLayoutService(
 		doc: Document,
 		pageHtml: string,
 	): Promise<LayoutReport | null> {
-		let b: Browser;
-		try {
-			b = await getBrowser();
-		} catch {
-			return null;
-		}
-		const page = await b.newPage();
-		try {
-			const { w, h, bg } = doc.canvas;
-			const charteCss = documents.charteCss(doc);
-			const html = pageHtml.replaceAll(
-				"/assets/",
-				`${getAssetBaseUrl()}/assets/`,
-			);
-			const safeBg = escapeCssValue(bg || "#ffffff");
-			const safeCharteCss = stripStyleClose(charteCss);
-			const fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-${safeCharteCss}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
-</style>
-</head>
-<body>${html}</body>
-</html>`;
-			await installNetworkGuard(page, "localhost-only");
-			await page.setViewport({
-				width: Math.ceil(w * PX_PER_MM),
-				height: Math.ceil(h * PX_PER_MM),
-			});
-			await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-			await waitForPageStable(page);
-			const m = doc.canvas.margins;
-			const marginsPx = m
-				? {
-						top: m.top * PX_PER_MM,
-						right: m.right * PX_PER_MM,
-						bottom: m.bottom * PX_PER_MM,
-						left: m.left * PX_PER_MM,
-					}
-				: null;
-			return (await page.evaluate(
-				measureInBrowser,
-				PAGE_BLOCK_SELECTOR,
-				marginsPx,
-			)) as LayoutReport | null;
-		} catch {
-			return null;
-		} finally {
-			await page.close();
-		}
+		return runHeadlessLayoutCheck({
+			doc,
+			pageHtml,
+			documents,
+			getBrowser,
+			getAssetBaseUrl,
+		});
 	}
 
 	async function runMeasure(
@@ -190,19 +209,9 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 		return serverResult;
 	}
 
-	function broadcastState(doc: Document, pageIdx: number) {
-		if (!wsRegistry.hasClients()) return;
-		wsRegistry.broadcast({
-			type: "state",
-			doc: documents.lightView(doc, pageIdx),
-			docList: documents.list(),
-			charteCss: documents.charteCss(doc),
-		});
-	}
-
 	return {
-		async measure(doc, pageHtml, pageIdx) {
-			broadcastState(doc, pageIdx);
+		async measure(doc, pageHtml, _pageIdx) {
+			bus.emit("document:saved", { docName: doc.name });
 			return runMeasure(doc, pageHtml);
 		},
 		async check(doc, pageHtml, _pageIdx) {
@@ -254,6 +263,8 @@ function parseMm(value: string | undefined): number | null {
 	return m ? Number.parseFloat(m[1] ?? "0") : null;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `serverLayoutCheck`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function serverLayoutCheck(
 	html: string,
 	canvas: { w: number; h: number },
@@ -364,6 +375,8 @@ export function serverLayoutCheck(
 	};
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
 	_canvas: { w: number; h: number },
@@ -474,6 +487,8 @@ export function formatLayoutReport(
 // `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
 // declaring its own measurement zone. Falls back to firstElementChild for
 // legacy / non-canonical content.
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
 function measureInBrowser(
 	pageSelector: string,
 	marginsPx: {

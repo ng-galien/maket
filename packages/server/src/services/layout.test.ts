@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Document } from "../types.js";
+import { createBus } from "./bus.js";
 import { createDocuments } from "./documents.js";
 import {
 	createLayoutService,
@@ -7,34 +8,22 @@ import {
 	serverLayoutCheck,
 } from "./layout.js";
 import { createSQLiteStore } from "./store.js";
-import { createWsRegistry, type WsLike } from "./ws-registry.js";
-
-function openClient(): WsLike & { sent: string[] } {
-	const sent: string[] = [];
-	return {
-		readyState: 1,
-		send(msg) {
-			sent.push(msg);
-		},
-		sent,
-	};
-}
 
 function fixture() {
 	const store = createSQLiteStore(":memory:");
 	const documents = createDocuments({ store });
-	const wsRegistry = createWsRegistry();
+	const bus = createBus();
 	const browserLaunch = vi.fn(async () => {
 		throw new Error("no browser in tests");
 	});
 	const service = createLayoutService(
-		{ documents, wsRegistry },
+		{ bus, documents },
 		{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 	);
 	return {
 		store,
 		documents,
-		wsRegistry,
+		bus,
 		service,
 		browserLaunch,
 		cleanup: () => store.close(),
@@ -249,7 +238,7 @@ describe("LayoutService — measure", () => {
 	it("uses the headless browser for content-driven overflow and rewrites asset URLs", async () => {
 		const store = createSQLiteStore(":memory:");
 		const documents = createDocuments({ store });
-		const wsRegistry = createWsRegistry();
+		const bus = createBus();
 		const page = {
 			setOfflineMode: vi.fn(async () => {}),
 			setRequestInterception: vi.fn(async () => {}),
@@ -275,7 +264,7 @@ describe("LayoutService — measure", () => {
 		};
 		const browserLaunch = vi.fn(async () => browser as any);
 		const service = createLayoutService(
-			{ documents, wsRegistry },
+			{ bus, documents },
 			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 		);
 		const html = `<div data-id="root"><img data-id="img" src="/assets/hero.png"></div>`;
@@ -299,7 +288,7 @@ describe("LayoutService — measure", () => {
 	it("flags tight per-side when headless reports a block crossing the bottom margin", async () => {
 		const store = createSQLiteStore(":memory:");
 		const documents = createDocuments({ store });
-		const wsRegistry = createWsRegistry();
+		const bus = createBus();
 		const page = {
 			setOfflineMode: vi.fn(async () => {}),
 			setRequestInterception: vi.fn(async () => {}),
@@ -324,7 +313,7 @@ describe("LayoutService — measure", () => {
 		};
 		const browserLaunch = vi.fn(async () => browser as any);
 		const service = createLayoutService(
-			{ documents, wsRegistry },
+			{ bus, documents },
 			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 		);
 		const html = `<div data-id="root" style="width:210mm;height:297mm"></div>`;
@@ -337,15 +326,13 @@ describe("LayoutService — measure", () => {
 		store.close();
 	});
 
-	it("broadcasts a state payload so connected previews refresh", async () => {
-		const { service, wsRegistry, cleanup } = fixture();
-		const client = openClient();
-		wsRegistry.add(client);
+	it("emits document:saved so connected previews can refresh", async () => {
+		const { service, bus, cleanup } = fixture();
+		const saved = vi.fn();
+		bus.on("document:saved", saved);
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
 		await service.measure(doc(html), html, 0);
-		const payload = JSON.parse(client.sent[0] ?? "{}");
-		expect(payload.type).toBe("state");
-		expect(payload.doc?.name).toBe("d");
+		expect(saved).toHaveBeenCalledWith({ docName: "d" });
 		cleanup();
 	});
 });
@@ -360,13 +347,13 @@ describe("LayoutService — check", () => {
 		cleanup();
 	});
 
-	it("does not broadcast on check (no preview mutation)", async () => {
-		const { service, wsRegistry, cleanup } = fixture();
-		const client = openClient();
-		wsRegistry.add(client);
+	it("does not emit document:saved on check (no preview mutation)", async () => {
+		const { service, bus, cleanup } = fixture();
+		const saved = vi.fn();
+		bus.on("document:saved", saved);
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
 		await service.check(doc(html), html, 0);
-		expect(client.sent.length).toBe(0);
+		expect(saved).not.toHaveBeenCalled();
 		cleanup();
 	});
 });

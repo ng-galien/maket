@@ -33,7 +33,7 @@ import { createPending } from "./services/pending.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
 import { createWsBridge } from "./services/ws-bridge.js";
-import { createWsHandler } from "./services/ws-handler.js";
+import { createWsHandler } from "./services/ws-handler/index.js";
 import { createWsRegistry } from "./services/ws-registry.js";
 
 /**

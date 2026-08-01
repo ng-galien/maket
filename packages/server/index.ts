@@ -25,7 +25,7 @@ import type { Collections } from "./src/services/collections.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
 import type { Documents } from "./src/services/documents.js";
-import type { WorkspaceCommandHandler } from "./src/services/ws-handler.js";
+import type { WorkspaceCommandHandler } from "./src/services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./src/services/ws-registry.js";
 import { assetsPack } from "./src/tools/assets.js";
 import { canvasPack } from "./src/tools/canvas.js";
@@ -268,6 +268,10 @@ bus.on("messages:acked", ({ ids }) => {
 
 bus.on("assets:changed", () => {
 	wsRegistry.broadcast({ type: "assets_changed" });
+});
+
+bus.on("workspace:client-request", (msg) => {
+	wsRegistry.broadcast(msg);
 });
 
 // Dispose container (closes SQLite + future-proofed disposers) on exit.

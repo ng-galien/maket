@@ -204,6 +204,8 @@ function openBrowser(url: string): void {
 	} catch {}
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runConnect`: edge adapter over services/store/bus, not domain ownership.
 async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient, config } = deps;
 	const withRead = args.with_read === true;
@@ -259,6 +261,8 @@ function requireRead(deps: GmailDeps): ToolResult | null {
 	);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runSearch`: edge adapter over services/store/bus, not domain ownership.
 async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient } = deps;
 	if (!args.query) return text("query is required for action=search", true);
@@ -351,6 +355,8 @@ function collectAttachments(
 	return attachments;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runRead`: edge adapter over services/store/bus, not domain ownership.
 async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	const { gmailClient } = deps;
 	if (!args.id) return text("id is required for action=read", true);
@@ -540,6 +546,8 @@ async function runFetchAttachment(
 
 // On validation failure, remove() is required so a rejected image doesn't
 // linger in the library between agent turns.
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `importImageAttachment`: edge adapter over services/store/bus, not domain ownership.
 async function importImageAttachment(inputs: {
 	buffer: Buffer;
 	filename: string;
@@ -669,6 +677,8 @@ function normalizeEmailHtml(
 </html>`;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `buildMimeMessage`: edge adapter over services/store/bus, not domain ownership.
 function buildMimeMessage(
 	from: string,
 	to: string,

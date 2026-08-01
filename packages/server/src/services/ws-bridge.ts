@@ -1,19 +1,14 @@
 /**
  * ws-bridge — request/response correlation over WebSocket.
  *
- * MCP tools broadcast a message tagged with a correlation id (a `_reqId` for
- * point-to-point RPCs, or a pre-computed `measureId` for broadcasts the
- * browser is expected to reply to). `resolveResponse` is called by the WS
- * handler when a tagged reply arrives; `sendRequest` / `waitForResponse`
- * return a promise that resolves with the reply or `null` on timeout.
- *
- * State is held in the service instance, not as module singletons — so tests
- * can build an isolated bridge with a stub `wsRegistry`.
+ * Emits `workspace:client-request` on the bus (with a correlation id); edge
+ * listeners in `index.ts` fan that out via `wsRegistry.broadcast`. Replies
+ * arrive through `resolveResponse` when the WS handler sees a tagged response.
  */
 
 import crypto from "node:crypto";
 import type { LayoutCheckRequestDraft } from "@maket/shared";
-import type { WsRegistry } from "./ws-registry.js";
+import type { Bus } from "./bus.js";
 
 interface PendingRequest {
 	resolve: (data: unknown) => void;
@@ -33,10 +28,10 @@ export interface WsBridge {
 }
 
 export interface WsBridgeDeps {
-	wsRegistry: WsRegistry;
+	bus: Bus;
 }
 
-export function createWsBridge({ wsRegistry }: WsBridgeDeps): WsBridge {
+export function createWsBridge({ bus }: WsBridgeDeps): WsBridge {
 	const pending = new Map<string, PendingRequest>();
 
 	function registerPending(
@@ -55,7 +50,7 @@ export function createWsBridge({ wsRegistry }: WsBridgeDeps): WsBridge {
 	return {
 		sendRequest(request, timeoutMs = 2000) {
 			const reqId = crypto.randomUUID();
-			wsRegistry.broadcast({
+			bus.emit("workspace:client-request", {
 				...request,
 				_reqId: reqId,
 			});

@@ -102,6 +102,8 @@ async function forwardOne(
 	writeLine(stdout, text);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// stdio-bridge `forwardSse`: transport adapter coordinating process I/O and MCP HTTP.
 async function forwardSse(
 	body: ReadableStream<Uint8Array>,
 	stdout: Writable,

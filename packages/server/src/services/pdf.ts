@@ -74,6 +74,87 @@ export interface PdfServiceOptions {
 	browserLaunch?: () => Promise<import("puppeteer").Browser>;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// PDF render orchestrates collections, cursors, asset inlining, and browser pool.
+async function renderPdfDocument(
+	ctx: {
+		documents: Documents;
+		config: Config;
+		assets: AssetsService;
+		collections: Pick<Collections, "renderDocument">;
+		collectionCursors: Pick<CollectionCursors, "resolve">;
+		pool: BrowserPool;
+		forcedMode: Record<
+			Exclude<PdfRowsSelection, "preview">,
+			CollectionRenderMode
+		>;
+	},
+	doc: Document,
+	quality = "print",
+	rows: PdfRowsSelection = "preview",
+): Promise<{ buffer: Buffer; pageCount: number }> {
+	const {
+		documents,
+		config,
+		assets,
+		collections,
+		collectionCursors,
+		pool,
+		forcedMode,
+	} = ctx;
+	const renderedDoc = collections.renderDocument(
+		doc,
+		cursorRenderOptions(
+			doc,
+			(docName, pageIndex) => collectionCursors.resolve(docName, pageIndex),
+			rows === "preview" ? undefined : forcedMode[rows],
+		),
+	);
+	const dpi = DPI_PRESETS[quality] || 150;
+	const rawHtmls = renderedDoc.pages
+		.map((p) => p.html)
+		.filter((h): h is string => Boolean(h));
+	if (rawHtmls.length === 0) throw new Error("No pages with HTML content");
+
+	const charteCss = documents.charteCss(renderedDoc);
+	const shadowVars = buildShadowVarMap(charteCss);
+
+	const pageHtmls = await Promise.all(
+		rawHtmls.map(async (html) => {
+			const inlined = await inlineImages(html, {
+				assetsDir: config.ASSETS_DIR,
+				pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
+				dpi,
+				mimeFromExt: (p) => assets.mimeFromExt(p),
+			});
+			return boxShadowToDropShadow(inlined, shadowVars);
+		}),
+	);
+
+	const { w, h } = renderedDoc.canvas;
+	const fullHtml = buildPrintHtml(renderedDoc, pageHtmls, charteCss);
+
+	const b = await pool.get();
+	const page = await b.newPage();
+	try {
+		await installNetworkGuard(page, "offline");
+		await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await waitForPageStable(page);
+		const pdfBuffer = await page.pdf({
+			width: `${w}mm`,
+			height: `${h}mm`,
+			printBackground: true,
+			margin: { top: "0", right: "0", bottom: "0", left: "0" },
+		});
+		return {
+			buffer: Buffer.from(pdfBuffer),
+			pageCount: pageHtmls.length,
+		};
+	} finally {
+		await page.close();
+	}
+}
+
 export function createPdfService(
 	deps: PdfServiceDeps,
 	opts: PdfServiceOptions = {},
@@ -95,59 +176,21 @@ export function createPdfService(
 		: browserPool;
 
 	return {
-		async render(doc, quality = "print", rows = "preview") {
-			const renderedDoc = collections.renderDocument(
+		render: (doc, quality = "print", rows = "preview") =>
+			renderPdfDocument(
+				{
+					documents,
+					config,
+					assets,
+					collections,
+					collectionCursors,
+					pool,
+					forcedMode,
+				},
 				doc,
-				cursorRenderOptions(
-					doc,
-					(docName, pageIndex) => collectionCursors.resolve(docName, pageIndex),
-					rows === "preview" ? undefined : forcedMode[rows],
-				),
-			);
-			const dpi = DPI_PRESETS[quality] || 150;
-			const rawHtmls = renderedDoc.pages
-				.map((p) => p.html)
-				.filter((h): h is string => Boolean(h));
-			if (rawHtmls.length === 0) throw new Error("No pages with HTML content");
-
-			const charteCss = documents.charteCss(renderedDoc);
-			const shadowVars = buildShadowVarMap(charteCss);
-
-			const pageHtmls = await Promise.all(
-				rawHtmls.map(async (html) => {
-					const inlined = await inlineImages(html, {
-						assetsDir: config.ASSETS_DIR,
-						pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
-						dpi,
-						mimeFromExt: (p) => assets.mimeFromExt(p),
-					});
-					return boxShadowToDropShadow(inlined, shadowVars);
-				}),
-			);
-
-			const { w, h } = renderedDoc.canvas;
-			const fullHtml = buildPrintHtml(renderedDoc, pageHtmls, charteCss);
-
-			const b = await pool.get();
-			const p = await b.newPage();
-			try {
-				await installNetworkGuard(p, "offline");
-				await p.setContent(fullHtml, { waitUntil: "networkidle0" });
-				await waitForPageStable(p);
-				const pdfBuffer = await p.pdf({
-					width: `${w}mm`,
-					height: `${h}mm`,
-					printBackground: true,
-					margin: { top: "0", right: "0", bottom: "0", left: "0" },
-				});
-				return {
-					buffer: Buffer.from(pdfBuffer),
-					pageCount: pageHtmls.length,
-				};
-			} finally {
-				await p.close();
-			}
-		},
+				quality,
+				rows,
+			),
 	};
 }
 

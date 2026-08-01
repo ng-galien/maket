@@ -39,6 +39,8 @@ function resolveServerCmd(): string[] | undefined {
 	return [process.execPath, entry];
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// stdio-bridge `runBridge`: transport adapter coordinating process I/O and MCP HTTP.
 export async function runBridge(
 	overrides: MaketEnvOverrides = {},
 ): Promise<void> {

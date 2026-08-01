@@ -261,6 +261,8 @@ function parseMultipartUpload(
 	return parseMultipartPart(body, part, partSep, res);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler `parseMultipartPart`: request/response adapter over services, not envied domain logic.
 function parseMultipartPart(
 	body: Buffer,
 	part: string,

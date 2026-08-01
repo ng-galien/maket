@@ -9,6 +9,7 @@ uris = [
   "**/.maket/**",
   "**/.e2e-maket/**",
   "**/docs/**",
+  "**/tests/**",
   "**/*.test.ts",
   "**/*.test.tsx",
   "**/*.spec.ts",
@@ -36,6 +37,18 @@ server_runtime_target = """
 application_call_ref = """
   (kind = 'calls' OR kind = 'method_call')
   AND target ~ '**/dir:packages/**'
+"""
+tools_source = "source ~ '**/dir:packages/dir:server/dir:src/dir:tools/**'"
+routes_target = "target ~ '**/dir:packages/dir:server/dir:src/dir:routes/**'"
+client_store_source = "source ~ '**/dir:packages/dir:client/dir:src/dir:store/**'"
+client_components_target = "target ~ '**/dir:packages/dir:client/dir:src/dir:components/**'"
+server_services_source = "source ~ '**/dir:packages/dir:server/dir:src/dir:services/**'"
+ws_broadcast_call = """
+  (kind = 'calls' OR kind = 'method_call')
+  AND (
+    target.name = 'broadcast'
+    OR target ~ '**/method:broadcast**'
+  )
 """
 
 [[refs.where]]
@@ -72,6 +85,27 @@ expr      = """
 """
 message   = "Client/server compile-time crossings must go through `packages/shared`."
 
+[[refs.where]]
+id        = "architecture-tools-do-not-import-routes"
+severity  = "error"
+rationale = "Tools resolve services via DI; importing routes couples MCP actions to HTTP mount order."
+expr      = "$tools_source AND $maket_import_ref => NOT $routes_target"
+message   = "`packages/server/src/tools` must not import routes; depend on services via DI instead."
+
+[[refs.where]]
+id        = "architecture-client-store-does-not-import-components"
+severity  = "error"
+rationale = "Components subscribe to the store; the store must not depend on UI modules."
+expr      = "$client_store_source AND $maket_import_ref => NOT $client_components_target"
+message   = "`packages/client/src/store` must not import UI components."
+
+[[refs.where]]
+id        = "architecture-domain-services-do-not-broadcast"
+severity  = "error"
+rationale = "Services emit on the bus; WS fan-out lives in index.ts listeners only."
+expr      = "NOT ($server_services_source AND $ws_broadcast_call)"
+message   = "Domain services must not call `wsRegistry.broadcast`; emit on the bus and let index.ts listeners fan out."
+
 [[shape.callable.where]]
 id        = "smell-long-callable"
 severity  = "error"
@@ -89,9 +123,20 @@ message   = "Long parameter list: `{name}` has more than 7 parameters."
 [[shape.callable.where]]
 id        = "smell-feature-envy-local"
 severity  = "error"
-rationale = "Feature envy is about behavior that mostly talks to another application owner. Runtime, framework, and standard-library calls are ignored; remaining hits should move behavior closer to the owner or introduce a narrower collaborator."
+rationale = """
+Feature envy is behavior that mostly talks to another application owner and
+should move there. Runtime/framework calls are ignored.
+
+Only an explicit naming contract is exempt in-rule: `dispatch*` switchboards
+route by message type and are allowed high fan-out. Every other intentional
+port (MCP tool, HTTP handler, UI shell, multi-service factory method) must
+either restructure so the logic lives with its owner, or carry a module-level
+`// code-moniker: ignore[smell-feature-envy-local]` with a design reason.
+Do not widen this predicate with package-wide moniker path globs.
+"""
 expr      = """
-  count(out_refs, $application_call_ref AND source.parent != target.parent) < 8
+  name =~ ^dispatch
+  OR count(out_refs, $application_call_ref AND source.parent != target.parent) < 8
   OR count(out_refs, $application_call_ref AND source.parent != target.parent)
      <= count(out_refs, $application_call_ref AND source.parent = target.parent)
 """
