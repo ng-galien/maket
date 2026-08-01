@@ -56,6 +56,19 @@ export function createPending({ bus }: PendingDeps): Pending {
 	const byDoc = new Map<string, PendingMessage[]>();
 	let workspace: PendingMessage[] = [];
 
+	function partitionAck(
+		list: PendingMessage[],
+		wanted: Set<string>,
+		matched: string[],
+	): PendingMessage[] {
+		const kept: PendingMessage[] = [];
+		for (const message of list) {
+			if (wanted.has(message.id)) matched.push(message.id);
+			else kept.push(message);
+		}
+		return kept;
+	}
+
 	return {
 		syncFromClient(messages) {
 			const nextByDoc = new Map<string, PendingMessage[]>();
@@ -89,20 +102,11 @@ export function createPending({ bus }: PendingDeps): Pending {
 			const wanted = new Set(ids);
 			const matched: string[] = [];
 			for (const [name, list] of byDoc) {
-				const kept: PendingMessage[] = [];
-				for (const m of list) {
-					if (wanted.has(m.id)) matched.push(m.id);
-					else kept.push(m);
-				}
+				const kept = partitionAck(list, wanted, matched);
 				if (kept.length === 0) byDoc.delete(name);
 				else byDoc.set(name, kept);
 			}
-			const kept: PendingMessage[] = [];
-			for (const m of workspace) {
-				if (wanted.has(m.id)) matched.push(m.id);
-				else kept.push(m);
-			}
-			workspace = kept;
+			workspace = partitionAck(workspace, wanted, matched);
 			const unknown = ids.filter((id) => !matched.includes(id));
 			if (matched.length > 0) bus.emit("messages:acked", { ids: matched });
 			return { matched, unknown };

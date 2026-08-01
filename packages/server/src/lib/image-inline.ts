@@ -49,32 +49,8 @@ export async function inlineImages(
 
 	await Promise.all(
 		filenames.map(async (filename) => {
-			const absPath = join(opts.assetsDir, filename);
-			if (!existsSync(absPath)) return;
-			try {
-				const ext = extname(filename).toLowerCase();
-				if (ext === ".svg") {
-					const b64 = readFileSync(absPath).toString("base64");
-					dataUris.set(filename, `data:image/svg+xml;base64,${b64}`);
-					return;
-				}
-				const image = await Jimp.read(absPath);
-				if (image.width > maxW || image.height > maxH) {
-					image.scaleToFit({ w: maxW, h: maxH });
-				}
-				const isPng = ext === ".png";
-				const buf = isPng
-					? await image.getBuffer("image/png")
-					: await image.getBuffer("image/jpeg", { quality: 80 });
-				const mime = isPng ? "image/png" : "image/jpeg";
-				dataUris.set(filename, `data:${mime};base64,${buf.toString("base64")}`);
-			} catch {
-				const b64 = readFileSync(absPath).toString("base64");
-				dataUris.set(
-					filename,
-					`data:${opts.mimeFromExt(absPath)};base64,${b64}`,
-				);
-			}
+			const dataUri = await dataUriForAsset(filename, opts, maxW, maxH, Jimp);
+			if (dataUri) dataUris.set(filename, dataUri);
 		}),
 	);
 
@@ -83,4 +59,37 @@ export async function inlineImages(
 		result = result.replaceAll(`/assets/${filename}`, dataUri);
 	}
 	return result;
+}
+
+type JimpCtor = typeof import("jimp")["Jimp"];
+
+async function dataUriForAsset(
+	filename: string,
+	opts: InlineImagesOptions,
+	maxW: number,
+	maxH: number,
+	Jimp: JimpCtor,
+): Promise<string | null> {
+	const absPath = join(opts.assetsDir, filename);
+	if (!existsSync(absPath)) return null;
+	try {
+		const ext = extname(filename).toLowerCase();
+		if (ext === ".svg") {
+			const b64 = readFileSync(absPath).toString("base64");
+			return `data:image/svg+xml;base64,${b64}`;
+		}
+		const image = await Jimp.read(absPath);
+		if (image.width > maxW || image.height > maxH) {
+			image.scaleToFit({ w: maxW, h: maxH });
+		}
+		const isPng = ext === ".png";
+		const buf = isPng
+			? await image.getBuffer("image/png")
+			: await image.getBuffer("image/jpeg", { quality: 80 });
+		const mime = isPng ? "image/png" : "image/jpeg";
+		return `data:${mime};base64,${buf.toString("base64")}`;
+	} catch {
+		const b64 = readFileSync(absPath).toString("base64");
+		return `data:${opts.mimeFromExt(absPath)};base64,${b64}`;
+	}
 }

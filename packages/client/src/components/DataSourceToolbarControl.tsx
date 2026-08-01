@@ -125,13 +125,11 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 	const boundName = page?.collection?.name ?? "";
 	const boundCollection =
 		sources.find((collection) => collection.name === boundName) ?? null;
-	// Cursor navigation runs over SAVED rows only — the shared cursor lives
-	// on the server, where draft-only rows do not exist yet.
-	const savedCollection =
+	const serverCollection =
 		collections.find((collection) => collection.name === boundName) ?? null;
 	const members = useMemo(
-		() => sortedCollectionMembers(savedCollection),
-		[savedCollection],
+		() => sortedCollectionMembers(serverCollection),
+		[serverCollection],
 	);
 	const cursor = focusedDoc
 		? cursorForPage(
@@ -159,15 +157,15 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 
 	if (!focusedDoc || !page) return null;
 
+	const toggleAddon = () =>
+		setOpen((wasOpen) => {
+			const willOpen = !wasOpen;
+			if (willOpen && !dataViewPinned) openCollection(null);
+			return willOpen;
+		});
+
 	const actions: DataSourceActions = {
-		// One floating surface at a time: opening the addon dismisses an
-		// unpinned data view (a pinned one is an explicit user choice).
-		toggle: () =>
-			setOpen((value) => {
-				const next = !value;
-				if (next && !dataViewPinned) openCollection(null);
-				return next;
-			}),
+		toggle: toggleAddon,
 		close,
 		bind: (collectionName) =>
 			bindCollection(focusedDoc.name, pageIndex, collectionName),

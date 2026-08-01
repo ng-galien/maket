@@ -83,10 +83,6 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 	return (msg, ws) => dispatchWorkspaceCommand(ctx, msg, ws);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
-// Workspace command switchboard: dispatch only routes by msg.type to domain
-// handlers. High external fan-out is the port surface, not envied domain
-// behavior that belongs inside documents/collections/assets.
 function dispatchWorkspaceCommand(
 	ctx: WsHandlerContext,
 	msg: WorkspaceCommand,

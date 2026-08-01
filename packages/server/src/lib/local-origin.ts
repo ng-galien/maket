@@ -15,19 +15,24 @@ import type { NextFunction, Request, Response } from "express";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 
+/** Strip optional port / IPv6 brackets from a Host or authority string. */
+function hostnameOnly(value: string): string | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	if (trimmed.startsWith("[")) {
+		const closeIdx = trimmed.indexOf("]");
+		if (closeIdx === -1) return null;
+		return trimmed.slice(1, closeIdx);
+	}
+	const colonIdx = trimmed.lastIndexOf(":");
+	return colonIdx > 0 ? trimmed.slice(0, colonIdx) : trimmed;
+}
+
 /** True if the given Host: or origin host (with optional port) is loopback. */
 export function isLoopbackHost(value: string | undefined | null): boolean {
 	if (!value) return false;
-	let host = value.trim();
-	if (host.startsWith("[")) {
-		const closeIdx = host.indexOf("]");
-		if (closeIdx === -1) return false;
-		host = host.slice(1, closeIdx);
-	} else {
-		const colonIdx = host.lastIndexOf(":");
-		if (colonIdx > 0) host = host.slice(0, colonIdx);
-	}
-	return LOCAL_HOSTS.has(host.toLowerCase());
+	const host = hostnameOnly(value);
+	return host !== null && LOCAL_HOSTS.has(host.toLowerCase());
 }
 
 /** True if the Origin URL points to a loopback host. */
