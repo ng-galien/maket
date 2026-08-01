@@ -10,67 +10,42 @@
  * targeting a specific page.
  */
 
-import {
-	type Collection,
-	isCollectionCursorMode,
-	type WorkspaceCommand,
-	type WorkspaceStateSignal,
-} from "@maket/shared";
+import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
-import { composeCharteCss } from "../lib/charte-css.js";
+import { composeCharteCss } from "../../lib/charte-css.js";
 import {
 	createOnboardingDocument,
 	localizeOnboardingDocument,
 	onboardingDocumentName,
 	onboardingLocale,
-} from "../lib/onboarding-document.js";
-import { stripActiveHtml } from "../lib/strip-active-html.js";
+} from "../../lib/onboarding-document.js";
+import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import {
 	type Charte,
 	computeCanvasDims,
 	createDocument,
 	type Document,
-} from "../types.js";
-import type { AssetsService } from "./assets.js";
-import type { Bus } from "./bus.js";
-import type { CollectionCursors } from "./collection-cursor.js";
-import { createCollectionCursors } from "./collection-cursor.js";
-import type { Collections } from "./collections.js";
-import { createCollections } from "./collections.js";
-import type { Documents } from "./documents.js";
-import type { Pending } from "./pending.js";
-import type { Store } from "./store.js";
-import type { WsBridge } from "./ws-bridge.js";
-import type { WsRegistry } from "./ws-registry.js";
+} from "../../types.js";
+import { createCollectionCursors } from "../collection-cursor.js";
+import { createCollections } from "../collections.js";
+import {
+	handleCollectionBindPage,
+	handleCollectionClearPage,
+	handleCollectionCursorSet,
+	handleCollectionDelete,
+	handleCollectionSave,
+} from "./collection-commands.js";
+import {
+	isPlainObject,
+	isStringArray,
+	log,
+	type WorkspaceCommandHandler,
+	type WsHandlerContext,
+	type WsHandlerDeps,
+} from "./context.js";
 
-export type WorkspaceCommandHandler = (
-	msg: WorkspaceCommand,
-	ws: WebSocket,
-) => void;
-
-export interface WsHandlerDeps {
-	assets: AssetsService;
-	bus: Bus;
-	collections?: Collections;
-	collectionCursors?: CollectionCursors;
-	documents: Documents;
-	pending: Pending;
-	store: Store;
-	wsRegistry: WsRegistry;
-	wsBridge: WsBridge;
-}
-
-const log = (...a: unknown[]) =>
-	process.stderr.write(`${a.map(String).join(" ")}\n`);
-
-interface WsHandlerContext
-	extends Omit<WsHandlerDeps, "collections" | "collectionCursors"> {
-	collections: Collections;
-	collectionCursors: CollectionCursors;
-	broadcastState(d: Document | null): void;
-	wsDoc(msg: { docName?: string }): Document | null;
-}
+export type { WorkspaceCommandHandler, WsHandlerDeps } from "./context.js";
 
 export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
@@ -187,94 +162,6 @@ function dispatchWorkspaceCommand(
 		case "check_layout_response":
 			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);
 			break;
-	}
-}
-
-function handleCollectionSave(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "collection_save" }>,
-): void {
-	if (!isPlainObject(msg.collection)) {
-		ctx.bus.emit("toast", {
-			text: "Collection payload must be an object",
-			level: "error",
-		});
-		return;
-	}
-	try {
-		ctx.collections.save(msg.collection as unknown as Collection);
-	} catch (error) {
-		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
-			level: "error",
-		});
-	}
-}
-
-function handleCollectionDelete(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "collection_delete" }>,
-): void {
-	if (!msg.name) return;
-	try {
-		ctx.collections.delete(msg.name);
-	} catch (error) {
-		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
-			level: "error",
-		});
-	}
-}
-
-function handleCollectionBindPage(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "collection_bind_page" }>,
-): void {
-	try {
-		const doc = ctx.collections.bindPage(
-			msg.docName,
-			msg.pageIndex,
-			msg.collectionName,
-		);
-		ctx.broadcastState(doc);
-	} catch (error) {
-		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
-			level: "error",
-		});
-	}
-}
-
-function handleCollectionClearPage(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "collection_clear_page" }>,
-): void {
-	try {
-		const doc = ctx.collections.clearPageBinding(msg.docName, msg.pageIndex);
-		ctx.broadcastState(doc);
-	} catch (error) {
-		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
-			level: "error",
-		});
-	}
-}
-
-function handleCollectionCursorSet(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "collection_cursor_set" }>,
-): void {
-	if (msg.mode !== undefined && !isCollectionCursorMode(msg.mode)) return;
-	try {
-		ctx.collectionCursors.set(msg.docName, msg.pageIndex, {
-			mode: msg.mode,
-			memberId: msg.memberId,
-		});
-	} catch (error) {
-		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
-			level: "error",
-		});
 	}
 }
 
@@ -700,14 +587,6 @@ function handleTextEdit(
 	log(`[text_edit] updated page.html length: ${page.html.length}`);
 	ctx.documents.persist(d.name);
 	ctx.broadcastState(d);
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-	return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function isStringArray(v: unknown): v is string[] {
-	return Array.isArray(v) && v.every((s) => typeof s === "string");
 }
 
 /** Runtime shape check for `charte_save` payloads. Returns an error message

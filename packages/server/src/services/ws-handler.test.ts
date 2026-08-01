@@ -19,7 +19,7 @@ import { createDocuments } from "./documents.js";
 import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
 import { createWsBridge } from "./ws-bridge.js";
-import { createWsHandler } from "./ws-handler.js";
+import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
 function makeDoc(name: string) {

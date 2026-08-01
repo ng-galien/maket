@@ -1,39 +1,52 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
 import {
 	ChevronRight,
-	Copy,
 	Download,
-	Files,
 	FileText,
 	LayoutGrid,
 	List,
 	Lock,
-	MoreVertical,
-	Pencil,
-	Trash2,
-	Unlock,
 	Upload,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import type { DocSummary } from "../store/types";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
+import { sendDeleteDoc, sendLoadDoc, sendLockDoc, wsSend } from "../store/ws";
 import {
-	sendDeleteDoc,
-	sendDuplicateDoc,
-	sendLoadDoc,
-	sendLockDoc,
-	sendRenameDoc,
-	wsSend,
-} from "../store/ws";
-import { copyToClipboard } from "../utils";
+	DocDeleteHold,
+	DocInlineNameEditor,
+	DocItemMenu,
+	DocMenuButton,
+	DocRowMenuButton,
+} from "./docs/DocMenu";
+import { exportMaketBundle, importMaketBundle } from "./docs/docsImportExport";
+import {
+	buildQueryChips,
+	matchesQuery,
+	parseQuery,
+	relativeTime,
+} from "./docs/docsQuery";
+import type {
+	BulkActionBarActions,
+	BulkActionBarModel,
+	BulkActionBarProps,
+	DocItemActions,
+	DocItemMeta,
+	DocItemModel,
+	DocItemProps,
+	DocItemRenderProps,
+	DocsCategoryModel,
+	DocsTabModel,
+	DocsToolbarModel,
+	Query,
+	QueryChip,
+	RowMode,
+	SelectionContext,
+	View,
+} from "./docs/types";
+import { COLLAPSED_KEY, DRAG_MIME, VIEW_KEY } from "./docs/types";
 import { DraftPill } from "./shared/DraftPill";
-import { HoldToDelete } from "./shared/HoldToDelete";
-
-const DRAG_MIME = "application/x-maket-doc";
-const VIEW_KEY = "maket-docs-view";
-type View = "list" | "grid";
 
 function docAspectRatio(doc: DocSummary): number {
 	const { w, h } = computeCanvasDims(
@@ -59,54 +72,6 @@ function catColor(cat: string): string {
 	return COLORS[Math.abs(h) % COLORS.length];
 }
 
-function exportMaketBundle(names: string[]): void {
-	const qs =
-		names.length === 1
-			? `name=${encodeURIComponent(names[0] ?? "")}`
-			: `names=${encodeURIComponent(names.join(","))}`;
-	const a = document.createElement("a");
-	a.href = `/api/export-maket?${qs}`;
-	a.rel = "noopener";
-	document.body.appendChild(a);
-	a.click();
-	a.remove();
-}
-
-async function importMaketBundle(file: File): Promise<{
-	ok: boolean;
-	message: string;
-	count: number;
-}> {
-	try {
-		const res = await fetch("/api/import-maket", {
-			method: "POST",
-			headers: { "Content-Type": "application/gzip" },
-			body: file,
-		});
-		const json = (await res.json()) as {
-			error?: string;
-			documents?: string[];
-		};
-		if (!res.ok)
-			return {
-				ok: false,
-				message: json.error || `HTTP ${res.status}`,
-				count: 0,
-			};
-		return { ok: true, message: "", count: json.documents?.length ?? 0 };
-	} catch (e) {
-		return { ok: false, message: (e as Error).message, count: 0 };
-	}
-}
-
-type RowMode =
-	| { kind: "idle" }
-	| { kind: "rename" }
-	| { kind: "duplicate" }
-	| { kind: "confirm-delete" };
-
-const COLLAPSED_KEY = "maket-categories-collapsed";
-
 function loadCollapsed(): Set<string> {
 	try {
 		const raw = localStorage.getItem(COLLAPSED_KEY);
@@ -124,139 +89,9 @@ function saveCollapsed(set: Set<string>): void {
 	} catch {}
 }
 
-/**
- * Multi-criteria search parser.
- *   @cat       — restrict to category `cat`
- *   #locked    — only locked docs
- *   #unlocked  — only unlocked docs
- *   :N         — rating ≥ N (1–5)
- *   <rest>     — fuzzy substring on name
- * Tokens accumulate (AND), so `@flyer #locked :4 summer` means
- * "flyer AND locked AND rating≥4 AND name contains summer".
- */
-interface Query {
-	category: string | null;
-	locked: boolean | null;
-	minRating: number;
-	text: string;
-}
-
-interface QueryChip {
-	key: string;
-	label: string;
-	onRemove: () => void;
-}
-
-function parseQuery(raw: string): Query {
-	const tokens = raw.split(/\s+/).filter(Boolean);
-	let category: string | null = null;
-	let locked: boolean | null = null;
-	let minRating = 0;
-	const text: string[] = [];
-	for (const tok of tokens) {
-		if (tok.startsWith("@") && tok.length > 1) {
-			category = tok.slice(1).toLowerCase();
-		} else if (tok === "#locked") {
-			locked = true;
-		} else if (tok === "#unlocked") {
-			locked = false;
-		} else if (/^:\d$/.test(tok)) {
-			minRating = Math.max(minRating, Number(tok.slice(1)));
-		} else {
-			text.push(tok);
-		}
-	}
-	return { category, locked, minRating, text: text.join(" ").toLowerCase() };
-}
-
-function matchesQuery(d: DocSummary, q: Query): boolean {
-	if (q.category && (d.category || "general").toLowerCase() !== q.category)
-		return false;
-	if (q.locked !== null && (d.locked === true) !== q.locked) return false;
-	if (q.minRating > 0 && (d.rating ?? 0) < q.minRating) return false;
-	if (q.text && !d.name.toLowerCase().includes(q.text)) return false;
-	return true;
-}
-
-function stripToken(raw: string, predicate: (tok: string) => boolean): string {
-	return raw
-		.split(/\s+/)
-		.filter(Boolean)
-		.filter((tok) => !predicate(tok))
-		.join(" ");
-}
-
-/**
- * SQLite emits timestamps as "YYYY-MM-DD HH:mm:ss" in UTC. Convert to a
- * Date; fall back to a best-effort ISO replacement.
- */
-function parseTimestamp(ts: string | undefined): Date | null {
-	if (!ts) return null;
-	const iso = ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`;
-	const d = new Date(iso);
-	return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function relativeTime(ts: string | undefined, lang: string): string {
-	const d = parseTimestamp(ts);
-	if (!d) return "";
-	const diffMs = Date.now() - d.getTime();
-	const m = Math.round(diffMs / 60000);
-	const fr = lang.startsWith("fr");
-	if (m < 1) return fr ? "à l'instant" : "just now";
-	if (m < 60) return fr ? `il y a ${m} min` : `${m}m ago`;
-	const h = Math.round(m / 60);
-	if (h < 24) return fr ? `il y a ${h} h` : `${h}h ago`;
-	const days = Math.round(h / 24);
-	if (days < 30) return fr ? `il y a ${days} j` : `${days}d ago`;
-	const months = Math.round(days / 30);
-	if (months < 12) return fr ? `il y a ${months} mois` : `${months}mo ago`;
-	const years = Math.round(months / 12);
-	return fr ? `il y a ${years} an${years > 1 ? "s" : ""}` : `${years}y ago`;
-}
-
 export function DocsTab() {
 	const model = useDocsTabModel();
 	return <DocsTabView model={model} />;
-}
-
-interface DocsTabModel {
-	barPosition: "bottom" | "top";
-	toolbar: DocsToolbarModel;
-	categories: DocsCategoryModel[];
-	empty: boolean;
-	selected: Set<string>;
-	bulk: BulkActionBarProps;
-}
-
-interface DocsToolbarModel {
-	search: string;
-	setSearch: (value: string) => void;
-	chips: QueryChip[];
-	importInputRef: React.RefObject<HTMLInputElement | null>;
-	importError: string | null;
-	importDrag: boolean;
-	clearImportError: () => void;
-	startImport: () => void;
-	handleImportInput: (event: React.ChangeEvent<HTMLInputElement>) => void;
-	handleImportDragOver: (event: React.DragEvent) => void;
-	handleImportDragLeave: () => void;
-	handleImportDrop: (event: React.DragEvent) => void;
-	view: View;
-	setView: (view: View) => void;
-}
-
-interface DocsCategoryModel {
-	name: string;
-	docs: DocSummary[];
-	collapsed: boolean;
-	dropActive: boolean;
-	view: View;
-	toggle: () => void;
-	dragOver: (event: React.DragEvent) => void;
-	dragLeave: (event: React.DragEvent) => void;
-	drop: (event: React.DragEvent) => void;
-	itemFor: (doc: DocSummary) => DocItemProps;
 }
 
 function useDocsTabModel(): DocsTabModel {
@@ -431,16 +266,6 @@ function toggleCollapsedCategory(
 	});
 }
 
-interface SelectionContext {
-	selected: Set<string>;
-	setSelected: React.Dispatch<React.SetStateAction<Set<string>>>;
-	lastClicked: string | null;
-	setLastClicked: (name: string) => void;
-	flatOrder: string[];
-	openDoc: (name: string) => void;
-	clearSelection: () => void;
-}
-
 function handleDocSelection(
 	name: string,
 	event: React.MouseEvent,
@@ -596,44 +421,6 @@ function handleImportDrop(
 	);
 	if (file) void importState.handleImportFile(file);
 	else importState.setImportError("Import failed: .maket");
-}
-
-function buildQueryChips(
-	query: Query,
-	search: string,
-	setSearch: (value: string) => void,
-): QueryChip[] {
-	const chips: QueryChip[] = [];
-	if (query.category) {
-		chips.push({
-			key: "cat",
-			label: `@${query.category}`,
-			onRemove: () =>
-				setSearch(
-					stripToken(
-						search,
-						(token) => token.toLowerCase() === `@${query.category}`,
-					),
-				),
-		});
-	}
-	if (query.locked !== null) {
-		const token = query.locked ? "#locked" : "#unlocked";
-		chips.push({
-			key: "lock",
-			label: token,
-			onRemove: () => setSearch(stripToken(search, (item) => item === token)),
-		});
-	}
-	if (query.minRating > 0) {
-		chips.push({
-			key: "rating",
-			label: `≥ ${"★".repeat(query.minRating)}`,
-			onRemove: () =>
-				setSearch(stripToken(search, (token) => /^:\d$/.test(token))),
-		});
-	}
-	return chips;
 }
 
 interface CategoryFactoryArgs {
@@ -993,25 +780,6 @@ function DocsCategoryItems({ model }: { model: DocsCategoryModel }) {
 	);
 }
 
-interface BulkActionBarModel {
-	selected: Set<string>;
-	docList: DocSummary[];
-}
-
-interface BulkActionBarActions {
-	clear: () => void;
-	lock: () => void;
-	unlock: () => void;
-	recategorize: (cat: string) => void;
-	delete: () => void;
-	export: () => void;
-}
-
-interface BulkActionBarProps {
-	model: BulkActionBarModel;
-	actions: BulkActionBarActions;
-}
-
 function BulkActionBar({ model, actions }: BulkActionBarProps) {
 	const bar = useBulkActionBarModel(model, actions);
 	const t = useT();
@@ -1344,30 +1112,6 @@ function BulkDeleteButton({ model }: { model: BulkDeleteButtonModel }) {
 	);
 }
 
-interface DocItemModel {
-	doc: DocSummary;
-	onWs: boolean;
-	selected: boolean;
-	menuOpen: boolean;
-	mode: RowMode;
-	canDelete: boolean;
-	dragging: boolean;
-}
-
-interface DocItemActions {
-	click: (e: React.MouseEvent) => void;
-	openMenu: () => void;
-	closeMenu: () => void;
-	changeMode: (mode: RowMode) => void;
-	dragStart: (e: React.DragEvent) => void;
-	dragEnd: (e: React.DragEvent) => void;
-}
-
-interface DocItemProps {
-	model: DocItemModel;
-	actions: DocItemActions;
-}
-
 function DocCard({ model, actions }: DocItemProps) {
 	const meta = useDocItemMeta(model);
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
@@ -1424,13 +1168,6 @@ function DocRow({ model, actions }: DocItemProps) {
 	);
 }
 
-interface DocItemMeta {
-	locked: boolean;
-	editing: boolean;
-	confirming: boolean;
-	dragEnabled: boolean;
-}
-
 function useDocItemMeta(model: DocItemModel): DocItemMeta {
 	return {
 		locked: model.doc.locked === true,
@@ -1450,10 +1187,6 @@ function handleItemDragStart(
 		return;
 	}
 	actions.dragStart(event);
-}
-
-interface DocItemRenderProps extends DocItemProps {
-	meta: DocItemMeta;
 }
 
 function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
@@ -1721,378 +1454,5 @@ function DocUpdatedAt({ doc }: { doc: DocSummary }) {
 		>
 			{relativeTime(doc.updatedAt, navigator.language)}
 		</span>
-	);
-}
-
-interface DocRowMenuButtonProps extends DocItemRenderProps {
-	anchorRef: React.RefObject<HTMLButtonElement | null>;
-}
-
-function DocRowMenuButton({
-	model,
-	meta,
-	actions,
-	anchorRef,
-}: DocRowMenuButtonProps) {
-	if (meta.editing || meta.confirming) return null;
-	return (
-		<DocMenuButton
-			model={model}
-			actions={actions}
-			anchorRef={anchorRef}
-			size="row"
-		/>
-	);
-}
-
-function DocMenuButton({
-	model,
-	actions,
-	anchorRef,
-	size,
-}: {
-	model: DocItemModel;
-	actions: DocItemActions;
-	anchorRef: React.RefObject<HTMLButtonElement | null>;
-	size: "card" | "row";
-}) {
-	const t = useT();
-	const rowPosition = "absolute right-1.5 top-1/2 -translate-y-1/2";
-	const buttonSize = size === "card" ? "w-6 h-6" : `w-7 h-7 ${rowPosition}`;
-	const hover =
-		size === "card"
-			? "group-hover/card:opacity-100"
-			: "group-hover:opacity-100";
-	return (
-		<button
-			ref={anchorRef}
-			type="button"
-			aria-label={t("doc_menu")}
-			onClick={(event) => toggleDocMenu(event, model, actions)}
-			className={`${buttonSize} rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
-				model.menuOpen
-					? "bg-black/[0.06]"
-					: `opacity-0 ${hover} focus:opacity-100`
-			}`}
-		>
-			<MoreVertical size={size === "card" ? 13 : 14} />
-		</button>
-	);
-}
-
-function toggleDocMenu(
-	event: React.MouseEvent,
-	model: DocItemModel,
-	actions: DocItemActions,
-) {
-	event.stopPropagation();
-	if (model.menuOpen) actions.closeMenu();
-	else actions.openMenu();
-}
-
-function DocInlineNameEditor({ model, actions }: DocItemProps) {
-	const t = useT();
-	return (
-		<InlineNameEditor
-			initial={
-				model.mode.kind === "rename" ? model.doc.name : `${model.doc.name} copy`
-			}
-			placeholder={
-				model.mode.kind === "rename"
-					? t("doc_rename_prompt")
-					: t("doc_duplicate_prompt")
-			}
-			onCommit={(value) => commitDocName(value, model, actions)}
-			onCancel={() => actions.changeMode({ kind: "idle" })}
-		/>
-	);
-}
-
-function commitDocName(
-	value: string,
-	model: DocItemModel,
-	actions: DocItemActions,
-) {
-	const trimmed = value.trim();
-	actions.changeMode({ kind: "idle" });
-	if (!trimmed) return;
-	if (model.mode.kind === "rename") {
-		if (trimmed !== model.doc.name) sendRenameDoc(model.doc.name, trimmed);
-	} else {
-		sendDuplicateDoc(model.doc.name, trimmed);
-	}
-}
-
-function DocDeleteHold({ model, actions }: DocItemProps) {
-	const t = useT();
-	return (
-		<HoldToDelete
-			label={t("doc_delete_hold", { name: model.doc.name })}
-			onConfirm={() => {
-				actions.changeMode({ kind: "idle" });
-				sendDeleteDoc(model.doc.name);
-			}}
-			onCancel={() => actions.changeMode({ kind: "idle" })}
-		/>
-	);
-}
-
-interface DocItemMenuProps extends DocItemRenderProps {
-	anchorRef: React.RefObject<HTMLButtonElement | null>;
-}
-
-function DocItemMenu({ model, meta, actions, anchorRef }: DocItemMenuProps) {
-	if (!model.menuOpen) return null;
-	return (
-		<DocMenu
-			model={{
-				doc: model.doc,
-				canDelete: model.canDelete,
-				locked: meta.locked,
-			}}
-			actions={{
-				close: actions.closeMenu,
-				rename: () => changeDocMenuMode(actions, "rename"),
-				duplicate: () => changeDocMenuMode(actions, "duplicate"),
-				requestDelete: () => changeDocMenuMode(actions, "confirm-delete"),
-			}}
-			anchorRef={anchorRef}
-		/>
-	);
-}
-
-function changeDocMenuMode(actions: DocItemActions, kind: RowMode["kind"]) {
-	actions.closeMenu();
-	actions.changeMode({ kind } as RowMode);
-}
-
-interface InlineNameEditorProps {
-	initial: string;
-	placeholder: string;
-	onCommit: (value: string) => void;
-	onCancel: () => void;
-}
-
-function InlineNameEditor({
-	initial,
-	placeholder,
-	onCommit,
-	onCancel,
-}: InlineNameEditorProps) {
-	const [value, setValue] = useState(initial);
-	const inputRef = useRef<HTMLInputElement>(null);
-
-	useEffect(() => {
-		const el = inputRef.current;
-		if (!el) return;
-		el.focus();
-		const base = initial.replace(/ copy$/, "");
-		el.setSelectionRange(0, base.length);
-	}, [initial]);
-
-	return (
-		<div className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-accent/5 ring-2 ring-accent/30">
-			<div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-accent/10">
-				<Pencil size={13} className="text-accent" />
-			</div>
-			<input
-				ref={inputRef}
-				value={value}
-				onChange={(e) => setValue(e.target.value)}
-				onKeyDown={(e) => {
-					if (e.key === "Enter") {
-						e.preventDefault();
-						onCommit(value);
-					} else if (e.key === "Escape") {
-						e.preventDefault();
-						onCancel();
-					}
-				}}
-				onBlur={() => onCancel()}
-				placeholder={placeholder}
-				className="flex-1 min-w-0 bg-transparent outline-none text-base font-medium text-text-1 placeholder:text-text-3"
-			/>
-		</div>
-	);
-}
-
-interface DocMenuModel {
-	doc: DocSummary;
-	canDelete: boolean;
-	locked: boolean;
-}
-
-interface DocMenuActions {
-	close: () => void;
-	rename: () => void;
-	duplicate: () => void;
-	requestDelete: () => void;
-}
-
-interface DocMenuProps {
-	model: DocMenuModel;
-	actions: DocMenuActions;
-	anchorRef: React.RefObject<HTMLElement | null>;
-}
-
-function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
-	const menu = useDocMenuModel(model, actions, anchorRef);
-	if (!menu.pos) return null;
-	return createPortal(<DocMenuView menu={menu} />, document.body);
-}
-
-interface DocMenuViewModel {
-	doc: DocSummary;
-	canDelete: boolean;
-	locked: boolean;
-	ref: React.RefObject<HTMLDivElement | null>;
-	pos: { top: number; right: number } | null;
-	actions: DocMenuActions;
-	copy: () => Promise<void>;
-	toggleLock: () => void;
-}
-
-function useDocMenuModel(
-	model: DocMenuModel,
-	actions: DocMenuActions,
-	anchorRef: React.RefObject<HTMLElement | null>,
-): DocMenuViewModel {
-	const ref = useRef<HTMLDivElement>(null);
-	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-
-	useLayoutEffect(() => {
-		const a = anchorRef.current;
-		if (!a) return;
-		const rect = a.getBoundingClientRect();
-		const MENU_W = 192;
-		const GAP = 4;
-		const top = rect.bottom + GAP;
-		const right = Math.max(8, window.innerWidth - rect.right);
-		const ESTIMATED_H = 210;
-		const flipped =
-			top + ESTIMATED_H > window.innerHeight - 8
-				? Math.max(8, rect.top - GAP - ESTIMATED_H)
-				: top;
-		void MENU_W;
-		setPos({ top: flipped, right });
-	}, [anchorRef]);
-
-	useEffect(() => {
-		const onDocClick = (e: MouseEvent) => {
-			if (ref.current?.contains(e.target as Node)) return;
-			if (anchorRef.current?.contains(e.target as Node)) return;
-			actions.close();
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") actions.close();
-		};
-		const onScroll = () => actions.close();
-		document.addEventListener("mousedown", onDocClick);
-		document.addEventListener("keydown", onKey);
-		window.addEventListener("scroll", onScroll, true);
-		window.addEventListener("resize", onScroll);
-		return () => {
-			document.removeEventListener("mousedown", onDocClick);
-			document.removeEventListener("keydown", onKey);
-			window.removeEventListener("scroll", onScroll, true);
-			window.removeEventListener("resize", onScroll);
-		};
-	}, [actions, anchorRef]);
-
-	const copy = async () => {
-		await copyToClipboard(model.doc.name);
-		actions.close();
-	};
-
-	const toggleLock = () => {
-		sendLockDoc(model.doc.name, !model.locked);
-		actions.close();
-	};
-
-	return { ...model, ref, pos, actions, copy, toggleLock };
-}
-
-// code-moniker: ignore[smell-feature-envy-local]
-// Pure React view: composing menu items is the component's adapter role, not misplaced domain behavior.
-function DocMenuView({ menu }: { menu: DocMenuViewModel }) {
-	const t = useT();
-	return (
-		<div
-			ref={menu.ref}
-			className="fixed z-[210] w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
-			style={{ top: menu.pos?.top, right: menu.pos?.right }}
-		>
-			<MenuItem icon={<Copy size={13} />} onClick={menu.copy}>
-				{t("doc_copy_name")}
-			</MenuItem>
-			<MenuItem
-				icon={<Pencil size={13} />}
-				onClick={menu.actions.rename}
-				disabled={menu.locked}
-			>
-				{t("doc_rename")}
-			</MenuItem>
-			<MenuItem icon={<Files size={13} />} onClick={menu.actions.duplicate}>
-				{t("doc_duplicate")}
-			</MenuItem>
-			<MenuItem
-				icon={<Download size={13} />}
-				onClick={() => {
-					exportMaketBundle([menu.doc.name]);
-					menu.actions.close();
-				}}
-			>
-				{t("doc_export_maket")}
-			</MenuItem>
-			<MenuItem
-				icon={menu.locked ? <Unlock size={13} /> : <Lock size={13} />}
-				onClick={menu.toggleLock}
-			>
-				{menu.locked ? t("doc_unlock") : t("doc_lock")}
-			</MenuItem>
-			<div className="h-px bg-black/[0.06] my-1" />
-			<MenuItem
-				icon={<Trash2 size={13} />}
-				onClick={menu.actions.requestDelete}
-				disabled={menu.locked || !menu.canDelete}
-				danger
-			>
-				{t("doc_delete")}
-			</MenuItem>
-		</div>
-	);
-}
-
-interface MenuItemProps {
-	icon: React.ReactNode;
-	children: React.ReactNode;
-	onClick: () => void;
-	disabled?: boolean;
-	danger?: boolean;
-}
-
-function MenuItem({
-	icon,
-	children,
-	onClick,
-	disabled,
-	danger,
-}: MenuItemProps) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-left transition ${
-				disabled
-					? "text-text-3 cursor-not-allowed"
-					: danger
-						? "text-danger hover:bg-danger-soft"
-						: "text-text-1 hover:bg-black/[0.05]"
-			}`}
-		>
-			<span className="flex-shrink-0">{icon}</span>
-			<span className="flex-1 truncate">{children}</span>
-		</button>
 	);
 }
