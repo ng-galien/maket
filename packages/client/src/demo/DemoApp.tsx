@@ -58,12 +58,38 @@ function applyStep(scenario: DemoScenario, stepIndex: number): void {
 		});
 	}
 	if (step.collectionMode) {
-		for (const collection of workspace.collections) {
-			useStore
-				.getState()
-				.setCollectionPreviewMode(collection.name, step.collectionMode);
-		}
+		seedDemoCursors(workspace, step.collectionMode);
 	}
+}
+
+/** Offline viewer: no server owns the cursors here, so seed the mirror
+ * directly with one cursor per bound page. */
+function seedDemoCursors(
+	workspace: ReturnType<typeof workspaceAt>,
+	mode: NonNullable<DemoScenario["steps"][number]["collectionMode"]>,
+): void {
+	useStore.getState().setCollectionCursors(
+		workspace.documents.flatMap((doc) =>
+			doc.pages.flatMap((page, pageIndex) => {
+				const collection = workspace.collections.find(
+					(item) => item.name === page.collection?.name,
+				);
+				if (!collection) return [];
+				const [first] = [...collection.members].sort(
+					(a, b) => a.position - b.position,
+				);
+				return [
+					{
+						docName: doc.name,
+						pageIndex,
+						collection: collection.name,
+						mode,
+						memberId: first?.id ?? null,
+					},
+				];
+			}),
+		),
+	);
 }
 
 function useDemoPlayback() {

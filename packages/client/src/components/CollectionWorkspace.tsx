@@ -7,6 +7,7 @@ import {
 import {
 	AlertTriangle,
 	Columns3,
+	Pin,
 	Plus,
 	RotateCcw,
 	Save,
@@ -20,100 +21,111 @@ import {
 	applyPastedTable,
 	parseTabularClipboard,
 } from "../lib/tabular-clipboard";
-import { useStore } from "../store/useStore";
+import { previewCursorForPage, useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 
 const fieldKeyPattern = /^[a-z][a-z0-9_]*$/;
 type SetCollectionDraft = React.Dispatch<React.SetStateAction<Collection>>;
 type StoreState = ReturnType<typeof useStore.getState>;
 
+/** Field types the schema toolbar can create; cells render by declared type. */
+type FieldType = "string" | "number" | "boolean";
+const fieldTypes: readonly FieldType[] = ["string", "number", "boolean"];
+
 interface FieldMessages {
 	invalid: string;
 	duplicate: string;
 }
 
+/** The table drives the focused page's cursor when that page is bound to
+ * this collection — clicking a row moves the shared preview cursor. */
 function selectCollectionWorkspaceState(state: StoreState) {
 	const focusedCollectionName = state.focusedCollectionName;
 	const collection = state.collections.find(
 		(item) => item.name === focusedCollectionName,
 	);
+	const cursor = state.focusedDocName
+		? previewCursorForPage(state, state.focusedDocName, state.focusedPageIndex)
+		: null;
+	const cursorOnThisCollection =
+		cursor !== null && cursor.collection === focusedCollectionName;
 	return {
 		collection,
 		collectionDraft: focusedCollectionName
 			? (state.collectionDrafts[focusedCollectionName] ?? null)
 			: null,
-		previewMemberId: focusedCollectionName
-			? (state.collectionPreview[focusedCollectionName]?.memberId ?? null)
-			: null,
+		previewMemberId: cursorOnThisCollection ? cursor.memberId : null,
+		cursorDocName: cursorOnThisCollection ? state.focusedDocName : null,
+		cursorPageIndex: state.focusedPageIndex,
+		readOnly: state.readOnly,
+		barPosition: state.barPosition,
+		pinned: state.dataViewPinned,
 		setFocusedCollection: state.setFocusedCollection,
-		setPreviewMember: state.setCollectionPreviewMember,
+		togglePinned: state.toggleDataViewPinned,
+		setCursorMember: state.setCursorMember,
+		setDraftCursorOverride: state.setDraftCursorOverride,
 	};
 }
 
-function collectionSummary(collection: Collection): {
-	fieldCount: number;
-	rowCount: number;
-} {
-	return {
-		fieldCount: Object.keys(collection.schema.properties ?? {}).length,
-		rowCount: collection.members.length,
-	};
+/** Only saved rows exist server-side — a draft-only row cannot become the
+ * shared cursor until the collection is saved. */
+function isSavedRow(collection: Collection, memberId: string): boolean {
+	return collection.members.some((member) => member.id === memberId);
 }
 
-function labelScaleStyle(zoomK: number): React.CSSProperties {
-	return {
-		transform: `scale(${1 / Math.max(zoomK, 0.1)})`,
-		transformOrigin: "top center",
-	};
-}
-
-export function CollectionWorkspace({ zoomK }: { zoomK: number }) {
+/** Fixed overlay like MessagesPanel: zoom-independent, anchored to the
+ * toolbar-free side, internal scroll. */
+export function CollectionWorkspace() {
 	const {
 		collection,
 		collectionDraft,
 		previewMemberId,
+		cursorDocName,
+		cursorPageIndex,
+		readOnly,
+		barPosition,
+		pinned,
 		setFocusedCollection,
-		setPreviewMember,
+		togglePinned,
+		setCursorMember,
+		setDraftCursorOverride,
 	} = useStore(useShallow((state) => selectCollectionWorkspaceState(state)));
-	const t = useT();
 
-	if (!collection) return null;
+	if (!collection || readOnly) return null;
 
-	const displayCollection = collectionDraft ?? collection;
-	const summary = collectionSummary(displayCollection);
+	const barSide = 68;
+	const freeSide = 8;
+	const panelStyle =
+		barPosition === "top"
+			? { top: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` }
+			: { bottom: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` };
+	// Saved rows move the shared server cursor; draft-only rows get a local
+	// preview override until the collection is saved (then it is promoted).
+	const selectMember = (memberId: string) => {
+		if (!cursorDocName) return;
+		if (isSavedRow(collection, memberId)) {
+			setDraftCursorOverride(cursorDocName, cursorPageIndex, null);
+			setCursorMember(cursorDocName, cursorPageIndex, memberId);
+		} else {
+			setDraftCursorOverride(cursorDocName, cursorPageIndex, memberId);
+		}
+	};
 
 	return (
-		<div className="flex flex-col items-center shrink-0 select-none">
+		<div
+			style={panelStyle}
+			className="fixed right-4 z-[var(--z-panel)] w-[min(680px,calc(100vw-2rem))] flex flex-col overflow-hidden bg-panel border border-border rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.15)]"
+		>
 			<CollectionEditor
+				key={collection.name}
 				collection={collection}
 				initialDraft={collectionDraft ?? collection}
 				previewMemberId={previewMemberId}
-				onSelectMember={(memberId) =>
-					setPreviewMember(collection.name, memberId)
-				}
+				pinned={pinned}
+				onTogglePinned={togglePinned}
+				onClose={() => setFocusedCollection(null)}
+				onSelectMember={selectMember}
 			/>
-			<div className="doc-label relative mt-3" style={labelScaleStyle(zoomK)}>
-				<div className="flex items-center gap-1.5 px-3 py-1 rounded-xl whitespace-nowrap overflow-hidden bg-accent-soft">
-					<span className="text-base font-bold text-accent truncate">
-						{displayCollection.name}
-					</span>
-					<span className="text-2xs text-text-3 shrink-0">
-						{t("collection_summary_counts", {
-							fields: summary.fieldCount,
-							rows: summary.rowCount,
-						})}
-					</span>
-					<button
-						type="button"
-						title={t("close")}
-						aria-label={t("close")}
-						onClick={() => setFocusedCollection(null)}
-						className="w-5 h-5 rounded-md flex items-center justify-center text-text-3 p-0 border-none bg-transparent cursor-pointer shrink-0"
-					>
-						<X size={12} />
-					</button>
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -122,11 +134,17 @@ function CollectionEditor({
 	collection,
 	initialDraft,
 	previewMemberId,
+	pinned,
+	onTogglePinned,
+	onClose,
 	onSelectMember,
 }: {
 	collection: Collection;
 	initialDraft: Collection;
 	previewMemberId: string | null;
+	pinned: boolean;
+	onTogglePinned: () => void;
+	onClose: () => void;
 	onSelectMember: (memberId: string) => void;
 }) {
 	const [draft, setDraftState] = useState(initialDraft);
@@ -146,6 +164,10 @@ function CollectionEditor({
 	);
 	const fields = useMemo(() => listCollectionFields(draft), [draft]);
 	const members = useMemo(() => sortedMembers(draft), [draft]);
+	const savedMemberIds = useMemo(
+		() => new Set(collection.members.map((member) => member.id)),
+		[collection],
+	);
 	const issues = useMemo(() => validateCollection(draft), [draft]);
 	const dirty = useMemo(
 		() => hasChanged(collection, draft),
@@ -160,11 +182,14 @@ function CollectionEditor({
 	}, [initialDraft]);
 
 	return (
-		<div className="w-[960px] max-w-[86vw] bg-panel border border-border rounded-lg shadow-xl overflow-hidden">
+		<div className="flex min-h-0 flex-col overflow-hidden">
 			<CollectionEditorHeader
 				draft={draft}
 				dirty={dirty}
 				canSave={canSave}
+				pinned={pinned}
+				onTogglePinned={onTogglePinned}
+				onClose={onClose}
 				onDescription={(description) =>
 					updateDescription(description, setDraft)
 				}
@@ -187,6 +212,7 @@ function CollectionEditor({
 				draft={draft}
 				fields={fields}
 				members={members}
+				savedMemberIds={savedMemberIds}
 				previewMemberId={previewMemberId}
 				setDraft={setDraft}
 				onSelectMember={onSelectMember}
@@ -199,56 +225,92 @@ function CollectionEditorHeader({
 	draft,
 	dirty,
 	canSave,
+	pinned,
+	onTogglePinned,
+	onClose,
 	onDescription,
 	onReset,
 }: {
 	draft: Collection;
 	dirty: boolean;
 	canSave: boolean;
+	pinned: boolean;
+	onTogglePinned: () => void;
+	onClose: () => void;
 	onDescription: (description: string) => void;
 	onReset: () => void;
 }) {
 	const t = useT();
 	return (
-		<header className="flex items-start justify-between gap-4 px-4 py-3 border-b border-border">
-			<div className="min-w-0">
-				<div className="flex items-center gap-2">
-					<div className="text-lg font-bold text-text-1 truncate">
-						{draft.name}
-					</div>
-					{dirty && (
-						<span className="text-2xs font-semibold text-accent bg-accent-soft rounded px-1.5 py-0.5">
-							{t("modified")}
-						</span>
-					)}
-				</div>
-				<input
-					value={draft.description ?? ""}
-					onChange={(event) => onDescription(event.target.value)}
-					placeholder={t("collection_description_placeholder")}
-					className="w-full bg-transparent text-sm text-text-3 outline-none"
-				/>
-			</div>
-			<div className="flex items-center gap-2 shrink-0">
+		<header className="flex items-center gap-2 px-2.5 py-1.5 border-b border-border">
+			<span
+				className="text-sm font-bold text-text-1 truncate shrink-0 max-w-44"
+				title={draft.name}
+			>
+				{draft.name}
+			</span>
+			<span className="text-2xs text-text-3 shrink-0">
+				{t("collection_summary_counts", {
+					fields: Object.keys(draft.schema.properties ?? {}).length,
+					rows: draft.members.length,
+				})}
+			</span>
+			<input
+				value={draft.description ?? ""}
+				onChange={(event) => onDescription(event.target.value)}
+				placeholder={t("collection_description_placeholder")}
+				title={draft.description ?? ""}
+				className="min-w-0 flex-1 bg-transparent text-xs text-text-3 outline-none"
+			/>
+			<div className="flex items-center gap-0.5 shrink-0">
+				{dirty && (
+					<>
+						<button
+							type="button"
+							title={t("collection_reset_changes")}
+							aria-label={t("collection_reset_changes")}
+							onClick={onReset}
+							className="w-7 h-7 rounded-md flex items-center justify-center text-text-2 hover:bg-input transition-colors"
+						>
+							<RotateCcw size={13} />
+						</button>
+						<button
+							type="button"
+							title={`${t("save")} — ${t("collection_draft_export_note")}`}
+							aria-label={t("save")}
+							disabled={!canSave}
+							onClick={() =>
+								wsSend({ type: "collection_save", collection: draft })
+							}
+							className="w-7 h-7 rounded-md flex items-center justify-center text-white bg-accent hover:opacity-90 transition-opacity disabled:opacity-35"
+						>
+							<Save size={13} />
+						</button>
+						<div className="h-4 w-px bg-border mx-0.5" />
+					</>
+				)}
 				<button
 					type="button"
-					title={t("collection_reset_changes")}
-					aria-label={t("collection_reset_changes")}
-					disabled={!dirty}
-					onClick={onReset}
-					className="w-9 h-9 rounded-full flex items-center justify-center text-text-2 hover:bg-input transition-colors disabled:opacity-35 disabled:hover:bg-transparent"
+					title={t("collection_pin_view")}
+					aria-label={t("collection_pin_view")}
+					aria-pressed={pinned}
+					onClick={onTogglePinned}
+					className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+						pinned
+							? "bg-accent-soft text-accent"
+							: "text-text-3 hover:bg-input hover:text-text-1"
+					}`}
 				>
-					<RotateCcw size={16} />
+					<Pin size={13} className={pinned ? "rotate-45" : ""} />
 				</button>
 				<button
 					type="button"
-					title={t("save")}
-					aria-label={t("save")}
-					disabled={!canSave}
-					onClick={() => wsSend({ type: "collection_save", collection: draft })}
-					className="w-9 h-9 rounded-full flex items-center justify-center text-white bg-accent hover:opacity-90 transition-opacity disabled:opacity-35"
+					title={t("close")}
+					aria-label={t("close")}
+					onClick={onClose}
+					className="w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
 				>
-					<Save size={16} />
+					<X size={13} />
 				</button>
 			</div>
 		</header>
@@ -273,17 +335,28 @@ function SchemaToolbar({
 	setFieldError: (message: string) => void;
 }) {
 	const t = useT();
-	const fieldMessages = {
-		invalid: t("collection_field_invalid"),
-		duplicate: t("collection_field_duplicate"),
-	};
+	const [fieldType, setFieldType] = useState<FieldType>("string");
+	const submitField = () =>
+		addField(
+			fieldName,
+			fieldType,
+			draft,
+			{
+				invalid: t("collection_field_invalid"),
+				duplicate: t("collection_field_duplicate"),
+			},
+			setDraft,
+			setFieldError,
+			setFieldName,
+		);
 	return (
-		<div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-border bg-input/35">
-			<div className="flex items-center gap-2 min-w-0">
-				<Columns3 size={15} className="text-text-3 shrink-0" />
-				<span className="text-xs font-semibold text-text-3 shrink-0">
-					{t("collection_schema")}
-				</span>
+		<div className="flex items-center justify-between gap-2 px-2.5 py-1 border-b border-border bg-input/35">
+			<div className="flex items-center gap-1.5 min-w-0">
+				<Columns3
+					size={13}
+					className="text-text-3 shrink-0"
+					aria-label={t("collection_schema")}
+				/>
 				<input
 					value={fieldName}
 					onChange={(event) => {
@@ -291,39 +364,23 @@ function SchemaToolbar({
 						setFieldError("");
 					}}
 					onKeyDown={(event) => {
-						if (event.key === "Enter")
-							addField(
-								fieldName,
-								draft,
-								fieldMessages,
-								setDraft,
-								setFieldError,
-								setFieldName,
-							);
+						if (event.key === "Enter") submitField();
 					}}
 					placeholder={t("collection_new_field_placeholder")}
-					className="w-40 bg-panel rounded-md px-2 py-1.5 text-sm text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+					className="w-32 h-7 bg-panel rounded-md px-2 text-xs text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
 				/>
+				<FieldTypeSelect value={fieldType} onChange={setFieldType} />
 				<button
 					type="button"
 					title={t("collection_add_field")}
 					aria-label={t("collection_add_field")}
-					onClick={() =>
-						addField(
-							fieldName,
-							draft,
-							fieldMessages,
-							setDraft,
-							setFieldError,
-							setFieldName,
-						)
-					}
-					className="w-8 h-8 rounded-md flex items-center justify-center text-text-2 hover:bg-panel transition-colors"
+					onClick={submitField}
+					className="w-7 h-7 rounded-md flex items-center justify-center text-text-2 hover:bg-panel transition-colors"
 				>
-					<Plus size={15} />
+					<Plus size={13} />
 				</button>
 				{fieldError && (
-					<span className="text-xs text-danger truncate">{fieldError}</span>
+					<span className="text-2xs text-danger truncate">{fieldError}</span>
 				)}
 			</div>
 			<button
@@ -331,12 +388,42 @@ function SchemaToolbar({
 				title={t("collection_add_row")}
 				aria-label={t("collection_add_row")}
 				onClick={() => addRow(draft, fields, setDraft)}
-				className="h-8 px-2.5 rounded-md flex items-center gap-1.5 text-sm font-medium text-text-2 hover:bg-panel transition-colors"
+				className="h-7 px-2 rounded-md flex items-center gap-1 text-xs font-medium text-text-2 hover:bg-panel transition-colors"
 			>
-				<Plus size={15} />
+				<Plus size={13} />
 				<span>{t("collection_row")}</span>
 			</button>
 		</div>
+	);
+}
+
+function FieldTypeSelect({
+	value,
+	onChange,
+}: {
+	value: FieldType;
+	onChange: (type: FieldType) => void;
+}) {
+	const t = useT();
+	const typeLabels: Record<FieldType, string> = {
+		string: t("collection_type_string"),
+		number: t("collection_type_number"),
+		boolean: t("collection_type_boolean"),
+	};
+	return (
+		<select
+			value={value}
+			title={t("collection_field_type")}
+			aria-label={t("collection_field_type")}
+			onChange={(event) => onChange(event.target.value as FieldType)}
+			className="h-7 bg-panel rounded-md px-1.5 text-xs text-text-2 outline-none focus:ring-2 focus:ring-accent/25"
+		>
+			{fieldTypes.map((type) => (
+				<option key={type} value={type}>
+					{typeLabels[type]}
+				</option>
+			))}
+		</select>
 	);
 }
 
@@ -344,6 +431,7 @@ function CollectionTable({
 	draft,
 	fields,
 	members,
+	savedMemberIds,
 	previewMemberId,
 	setDraft,
 	onSelectMember,
@@ -351,18 +439,22 @@ function CollectionTable({
 	draft: Collection;
 	fields: CollectionField[];
 	members: Collection["members"];
+	savedMemberIds: ReadonlySet<string>;
 	previewMemberId: string | null;
 	setDraft: SetCollectionDraft;
 	onSelectMember: (memberId: string) => void;
 }) {
 	const t = useT();
 	return (
-		<div className="overflow-auto max-h-[580px]">
-			<table className="w-full text-sm border-collapse">
+		<div className="min-h-0 flex-1 overflow-auto">
+			<table className="w-full text-xs border-collapse">
 				<thead className="sticky top-0 bg-panel border-b border-border z-10">
 					<tr>
-						<th className="text-left font-semibold text-text-3 px-3 py-2 w-20">
-							{t("collection_row")}
+						<th
+							className="text-left font-semibold text-text-3 px-2 py-1 w-9"
+							title={t("collection_row")}
+						>
+							#
 						</th>
 						{fields.map((field) => (
 							<FieldHeader
@@ -372,7 +464,7 @@ function CollectionTable({
 								setDraft={setDraft}
 							/>
 						))}
-						<th className="w-12 px-2 py-2" />
+						<th className="w-8 px-1 py-1" />
 					</tr>
 				</thead>
 				<tbody>
@@ -382,10 +474,12 @@ function CollectionTable({
 						members.map((member, index) => (
 							<DataRow
 								key={member.id}
+								draft={draft}
 								member={member}
 								index={index}
 								fields={fields}
 								selected={member.id === previewMemberId}
+								unsaved={!savedMemberIds.has(member.id)}
 								setDraft={setDraft}
 								onSelectMember={onSelectMember}
 							/>
@@ -403,7 +497,7 @@ function EmptyRows({ colSpan }: { colSpan: number }) {
 		<tr>
 			<td
 				colSpan={colSpan}
-				className="px-4 py-8 text-center text-sm text-text-3"
+				className="px-3 py-4 text-center text-xs text-text-3"
 			>
 				{t("collection_empty_rows")}
 			</td>
@@ -412,17 +506,21 @@ function EmptyRows({ colSpan }: { colSpan: number }) {
 }
 
 function DataRow({
+	draft,
 	member,
 	index,
 	fields,
 	selected,
+	unsaved,
 	setDraft,
 	onSelectMember,
 }: {
+	draft: Collection;
 	member: Collection["members"][number];
 	index: number;
 	fields: CollectionField[];
 	selected: boolean;
+	unsaved: boolean;
 	setDraft: SetCollectionDraft;
 	onSelectMember: (memberId: string) => void;
 }) {
@@ -432,51 +530,42 @@ function DataRow({
 			className={`border-b border-border/60 transition-colors ${selected ? "bg-accent-soft" : ""}`}
 			onClick={() => onSelectMember(member.id)}
 		>
-			<td className="px-3 py-2 text-text-3 whitespace-nowrap">
+			<td className="px-1.5 py-0.5 text-text-3 whitespace-nowrap">
 				<button
 					type="button"
-					title={t("collection_preview_row")}
-					aria-label={t("collection_preview_row")}
+					title={
+						unsaved ? t("collection_row_unsaved") : t("collection_preview_row")
+					}
+					aria-label={
+						unsaved ? t("collection_row_unsaved") : t("collection_preview_row")
+					}
 					onClick={(event) => {
 						event.stopPropagation();
 						onSelectMember(member.id);
 					}}
-					className={`w-7 h-7 rounded-md inline-flex items-center justify-center text-xs font-bold ${
-						selected
-							? "bg-accent text-white"
-							: "bg-input text-text-3 hover:text-text-1"
+					className={`w-5 h-5 rounded inline-flex items-center justify-center text-2xs font-bold ${
+						unsaved
+							? "border border-dashed border-accent text-accent cursor-help"
+							: selected
+								? "bg-accent text-white"
+								: "bg-input text-text-3 hover:text-text-1"
 					}`}
 				>
 					{index + 1}
 				</button>
 			</td>
 			{fields.map((field) => (
-				<td key={field.key} className="px-2 py-1 min-w-40">
-					<input
-						value={String(member.data[field.key] ?? "")}
-						onPaste={(event) => {
-							const rows = parseTabularClipboard(
-								event.clipboardData.getData("text/plain"),
-							);
-							if (rows.length === 0) return;
-							event.preventDefault();
-							setDraft((current) =>
-								applyPastedTable(
-									current,
-									{ memberId: member.id, fieldKey: field.key },
-									rows,
-								),
-							);
-						}}
-						onChange={(event) =>
-							updateValue(member.id, field.key, event.target.value, setDraft)
-						}
-						onFocus={() => onSelectMember(member.id)}
-						className="w-full bg-input rounded-md px-2 py-1.5 text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+				<td key={field.key} className="px-1 py-0.5 min-w-24">
+					<CellInput
+						draft={draft}
+						member={member}
+						field={field}
+						setDraft={setDraft}
+						onSelectMember={onSelectMember}
 					/>
 				</td>
 			))}
-			<td className="px-2 py-1 text-right">
+			<td className="px-1 py-0.5 text-right">
 				<button
 					type="button"
 					title={t("collection_delete_row")}
@@ -485,13 +574,133 @@ function DataRow({
 						event.stopPropagation();
 						removeRow(member.id, setDraft);
 					}}
-					className="w-8 h-8 rounded-md inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors"
+					className="w-6 h-6 rounded inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors"
 				>
-					<Trash2 size={14} />
+					<Trash2 size={12} />
 				</button>
 			</td>
 		</tr>
 	);
+}
+
+// Cells honour the declared schema type: enum → select, boolean → checkbox,
+// number/integer → numeric input, everything else → free text. This keeps the
+// draft's values type-correct so Ajv validation passes on save.
+function CellInput({
+	draft,
+	member,
+	field,
+	setDraft,
+	onSelectMember,
+}: {
+	draft: Collection;
+	member: Collection["members"][number];
+	field: CollectionField;
+	setDraft: SetCollectionDraft;
+	onSelectMember: (memberId: string) => void;
+}) {
+	const value = member.data[field.key];
+	const options = enumOptions(draft, field.key);
+	if (options) {
+		const raw = value === undefined ? "" : String(value ?? "");
+		return (
+			<select
+				value={raw}
+				onChange={(event) =>
+					// An optional enum left empty must be ABSENT from the data —
+					// "" is not part of the enum and would fail validation.
+					updateValue(
+						member.id,
+						field.key,
+						event.target.value === "" ? undefined : event.target.value,
+						setDraft,
+					)
+				}
+				onFocus={() => onSelectMember(member.id)}
+				className="w-full h-7 bg-input rounded px-1.5 text-xs text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+			>
+				{(!field.required || raw === "") && <option value="">—</option>}
+				{raw !== "" && !options.includes(raw) && (
+					<option value={raw}>{raw}</option>
+				)}
+				{options.map((option) => (
+					<option key={option} value={option}>
+						{option}
+					</option>
+				))}
+			</select>
+		);
+	}
+	if (field.type === "boolean") {
+		return (
+			<label className="flex h-7 items-center justify-center">
+				<input
+					type="checkbox"
+					checked={value === true}
+					onChange={(event) =>
+						updateValue(member.id, field.key, event.target.checked, setDraft)
+					}
+					onFocus={() => onSelectMember(member.id)}
+					className="w-3.5 h-3.5 accent-accent"
+				/>
+			</label>
+		);
+	}
+	if (field.type === "number" || field.type === "integer") {
+		return (
+			<input
+				type="number"
+				step={field.type === "integer" ? 1 : "any"}
+				value={typeof value === "number" ? value : String(value ?? "")}
+				onChange={(event) => {
+					const raw = event.target.value;
+					updateValue(
+						member.id,
+						field.key,
+						raw === "" ? (field.required ? "" : undefined) : Number(raw),
+						setDraft,
+					);
+				}}
+				onFocus={() => onSelectMember(member.id)}
+				className="w-full h-7 bg-input rounded px-1.5 text-xs text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+			/>
+		);
+	}
+	return (
+		<input
+			value={String(value ?? "")}
+			onPaste={(event) => {
+				const rows = parseTabularClipboard(
+					event.clipboardData.getData("text/plain"),
+				);
+				if (rows.length === 0) return;
+				event.preventDefault();
+				setDraft((current) =>
+					applyPastedTable(
+						current,
+						{ memberId: member.id, fieldKey: field.key },
+						rows,
+					),
+				);
+			}}
+			onChange={(event) =>
+				updateValue(member.id, field.key, event.target.value, setDraft)
+			}
+			onFocus={() => onSelectMember(member.id)}
+			className="w-full h-7 bg-input rounded px-1.5 text-xs text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+		/>
+	);
+}
+
+function enumOptions(collection: Collection, key: string): string[] | null {
+	const property = schemaProperties(collection)[key];
+	if (!property || typeof property !== "object") return null;
+	const values = (property as { enum?: unknown }).enum;
+	if (!Array.isArray(values)) return null;
+	const options = values.filter(
+		(item): item is string => typeof item === "string",
+	);
+	return options.length > 0 ? options : null;
 }
 
 function FieldHeader({
@@ -505,36 +714,37 @@ function FieldHeader({
 }) {
 	const t = useT();
 	return (
-		<th className="text-left font-semibold text-text-2 px-2 py-2 min-w-40">
-			<div className="flex items-center justify-between gap-2">
-				<div className="min-w-0">
-					<div className="truncate">{field.title ?? field.key}</div>
-					<div className="text-2xs font-normal text-text-3 truncate">
-						{field.key} · {field.type}
-						{field.required ? ` · ${t("collection_required")}` : ""}
-					</div>
-				</div>
-				<div className="flex items-center gap-1 shrink-0">
-					<label className="inline-flex items-center gap-1 text-2xs font-normal text-text-3">
-						<input
-							type="checkbox"
-							checked={field.required}
-							onChange={(event) =>
-								setDraft(withRequired(draft, field.key, event.target.checked))
-							}
-							className="w-3 h-3 accent-accent"
-						/>
-					</label>
-					<button
-						type="button"
-						title={t("collection_delete_field")}
-						aria-label={t("collection_delete_field")}
-						onClick={() => setDraft(removeField(draft, field.key))}
-						className="w-7 h-7 rounded-md inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors"
-					>
-						<Trash2 size={13} />
-					</button>
-				</div>
+		<th
+			className="text-left px-1.5 py-1 min-w-24"
+			title={`${field.key} · ${field.type}${field.required ? ` · ${t("collection_required")}` : ""}`}
+		>
+			<div className="flex items-center gap-1">
+				<span className="min-w-0 truncate font-mono text-2xs font-bold text-text-2">
+					{field.key}
+				</span>
+				<span className="shrink-0 text-2xs font-normal text-text-3">
+					{field.type.slice(0, 3)}
+				</span>
+				<span className="flex-1" />
+				<input
+					type="checkbox"
+					checked={field.required}
+					title={t("collection_required")}
+					aria-label={t("collection_required")}
+					onChange={(event) =>
+						setDraft(withRequired(draft, field.key, event.target.checked))
+					}
+					className="w-3 h-3 accent-accent shrink-0"
+				/>
+				<button
+					type="button"
+					title={t("collection_delete_field")}
+					aria-label={t("collection_delete_field")}
+					onClick={() => setDraft(removeField(draft, field.key))}
+					className="w-5 h-5 rounded inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors shrink-0"
+				>
+					<Trash2 size={11} />
+				</button>
 			</div>
 		</th>
 	);
@@ -547,9 +757,9 @@ function ValidationIssues({
 }) {
 	const t = useT();
 	return (
-		<div className="flex items-start gap-2 px-4 py-2 border-b border-danger/30 bg-danger/10 text-danger">
-			<AlertTriangle size={15} className="mt-0.5 shrink-0" />
-			<div className="space-y-1 text-xs">
+		<div className="flex items-start gap-1.5 px-2.5 py-1.5 border-b border-danger/30 bg-danger/10 text-danger">
+			<AlertTriangle size={13} className="mt-0.5 shrink-0" />
+			<div className="space-y-0.5 text-2xs">
 				{issues.map((issue, index) => (
 					<div key={`${issue.code}-${issue.field ?? issue.memberId ?? index}`}>
 						{validationIssueText(issue, t)}
@@ -620,6 +830,7 @@ function updateDescription(
 
 function addField(
 	rawName: string,
+	type: FieldType,
 	draft: Collection,
 	messages: FieldMessages,
 	setDraft: SetCollectionDraft,
@@ -635,7 +846,7 @@ function addField(
 		setFieldError(messages.duplicate);
 		return;
 	}
-	setDraft(withAddedField(draft, key));
+	setDraft(withAddedField(draft, key, type));
 	setFieldName("");
 	setFieldError("");
 }
@@ -645,6 +856,11 @@ function addRow(
 	fields: CollectionField[],
 	setDraft: SetCollectionDraft,
 ): void {
+	const data: Record<string, unknown> = {};
+	for (const field of fields) {
+		const value = defaultValueFor(draft, field);
+		if (value !== undefined) data[field.key] = value;
+	}
 	setDraft({
 		...draft,
 		members: [
@@ -652,25 +868,44 @@ function addRow(
 			{
 				id: nextMemberId(draft),
 				position: nextMemberPosition(draft),
-				data: Object.fromEntries(fields.map((field) => [field.key, ""])),
+				data,
 			},
 		],
 	});
 }
 
+/** Schema-valid starting value for a new row: optional fields stay absent
+ * (`undefined`); required fields get a value that validates — first enum
+ * option, 0, false, or "". */
+function defaultValueFor(
+	collection: Collection,
+	field: CollectionField,
+): unknown {
+	if (!field.required) return undefined;
+	const options = enumOptions(collection, field.key);
+	if (options) return options[0] ?? "";
+	if (field.type === "number" || field.type === "integer") return 0;
+	if (field.type === "boolean") return false;
+	return "";
+}
+
+/** `undefined` removes the key — an optional field left empty must be
+ * absent from the data, not set to an invalid empty value. */
 function updateValue(
 	memberId: string,
 	key: string,
-	value: string,
+	value: unknown,
 	setDraft: SetCollectionDraft,
 ): void {
 	setDraft((current) => ({
 		...current,
-		members: current.members.map((member) =>
-			member.id === memberId
-				? { ...member, data: { ...member.data, [key]: value } }
-				: member,
-		),
+		members: current.members.map((member) => {
+			if (member.id !== memberId) return member;
+			if (value === undefined) {
+				return { ...member, data: withoutKey(member.data, key) };
+			}
+			return { ...member, data: { ...member.data, [key]: value } };
+		}),
 	}));
 }
 
@@ -683,7 +918,12 @@ function removeRow(memberId: string, setDraft: SetCollectionDraft): void {
 	}));
 }
 
-function withAddedField(collection: Collection, key: string): Collection {
+function withAddedField(
+	collection: Collection,
+	key: string,
+	type: FieldType,
+): Collection {
+	// The new field is optional: existing rows validate with the key absent.
 	return {
 		...collection,
 		schema: {
@@ -691,13 +931,9 @@ function withAddedField(collection: Collection, key: string): Collection {
 			type: "object",
 			properties: {
 				...schemaProperties(collection),
-				[key]: { type: "string", title: fieldTitle(key) },
+				[key]: { type, title: fieldTitle(key) },
 			},
 		},
-		members: collection.members.map((member) => ({
-			...member,
-			data: { ...member.data, [key]: "" },
-		})),
 	};
 }
 

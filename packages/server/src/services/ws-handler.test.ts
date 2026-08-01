@@ -13,6 +13,8 @@ import { onboardingDocumentName } from "../lib/onboarding-document.js";
 import { computeCanvasDims, createDocument } from "../types.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
+import { createCollectionCursors } from "./collection-cursor.js";
+import { createCollections } from "./collections.js";
 import { createDocuments } from "./documents.js";
 import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
@@ -960,6 +962,101 @@ describe("ws-handler — text editing", () => {
 		expect(resolveSpy).toHaveBeenCalledWith(
 			"req-1",
 			expect.objectContaining({ type: "check_layout_response" }),
+		);
+		dispose();
+	});
+});
+
+describe("ws-handler — collection cursor", () => {
+	function cursorFixture() {
+		const base = fixture();
+		const collections = createCollections({
+			bus: base.bus,
+			documents: base.documents,
+			store: base.store,
+		});
+		const collectionCursors = createCollectionCursors({
+			bus: base.bus,
+			documents: base.documents,
+			store: base.store,
+		});
+		const handler = createWsHandler({
+			assets: createAssetsService({ assetsDir: base.assetsDir }),
+			bus: base.bus,
+			collections,
+			collectionCursors,
+			documents: base.documents,
+			pending: base.pending,
+			store: base.store,
+			wsRegistry: base.wsRegistry,
+			wsBridge: base.wsBridge,
+		});
+		collections.save({
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client_name: { type: "string" } },
+				required: ["client_name"],
+				additionalProperties: false,
+			},
+			members: [
+				{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+				{ id: "member_2", position: 1, data: { client_name: "Globex" } },
+			],
+		});
+		const doc = makeDoc("poster");
+		const page = doc.pages[0];
+		if (page) page.collection = { name: "clients" };
+		base.store.saveDoc(doc);
+		base.documents.loadAll();
+		return { ...base, handler, collectionCursors };
+	}
+
+	it("moves the cursor and defaults are page-scoped", () => {
+		const { handler, collectionCursors, dispose } = cursorFixture();
+		handler(
+			{
+				type: "collection_cursor_set",
+				docName: "poster",
+				pageIndex: 0,
+				mode: "rendered",
+				memberId: "member_2",
+			},
+			STUB_WS,
+		);
+		expect(collectionCursors.resolve("poster", 0)).toEqual(
+			expect.objectContaining({ mode: "rendered", memberId: "member_2" }),
+		);
+		dispose();
+	});
+
+	it("rejects invalid modes and toasts on unknown rows", () => {
+		const { bus, handler, collectionCursors, dispose } = cursorFixture();
+		const toasts: string[] = [];
+		bus.on("toast", ({ text }) => toasts.push(text));
+
+		handler(
+			{
+				type: "collection_cursor_set",
+				docName: "poster",
+				pageIndex: 0,
+				mode: "sideways",
+			} as never,
+			STUB_WS,
+		);
+		expect(collectionCursors.resolve("poster", 0)?.mode).toBe("template");
+
+		handler(
+			{
+				type: "collection_cursor_set",
+				docName: "poster",
+				pageIndex: 0,
+				memberId: "ghost",
+			},
+			STUB_WS,
+		);
+		expect(toasts.some((text) => text.includes('Row "ghost" not found'))).toBe(
+			true,
 		);
 		dispose();
 	});

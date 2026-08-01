@@ -45,7 +45,7 @@ beforeEach(() => {
 		pending: [],
 		collections: [],
 		collectionDrafts: {},
-		collectionPreview: {},
+		collectionCursors: {},
 		activePanel: null,
 		barPosition: "bottom",
 		darkMode: false,
@@ -89,35 +89,26 @@ describe("BottomBar", () => {
 		);
 	});
 
-	it("adds the collection preview selection to the Print href", () => {
+	it("keeps the Print href plain — the server follows the shared cursor", () => {
 		const doc = makeDoc("poster");
 		doc.pages[0].collection = { name: "clients" };
 		useStore.setState({
 			docs: new Map([["poster", doc]]),
 			focusedDocName: "poster",
-			collections: [
-				{
-					name: "clients",
-					schema: {
-						type: "object",
-						properties: { client_name: { type: "string" } },
-					},
-					members: [{ id: "member_2", position: 0, data: {} }],
-				},
-			],
-			collectionPreview: {
-				clients: { mode: "rendered", memberId: "member_2" },
-			},
+			collections: [clientsCollection],
 		});
+		useStore.getState().setCollectionCursors([
+			{
+				docName: "poster",
+				pageIndex: 0,
+				collection: "clients",
+				mode: "rendered",
+				memberId: "member_2",
+			},
+		]);
 		render(<BottomBar />);
 		const print = screen.getByRole("link");
-		const url = new URL(`http://localhost${print.getAttribute("href")}`);
-		expect(url.searchParams.get("name")).toBe("poster");
-		expect(url.searchParams.get("collection_preview")).toBe(
-			JSON.stringify({
-				clients: { mode: "rendered", memberId: "member_2" },
-			}),
-		);
+		expect(print.getAttribute("href")).toBe("/print?name=poster");
 	});
 
 	it("opens the active page data-source addon on the toolbar free side", async () => {
@@ -187,13 +178,12 @@ describe("BottomBar", () => {
 			focusedDocName: "poster",
 			focusedPageIndex: 0,
 			collections: [clientsCollection],
-			collectionPreview: {
-				clients: { mode: "template", memberId: "member_1" },
-			},
 		});
 
 		render(<BottomBar />);
-		await user.click(screen.getByRole("button", { name: /clients · 2/i }));
+		await user.click(
+			screen.getByRole("button", { name: /clients · Template/i }),
+		);
 		await user.click(screen.getByRole("button", { name: "Detach" }));
 
 		expect(send).toHaveBeenCalledWith({
@@ -204,8 +194,9 @@ describe("BottomBar", () => {
 		send.mockRestore();
 	});
 
-	it("controls preview rows and opens the bound collection workspace", async () => {
+	it("sends cursor moves to the server and opens the bound collection workspace", async () => {
 		const user = userEvent.setup();
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
 		const doc = makeDoc("poster");
 		doc.pages[0].collection = { name: "clients" };
 		useStore.setState({
@@ -213,20 +204,27 @@ describe("BottomBar", () => {
 			focusedDocName: "poster",
 			focusedPageIndex: 0,
 			collections: [clientsCollection],
-			collectionPreview: {
-				clients: { mode: "template", memberId: "member_1" },
-			},
 		});
 
 		render(<BottomBar />);
-		await user.click(screen.getByRole("button", { name: /clients · 2/i }));
+		await user.click(
+			screen.getByRole("button", { name: /clients · Template/i }),
+		);
 		await user.click(
 			screen.getByRole("button", { name: "Current row render" }),
 		);
-		await user.click(screen.getByRole("button", { name: "Next row" }));
-
-		expect(useStore.getState().collectionPreview.clients).toEqual({
+		expect(send).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "poster",
+			pageIndex: 0,
 			mode: "rendered",
+		});
+
+		await user.click(screen.getByRole("button", { name: "Next row" }));
+		expect(send).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "poster",
+			pageIndex: 0,
 			memberId: "member_2",
 		});
 
@@ -234,6 +232,53 @@ describe("BottomBar", () => {
 		expect(useStore.getState().focusedCollectionName).toBe("clients");
 		expect(useStore.getState().focusedDocName).toBe("poster");
 		expect(useStore.getState().activePanel).toBeNull();
+		send.mockRestore();
+	});
+
+	it("disables row-render modes when the bound collection is empty", async () => {
+		const user = userEvent.setup();
+		const doc = makeDoc("poster");
+		doc.pages[0].collection = { name: "clients" };
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 0,
+			collections: [{ ...clientsCollection, members: [] }],
+		});
+
+		render(<BottomBar />);
+		await user.click(
+			screen.getByRole("button", { name: /clients · Template/i }),
+		);
+
+		expect(
+			screen.getByRole("button", { name: "Current row render" }),
+		).toBeDisabled();
+		expect(screen.getByRole("button", { name: "All rows" })).toBeDisabled();
+	});
+
+	it("shows the shared cursor position on the chip in row mode", () => {
+		const doc = makeDoc("poster");
+		doc.pages[0].collection = { name: "clients" };
+		useStore.setState({
+			docs: new Map([["poster", doc]]),
+			focusedDocName: "poster",
+			focusedPageIndex: 0,
+			collections: [clientsCollection],
+		});
+		useStore.getState().setCollectionCursors([
+			{
+				docName: "poster",
+				pageIndex: 0,
+				collection: "clients",
+				mode: "rendered",
+				memberId: "member_2",
+			},
+		]);
+		render(<BottomBar />);
+		expect(
+			screen.getByRole("button", { name: /clients · Row 2\/2/i }),
+		).toBeInTheDocument();
 	});
 
 	it("toggles the active panel when a panel icon is clicked", async () => {

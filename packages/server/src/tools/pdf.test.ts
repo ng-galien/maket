@@ -77,6 +77,7 @@ describe("maket_pdf", () => {
 		expect(pdfService.render).toHaveBeenCalledWith(
 			expect.objectContaining({ name: "d" }),
 			"print",
+			"preview",
 		);
 		// file landed on disk
 		const data = readFileSync(join(tmp, "d.pdf"));

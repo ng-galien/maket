@@ -1,6 +1,7 @@
 import {
 	type Collection,
 	formatCollectionTemplateIssues,
+	type PageCollectionCursor,
 	resolveCollectionText,
 	validateCollectionTemplate,
 } from "@maket/shared";
@@ -8,14 +9,42 @@ import type { Document, Page } from "../types.js";
 
 export type CollectionRenderMode = "template" | "rendered" | "all";
 
+export interface CollectionRenderSelection {
+	mode: CollectionRenderMode;
+	memberId?: string | null;
+}
+
 export interface CollectionRenderOptions {
-	collections?: Record<
-		string,
-		{
-			mode: CollectionRenderMode;
-			memberId?: string | null;
-		}
-	>;
+	/** Per-page selection keyed by page id — the cursor-accurate form; two
+	 * pages bound to the same collection can render differently. Takes
+	 * precedence over `collections`. */
+	pages?: Record<string, CollectionRenderSelection>;
+	/** Per-collection selection keyed by collection name (legacy client
+	 * `collection_preview` payloads). */
+	collections?: Record<string, CollectionRenderSelection>;
+}
+
+/**
+ * Build per-page render options from the server-owned cursors so exports
+ * show exactly what the preview shows. `force` overrides the cursor mode
+ * (explicit "all rows" / "current row" / "template" export choices).
+ */
+export function cursorRenderOptions(
+	doc: Document,
+	resolveCursor: (
+		docName: string,
+		pageIndex: number,
+	) => PageCollectionCursor | null,
+	force?: CollectionRenderMode,
+): CollectionRenderOptions {
+	const pages: Record<string, CollectionRenderSelection> = {};
+	doc.pages.forEach((page, index) => {
+		if (!page.collection?.name) return;
+		const cursor = resolveCursor(doc.name, index);
+		if (!cursor) return;
+		pages[page.id] = { mode: force ?? cursor.mode, memberId: cursor.memberId };
+	});
+	return { pages };
 }
 
 export function renderCollectionDocument(
@@ -67,7 +96,8 @@ function collectionEntries(
 	members: readonly Collection["members"][number][],
 	options: CollectionRenderOptions,
 ): RenderEntry[] {
-	const selection = options.collections?.[collection.name];
+	const selection =
+		options.pages?.[page.id] ?? options.collections?.[collection.name];
 	if (selection?.mode === "template") return [{ kind: "static", page }];
 	if (selection?.mode === "rendered") {
 		return selectedMemberEntries(page, collection, members, selection.memberId);

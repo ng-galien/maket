@@ -57,6 +57,8 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 		"Collections are business data resources. A collection owns a JSON Schema and ordered members; pages can bind to a collection and render against the selected member or all members.",
 		"Change data through maket_collection actions. To add a field, change the schema; to edit values, add or update rows. Validate schema and rows rather than treating placeholders as loose strings.",
 		"Use placeholders for textual values only when the page is bound to the collection that owns the field.",
+		"Every bound page has a shared preview cursor: mode (template, rendered, all) plus current row, owned by the server. Read or move it with maket_collection action=cursor doc=<doc> page=<n> [mode=...] [row=...]. The human's live canvas, maket_workspace state and the exports all follow the same cursor, so 'look at row 3' means the same thing for everyone.",
+		"Exports follow the cursor by default. maket_pdf rows=preview|current|all|template makes the choice explicit — 'all rows' mail merge is a deliberate option, not a hidden default.",
 	],
 	review: [
 		"Review is visual and structural. Use maket_preview snapshot or maket_html check, inspect user notes, and fix the smallest coherent design issue.",

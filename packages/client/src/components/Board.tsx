@@ -19,7 +19,6 @@ import {
 	registerRequestFit,
 	registerZoomTo,
 } from "../store/zoomBridge";
-import { CollectionWorkspace } from "./CollectionWorkspace";
 import { WorkspaceDoc } from "./WorkspaceDoc";
 
 const DOC_GAP = 80;
@@ -56,8 +55,6 @@ function Watermark() {
 
 export function Board({ locked }: { locked: boolean }) {
 	const workspaceDocNames = useWorkspaceDocNames();
-	const focusedCollectionName = useStore((s) => s.focusedCollectionName);
-	const readOnly = useStore((s) => s.readOnly);
 	const wrapRef = useRef<HTMLDivElement>(null);
 	const boardRef = useRef<HTMLDivElement>(null);
 	const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
@@ -108,12 +105,6 @@ export function Board({ locked }: { locked: boolean }) {
 				{workspaceDocNames.map((name) => (
 					<WorkspaceDoc key={name} docName={name} zoomK={transform.k} />
 				))}
-				{focusedCollectionName && !readOnly && (
-					<CollectionWorkspace
-						key={focusedCollectionName}
-						zoomK={transform.k}
-					/>
-				)}
 			</div>
 		</div>
 	);

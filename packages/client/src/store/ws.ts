@@ -317,6 +317,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				.getState()
 				.setCollections((msg.collections ?? []) as Collection[]);
 			break;
+		case "collection_cursors":
+			useStore.getState().setCollectionCursors(msg.cursors ?? []);
+			break;
 		case "fit_view":
 			requestAnimationFrame(() => fitToView());
 			break;
@@ -339,6 +342,9 @@ function applyStateMessage(
 	const docList = (msg.docList ?? []) as DocSummary[];
 	if (msg.collections !== undefined) {
 		useStore.getState().setCollections(msg.collections as Collection[]);
+	}
+	if (msg.collectionCursors !== undefined) {
+		useStore.getState().setCollectionCursors(msg.collectionCursors);
 	}
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 	if (!doc) {

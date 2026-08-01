@@ -30,7 +30,7 @@ afterEach(() => {
 		focusedPageIndex: 0,
 		focusedCollectionName: null,
 		collections: [],
-		collectionPreview: {},
+		collectionCursors: {},
 		collectionDrafts: {},
 		selectedIds: [],
 	});
@@ -45,10 +45,16 @@ describe("WorkspaceDoc page focus", () => {
 			focusedDocName: doc.name,
 			focusedPageIndex: 0,
 			collections: [collection],
-			collectionPreview: {
-				clients: { mode: "template", memberId: "member_1" },
-			},
 		});
+		useStore.getState().setCollectionCursors([
+			{
+				docName: doc.name,
+				pageIndex: 0,
+				collection: "clients",
+				mode: "template",
+				memberId: "member_1",
+			},
+		]);
 
 		render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
 

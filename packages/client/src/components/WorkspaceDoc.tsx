@@ -1,8 +1,12 @@
-import type { Collection } from "@maket/shared";
+import {
+	type Collection,
+	collectionCursorKey,
+	type PageCollectionCursor,
+} from "@maket/shared";
 import { X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
-import type { CollectionPreviewState } from "../store/useStore";
+import type { DraftCursorOverride } from "../store/useStore";
 import { useDocByName, useStore } from "../store/useStore";
 import { type CollectionPagePreview, PageCanvas } from "./PageCanvas";
 import { DraftPill } from "./shared/DraftPill";
@@ -37,7 +41,8 @@ interface Props {
 function collectionPageViews(
 	doc: NonNullable<ReturnType<typeof useDocByName>>,
 	collections: readonly Collection[],
-	previewByCollection: Record<string, CollectionPreviewState>,
+	cursors: Record<string, PageCollectionCursor>,
+	overrides: Record<string, DraftCursorOverride>,
 	labels: PageLabels,
 ): PageView[] {
 	const entries = doc.pages.flatMap<PageViewEntry>((page, pageIndex) => {
@@ -54,7 +59,11 @@ function collectionPageViews(
 			return [view];
 		}
 		const members = sortedMembers(collection);
-		const preview = previewStateFor(collection, previewByCollection);
+		const key = collectionCursorKey(doc.name, pageIndex);
+		const preview = previewStateFor(
+			collection,
+			withDraftOverride(cursors[key], overrides[key], members),
+		);
 		if (preview.mode === "all") {
 			return members.map<PageViewEntry>((member, memberIndex) => ({
 				key: `${page.id}:${collection.name}:${member.id}`,
@@ -87,15 +96,27 @@ function collectionPageViews(
 	);
 }
 
+/** A draft-only row being previewed locally replaces the server cursor's
+ * member — the collection here is the drafts overlay, so it can render it. */
+function withDraftOverride(
+	cursor: PageCollectionCursor | undefined,
+	override: DraftCursorOverride | undefined,
+	members: Collection["members"],
+): PageCollectionCursor | undefined {
+	if (!cursor || !override) return cursor;
+	return members.some((member) => member.id === override.memberId)
+		? { ...cursor, memberId: override.memberId }
+		: cursor;
+}
+
 function previewStateFor(
 	collection: Collection,
-	previewByCollection: Record<string, CollectionPreviewState>,
-): CollectionPreviewState {
-	const preview = previewByCollection[collection.name];
+	cursor: PageCollectionCursor | undefined,
+): { mode: PageCollectionCursor["mode"]; memberId: string | null } {
 	const members = sortedMembers(collection);
-	const member = members.find((item) => item.id === preview?.memberId);
+	const member = members.find((item) => item.id === cursor?.memberId);
 	return {
-		mode: preview?.mode ?? "template",
+		mode: cursor?.collection === collection.name ? cursor.mode : "template",
 		memberId: member?.id ?? members[0]?.id ?? null,
 	};
 }
@@ -161,7 +182,8 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			),
 		[collectionDrafts, collections],
 	);
-	const collectionPreview = useStore((s) => s.collectionPreview);
+	const collectionCursors = useStore((s) => s.collectionCursors);
+	const draftCursorOverrides = useStore((s) => s.draftCursorOverrides);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
 	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
 	const t = useT();
@@ -174,12 +196,18 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const pageViews = useMemo(
 		() =>
 			doc
-				? collectionPageViews(doc, effectiveCollections, collectionPreview, {
-						page: t("page"),
-						row: t("collection_row_lower"),
-					})
+				? collectionPageViews(
+						doc,
+						effectiveCollections,
+						collectionCursors,
+						draftCursorOverrides,
+						{
+							page: t("page"),
+							row: t("collection_row_lower"),
+						},
+					)
 				: [],
-		[effectiveCollections, collectionPreview, doc, t],
+		[effectiveCollections, collectionCursors, draftCursorOverrides, doc, t],
 	);
 
 	if (!doc) return null;

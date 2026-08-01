@@ -1,4 +1,10 @@
-import type { Collection } from "@maket/shared";
+import {
+	type Collection,
+	type CollectionCursorMode,
+	listCollectionFields,
+	listCollectionPlaceholders,
+	type PageCollectionCursor,
+} from "@maket/shared";
 import {
 	AlertTriangle,
 	ChevronLeft,
@@ -9,7 +15,6 @@ import {
 	FileStack,
 	Link2Off,
 	Table,
-	X,
 } from "lucide-react";
 import {
 	type CSSProperties,
@@ -24,18 +29,24 @@ import {
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
-import type {
-	CollectionPreviewMode,
-	CollectionPreviewState,
+import {
+	cursorForPage,
+	sortedCollectionMembers,
+	useFocusedDoc,
+	useStore,
 } from "../store/useStore";
-import { useFocusedDoc, useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 
 const ADDON_ID = "data-source-toolbar-addon";
-const BINDING_TITLE_ID = "collection-binding-title";
-const PREVIEW_TITLE_ID = "collection-preview-title";
 
 type Translate = ReturnType<typeof useT>;
+
+type FieldUsage = "used" | "available";
+
+interface FieldState {
+	key: string;
+	usage: FieldUsage;
+}
 
 interface DataSourceActions {
 	toggle: () => void;
@@ -44,7 +55,7 @@ interface DataSourceActions {
 	detach: () => void;
 	showCollections: () => void;
 	showBoundCollection: () => void;
-	setMode: (mode: CollectionPreviewMode) => void;
+	setMode: (mode: CollectionCursorMode) => void;
 	setMember: (memberId: string | null) => void;
 	moveMember: (delta: number) => void;
 }
@@ -57,9 +68,12 @@ interface DataSourceControlModel {
 	boundName: string;
 	boundCollection: Collection | null;
 	members: Collection["members"];
-	preview: CollectionPreviewState | null;
+	cursor: PageCollectionCursor | null;
 	memberPosition: number;
+	fields: FieldState[];
+	unknownFields: string[];
 	missingCollection: boolean;
+	draftDirty: boolean;
 	position: "top" | "bottom";
 	readOnly: boolean;
 	open: boolean;
@@ -77,18 +91,20 @@ export function DataSourceToolbarControl() {
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
-// This hook is the toolbar adapter over Zustand and WS commands; collection ownership remains in the store while the hook only derives view state and dispatches user intent.
+// This hook is the toolbar adapter over Zustand and WS commands; cursor ownership stays on the server while the hook only derives view state and dispatches user intent.
 function useDataSourceControlModel(): DataSourceControlModel | null {
 	const t = useT();
 	const focusedDoc = useFocusedDoc();
 	const pageIndex = useStore((s) => s.focusedPageIndex);
 	const collections = useStore((s) => s.collections);
 	const collectionDrafts = useStore((s) => s.collectionDrafts);
-	const previewByCollection = useStore((s) => s.collectionPreview);
-	const setPreviewMode = useStore((s) => s.setCollectionPreviewMode);
-	const setPreviewMember = useStore((s) => s.setCollectionPreviewMember);
-	const movePreviewMember = useStore((s) => s.moveCollectionPreviewMember);
+	const collectionCursors = useStore((s) => s.collectionCursors);
+	const docs = useStore((s) => s.docs);
+	const setCursorMode = useStore((s) => s.setCursorMode);
+	const setCursorMember = useStore((s) => s.setCursorMember);
+	const moveCursorMember = useStore((s) => s.moveCursorMember);
 	const openCollection = useStore((s) => s.setFocusedCollection);
+	const dataViewPinned = useStore((s) => s.dataViewPinned);
 	const setActivePanel = useStore((s) => s.setActivePanel);
 	const position = useStore((s) => s.barPosition);
 	const readOnly = useStore((s) => s.readOnly);
@@ -109,15 +125,30 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 	const boundName = page?.collection?.name ?? "";
 	const boundCollection =
 		sources.find((collection) => collection.name === boundName) ?? null;
+	// Cursor navigation runs over SAVED rows only — the shared cursor lives
+	// on the server, where draft-only rows do not exist yet.
+	const savedCollection =
+		collections.find((collection) => collection.name === boundName) ?? null;
 	const members = useMemo(
-		() => sortedMembers(boundCollection),
-		[boundCollection],
+		() => sortedCollectionMembers(savedCollection),
+		[savedCollection],
 	);
-	const preview = previewFor(boundCollection, members, previewByCollection);
-	const memberPosition = preview
-		? members.findIndex((member) => member.id === preview.memberId) + 1
+	const cursor = focusedDoc
+		? cursorForPage(
+				{ docs, collections, collectionDrafts, collectionCursors },
+				focusedDoc.name,
+				pageIndex,
+			)
+		: null;
+	const memberPosition = cursor?.memberId
+		? members.findIndex((member) => member.id === cursor.memberId) + 1
 		: 0;
+	const { fields, unknownFields } = useMemo(
+		() => fieldStates(page?.html, boundCollection),
+		[page?.html, boundCollection],
+	);
 	const missingCollection = Boolean(boundName && !boundCollection);
+	const draftDirty = Boolean(boundName && collectionDrafts[boundName]);
 
 	useEffect(() => {
 		setOpen(false);
@@ -129,7 +160,14 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 	if (!focusedDoc || !page) return null;
 
 	const actions: DataSourceActions = {
-		toggle: () => setOpen((value) => !value),
+		// One floating surface at a time: opening the addon dismisses an
+		// unpinned data view (a pinned one is an explicit user choice).
+		toggle: () =>
+			setOpen((value) => {
+				const next = !value;
+				if (next && !dataViewPinned) openCollection(null);
+				return next;
+			}),
 		close,
 		bind: (collectionName) =>
 			bindCollection(focusedDoc.name, pageIndex, collectionName),
@@ -143,15 +181,10 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 			openCollection(boundCollection.name);
 			close();
 		},
-		setMode: (mode) => {
-			if (boundCollection) setPreviewMode(boundCollection.name, mode);
-		},
-		setMember: (memberId) => {
-			if (boundCollection) setPreviewMember(boundCollection.name, memberId);
-		},
-		moveMember: (delta) => {
-			if (boundCollection) movePreviewMember(boundCollection.name, delta);
-		},
+		setMode: (mode) => setCursorMode(focusedDoc.name, pageIndex, mode),
+		setMember: (memberId) =>
+			setCursorMember(focusedDoc.name, pageIndex, memberId),
+		moveMember: (delta) => moveCursorMember(focusedDoc.name, pageIndex, delta),
 	};
 
 	return {
@@ -162,18 +195,61 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 		boundName,
 		boundCollection,
 		members,
-		preview,
+		cursor,
 		memberPosition,
+		fields,
+		unknownFields,
 		missingCollection,
+		draftDirty,
 		position,
 		readOnly,
 		open,
 		anchorOffset,
 		rootRef,
 		addonRef,
-		triggerLabel: triggerLabel(t, boundName, boundCollection, members.length),
+		triggerLabel: triggerLabel(
+			t,
+			boundName,
+			boundCollection,
+			cursor,
+			memberPosition,
+			members.length,
+		),
 		actions,
 	};
+}
+
+/** Schema fields tagged used/available against the page template, plus
+ * placeholder names that reference no schema field at all. */
+function fieldStates(
+	html: string | undefined,
+	collection: Collection | null,
+): { fields: FieldState[]; unknownFields: string[] } {
+	if (!collection) return { fields: [], unknownFields: [] };
+	const knownKeys = new Set(
+		listCollectionFields(collection).map((field) => field.key),
+	);
+	const usedNames = new Set<string>();
+	for (const occurrence of safePlaceholders(html ?? "")) {
+		if (occurrence.placeholder?.kind === "collectionField") {
+			usedNames.add(occurrence.placeholder.field);
+		}
+	}
+	return {
+		fields: [...knownKeys].map((key) => ({
+			key,
+			usage: usedNames.has(key) ? "used" : "available",
+		})),
+		unknownFields: [...usedNames].filter((name) => !knownKeys.has(name)),
+	};
+}
+
+function safePlaceholders(html: string) {
+	try {
+		return listCollectionPlaceholders(html);
+	} catch {
+		return [];
+	}
 }
 
 function useCloseAddonOnOutsideInteraction(
@@ -241,8 +317,20 @@ function DataSourceToolbarView({ model }: { model: DataSourceControlModel }) {
 	);
 }
 
+/** Plain toolbar icon like its siblings; state lives in a corner dot —
+ * accent when a source is bound, danger when the binding is broken. The
+ * detailed label stays available to tooltips and screen readers. */
 function ToolbarTrigger({ model }: { model: DataSourceControlModel }) {
-	const { t, open, missingCollection, rootRef, triggerLabel, actions } = model;
+	const {
+		open,
+		boundName,
+		missingCollection,
+		unknownFields,
+		rootRef,
+		triggerLabel,
+		actions,
+	} = model;
+	const warning = missingCollection || unknownFields.length > 0;
 	return (
 		<div ref={rootRef} className="relative shrink-0">
 			<button
@@ -250,31 +338,31 @@ function ToolbarTrigger({ model }: { model: DataSourceControlModel }) {
 				aria-expanded={open}
 				aria-controls={ADDON_ID}
 				aria-label={triggerLabel}
-				title={t("collection_data_source")}
+				title={triggerLabel}
 				onClick={actions.toggle}
-				className={`h-8 max-w-44 rounded-full px-2.5 inline-flex items-center gap-1.5 border transition-colors max-sm:w-8 max-sm:justify-center max-sm:px-0 ${
+				className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors relative ${
 					open
-						? "border-accent/40 bg-accent-soft text-accent"
-						: missingCollection
-							? "border-danger/30 bg-danger/10 text-danger"
-							: "border-border bg-input/45 text-text-2 hover:text-text-1 hover:bg-input"
+						? "bg-accent text-white"
+						: "text-text-3 hover:text-text-1 hover:bg-input"
 				}`}
 			>
-				{missingCollection ? (
-					<AlertTriangle size={14} className="shrink-0" />
-				) : (
-					<Database size={14} className="shrink-0" />
+				<Database size={16} />
+				{boundName && (
+					<span
+						className={`absolute top-0.5 right-0.5 w-2 h-2 rounded-full ring-2 ring-panel ${
+							warning ? "bg-danger" : "bg-accent"
+						}`}
+					/>
 				)}
-				<span className="truncate text-xs font-semibold max-sm:hidden">
-					{triggerLabel}
-				</span>
 			</button>
 		</div>
 	);
 }
 
+/** Compact popover: three dense rows (source, fields, cursor) so the
+ * document behind stays visible. Context labels live in tooltips. */
 function DataSourceAddon({ model }: { model: DataSourceControlModel }) {
-	const { t, readOnly, boundCollection, preview, addonRef } = model;
+	const { t, boundCollection, draftDirty, addonRef } = model;
 	return (
 		<div
 			ref={addonRef}
@@ -283,253 +371,281 @@ function DataSourceAddon({ model }: { model: DataSourceControlModel }) {
 			aria-label={t("collection_data_source")}
 			data-side={model.position}
 			style={addonStyle(model.position, model.anchorOffset)}
-			className="fixed left-1/2 -translate-x-1/2 z-[var(--z-popover)] w-[min(620px,calc(100vw-24px))] overflow-y-auto rounded-2xl border border-border bg-panel shadow-[0_22px_70px_rgba(0,0,0,0.2)]"
+			className="fixed left-1/2 -translate-x-1/2 z-[var(--z-popover)] w-[min(440px,calc(100vw-24px))] overflow-y-auto rounded-xl border border-border bg-panel p-2.5 space-y-2 shadow-[0_16px_48px_rgba(0,0,0,0.18)]"
 		>
-			<AddonHeader model={model} />
-			<div className="space-y-4 p-4">
-				<BindingSection model={model} />
-				{boundCollection && preview && (
-					<>
-						<div className="h-px bg-border" />
-						<PreviewSection model={model} />
-						{!readOnly && (
-							<button
-								type="button"
-								onClick={model.actions.showBoundCollection}
-								className="inline-flex h-9 items-center gap-2 rounded-lg bg-accent px-3 text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-90"
-							>
-								<Table size={14} />
-								{t("collection_open_data")}
-							</button>
-						)}
-					</>
-				)}
-			</div>
+			<SourceRow model={model} />
+			{boundCollection && <FieldsRow model={model} />}
+			{boundCollection && <CursorRow model={model} />}
+			{draftDirty && (
+				<p className="text-2xs text-text-3">
+					{t("collection_draft_export_note")}
+				</p>
+			)}
 		</div>
 	);
 }
 
-function AddonHeader({ model }: { model: DataSourceControlModel }) {
-	const { t, doc, pageIndex, actions } = model;
-	return (
-		<header className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
-			<div className="flex min-w-0 items-start gap-2.5">
-				<div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent">
-					<Database size={16} />
-				</div>
-				<div className="min-w-0">
-					<h2 className="text-sm font-bold text-text-1">
-						{t("collection_data_source")}
-					</h2>
-					<p className="truncate text-2xs text-text-3">
-						{doc.name} ·{" "}
-						{t("collection_page_scope", {
-							page: pageIndex + 1,
-							total: doc.pages.length,
-						})}
-					</p>
-				</div>
-			</div>
-			<button
-				type="button"
-				title={t("close")}
-				aria-label={t("close")}
-				onClick={actions.close}
-				className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-input hover:text-text-1"
-			>
-				<X size={15} />
-			</button>
-		</header>
-	);
-}
-
-// code-moniker: ignore[smell-feature-envy-local]
-// This is a pure presentation boundary: its external calls are translations and intent callbacks already owned by the toolbar model.
-function BindingSection({ model }: { model: DataSourceControlModel }) {
-	const {
-		t,
-		boundCollection,
-		boundName,
-		members,
-		missingCollection,
-		readOnly,
-		sources,
-		actions,
-	} = model;
-	return (
-		<section aria-labelledby={BINDING_TITLE_ID}>
-			<div className="mb-2 flex items-center justify-between gap-3">
-				<h3 id={BINDING_TITLE_ID} className="text-xs font-bold text-text-1">
-					{t("collection_binding")}
-				</h3>
-				{boundCollection && (
-					<span className="text-2xs text-text-3">
-						{t("collection_rows_count", { count: members.length })}
-					</span>
-				)}
-			</div>
-
-			<div className="flex flex-col gap-2 sm:flex-row">
-				<label className="sr-only" htmlFor="page-data-source">
-					{t("collection_binding")}
-				</label>
-				<select
-					id="page-data-source"
-					value={boundName}
-					disabled={readOnly || sources.length === 0}
-					onChange={(event) => actions.bind(event.target.value)}
-					className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-input px-3 text-sm font-semibold text-text-1 outline-none transition-shadow focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-55"
-				>
-					{!boundName && (
-						<option value="" disabled>
-							{t("collection_link_data")}
-						</option>
-					)}
-					{missingCollection && (
-						<option value={boundName} disabled>
-							{t("collection_missing_source", { name: boundName })}
-						</option>
-					)}
-					{sources.map((collection) => (
-						<option key={collection.name} value={collection.name}>
-							{collection.name}
-						</option>
-					))}
-				</select>
-
-				{boundName && !readOnly && (
-					<button
-						type="button"
-						onClick={actions.detach}
-						className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border px-3 text-xs font-semibold text-text-2 transition-colors hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
-					>
-						<Link2Off size={14} />
-						{t("collection_detach")}
-					</button>
-				)}
-			</div>
-
-			{sources.length === 0 && !readOnly && (
-				<div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-input/55 px-3 py-2">
-					<p className="text-xs text-text-3">{t("collection_no_sources")}</p>
-					<button
-						type="button"
-						onClick={actions.showCollections}
-						className="shrink-0 text-xs font-bold text-accent hover:underline"
-					>
-						{t("collection_open_library")}
-					</button>
-				</div>
-			)}
-
-			{missingCollection && (
-				<p className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-danger">
-					<AlertTriangle size={13} />
-					{t("collection_missing_source", { name: boundName })}
-				</p>
-			)}
-		</section>
-	);
-}
-
-function PreviewSection({ model }: { model: DataSourceControlModel }) {
-	return (
-		<section
-			aria-labelledby={PREVIEW_TITLE_ID}
-			className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"
-		>
-			<PreviewModeSelector model={model} />
-			<PreviewRowSelector model={model} />
-		</section>
-	);
-}
-
-function PreviewModeSelector({ model }: { model: DataSourceControlModel }) {
-	const { t, preview, members, actions } = model;
-	if (!preview) return null;
+function SourceRow({ model }: { model: DataSourceControlModel }) {
+	const { boundName, readOnly } = model;
 	return (
 		<div>
-			<h3 id={PREVIEW_TITLE_ID} className="mb-2 text-xs font-bold text-text-1">
-				{t("collection_preview_section")}
-			</h3>
-			<div className="grid grid-cols-3 rounded-lg bg-input p-1">
+			<div className="flex items-center gap-1.5">
+				<PageScope model={model} />
+				<SourceSelect model={model} />
+				{boundName && !readOnly && (
+					<>
+						<OpenDataButton model={model} />
+						<DetachButton model={model} />
+					</>
+				)}
+			</div>
+			<NoSourcesHint model={model} />
+			<MissingSourceNotice model={model} />
+		</div>
+	);
+}
+
+function PageScope({ model }: { model: DataSourceControlModel }) {
+	const { t, doc, pageIndex } = model;
+	if (doc.pages.length <= 1) return null;
+	return (
+		<span className="shrink-0 text-2xs font-semibold text-text-3">
+			{t("collection_page_scope", {
+				page: pageIndex + 1,
+				total: doc.pages.length,
+			})}
+		</span>
+	);
+}
+
+function SourceSelect({ model }: { model: DataSourceControlModel }) {
+	const { t, boundName, missingCollection, readOnly, sources, actions } = model;
+	return (
+		<>
+			<label className="sr-only" htmlFor="page-data-source">
+				{t("collection_binding")}
+			</label>
+			<select
+				id="page-data-source"
+				value={boundName}
+				disabled={readOnly || sources.length === 0}
+				onChange={(event) => actions.bind(event.target.value)}
+				className="h-8 min-w-0 flex-1 rounded-md border border-border bg-input px-2 text-xs font-semibold text-text-1 outline-none transition-shadow focus:ring-2 focus:ring-accent/25 disabled:cursor-not-allowed disabled:opacity-55"
+			>
+				{!boundName && (
+					<option value="" disabled>
+						{t("collection_link_data")}
+					</option>
+				)}
+				{missingCollection && (
+					<option value={boundName} disabled>
+						{t("collection_missing_source", { name: boundName })}
+					</option>
+				)}
+				{sources.map((collection) => (
+					<option key={collection.name} value={collection.name}>
+						{collection.name}
+					</option>
+				))}
+			</select>
+		</>
+	);
+}
+
+function OpenDataButton({ model }: { model: DataSourceControlModel }) {
+	const { t, actions } = model;
+	return (
+		<IconButton
+			label={t("collection_open_data")}
+			onClick={actions.showBoundCollection}
+			icon={<Table size={14} />}
+		/>
+	);
+}
+
+function DetachButton({ model }: { model: DataSourceControlModel }) {
+	const { t, actions } = model;
+	return (
+		<IconButton
+			label={t("collection_detach")}
+			onClick={actions.detach}
+			danger
+			icon={<Link2Off size={14} />}
+		/>
+	);
+}
+
+function NoSourcesHint({ model }: { model: DataSourceControlModel }) {
+	const { t, readOnly, sources, actions } = model;
+	if (sources.length > 0 || readOnly) return null;
+	return (
+		<div className="mt-1.5 flex items-center justify-between gap-2 text-2xs">
+			<span className="text-text-3">{t("collection_no_sources")}</span>
+			<button
+				type="button"
+				onClick={actions.showCollections}
+				className="shrink-0 font-bold text-accent hover:underline"
+			>
+				{t("collection_open_library")}
+			</button>
+		</div>
+	);
+}
+
+function MissingSourceNotice({ model }: { model: DataSourceControlModel }) {
+	const { t, boundName, missingCollection } = model;
+	if (!missingCollection) return null;
+	return (
+		<p className="mt-1.5 inline-flex items-center gap-1 text-2xs font-semibold text-danger">
+			<AlertTriangle size={12} />
+			{t("collection_missing_source", { name: boundName })}
+		</p>
+	);
+}
+
+function FieldsRow({ model }: { model: DataSourceControlModel }) {
+	const { t, fields, unknownFields } = model;
+	if (fields.length === 0 && unknownFields.length === 0) return null;
+	return (
+		<div
+			role="group"
+			aria-label={t("collection_fields_section")}
+			className="flex flex-wrap items-center gap-1"
+		>
+			{fields.map((field) => (
+				<span
+					key={field.key}
+					title={
+						field.usage === "used"
+							? t("collection_field_used")
+							: t("collection_field_available")
+					}
+					className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-px font-mono text-2xs font-semibold ${
+						field.usage === "used"
+							? "bg-accent-soft text-accent"
+							: "border border-border text-text-3"
+					}`}
+				>
+					{field.key}
+					{field.usage === "used" && <span aria-hidden>✓</span>}
+				</span>
+			))}
+			{unknownFields.map((name) => (
+				<span
+					key={`unknown-${name}`}
+					title={t("collection_issue_unknown_field", { field: name })}
+					className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-danger/60 px-1.5 py-px font-mono text-2xs font-bold text-danger"
+				>
+					<AlertTriangle size={10} />
+					{name}
+				</span>
+			))}
+		</div>
+	);
+}
+
+function CursorRow({ model }: { model: DataSourceControlModel }) {
+	const { t, cursor, members, memberPosition, actions } = model;
+	if (!cursor) return null;
+	return (
+		<div
+			className="flex items-center gap-1"
+			title={t("collection_cursor_shared")}
+		>
+			<div className="flex shrink-0 items-center rounded-md bg-input p-0.5">
 				<ModeButton
-					active={preview.mode === "template"}
+					active={cursor.mode === "template"}
 					title={t("collection_mode_template")}
 					onClick={() => actions.setMode("template")}
 					icon={<Code2 size={14} />}
 				/>
 				<ModeButton
-					active={preview.mode === "rendered"}
+					active={cursor.mode === "rendered"}
 					title={t("collection_mode_rendered")}
+					disabled={members.length === 0}
 					onClick={() => actions.setMode("rendered")}
 					icon={<Eye size={14} />}
 				/>
 				<ModeButton
-					active={preview.mode === "all"}
+					active={cursor.mode === "all"}
 					title={t("collection_mode_all")}
 					disabled={members.length === 0}
 					onClick={() => actions.setMode("all")}
 					icon={<FileStack size={14} />}
 				/>
 			</div>
+			<div className="h-5 w-px shrink-0 bg-border" />
+			<button
+				type="button"
+				title={t("collection_previous_row")}
+				aria-label={t("collection_previous_row")}
+				disabled={memberPosition <= 1}
+				onClick={() => actions.moveMember(-1)}
+				className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input disabled:opacity-30 disabled:hover:bg-transparent"
+			>
+				<ChevronLeft size={14} />
+			</button>
+			<select
+				value={cursor.memberId ?? ""}
+				aria-label={t("collection_preview_row")}
+				disabled={members.length === 0}
+				onChange={(event) => actions.setMember(event.target.value || null)}
+				className="h-7 min-w-0 flex-1 rounded-md bg-input px-1.5 text-xs font-semibold text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+			>
+				{members.length === 0 && (
+					<option value="">{t("collection_empty_rows")}</option>
+				)}
+				{members.map((member, index) => (
+					<option key={member.id} value={member.id}>
+						{t("collection_row_option", {
+							index: index + 1,
+							label: rowLabel(member),
+						})}
+					</option>
+				))}
+			</select>
+			<span className="shrink-0 text-2xs tabular-nums text-text-3">
+				{memberPosition}/{members.length}
+			</span>
+			<button
+				type="button"
+				title={t("collection_next_row")}
+				aria-label={t("collection_next_row")}
+				disabled={memberPosition === 0 || memberPosition >= members.length}
+				onClick={() => actions.moveMember(1)}
+				className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input disabled:opacity-30 disabled:hover:bg-transparent"
+			>
+				<ChevronRight size={14} />
+			</button>
 		</div>
 	);
 }
 
-function PreviewRowSelector({ model }: { model: DataSourceControlModel }) {
-	const { t, preview, members, memberPosition, actions } = model;
-	if (!preview) return null;
+function IconButton({
+	label,
+	icon,
+	onClick,
+	danger = false,
+}: {
+	label: string;
+	icon: React.ReactNode;
+	onClick: () => void;
+	danger?: boolean;
+}) {
 	return (
-		<div>
-			<h3 className="mb-2 text-xs font-bold text-text-1">
-				{t("collection_preview_row")}
-			</h3>
-			<div className="flex items-center gap-1 rounded-lg bg-input p-1">
-				<button
-					type="button"
-					title={t("collection_previous_row")}
-					aria-label={t("collection_previous_row")}
-					disabled={memberPosition <= 1}
-					onClick={() => actions.moveMember(-1)}
-					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-panel disabled:opacity-30 disabled:hover:bg-transparent"
-				>
-					<ChevronLeft size={15} />
-				</button>
-				<select
-					value={preview.memberId ?? ""}
-					aria-label={t("collection_preview_row")}
-					disabled={members.length === 0}
-					onChange={(event) => actions.setMember(event.target.value || null)}
-					className="h-8 min-w-0 flex-1 rounded-md border-0 bg-transparent px-1 text-xs font-semibold text-text-1 outline-none"
-				>
-					{members.length === 0 && (
-						<option value="">{t("collection_empty_rows")}</option>
-					)}
-					{members.map((member, index) => (
-						<option key={member.id} value={member.id}>
-							{t("collection_row_option", {
-								index: index + 1,
-								label: rowLabel(member),
-							})}
-						</option>
-					))}
-				</select>
-				<span className="shrink-0 text-2xs text-text-3">
-					{memberPosition} / {members.length}
-				</span>
-				<button
-					type="button"
-					title={t("collection_next_row")}
-					aria-label={t("collection_next_row")}
-					disabled={memberPosition === 0 || memberPosition >= members.length}
-					onClick={() => actions.moveMember(1)}
-					className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-panel disabled:opacity-30 disabled:hover:bg-transparent"
-				>
-					<ChevronRight size={15} />
-				</button>
-			</div>
-		</div>
+		<button
+			type="button"
+			title={label}
+			aria-label={label}
+			onClick={onClick}
+			className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border text-text-2 transition-colors ${
+				danger
+					? "hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
+					: "hover:bg-input hover:text-text-1"
+			}`}
+		>
+			{icon}
+		</button>
 	);
 }
 
@@ -554,14 +670,13 @@ function ModeButton({
 			aria-pressed={active}
 			disabled={disabled}
 			onClick={onClick}
-			className={`inline-flex h-8 min-w-0 items-center justify-center gap-1 rounded-md px-2 text-2xs font-semibold transition-colors disabled:opacity-35 ${
+			className={`flex h-7 w-8 items-center justify-center rounded transition-colors disabled:opacity-35 ${
 				active
 					? "bg-panel text-accent shadow-sm"
 					: "text-text-3 hover:bg-panel/60 hover:text-text-1"
 			}`}
 		>
 			{icon}
-			<span className="truncate">{title}</span>
 		</button>
 	);
 }
@@ -574,20 +689,6 @@ function addonStyle(
 	return position === "bottom"
 		? { bottom: anchorOffset, maxHeight }
 		: { top: anchorOffset, maxHeight };
-}
-
-function previewFor(
-	collection: Collection | null,
-	members: Collection["members"],
-	previewByCollection: Record<string, CollectionPreviewState>,
-): CollectionPreviewState | null {
-	if (!collection) return null;
-	return (
-		previewByCollection[collection.name] ?? {
-			mode: "template",
-			memberId: members[0]?.id ?? null,
-		}
-	);
 }
 
 function bindCollection(
@@ -612,20 +713,27 @@ function detachCollection(docName: string, pageIndex: number) {
 	});
 }
 
+/** Chip copy: the source, then where the cursor is — "Clients · Row 3/12",
+ * "Clients · Template", "Clients · All rows". */
 function triggerLabel(
 	t: Translate,
 	boundName: string,
 	boundCollection: Collection | null,
+	cursor: PageCollectionCursor | null,
+	memberPosition: number,
 	memberCount: number,
 ): string {
-	if (boundCollection) return `${boundCollection.name} · ${memberCount}`;
-	return boundName || t("collection_link_data");
-}
-
-function sortedMembers(collection: Collection | null): Collection["members"] {
-	return collection
-		? [...collection.members].sort((a, b) => a.position - b.position)
-		: [];
+	if (!boundCollection) return boundName || t("collection_link_data");
+	if (cursor?.mode === "rendered" && memberPosition > 0) {
+		return `${boundCollection.name} · ${t("collection_cursor_position", {
+			index: memberPosition,
+			total: memberCount,
+		})}`;
+	}
+	if (cursor?.mode === "all") {
+		return `${boundCollection.name} · ${t("collection_mode_all")}`;
+	}
+	return `${boundCollection.name} · ${t("collection_mode_template")}`;
 }
 
 function rowLabel(member: Collection["members"][number]): string {

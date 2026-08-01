@@ -221,11 +221,32 @@ describe("markCollectionPlaceholders", () => {
 		);
 	});
 
-	it("marks generated placeholders without claiming collection binding", () => {
+	it("marks generated placeholders as bound — they always resolve", () => {
 		expect(
 			markCollectionPlaceholders("<p>{{ page.number }} / {{ page.total }}</p>"),
 		).toBe(
-			'<p><span data-collection-placeholder="page.number" data-collection-placeholder-kind="generatedValue" data-collection-bound="false">{{ page.number }}</span> / <span data-collection-placeholder="page.total" data-collection-placeholder-kind="generatedValue" data-collection-bound="false">{{ page.total }}</span></p>',
+			'<p><span data-collection-placeholder="page.number" data-collection-placeholder-kind="generatedValue" data-collection-bound="true">{{ page.number }}</span> / <span data-collection-placeholder="page.total" data-collection-placeholder-kind="generatedValue" data-collection-bound="true">{{ page.total }}</span></p>',
+		);
+	});
+
+	it("marks unknown fields as unbound when a collection is provided", () => {
+		const collection = {
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client_name: { type: "string" } },
+			},
+			members: [],
+		};
+		const marked = markCollectionPlaceholders(
+			"<p>{{ client_name }} — {{ contact }}</p>",
+			collection,
+		);
+		expect(marked).toContain(
+			'data-collection-placeholder="client_name" data-collection-placeholder-kind="collectionField" data-collection-bound="true"',
+		);
+		expect(marked).toContain(
+			'data-collection-placeholder="contact" data-collection-placeholder-kind="collectionField" data-collection-bound="false"',
 		);
 	});
 

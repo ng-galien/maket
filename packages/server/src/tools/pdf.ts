@@ -32,6 +32,12 @@ const ExportSchema = z.object({
 		.enum(["screen", "print", "hd"])
 		.optional()
 		.describe("DPI preset: screen=96, print=150 (default), hd=300."),
+	rows: z
+		.enum(["preview", "current", "all", "template"])
+		.optional()
+		.describe(
+			"For pages bound to a collection: preview (default) follows each page's cursor — what the live canvas shows; current = the cursor's row only; all = one page per row (mail merge); template = raw placeholders.",
+		),
 });
 
 const DESCRIPTION = [
@@ -39,6 +45,7 @@ const DESCRIPTION = [
 	"",
 	"Renders every page via headless Chromium at the canvas's true mm size, then writes to EXPORTS_DIR/<doc>.pdf. Charte CSS is inlined so fonts and tokens render identically to the live preview.",
 	"  quality — screen (96 DPI, smallest), print (150 DPI, default), hd (300 DPI).",
+	"  rows    — collection-bound pages: preview (default, follows the page cursor), current (cursor row only), all (one page per row), template (raw placeholders). Check the cursor first with maket_collection action=cursor.",
 ].join("\n");
 
 export function createMaketPdfTool(deps: PdfDeps): ToolHandler {
@@ -57,6 +64,7 @@ export function createMaketPdfTool(deps: PdfDeps): ToolHandler {
 				const { buffer, pageCount } = await pdfService.render(
 					doc,
 					args.quality || "print",
+					args.rows || "preview",
 				);
 				const outPath = join(
 					config.EXPORTS_DIR,

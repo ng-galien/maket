@@ -12,9 +12,10 @@ import {
 } from "../lib/asset-collector.js";
 import { writeBundleAssets } from "../lib/asset-writer.js";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
-import type {
-	CollectionRenderMode,
-	CollectionRenderOptions,
+import {
+	type CollectionRenderMode,
+	type CollectionRenderOptions,
+	cursorRenderOptions,
 } from "../lib/collection-render.js";
 import { requireBrowserContextLoopback } from "../lib/local-origin.js";
 import {
@@ -30,6 +31,7 @@ import { stripActiveHtml } from "../lib/strip-active-html.js";
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 
 import type { Bus } from "../services/bus.js";
+import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
@@ -45,6 +47,7 @@ import { type Charte, createDocument, type Document } from "../types.js";
 export interface ExportRouterDeps {
 	documents: Documents;
 	collections?: Pick<Collections, "renderDocument" | "referencedBy">;
+	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	pdfService: PdfService;
 	store: Store;
 	bus: Bus;
@@ -55,24 +58,19 @@ function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
 }
 
-export function createExportRouter({
-	documents,
-	collections,
-	pdfService,
-	store,
-	bus,
-	config,
-}: ExportRouterDeps): Router {
-	const collectionService = collections ?? {
+export function createExportRouter(deps: ExportRouterDeps): Router {
+	const { documents, pdfService, store, bus, config } = deps;
+	const collectionService = deps.collections ?? {
 		renderDocument: (doc: Document) => doc,
 		referencedBy: () => [],
 	};
+	const collectionCursors = deps.collectionCursors ?? { resolve: () => null };
 	const router = createRouter();
 
 	router.use(requireBrowserContextLoopback);
 
 	router.get("/print", (req, res) =>
-		handlePrint(req, res, documents, collectionService),
+		handlePrint(req, res, documents, collectionService, collectionCursors),
 	);
 	router.get("/api/export-pdf", (req, res) =>
 		handlePdfExport(req, res, documents, pdfService),
@@ -92,6 +90,7 @@ function handlePrint(
 	res: Response,
 	documents: Documents,
 	collections: Pick<Collections, "renderDocument">,
+	collectionCursors: Pick<CollectionCursors, "resolve">,
 ): void {
 	const name = req.query.name as string | undefined;
 	if (!name) {
@@ -104,7 +103,13 @@ function handlePrint(
 		return;
 	}
 	try {
-		const rendered = collections.renderDocument(d, printOptions(req));
+		const rendered = collections.renderDocument(
+			d,
+			printOptions(req) ??
+				cursorRenderOptions(d, (docName, pageIndex) =>
+					collectionCursors.resolve(docName, pageIndex),
+				),
+		);
 		const rawHtmls = rendered.pages
 			.map((p) => p.html)
 			.filter(Boolean) as string[];

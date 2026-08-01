@@ -17,6 +17,11 @@
  * (`charte_save`).
  */
 
+import type {
+	CollectionCursorMode,
+	PageCollectionCursor,
+} from "./collection-cursor.js";
+
 // ============================================================
 // Protocol notifications and requests
 // ============================================================
@@ -26,6 +31,8 @@ export interface WorkspaceStateSignal {
 	doc: unknown;
 	docList: unknown[];
 	collections?: unknown[];
+	/** Server-owned page↔collection preview cursors (full snapshot). */
+	collectionCursors?: PageCollectionCursor[];
 	charteCss: string;
 	addToWorkspace?: boolean;
 	focus?: boolean;
@@ -82,6 +89,13 @@ export interface AssetsChangedSignal {
 export interface CollectionsChangedSignal {
 	type: "collections_changed";
 	collections: unknown[];
+}
+
+/** Full snapshot of every page↔collection cursor. Broadcast whenever any
+ * cursor moves — server-authoritative, clients replace their mirror wholesale. */
+export interface CollectionCursorsSignal {
+	type: "collection_cursors";
+	cursors: PageCollectionCursor[];
 }
 
 /** Asks the client to fit the whole workspace to view (like the Maximize button). */
@@ -247,6 +261,19 @@ export interface ClearPageCollectionCommand {
 	pageIndex: number;
 }
 
+/**
+ * Move the preview cursor of one page↔collection binding. Partial: omitted
+ * fields keep their current value. `memberId: null` explicitly clears the
+ * row selection (empty collection); `undefined` preserves it.
+ */
+export interface SetCollectionCursorCommand {
+	type: "collection_cursor_set";
+	docName: string;
+	pageIndex: number;
+	mode?: CollectionCursorMode;
+	memberId?: string | null;
+}
+
 export interface ShowPageCommand {
 	type: "page_go";
 	docName: string;
@@ -346,6 +373,7 @@ export type WorkspaceSignal =
 	| ActivitySignal
 	| AssetsChangedSignal
 	| CollectionsChangedSignal
+	| CollectionCursorsSignal
 	| FitViewSignal
 	| LayoutCheckRequest;
 
@@ -367,6 +395,7 @@ export type WorkspaceCommand =
 	| DeleteCollectionCommand
 	| BindPageCollectionCommand
 	| ClearPageCollectionCommand
+	| SetCollectionCursorCommand
 	| ShowPageCommand
 	| ClearCanvasCommand
 	| EditTextCommand

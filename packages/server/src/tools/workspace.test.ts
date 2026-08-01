@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
+import { createCollectionCursors } from "../services/collection-cursor.js";
 import { createDocuments } from "../services/documents.js";
 import { createPending } from "../services/pending.js";
 import { createSQLiteStore } from "../services/store.js";
@@ -11,7 +12,8 @@ function fixture() {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const pending = createPending({ bus });
-	return { store, bus, documents, pending };
+	const collectionCursors = createCollectionCursors({ bus, documents, store });
+	return { store, bus, documents, pending, collectionCursors };
 }
 
 const NO_EXTRA = {} as any;
@@ -47,13 +49,18 @@ describe("workspacePack — registration", () => {
 
 describe("maket_workspace — action=focus", () => {
 	it("sets the active page and emits document:focused", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		store.saveDoc(makeDoc("d", 3));
 		documents.loadAll();
 		const focused = vi.fn();
 		bus.on("document:focused", focused);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "focus", doc: "d", page: 2 },
 			NO_EXTRA,
@@ -65,8 +72,13 @@ describe("maket_workspace — action=focus", () => {
 	});
 
 	it("errors when the document is missing", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "focus", doc: "ghost", page: 1 },
 			NO_EXTRA,
@@ -76,10 +88,15 @@ describe("maket_workspace — action=focus", () => {
 	});
 
 	it("errors when the page is out of range", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		store.saveDoc(makeDoc("d", 2));
 		documents.loadAll();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "focus", doc: "d", page: 99 },
 			NO_EXTRA,
@@ -89,8 +106,13 @@ describe("maket_workspace — action=focus", () => {
 	});
 
 	it("rejects non-integer page numbers at schema level", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		await expect(
 			tool.handler({ action: "focus", doc: "d", page: 1.5 }, NO_EXTRA),
 		).rejects.toThrow();
@@ -98,8 +120,13 @@ describe("maket_workspace — action=focus", () => {
 	});
 
 	it("errors when required args are missing", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "focus" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();
@@ -108,13 +135,18 @@ describe("maket_workspace — action=focus", () => {
 
 describe("maket_workspace — action=state", () => {
 	it("describes format, pages, charte", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		const d = makeDoc("d", 2);
 		d.meta.charte = "brand";
 		store.saveDoc(d);
 		documents.loadAll();
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "state", doc: "d" }, NO_EXTRA);
 		expect(res.isError).toBeUndefined();
 		const txt = (res.content[0] as any).text as string;
@@ -125,8 +157,13 @@ describe("maket_workspace — action=state", () => {
 	});
 
 	it("errors when the document is missing", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "state", doc: "ghost" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();
@@ -135,13 +172,18 @@ describe("maket_workspace — action=state", () => {
 
 describe("maket_workspace — action=lock", () => {
 	it("toggles meta.locked and persists", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		store.saveDoc(makeDoc("doc"));
 		documents.loadAll();
 		const metaUpdated = vi.fn();
 		bus.on("meta:updated", metaUpdated);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const lockRes = await tool.handler(
 			{ action: "lock", doc: "doc", locked: true },
 			NO_EXTRA,
@@ -161,10 +203,15 @@ describe("maket_workspace — action=lock", () => {
 	});
 
 	it("toggles when locked is omitted", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		store.saveDoc(makeDoc("doc"));
 		documents.loadAll();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 
 		await tool.handler({ action: "lock", doc: "doc" }, NO_EXTRA);
 		expect(documents.resolve("doc")?.meta.locked).toBe(true);
@@ -174,8 +221,13 @@ describe("maket_workspace — action=lock", () => {
 	});
 
 	it("errors when the document is missing", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "lock", doc: "ghost", locked: true },
 			NO_EXTRA,
@@ -187,17 +239,27 @@ describe("maket_workspace — action=lock", () => {
 
 describe("maket_workspace — action=list_messages", () => {
 	it("returns the empty sentinel when nothing is queued", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
 		expect((res.content[0] as any).text).toMatch(/No pending messages/);
 		store.close();
 	});
 
 	it("does not require a document scope", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([{ id: "d1", docName: "alpha", text: "fix this" }]);
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
 		expect(res.isError).toBeUndefined();
 		expect((res.content[0] as any).text).toMatch(/alpha/);
@@ -205,13 +267,18 @@ describe("maket_workspace — action=list_messages", () => {
 	});
 
 	it("returns every pending message across both buckets in one call", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([
 			{ id: "w1", type: "classify-images", text: "new uploads" },
 			{ id: "d1", docName: "alpha", text: "fix this" },
 			{ id: "d2", docName: "beta", type: "delete" },
 		]);
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
 		const out = (res.content[0] as any).text as string;
 		expect(out).toMatch(/w1/);
@@ -223,7 +290,7 @@ describe("maket_workspace — action=list_messages", () => {
 
 describe("maket_workspace — action=ack_messages", () => {
 	it("removes doc-scoped pending and emits messages:acked", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([
 			{ id: "m1", docName: "d", text: "hi" },
 			{ id: "m2", docName: "d", text: "ho" },
@@ -232,7 +299,12 @@ describe("maket_workspace — action=ack_messages", () => {
 		const listener = vi.fn();
 		bus.on("messages:acked", listener);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "ack_messages", ids: ["m1"] },
 			NO_EXTRA,
@@ -244,7 +316,7 @@ describe("maket_workspace — action=ack_messages", () => {
 	});
 
 	it("acks across workspace and doc buckets in one call", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([
 			{ id: "d1", docName: "d", text: "doc msg" },
 			{ id: "w1", type: "classify-images" },
@@ -252,7 +324,12 @@ describe("maket_workspace — action=ack_messages", () => {
 		const listener = vi.fn();
 		bus.on("messages:acked", listener);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "ack_messages", ids: ["d1", "w1"] },
 			NO_EXTRA,
@@ -267,21 +344,31 @@ describe("maket_workspace — action=ack_messages", () => {
 	});
 
 	it("errors when ids is missing", async () => {
-		const { store, bus, documents, pending } = fixture();
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler({ action: "ack_messages" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();
 	});
 
 	it("reports no-match when every id is unknown", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([{ id: "m1", docName: "d", text: "hi" }]);
 
 		const listener = vi.fn();
 		bus.on("messages:acked", listener);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "ack_messages", ids: ["ghost"] },
 			NO_EXTRA,
@@ -294,7 +381,7 @@ describe("maket_workspace — action=ack_messages", () => {
 	});
 
 	it("reports partial match with unknown ids flagged", async () => {
-		const { store, bus, documents, pending } = fixture();
+		const { store, bus, documents, pending, collectionCursors } = fixture();
 		pending.syncFromClient([
 			{ id: "m1", docName: "d", text: "hi" },
 			{ id: "m2", docName: "d", text: "ho" },
@@ -302,7 +389,12 @@ describe("maket_workspace — action=ack_messages", () => {
 		const listener = vi.fn();
 		bus.on("messages:acked", listener);
 
-		const tool = createMaketWorkspaceTool({ bus, documents, pending });
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
 		const res = await tool.handler(
 			{ action: "ack_messages", ids: ["m1", "ghost"] },
 			NO_EXTRA,

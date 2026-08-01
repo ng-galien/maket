@@ -16,6 +16,10 @@
  */
 
 import { parseCharteVars } from "../lib/charte-css.js";
+import {
+	type CollectionRenderMode,
+	cursorRenderOptions,
+} from "../lib/collection-render.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
@@ -23,6 +27,7 @@ import { waitForPageStable } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
+import type { CollectionCursors } from "./collection-cursor.js";
 import type { Collections } from "./collections.js";
 import type { Config } from "./config.js";
 import type { Documents } from "./documents.js";
@@ -38,14 +43,24 @@ export interface PdfRenderResult {
 	pageCount: number;
 }
 
+/** What to render for pages bound to a collection. `preview` follows the
+ * server-owned cursor of each page (what the live canvas shows); the other
+ * values force one mode across every bound page. */
+export type PdfRowsSelection = "preview" | "current" | "all" | "template";
+
 export interface PdfService {
 	/** Render a document to a PDF buffer at the given quality preset. */
-	render(doc: Document, quality?: string): Promise<PdfRenderResult>;
+	render(
+		doc: Document,
+		quality?: string,
+		rows?: PdfRowsSelection,
+	): Promise<PdfRenderResult>;
 }
 
 export interface PdfServiceDeps {
 	documents: Documents;
 	collections?: Pick<Collections, "renderDocument">;
+	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
@@ -67,6 +82,11 @@ export function createPdfService(
 	const collections = deps.collections ?? {
 		renderDocument: (doc: Document) => doc,
 	};
+	const collectionCursors = deps.collectionCursors ?? { resolve: () => null };
+	const forcedMode: Record<
+		Exclude<PdfRowsSelection, "preview">,
+		CollectionRenderMode
+	> = { current: "rendered", all: "all", template: "template" };
 	const pool: BrowserPool = opts.browserLaunch
 		? {
 				get: opts.browserLaunch,
@@ -75,8 +95,15 @@ export function createPdfService(
 		: browserPool;
 
 	return {
-		async render(doc, quality = "print") {
-			const renderedDoc = collections.renderDocument(doc);
+		async render(doc, quality = "print", rows = "preview") {
+			const renderedDoc = collections.renderDocument(
+				doc,
+				cursorRenderOptions(
+					doc,
+					(docName, pageIndex) => collectionCursors.resolve(docName, pageIndex),
+					rows === "preview" ? undefined : forcedMode[rows],
+				),
+			);
 			const dpi = DPI_PRESETS[quality] || 150;
 			const rawHtmls = renderedDoc.pages
 				.map((p) => p.html)

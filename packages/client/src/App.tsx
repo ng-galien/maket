@@ -3,6 +3,7 @@ import { Board } from "./components/Board";
 import { BottomBar } from "./components/BottomBar";
 import { ChartesTab } from "./components/ChartesTab";
 import { CollectionsTab } from "./components/CollectionsTab";
+import { CollectionWorkspace } from "./components/CollectionWorkspace";
 import { DocsTab } from "./components/DocsTab";
 import { MessagesPanel } from "./components/MessagesPanel";
 import { PhotosTab } from "./components/PhotosTab";
@@ -64,6 +65,7 @@ export default function App() {
 
 			<Popover />
 			<MessagesPanel />
+			<CollectionWorkspace />
 		</div>
 	);
 }
