@@ -1,7 +1,10 @@
 import type { Collection } from "@maket/shared";
 import { describe, expect, it } from "vitest";
 import { createDocument } from "../types.js";
-import { renderCollectionDocument } from "./collection-render.js";
+import {
+	cursorRenderOptions,
+	renderCollectionDocument,
+} from "./collection-render.js";
 
 const clients: Collection = {
 	name: "clients",
@@ -104,4 +107,136 @@ describe("renderCollectionDocument", () => {
 			'Collection "clients" not found.',
 		);
 	});
+});
+
+describe("per-page render selections", () => {
+	function twoPageDoc() {
+		return createDocument({
+			name: "poster",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					id: "list",
+					name: "List",
+					elements: [],
+					collection: { name: "clients" },
+					html: "<h1>{{ client_name }}</h1>",
+				},
+				{
+					id: "detail",
+					name: "Detail",
+					elements: [],
+					collection: { name: "clients" },
+					html: "<p>{{ client_name }}</p>",
+				},
+			],
+		});
+	}
+
+	it("lets two pages bound to the same collection render differently", () => {
+		const rendered = renderCollectionDocument(
+			twoPageDoc(),
+			new Map([["clients", clients]]),
+			{
+				pages: {
+					list: { mode: "all" },
+					detail: { mode: "rendered", memberId: "client_1" },
+				},
+			},
+		);
+		expect(rendered.pages.map((page) => page.html)).toEqual([
+			"<h1>Acme</h1>",
+			"<h1>Beta</h1>",
+			"<p>Beta</p>",
+		]);
+	});
+
+	it("per-page selections take precedence over per-collection ones", () => {
+		const rendered = renderCollectionDocument(
+			twoPageDoc(),
+			new Map([["clients", clients]]),
+			{
+				pages: { detail: { mode: "template" } },
+				collections: {
+					clients: { mode: "rendered", memberId: "client_0" },
+				},
+			},
+		);
+		expect(rendered.pages.map((page) => page.html)).toEqual([
+			"<h1>Acme</h1>",
+			"<p>{{ client_name }}</p>",
+		]);
+	});
+});
+
+describe("cursorRenderOptions", () => {
+	it("maps each bound page's cursor onto per-page selections", () => {
+		const doc = twoPagesForCursor();
+		const options = cursorRenderOptions(doc, (docName, pageIndex) => ({
+			docName,
+			pageIndex,
+			collection: "clients",
+			mode: pageIndex === 0 ? "all" : "rendered",
+			memberId: pageIndex === 0 ? null : "client_1",
+		}));
+		expect(options).toEqual({
+			pages: {
+				list: { mode: "all", memberId: null },
+				detail: { mode: "rendered", memberId: "client_1" },
+			},
+		});
+	});
+
+	it("forces one mode across bound pages when asked", () => {
+		const doc = twoPagesForCursor();
+		const options = cursorRenderOptions(
+			doc,
+			(docName, pageIndex) => ({
+				docName,
+				pageIndex,
+				collection: "clients",
+				mode: "template",
+				memberId: "client_0",
+			}),
+			"all",
+		);
+		expect(options.pages?.list?.mode).toBe("all");
+		expect(options.pages?.detail?.mode).toBe("all");
+	});
+
+	function twoPagesForCursor() {
+		return createDocument({
+			name: "poster",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					id: "list",
+					name: "List",
+					elements: [],
+					collection: { name: "clients" },
+					html: "<h1>{{ client_name }}</h1>",
+				},
+				{
+					id: "detail",
+					name: "Detail",
+					elements: [],
+					collection: { name: "clients" },
+					html: "<p>{{ client_name }}</p>",
+				},
+				{ id: "static", name: "Static", elements: [], html: "<p>s</p>" },
+			],
+		});
+	}
 });

@@ -26,7 +26,7 @@ afterEach(() => {
 		selectedIds: [],
 		showPopover: false,
 		collections: [],
-		collectionPreview: {},
+		collectionCursors: {},
 	});
 });
 

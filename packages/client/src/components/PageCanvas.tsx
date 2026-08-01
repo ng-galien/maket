@@ -45,7 +45,7 @@ function collectionPreviewHtml(
 	if (!hasCollection) return { html: rawHtml, error: null };
 	if (!collection) {
 		return {
-			html: markedTemplateHtml(rawHtml),
+			...markedTemplateHtml(rawHtml, null),
 			error: `Collection "${collectionName ?? ""}" not found.`,
 		};
 	}
@@ -67,18 +67,32 @@ function collectionPreviewHtml(
 				};
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				return { html: markedTemplateHtml(rawHtml), error: message };
+				return {
+					html: markedTemplateHtml(rawHtml, collection).html,
+					error: message,
+				};
 			}
 		}
 	}
-	return { html: markedTemplateHtml(rawHtml), error: null };
+	return markedTemplateHtml(rawHtml, collection);
 }
 
-function markedTemplateHtml(rawHtml: string): string {
+/** Mark placeholders for template display. A template Mustache cannot parse
+ * is surfaced as an error instead of silently losing its markers. */
+function markedTemplateHtml(
+	rawHtml: string,
+	collection: Collection | null,
+): { html: string; error: string | null } {
 	try {
-		return markCollectionPlaceholders(rawHtml);
-	} catch {
-		return rawHtml;
+		return {
+			html: markCollectionPlaceholders(rawHtml, collection ?? undefined),
+			error: null,
+		};
+	} catch (error) {
+		return {
+			html: rawHtml,
+			error: error instanceof Error ? error.message : String(error),
+		};
 	}
 }
 
@@ -332,6 +346,7 @@ export const PageCanvas = memo(function PageCanvas({
 			const id = target.dataset.id;
 			if (!id) return;
 
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
 			const docRoot = el.closest("[data-doc]");
 			if (docRoot) {
 				docRoot.querySelectorAll("[data-id].selected").forEach((e) => {
@@ -361,7 +376,15 @@ export const PageCanvas = memo(function PageCanvas({
 			if (editingRef.current) exitEdit(false);
 			el.removeEventListener("click", onClick);
 		};
-	}, [html, focused, toolbar?.id, canEditTemplate, readOnly]);
+	}, [
+		html,
+		focused,
+		toolbar?.id,
+		canEditTemplate,
+		readOnly,
+		doc.name,
+		pageIndex,
+	]);
 
 	useEffect(() => {
 		if (!pageRef.current) return;
@@ -385,7 +408,7 @@ export const PageCanvas = memo(function PageCanvas({
 		<>
 			<div
 				ref={pageRef}
-				className="page-canvas"
+				className={`page-canvas${preview?.mode === "rendered" ? " data-preview" : ""}`}
 				data-page={pageIndex}
 				style={{
 					width: `${canvas.w}mm`,

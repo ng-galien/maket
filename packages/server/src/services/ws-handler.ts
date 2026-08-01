@@ -10,10 +10,11 @@
  * targeting a specific page.
  */
 
-import type {
-	Collection,
-	WorkspaceCommand,
-	WorkspaceStateSignal,
+import {
+	type Collection,
+	isCollectionCursorMode,
+	type WorkspaceCommand,
+	type WorkspaceStateSignal,
 } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
@@ -33,6 +34,8 @@ import {
 } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { Bus } from "./bus.js";
+import type { CollectionCursors } from "./collection-cursor.js";
+import { createCollectionCursors } from "./collection-cursor.js";
 import type { Collections } from "./collections.js";
 import { createCollections } from "./collections.js";
 import type { Documents } from "./documents.js";
@@ -50,6 +53,7 @@ export interface WsHandlerDeps {
 	assets: AssetsService;
 	bus: Bus;
 	collections?: Collections;
+	collectionCursors?: CollectionCursors;
 	documents: Documents;
 	pending: Pending;
 	store: Store;
@@ -60,8 +64,10 @@ export interface WsHandlerDeps {
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
 
-interface WsHandlerContext extends Omit<WsHandlerDeps, "collections"> {
+interface WsHandlerContext
+	extends Omit<WsHandlerDeps, "collections" | "collectionCursors"> {
 	collections: Collections;
+	collectionCursors: CollectionCursors;
 	broadcastState(d: Document | null): void;
 	wsDoc(msg: { docName?: string }): Document | null;
 }
@@ -70,10 +76,14 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
 	const collections =
 		deps.collections ?? createCollections({ bus, documents, store });
+	const collectionCursors =
+		deps.collectionCursors ??
+		createCollectionCursors({ bus, documents, store });
 	const ctx: WsHandlerContext = {
 		assets,
 		bus,
 		collections,
+		collectionCursors,
 		documents,
 		pending,
 		store,
@@ -87,6 +97,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 				doc: documents.lightView(d),
 				docList: documents.list(),
 				collections: collections.loadAll(),
+				collectionCursors: collectionCursors.snapshot(),
 				charteCss: documents.charteCss(d),
 			});
 		},
@@ -139,6 +150,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "collection_clear_page":
 			handleCollectionClearPage(ctx, msg);
+			break;
+		case "collection_cursor_set":
+			handleCollectionCursorSet(ctx, msg);
 			break;
 		case "delete_asset":
 			handleDeleteAsset(ctx, msg);
@@ -246,6 +260,24 @@ function handleCollectionClearPage(
 	}
 }
 
+function handleCollectionCursorSet(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "collection_cursor_set" }>,
+): void {
+	if (msg.mode !== undefined && !isCollectionCursorMode(msg.mode)) return;
+	try {
+		ctx.collectionCursors.set(msg.docName, msg.pageIndex, {
+			mode: msg.mode,
+			memberId: msg.memberId,
+		});
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			text: error instanceof Error ? error.message : String(error),
+			level: "error",
+		});
+	}
+}
+
 function handleLoadDocument(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
@@ -265,6 +297,7 @@ function handleLoadDocument(
 		doc: ctx.documents.lightView(requested),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
+		collectionCursors: ctx.collectionCursors.snapshot(),
 		charteCss: ctx.documents.charteCss(requested),
 		addToWorkspace: true,
 		focus: true,
@@ -283,6 +316,7 @@ function handleOpenOnboarding(
 		doc: ctx.documents.lightView(doc),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
+		collectionCursors: ctx.collectionCursors.snapshot(),
 		charteCss: ctx.documents.charteCss(doc),
 		addToWorkspace: true,
 		focus: true,

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createBus } from "../services/bus.js";
+import { createCollectionCursors } from "../services/collection-cursor.js";
 import { createCollections } from "../services/collections.js";
 import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore } from "../services/store.js";
+import { createDocument } from "../types.js";
 import { collectionsPack, createMaketCollectionTool } from "./collections.js";
 
 const NO_EXTRA = {} as any;
@@ -19,10 +21,13 @@ function fixture() {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const collections = createCollections({ store, bus, documents });
+	const collectionCursors = createCollectionCursors({ bus, documents, store });
 	return {
 		store,
+		documents,
 		collections,
-		tool: createMaketCollectionTool({ collections }),
+		collectionCursors,
+		tool: createMaketCollectionTool({ collections, collectionCursors }),
 		cleanup: () => store.close(),
 	};
 }
@@ -38,7 +43,10 @@ function body(
 describe("collectionsPack", () => {
 	it("declares its tool and collection service dependency", () => {
 		expect(collectionsPack.declaresTools).toEqual(["maket_collection"]);
-		expect(collectionsPack.requires).toEqual(["collections"]);
+		expect(collectionsPack.requires).toEqual([
+			"collections",
+			"collectionCursors",
+		]);
 	});
 });
 
@@ -146,6 +154,108 @@ describe("maket_collection", () => {
 
 		expect(body(res)).toMatch(/validates existing rows/);
 		expect(store.loadCollection("clients")?.schema).toEqual(clientSchema);
+		cleanup();
+	});
+});
+
+describe("maket_collection — action=cursor", () => {
+	function boundFixture() {
+		const f = fixture();
+		f.collections.save({
+			name: "clients",
+			schema: clientSchema,
+			members: [
+				{ id: "member_1", position: 0, data: { client_name: "Acme" } },
+				{ id: "member_2", position: 1, data: { client_name: "Globex" } },
+			],
+		});
+		const doc = createDocument({
+			name: "poster",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					id: "page_1",
+					name: "Page 1",
+					elements: [],
+					collection: { name: "clients" },
+				},
+			],
+		});
+		f.store.saveDoc(doc);
+		f.documents.loadAll();
+		return f;
+	}
+
+	it("reads the default cursor of a bound page", async () => {
+		const { tool, cleanup } = boundFixture();
+		const res = await tool.handler(
+			{ action: "cursor", doc: "poster", page: 1 },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		expect(body(res)).toMatch(/mode template/);
+		expect(body(res)).toMatch(/row 1\/2/);
+		cleanup();
+	});
+
+	it("moves mode and row, accepting a 1-based row number", async () => {
+		const { tool, collectionCursors, cleanup } = boundFixture();
+		const res = await tool.handler(
+			{ action: "cursor", doc: "poster", page: 1, mode: "rendered", row: "2" },
+			NO_EXTRA,
+		);
+		expect(res.isError).toBeUndefined();
+		expect(body(res)).toMatch(/mode rendered/);
+		expect(body(res)).toMatch(/row 2\/2/);
+		expect(body(res)).toMatch(/Globex/);
+		expect(collectionCursors.resolve("poster", 0)).toEqual(
+			expect.objectContaining({ mode: "rendered", memberId: "member_2" }),
+		);
+		cleanup();
+	});
+
+	it("accepts a member id as row and rejects unknown rows", async () => {
+		const { tool, cleanup } = boundFixture();
+		const byId = await tool.handler(
+			{ action: "cursor", doc: "poster", page: 1, row: "member_2" },
+			NO_EXTRA,
+		);
+		expect(byId.isError).toBeUndefined();
+
+		const unknown = await tool.handler(
+			{ action: "cursor", doc: "poster", page: 1, row: "ghost" },
+			NO_EXTRA,
+		);
+		expect(unknown.isError).toBe(true);
+		expect(body(unknown)).toMatch(/"ghost" not found/);
+		cleanup();
+	});
+
+	it("reports unbound pages with a bind hint", async () => {
+		const { tool, store, documents, cleanup } = boundFixture();
+		const doc = createDocument({
+			name: "plain",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+		});
+		store.saveDoc(doc);
+		documents.loadAll();
+		const res = await tool.handler(
+			{ action: "cursor", doc: "plain", page: 1 },
+			NO_EXTRA,
+		);
+		expect(body(res)).toMatch(/has no data source/);
 		cleanup();
 	});
 });

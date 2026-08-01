@@ -182,13 +182,26 @@ export function resolveCollectionText(
 	return resolveValidatedCollectionText(template, collection, context);
 }
 
-export function markCollectionPlaceholders(template: string): string {
+/**
+ * Wrap each placeholder in a marker `<span>` so UIs can style them. With a
+ * `collection`, `data-collection-bound` reflects whether the placeholder will
+ * actually resolve against its schema (unknown fields marked "false");
+ * without one, any well-formed field placeholder counts as bound.
+ */
+export function markCollectionPlaceholders(
+	template: string,
+	collection?: Collection,
+): string {
 	const parsed = parseTemplate(template);
 	if (parsed.error) throw new Error(parsed.error);
 	const occurrences = (parsed.tokens ?? [])
 		.flatMap((token) => collectionPlaceholderOccurrences(template, token))
 		.filter((occurrence) => !isInsideHtmlTag(template, occurrence.start));
-	return insertCollectionPlaceholderMarkers(template, occurrences);
+	return insertCollectionPlaceholderMarkers(
+		template,
+		occurrences,
+		collection ? collectionProperties(collection.schema) : null,
+	);
 }
 
 export function escapeCollectionValue(value: string): string {
@@ -520,12 +533,13 @@ function propertyType(property: unknown): string {
 function insertCollectionPlaceholderMarkers(
 	template: string,
 	occurrences: readonly CollectionPlaceholderOccurrence[],
+	properties: ReadonlyMap<string, unknown> | null,
 ): string {
 	let marked = template;
 	for (const occurrence of [...occurrences].sort((a, b) => b.start - a.start)) {
 		marked =
 			marked.slice(0, occurrence.start) +
-			collectionPlaceholderMarker(occurrence) +
+			collectionPlaceholderMarker(occurrence, properties) +
 			marked.slice(occurrence.end);
 	}
 	return marked;
@@ -533,11 +547,23 @@ function insertCollectionPlaceholderMarkers(
 
 function collectionPlaceholderMarker(
 	occurrence: CollectionPlaceholderOccurrence,
+	properties: ReadonlyMap<string, unknown> | null,
 ): string {
 	const kind = occurrence.placeholder?.kind ?? "unknown";
-	const bound =
-		occurrence.placeholder?.kind === "collectionField" ? "true" : "false";
+	const bound = placeholderResolves(occurrence, properties) ? "true" : "false";
 	return `<span ${collectionPlaceholderAttribute}="${escapeAttribute(occurrence.name)}" ${collectionPlaceholderKindAttribute}="${kind}" ${collectionPlaceholderBoundAttribute}="${bound}">${escapeCollectionValue(occurrence.raw)}</span>`;
+}
+
+/** Whether the placeholder will produce a value at render time. */
+function placeholderResolves(
+	occurrence: CollectionPlaceholderOccurrence,
+	properties: ReadonlyMap<string, unknown> | null,
+): boolean {
+	if (!occurrence.placeholder) return false;
+	if (occurrence.placeholder.kind === "generatedValue") return true;
+	if (!properties) return true;
+	const property = properties.get(occurrence.placeholder.field);
+	return property !== undefined && isInlineRenderableProperty(property);
 }
 
 function escapeAttribute(value: string): string {

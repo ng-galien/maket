@@ -1,31 +1,17 @@
-import type { Collection } from "@maket/shared";
 import {
-	ChevronLeft,
-	ChevronRight,
-	Code2,
-	Database,
-	Eye,
-	FileStack,
-	X,
-} from "lucide-react";
+	type Collection,
+	collectionCursorKey,
+	type PageCollectionCursor,
+} from "@maket/shared";
+import { X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
-import type {
-	CollectionPreviewMode,
-	CollectionPreviewState,
-} from "../store/useStore";
+import type { DraftCursorOverride } from "../store/useStore";
 import { useDocByName, useStore } from "../store/useStore";
-import { wsSend } from "../store/ws";
 import { type CollectionPagePreview, PageCanvas } from "./PageCanvas";
 import { DraftPill } from "./shared/DraftPill";
 
 const PAGE_GAP = 12;
-
-interface PageCollectionControlsData {
-	collection: Collection | null;
-	preview: CollectionPreviewState;
-	memberPosition: number | null;
-}
 
 interface PageView {
 	key: string;
@@ -33,7 +19,6 @@ interface PageView {
 	collection: Collection | null;
 	preview?: CollectionPagePreview;
 	generatedLabel?: string;
-	controls?: PageCollectionControlsData;
 }
 
 interface PageViewEntry extends PageView {
@@ -56,7 +41,8 @@ interface Props {
 function collectionPageViews(
 	doc: NonNullable<ReturnType<typeof useDocByName>>,
 	collections: readonly Collection[],
-	previewByCollection: Record<string, CollectionPreviewState>,
+	cursors: Record<string, PageCollectionCursor>,
+	overrides: Record<string, DraftCursorOverride>,
 	labels: PageLabels,
 ): PageView[] {
 	const entries = doc.pages.flatMap<PageViewEntry>((page, pageIndex) => {
@@ -69,24 +55,15 @@ function collectionPageViews(
 				key: page.id,
 				pageIndex,
 				collection: null,
-				controls:
-					collections.length > 0
-						? {
-								collection: null,
-								preview: { mode: "template", memberId: null },
-								memberPosition: null,
-							}
-						: undefined,
 			};
 			return [view];
 		}
 		const members = sortedMembers(collection);
-		const preview = previewStateFor(collection, previewByCollection);
-		const controls = {
+		const key = collectionCursorKey(doc.name, pageIndex);
+		const preview = previewStateFor(
 			collection,
-			preview,
-			memberPosition: memberPosition(members, preview.memberId),
-		};
+			withDraftOverride(cursors[key], overrides[key], members),
+		);
 		if (preview.mode === "all") {
 			return members.map<PageViewEntry>((member, memberIndex) => ({
 				key: `${page.id}:${collection.name}:${member.id}`,
@@ -97,7 +74,6 @@ function collectionPageViews(
 				memberIndex,
 				members,
 				generatedLabel: `${page.name || labels.page} - ${labels.row} ${memberIndex + 1}`,
-				controls: memberIndex === 0 ? controls : undefined,
 			}));
 		}
 		const memberIndex = Math.max(
@@ -112,7 +88,6 @@ function collectionPageViews(
 			memberId: preview.memberId,
 			memberIndex,
 			members,
-			controls,
 		};
 		return [view];
 	});
@@ -121,15 +96,27 @@ function collectionPageViews(
 	);
 }
 
+/** A draft-only row being previewed locally replaces the server cursor's
+ * member — the collection here is the drafts overlay, so it can render it. */
+function withDraftOverride(
+	cursor: PageCollectionCursor | undefined,
+	override: DraftCursorOverride | undefined,
+	members: Collection["members"],
+): PageCollectionCursor | undefined {
+	if (!cursor || !override) return cursor;
+	return members.some((member) => member.id === override.memberId)
+		? { ...cursor, memberId: override.memberId }
+		: cursor;
+}
+
 function previewStateFor(
 	collection: Collection,
-	previewByCollection: Record<string, CollectionPreviewState>,
-): CollectionPreviewState {
-	const preview = previewByCollection[collection.name];
+	cursor: PageCollectionCursor | undefined,
+): { mode: PageCollectionCursor["mode"]; memberId: string | null } {
 	const members = sortedMembers(collection);
-	const member = members.find((item) => item.id === preview?.memberId);
+	const member = members.find((item) => item.id === cursor?.memberId);
 	return {
-		mode: preview?.mode ?? "template",
+		mode: cursor?.collection === collection.name ? cursor.mode : "template",
 		memberId: member?.id ?? members[0]?.id ?? null,
 	};
 }
@@ -173,16 +160,7 @@ function pageViewFromEntry(
 					)
 				: undefined,
 		generatedLabel: entry.generatedLabel,
-		controls: entry.controls,
 	};
-}
-
-function memberPosition(
-	members: readonly Collection["members"][number][],
-	memberId: string | null,
-): number | null {
-	const index = members.findIndex((member) => member.id === memberId);
-	return index >= 0 ? index + 1 : null;
 }
 
 function sortedMembers(collection: Collection): Collection["members"] {
@@ -204,27 +182,32 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			),
 		[collectionDrafts, collections],
 	);
-	const collectionPreview = useStore((s) => s.collectionPreview);
-	const setPreviewMode = useStore((s) => s.setCollectionPreviewMode);
-	const setPreviewMember = useStore((s) => s.setCollectionPreviewMember);
-	const movePreviewMember = useStore((s) => s.moveCollectionPreviewMember);
-	const openCollection = useStore((s) => s.setFocusedCollection);
+	const collectionCursors = useStore((s) => s.collectionCursors);
+	const draftCursorOverrides = useStore((s) => s.draftCursorOverrides);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
+	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
 	const t = useT();
 	const pendingCount = useStore(
 		(s) => s.pending.filter((m) => m.docName === docName).length,
 	);
 	const removeDoc = useStore((s) => s.removeDocFromWorkspace);
 	const setFocused = useStore((s) => s.setFocusedDoc);
+	const setFocusedPage = useStore((s) => s.setFocusedPage);
 	const pageViews = useMemo(
 		() =>
 			doc
-				? collectionPageViews(doc, effectiveCollections, collectionPreview, {
-						page: t("page"),
-						row: t("collection_row_lower"),
-					})
+				? collectionPageViews(
+						doc,
+						effectiveCollections,
+						collectionCursors,
+						draftCursorOverrides,
+						{
+							page: t("page"),
+							row: t("collection_row_lower"),
+						},
+					)
 				: [],
-		[effectiveCollections, collectionPreview, doc, t],
+		[effectiveCollections, collectionCursors, draftCursorOverrides, doc, t],
 	);
 
 	if (!doc) return null;
@@ -247,25 +230,17 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			style={{ gap: PAGE_GAP }}
 		>
 			{pageViews.map((view) => (
-				<div key={view.key} className="flex flex-col items-center">
-					{view.controls && isFocused && (
-						<PageCollectionControls
-							context={{
-								docName,
-								pageIndex: view.pageIndex,
-								collections: effectiveCollections,
-								boundCollection: view.controls.collection,
-								preview: view.controls.preview,
-								memberPosition: view.controls.memberPosition,
-							}}
-							actions={{
-								setMode: setPreviewMode,
-								setMember: setPreviewMember,
-								moveMember: movePreviewMember,
-								openCollection,
-							}}
-						/>
-					)}
+				<div
+					key={view.key}
+					data-page-view={view.pageIndex}
+					data-active-page={
+						isFocused && view.pageIndex === focusedPageIndex
+							? "true"
+							: undefined
+					}
+					onClick={() => setFocusedPage(docName, view.pageIndex)}
+					className="flex flex-col items-center"
+				>
 					<PageCanvas
 						doc={doc}
 						pageIndex={view.pageIndex}
@@ -354,279 +329,3 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 		</div>
 	);
 });
-
-interface PageCollectionContext {
-	docName: string;
-	pageIndex: number;
-	collections: readonly Collection[];
-	boundCollection: Collection | null;
-	preview: CollectionPreviewState;
-	memberPosition: number | null;
-}
-
-interface PageCollectionActions {
-	setMode: (collectionName: string, mode: CollectionPreviewMode) => void;
-	setMember: (collectionName: string, memberId: string | null) => void;
-	moveMember: (collectionName: string, delta: number) => void;
-	openCollection: (collectionName: string | null) => void;
-}
-
-function PageCollectionControls({
-	context,
-	actions,
-}: {
-	context: PageCollectionContext;
-	actions: PageCollectionActions;
-}) {
-	const {
-		docName,
-		pageIndex,
-		collections,
-		boundCollection,
-		preview,
-		memberPosition,
-	} = context;
-	const members = boundCollection ? sortedMembers(boundCollection) : [];
-	const canNavigate = Boolean(boundCollection && members.length > 0);
-	const collectionName = boundCollection?.name ?? "";
-	return (
-		<div className="mb-2 w-[min(520px,86vw)] rounded-lg border border-border bg-panel shadow-sm overflow-hidden">
-			<PageCollectionBindingBar
-				context={{
-					docName,
-					pageIndex,
-					collections,
-					boundCollection,
-					collectionName,
-					memberCount: members.length,
-					preview,
-				}}
-				actions={actions}
-			/>
-			{boundCollection && (
-				<PageCollectionRowBar
-					collection={boundCollection}
-					members={members}
-					preview={preview}
-					memberPosition={memberPosition}
-					canNavigate={canNavigate}
-					actions={actions}
-				/>
-			)}
-		</div>
-	);
-}
-
-interface PageCollectionBindingContext {
-	docName: string;
-	pageIndex: number;
-	collections: readonly Collection[];
-	boundCollection: Collection | null;
-	collectionName: string;
-	memberCount: number;
-	preview: CollectionPreviewState;
-}
-
-function PageCollectionBindingBar({
-	context,
-	actions,
-}: {
-	context: PageCollectionBindingContext;
-	actions: PageCollectionActions;
-}) {
-	const t = useT();
-	const readOnly = useStore((s) => s.readOnly);
-	const {
-		docName,
-		pageIndex,
-		collections,
-		boundCollection,
-		collectionName,
-		memberCount,
-		preview,
-	} = context;
-	return (
-		<div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-input/35">
-			<div className="flex items-center gap-2 min-w-0">
-				<Database size={14} className="text-text-3 shrink-0" />
-				<select
-					value={collectionName}
-					disabled={readOnly}
-					onChange={(event) =>
-						bindCollection(docName, pageIndex, event.target.value)
-					}
-					className="min-w-0 max-w-44 rounded-md bg-panel border border-border px-2 py-1 text-xs font-semibold text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
-				>
-					<option value="">{t("collection_static_page")}</option>
-					{collections.map((collection) => (
-						<option key={collection.name} value={collection.name}>
-							{collection.name}
-						</option>
-					))}
-				</select>
-				{boundCollection && (
-					<span className="text-2xs text-text-3 whitespace-nowrap">
-						{t("collection_rows_count", { count: memberCount })}
-					</span>
-				)}
-			</div>
-			{boundCollection && (
-				<div className="flex items-center gap-1 shrink-0">
-					{!readOnly && (
-						<button
-							type="button"
-							title={t("collection_open_data")}
-							aria-label={t("collection_open_data")}
-							onClick={() => actions.openCollection(boundCollection.name)}
-							className="h-7 px-2 rounded-md inline-flex items-center gap-1 text-2xs font-semibold text-text-2 bg-panel hover:text-text-1 hover:bg-input transition-colors"
-						>
-							<Database size={12} />
-							<span>{t("collection_data")}</span>
-						</button>
-					)}
-					<ModeButton
-						active={preview.mode === "template"}
-						title={t("collection_mode_template")}
-						onClick={() => actions.setMode(boundCollection.name, "template")}
-					>
-						<Code2 size={13} />
-					</ModeButton>
-					<ModeButton
-						active={preview.mode === "rendered"}
-						title={t("collection_mode_rendered")}
-						onClick={() => actions.setMode(boundCollection.name, "rendered")}
-					>
-						<Eye size={13} />
-					</ModeButton>
-					<ModeButton
-						active={preview.mode === "all"}
-						title={t("collection_mode_all")}
-						onClick={() => actions.setMode(boundCollection.name, "all")}
-					>
-						<FileStack size={13} />
-					</ModeButton>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function PageCollectionRowBar({
-	collection,
-	members,
-	preview,
-	memberPosition,
-	canNavigate,
-	actions,
-}: {
-	collection: Collection;
-	members: Collection["members"];
-	preview: CollectionPreviewState;
-	memberPosition: number | null;
-	canNavigate: boolean;
-	actions: PageCollectionActions;
-}) {
-	const t = useT();
-	return (
-		<div className="flex items-center justify-between gap-2 px-3 py-2">
-			<div className="flex items-center gap-1">
-				<button
-					type="button"
-					title={t("collection_previous_row")}
-					aria-label={t("collection_previous_row")}
-					disabled={!canNavigate || memberPosition === 1}
-					onClick={() => actions.moveMember(collection.name, -1)}
-					className="w-7 h-7 rounded-md inline-flex items-center justify-center text-text-2 hover:bg-input disabled:opacity-35 disabled:hover:bg-transparent"
-				>
-					<ChevronLeft size={15} />
-				</button>
-				<select
-					value={preview.memberId ?? ""}
-					disabled={!canNavigate}
-					onChange={(event) =>
-						actions.setMember(collection.name, event.target.value || null)
-					}
-					className="h-7 max-w-40 rounded-md bg-input border border-transparent px-2 text-xs font-semibold text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
-				>
-					{members.map((member, index) => (
-						<option key={member.id} value={member.id}>
-							{t("collection_row_option", {
-								index: index + 1,
-								label: rowLabel(member),
-							})}
-						</option>
-					))}
-				</select>
-				<button
-					type="button"
-					title={t("collection_next_row")}
-					aria-label={t("collection_next_row")}
-					disabled={!canNavigate || memberPosition === members.length}
-					onClick={() => actions.moveMember(collection.name, 1)}
-					className="w-7 h-7 rounded-md inline-flex items-center justify-center text-text-2 hover:bg-input disabled:opacity-35 disabled:hover:bg-transparent"
-				>
-					<ChevronRight size={15} />
-				</button>
-				<span className="text-2xs text-text-3 whitespace-nowrap">
-					{memberPosition ?? 0} / {members.length}
-				</span>
-			</div>
-		</div>
-	);
-}
-
-function ModeButton({
-	active,
-	title,
-	children,
-	onClick,
-}: {
-	active: boolean;
-	title: string;
-	children: React.ReactNode;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			title={title}
-			aria-label={title}
-			onClick={onClick}
-			className={`w-7 h-7 rounded-md inline-flex items-center justify-center transition-colors ${
-				active
-					? "bg-accent text-white"
-					: "text-text-3 hover:text-text-1 hover:bg-panel"
-			}`}
-		>
-			{children}
-		</button>
-	);
-}
-
-function bindCollection(
-	docName: string,
-	pageIndex: number,
-	collectionName: string,
-): void {
-	wsSend(
-		collectionName
-			? {
-					type: "collection_bind_page",
-					docName,
-					pageIndex,
-					collectionName,
-				}
-			: {
-					type: "collection_clear_page",
-					docName,
-					pageIndex,
-				},
-	);
-}
-
-function rowLabel(member: Collection["members"][number]): string {
-	const value = Object.values(member.data).find(
-		(item) => typeof item === "string" && item.trim(),
-	);
-	return typeof value === "string" ? value : member.id;
-}

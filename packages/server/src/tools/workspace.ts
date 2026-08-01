@@ -16,6 +16,10 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type { Bus } from "../services/bus.js";
+import type {
+	CollectionCursors,
+	CollectionCursorView,
+} from "../services/collection-cursor.js";
 import type { Documents } from "../services/documents.js";
 import type { Pending } from "../services/pending.js";
 import type { Page } from "../types.js";
@@ -25,6 +29,7 @@ export interface WorkspaceDeps {
 	documents: Documents;
 	bus: Bus;
 	pending: Pending;
+	collectionCursors: CollectionCursors;
 }
 
 const ActionSchema = z.enum([
@@ -71,7 +76,7 @@ const DESCRIPTION = [
 	"When to use: every session-level interaction with the live workspace — open a doc/page in the preview, inspect a doc's current state, toggle its lock, and process the user-message queue. For persistent CRUD on documents (create, rename, delete, duplicate, meta, import/export) use maket_doc.",
 	"",
 	"  focus         — open `doc` at page `page` in the live preview (sets active doc + active page).",
-	"  state         — summarise `doc`'s current state: canvas, pages with element counts, charte, pending messages.",
+	"  state         — summarise `doc`'s current state: canvas, pages with element counts and data-source cursors (collection · mode · row), charte, pending messages.",
 	"  lock          — lock or unlock `doc`. When locked, every doc-scoped mutation refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
 	"  fit_view      — zoom out the client to fit the whole workspace (same as the Maximize button).",
 	"  list_messages — return every pending user message across all docs and the workspace bucket as JSON. Each message carries its own `docName` (or none for workspace scope).",
@@ -83,7 +88,7 @@ function pageElementCount(page: Page): number {
 }
 
 export function createMaketWorkspaceTool(deps: WorkspaceDeps): ToolHandler {
-	const { documents, bus, pending } = deps;
+	const { documents, bus, pending, collectionCursors } = deps;
 	return {
 		metadata: {
 			name: "maket_workspace",
@@ -96,7 +101,7 @@ export function createMaketWorkspaceTool(deps: WorkspaceDeps): ToolHandler {
 				case "focus":
 					return runFocus(args, documents, bus);
 				case "state":
-					return runState(args, documents, pending);
+					return runState(args, documents, pending, collectionCursors);
 				case "lock":
 					return runLock(args, documents, bus);
 				case "fit_view":
@@ -134,7 +139,12 @@ function runFocus(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
-function runState(args: Args, documents: Documents, pending: Pending) {
+function runState(
+	args: Args,
+	documents: Documents,
+	pending: Pending,
+	collectionCursors: CollectionCursors,
+) {
 	if (!args.doc) return text("doc is required for action=state", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
@@ -142,7 +152,11 @@ function runState(args: Args, documents: Documents, pending: Pending) {
 	const displayed = d._displayed === true;
 	const pageLines = d.pages.map((p, i) => {
 		const count = p.html?.match(/data-id="[^"]+"/g)?.length ?? 0;
-		return `  ${i + 1}. ${p.name || `Page ${i + 1}`} (${count} el.)`;
+		const view = p.collection?.name
+			? collectionCursors.describe(d.name, i)
+			: null;
+		const binding = view ? `  ⛁ ${cursorLine(view)}` : "";
+		return `  ${i + 1}. ${p.name || `Page ${i + 1}`} (${count} el.)${binding}`;
 	});
 	const lines = [
 		`Document: "${d.name}" [${d.category}]  ${d.canvas.format} ${d.canvas.orientation} ${d.canvas.w}×${d.canvas.h}mm`,
@@ -157,6 +171,14 @@ function runState(args: Args, documents: Documents, pending: Pending) {
 			: "",
 	].filter(Boolean);
 	return text(lines.join("\n"));
+}
+
+function cursorLine(view: CollectionCursorView): string {
+	const row =
+		view.rowNumber > 0
+			? `row ${view.rowNumber}/${view.rowCount}`
+			: `${view.rowCount} rows`;
+	return `${view.cursor.collection} · ${view.cursor.mode} · ${row}`;
 }
 
 function runLock(args: Args, documents: Documents, bus: Bus) {
@@ -214,7 +236,7 @@ function runAckMessages(args: Args, pending: Pending) {
 export const workspacePack: ToolPack = {
 	id: "workspace",
 	name: "Workspace",
-	requires: ["documents", "bus", "pending"],
+	requires: ["documents", "bus", "pending", "collectionCursors"],
 	declaresTools: ["maket_workspace"],
 	register(container) {
 		container.register({

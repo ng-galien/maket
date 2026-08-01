@@ -10,7 +10,10 @@ vi.mock("./ws", async () => {
 	return { ...actual, wsSend: vi.fn() };
 });
 
-const { useStore } = await import("./useStore");
+const { useStore, cursorForPage, previewCursorForPage } = await import(
+	"./useStore"
+);
+const { wsSend } = await import("./ws");
 
 // Snapshot of the store's initial shape so each test can reset cleanly.
 // Captured once after module import — before any test mutates state.
@@ -23,11 +26,13 @@ function resetStore() {
 			docs: new Map(),
 			workspaceDocNames: [],
 			focusedDocName: null,
+			focusedPageIndex: 0,
 			docList: [],
 			chartesCss: new Map(),
 			chartesVersion: 0,
 			collections: [],
-			collectionPreview: {},
+			collectionCursors: {},
+			draftCursorOverrides: {},
 			collectionDrafts: {},
 			selectedIds: [],
 			editingElementId: null,
@@ -55,14 +60,23 @@ const clientsCollection: Collection = {
 	],
 };
 
-function makeDoc(name: string, category = "flyer"): Document {
+function makeDoc(
+	name: string,
+	category = "flyer",
+	pageCount = 1,
+	activePage = 0,
+): Document {
 	return {
 		id: `id-${name}`,
 		name,
 		category,
 		canvas: { w: 210, h: 297, background: "#fff" },
-		pages: [{ id: `${name}-page-1`, name: "p1", elements: [] }],
-		activePage: 0,
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			id: `${name}-page-${index + 1}`,
+			name: `p${index + 1}`,
+			elements: [],
+		})),
+		activePage,
 	};
 }
 
@@ -103,12 +117,61 @@ describe("upsertDoc", () => {
 
 	it("steals focus when focus=true", () => {
 		const a = makeDoc("alpha");
-		const b = makeDoc("beta");
+		const b = makeDoc("beta", "flyer", 3, 2);
 		useStore.getState().upsertDoc(a, [summary("alpha")], "");
 		useStore
 			.getState()
 			.upsertDoc(b, [summary("alpha"), summary("beta")], "", true, true);
 		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("preserves the locally selected page on background state updates", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 2);
+
+		useStore
+			.getState()
+			.upsertDoc({ ...doc, activePage: 0 }, [summary("alpha")], "");
+
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("tracks the selected page by id when pages are reordered", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		useStore.getState().upsertDoc(
+			{
+				...doc,
+				pages: [doc.pages[1], doc.pages[0], doc.pages[2]],
+				activePage: 2,
+			},
+			[summary("alpha")],
+			"",
+		);
+
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+	});
+
+	it("falls back to the server active page when the selected page is removed", () => {
+		const doc = makeDoc("alpha", "flyer", 3);
+		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		useStore.getState().upsertDoc(
+			{
+				...doc,
+				pages: [doc.pages[0], doc.pages[2]],
+				activePage: 1,
+			},
+			[summary("alpha")],
+			"",
+		);
+
+		expect(useStore.getState().focusedPageIndex).toBe(1);
 	});
 
 	it("skips workspace insertion when addToWorkspace=false", () => {
@@ -196,7 +259,9 @@ describe("pending messages", () => {
 
 describe("workspace / focus", () => {
 	it("removeDocFromWorkspace reassigns focus to the last remaining doc", () => {
-		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+		useStore
+			.getState()
+			.upsertDoc(makeDoc("alpha", "flyer", 2, 1), [summary("alpha")], "");
 		useStore
 			.getState()
 			.upsertDoc(
@@ -211,6 +276,7 @@ describe("workspace / focus", () => {
 		const s = useStore.getState();
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
 		expect(s.focusedDocName).toBe("alpha");
+		expect(s.focusedPageIndex).toBe(1);
 		expect(s.selectedIds).toEqual([]);
 	});
 
@@ -239,9 +305,46 @@ describe("workspace / focus", () => {
 	});
 
 	it("setFocusedDoc clears selection when changing doc", () => {
-		useStore.setState({ focusedDocName: "alpha", selectedIds: ["x"] });
+		const beta = makeDoc("beta", "flyer", 3, 2);
+		useStore.setState({
+			docs: new Map([["beta", beta]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			selectedIds: ["x"],
+		});
 		useStore.getState().setFocusedDoc("beta");
 		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("setFocusedPage focuses the doc, clamps the page, and clears selection", () => {
+		const beta = makeDoc("beta", "flyer", 3);
+		useStore.setState({
+			docs: new Map([["beta", beta]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			selectedIds: ["x"],
+		});
+
+		useStore.getState().setFocusedPage("beta", 99);
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		expect(useStore.getState().selectedIds).toEqual([]);
+	});
+
+	it("setFocusedPage is a no-op when the active page is unchanged", () => {
+		const alpha = makeDoc("alpha", "flyer", 2);
+		useStore.setState({
+			docs: new Map([["alpha", alpha]]),
+			focusedDocName: "alpha",
+			focusedPageIndex: 1,
+			selectedIds: ["x"],
+		});
+
+		useStore.getState().setFocusedPage("alpha", 1);
+
+		expect(useStore.getState().selectedIds).toEqual(["x"]);
 	});
 
 	it("setFocusedDoc keeps the opened collection workspace", () => {
@@ -314,51 +417,140 @@ describe("UI preferences", () => {
 	});
 });
 
-describe("collection preview", () => {
-	it("initializes preview cursor from the first collection row", () => {
+describe("collection cursors", () => {
+	function boundDoc(name = "alpha"): Document {
+		const doc = makeDoc(name);
+		const page = doc.pages[0];
+		if (page) page.collection = { name: "clients" };
+		return doc;
+	}
+
+	function seed(name = "alpha") {
+		const doc = boundDoc(name);
+		useStore.getState().upsertDoc(doc, [summary(name)], "");
 		useStore.getState().setCollections([clientsCollection]);
-		expect(useStore.getState().collectionPreview.clients).toEqual({
+		return doc;
+	}
+
+	beforeEach(() => {
+		vi.mocked(wsSend).mockClear();
+	});
+
+	it("defaults the cursor of a bound page to template mode, first row", () => {
+		seed();
+		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual({
+			docName: "alpha",
+			pageIndex: 0,
+			collection: "clients",
 			mode: "template",
 			memberId: "member_1",
 		});
 	});
 
-	it("moves the current collection row within bounds", () => {
-		useStore.getState().setCollections([clientsCollection]);
-		useStore.getState().moveCollectionPreviewMember("clients", 1);
-		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
-			"member_2",
-		);
-		useStore.getState().moveCollectionPreviewMember("clients", 1);
-		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
-			"member_2",
-		);
-		useStore.getState().moveCollectionPreviewMember("clients", -1);
-		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
-			"member_1",
+	it("returns null for unbound pages", () => {
+		useStore.getState().upsertDoc(makeDoc("plain"), [summary("plain")], "");
+		expect(cursorForPage(useStore.getState(), "plain", 0)).toBeNull();
+	});
+
+	it("mirrors server cursors wholesale and prefers them over defaults", () => {
+		seed();
+		useStore.getState().setCollectionCursors([
+			{
+				docName: "alpha",
+				pageIndex: 0,
+				collection: "clients",
+				mode: "rendered",
+				memberId: "member_2",
+			},
+		]);
+		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual(
+			expect.objectContaining({ mode: "rendered", memberId: "member_2" }),
 		);
 	});
 
-	it("preserves mode and valid row when collections refresh", () => {
-		useStore.getState().setCollections([clientsCollection]);
-		useStore.getState().setCollectionPreviewMode("clients", "rendered");
-		useStore.getState().setCollectionPreviewMember("clients", "member_2");
+	it("ignores a mirrored cursor whose collection no longer matches the binding", () => {
+		seed();
+		useStore.getState().setCollectionCursors([
+			{
+				docName: "alpha",
+				pageIndex: 0,
+				collection: "products",
+				mode: "all",
+				memberId: null,
+			},
+		]);
+		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual(
+			expect.objectContaining({
+				collection: "clients",
+				mode: "template",
+				memberId: "member_1",
+			}),
+		);
+	});
+
+	it("sends cursor mutations to the server instead of mutating locally", () => {
+		seed();
+		useStore.getState().setCursorMode("alpha", 0, "rendered");
+		expect(wsSend).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "alpha",
+			pageIndex: 0,
+			mode: "rendered",
+		});
+		useStore.getState().setCursorMember("alpha", 0, "member_2");
+		expect(wsSend).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "alpha",
+			pageIndex: 0,
+			memberId: "member_2",
+		});
+		expect(cursorForPage(useStore.getState(), "alpha", 0)?.mode).toBe(
+			"template",
+		);
+	});
+
+	it("previews draft-only rows locally and promotes them once saved", () => {
+		seed();
+		const member3 = {
+			id: "member_3",
+			position: 2,
+			data: { client_name: "Soylent" },
+		};
+		useStore.getState().setCollectionDraft({
+			...clientsCollection,
+			members: [...clientsCollection.members, member3],
+		});
+		useStore.getState().setDraftCursorOverride("alpha", 0, "member_3");
+
+		// The canvas preview follows the local override…
+		expect(
+			previewCursorForPage(useStore.getState(), "alpha", 0)?.memberId,
+		).toBe("member_3");
+		// …while the shared server cursor is untouched.
+		expect(cursorForPage(useStore.getState(), "alpha", 0)?.memberId).toBe(
+			"member_1",
+		);
+
+		// Server push now contains the row (the draft was saved): the override
+		// is promoted to the shared cursor and cleared.
+		vi.mocked(wsSend).mockClear();
 		useStore.getState().setCollections([
 			{
 				...clientsCollection,
-				members: [
-					{ id: "member_2", position: 0, data: { client_name: "Globex" } },
-				],
+				members: [...clientsCollection.members, member3],
 			},
 		]);
-		expect(useStore.getState().collectionPreview.clients).toEqual({
-			mode: "rendered",
-			memberId: "member_2",
+		expect(wsSend).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "alpha",
+			pageIndex: 0,
+			memberId: "member_3",
 		});
+		expect(useStore.getState().draftCursorOverrides).toEqual({});
 	});
 
-	it("uses draft rows when moving the preview cursor", () => {
-		useStore.getState().setCollections([clientsCollection]);
+	it("drops the local override when the draft is discarded", () => {
+		seed();
 		useStore.getState().setCollectionDraft({
 			...clientsCollection,
 			members: [
@@ -366,22 +558,41 @@ describe("collection preview", () => {
 				{ id: "member_3", position: 2, data: { client_name: "Soylent" } },
 			],
 		});
-		useStore.getState().moveCollectionPreviewMember("clients", 1);
-		useStore.getState().moveCollectionPreviewMember("clients", 1);
-		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
-			"member_3",
-		);
+		useStore.getState().setDraftCursorOverride("alpha", 0, "member_3");
+
+		useStore.getState().clearCollectionDraft("clients");
+
+		expect(useStore.getState().draftCursorOverrides).toEqual({});
+		expect(
+			previewCursorForPage(useStore.getState(), "alpha", 0)?.memberId,
+		).toBe("member_1");
 	});
 
-	it("repoints the preview cursor when a draft removes the selected row", () => {
-		useStore.getState().setCollections([clientsCollection]);
-		useStore.getState().setCollectionPreviewMember("clients", "member_2");
-		useStore.getState().setCollectionDraft({
-			...clientsCollection,
-			members: [{ id: "member_1", position: 0, data: { client_name: "Acme" } }],
+	it("moves the cursor row within bounds and skips no-op moves", () => {
+		seed();
+		useStore.getState().moveCursorMember("alpha", 0, 1);
+		expect(wsSend).toHaveBeenCalledWith({
+			type: "collection_cursor_set",
+			docName: "alpha",
+			pageIndex: 0,
+			memberId: "member_2",
 		});
-		expect(useStore.getState().collectionPreview.clients?.memberId).toBe(
-			"member_1",
+		// Mirror the server acknowledging the move, then clamp at the end.
+		useStore.getState().setCollectionCursors([
+			{
+				docName: "alpha",
+				pageIndex: 0,
+				collection: "clients",
+				mode: "template",
+				memberId: "member_2",
+			},
+		]);
+		vi.mocked(wsSend).mockClear();
+		useStore.getState().moveCursorMember("alpha", 0, 1);
+		expect(wsSend).not.toHaveBeenCalled();
+		useStore.getState().moveCursorMember("alpha", 0, -1);
+		expect(wsSend).toHaveBeenCalledWith(
+			expect.objectContaining({ memberId: "member_1" }),
 		);
 	});
 });

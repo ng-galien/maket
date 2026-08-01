@@ -28,6 +28,9 @@ export interface BusEvents {
 	"charte:removed": { name: string };
 	"collection:saved": { name: string };
 	"collection:deleted": { name: string };
+	/** A page↔collection preview cursor moved; listeners re-broadcast the
+	 * full snapshot (`collectionCursors.snapshot()`). */
+	"collection-cursor:changed": Record<string, never>;
 	"messages:acked": { ids: string[] };
 	toast: { text: string; level?: string; duration?: number };
 }

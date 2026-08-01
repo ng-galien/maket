@@ -1,4 +1,3 @@
-import type { Collection } from "@maket/shared";
 import {
 	ChevronDown,
 	ChevronUp,
@@ -17,13 +16,10 @@ import {
 } from "lucide-react";
 import { getLang, toggleLang, useT } from "../i18n/useT";
 import type { Document } from "../store/types";
-import {
-	type CollectionPreviewState,
-	useFocusedDoc,
-	useStore,
-} from "../store/useStore";
+import { useFocusedDoc, useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
+import { DataSourceToolbarControl } from "./DataSourceToolbarControl";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
 
@@ -33,10 +29,8 @@ export function BottomBar() {
 	const t = useT();
 	const connected = useStore((s) => s.connected);
 	const focusedDoc = useFocusedDoc();
-	const collectionPreview = useStore((s) => s.collectionPreview);
-	const collections = useStore((s) => s.collections);
-	const collectionDrafts = useStore((s) => s.collectionDrafts);
 	const pendingCount = useStore((s) => s.pending.length);
+	const dataViewOpen = useStore((s) => s.focusedCollectionName !== null);
 	const activePanel = useStore((s) => s.activePanel);
 	const togglePanel = useStore((s) => s.togglePanel);
 	const position = useStore((s) => s.barPosition);
@@ -44,25 +38,23 @@ export function BottomBar() {
 	const darkMode = useStore((s) => s.darkMode);
 	const autoFocusFit = useStore((s) => s.autoFocusFit);
 	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
-	const effectiveCollections = collections.map(
-		(collection) => collectionDrafts[collection.name] ?? collection,
-	);
-	const printHref = focusedDoc
-		? printHrefForDoc(focusedDoc, collectionPreview, effectiveCollections)
-		: "";
+	const printHref = focusedDoc ? printHrefForDoc(focusedDoc) : "";
 
 	const togglePosition = () =>
 		setBarPosition(position === "bottom" ? "top" : "bottom");
 
 	return (
 		<div
-			className={`fixed left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
+			className={`fixed left-1/2 -translate-x-1/2 z-[var(--z-bar)] flex flex-col items-center gap-0.5 ${position === "bottom" ? "bottom-1" : "top-1"}`}
 		>
 			{position === "top" && (
 				<PositionToggle direction="bottom" onToggle={togglePosition} />
 			)}
 
-			<div className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1">
+			<div
+				data-toolbar-shell
+				className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1"
+			>
 				<PanelButton
 					panel="chartes"
 					icon={<Palette size={16} />}
@@ -90,6 +82,7 @@ export function BottomBar() {
 					title={t("collections")}
 					activePanel={activePanel}
 					onToggle={togglePanel}
+					dot={dataViewOpen}
 				/>
 
 				<FitControls
@@ -100,7 +93,7 @@ export function BottomBar() {
 					autoOffLabel={t("auto_focus_fit_off")}
 				/>
 
-				<div className="flex items-center gap-1.5 px-2">
+				<div className="flex items-center gap-1.5 px-2 max-md:hidden">
 					<div
 						className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
 					/>
@@ -108,6 +101,8 @@ export function BottomBar() {
 						{focusedDoc?.name ?? t("no_document")}
 					</span>
 				</div>
+
+				<DataSourceToolbarControl />
 
 				<PanelButton
 					panel="exchange"
@@ -184,59 +179,10 @@ function PrintLink({ href, label }: { href: string; label: string }) {
 	);
 }
 
-export function printHrefForDoc(
-	doc: Document,
-	previewByCollection: Record<string, CollectionPreviewState>,
-	collections: readonly Collection[] = [],
-): string {
-	const params = new URLSearchParams({ name: doc.name });
-	const preview = collectionPrintPreview(doc, previewByCollection, collections);
-	if (Object.keys(preview).length > 0) {
-		params.set("collection_preview", JSON.stringify(preview));
-	}
-	return `/print?${params.toString()}`;
-}
-
-function collectionPrintPreview(
-	doc: Document,
-	previewByCollection: Record<string, CollectionPreviewState>,
-	collections: readonly Collection[],
-): Record<string, CollectionPreviewState> {
-	const collectionNames = referencedCollectionNames(doc);
-	return Object.fromEntries(
-		collectionNames.map((name) => [
-			name,
-			previewByCollection[name] ?? defaultPreviewFor(name, collections),
-		]),
-	);
-}
-
-function referencedCollectionNames(doc: Document): string[] {
-	return [
-		...new Set(
-			doc.pages
-				.map((page) => page.collection?.name)
-				.filter((name): name is string => Boolean(name)),
-		),
-	];
-}
-
-function defaultPreviewFor(
-	collectionName: string,
-	collections: readonly Collection[],
-): CollectionPreviewState {
-	const collection = collections.find((item) => item.name === collectionName);
-	return {
-		mode: "template",
-		memberId: collection ? firstMemberId(collection) : null,
-	};
-}
-
-function firstMemberId(collection: Collection): string | null {
-	const [member] = [...collection.members].sort(
-		(a, b) => a.position - b.position,
-	);
-	return member?.id ?? null;
+/** The server owns the page↔collection cursors and `/print` follows them by
+ * default — the client only names the document. */
+export function printHrefForDoc(doc: Document): string {
+	return `/print?${new URLSearchParams({ name: doc.name }).toString()}`;
 }
 
 function PanelButton({
@@ -246,6 +192,7 @@ function PanelButton({
 	activePanel,
 	onToggle,
 	badge,
+	dot = false,
 }: {
 	panel: PanelName;
 	icon: React.ReactNode;
@@ -253,6 +200,9 @@ function PanelButton({
 	activePanel: string | null;
 	onToggle: (panel: PanelName) => void;
 	badge?: number;
+	/** Small state dot (e.g. the data view is open) — same language as the
+	 * data-source trigger's binding dot. */
+	dot?: boolean;
 }) {
 	return (
 		<button
@@ -270,6 +220,9 @@ function PanelButton({
 				<span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-accent text-white text-[9px] font-bold rounded-full flex items-center justify-center">
 					{badge}
 				</span>
+			)}
+			{dot && (badge == null || badge === 0) && (
+				<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-accent ring-2 ring-panel" />
 			)}
 		</button>
 	);

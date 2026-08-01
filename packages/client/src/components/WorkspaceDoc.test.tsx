@@ -27,50 +27,82 @@ afterEach(() => {
 		docs: new Map(),
 		workspaceDocNames: [],
 		focusedDocName: null,
+		focusedPageIndex: 0,
 		focusedCollectionName: null,
 		collections: [],
-		collectionPreview: {},
+		collectionCursors: {},
 		collectionDrafts: {},
 		selectedIds: [],
 	});
 });
 
-describe("WorkspaceDoc collection controls", () => {
-	it("opens the bound collection data view without closing document focus", () => {
+describe("WorkspaceDoc page focus", () => {
+	it("does not render collection controls on the canvas", () => {
 		const doc = makeDoc();
 		useStore.setState({
 			docs: new Map([[doc.name, doc]]),
 			workspaceDocNames: [doc.name],
 			focusedDocName: doc.name,
+			focusedPageIndex: 0,
 			collections: [collection],
-			collectionPreview: {
-				clients: { mode: "template", memberId: "member_1" },
-			},
 		});
+		useStore.getState().setCollectionCursors([
+			{
+				docName: doc.name,
+				pageIndex: 0,
+				collection: "clients",
+				mode: "template",
+				memberId: "member_1",
+			},
+		]);
 
 		render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
-		fireEvent.click(screen.getByRole("button", { name: "Open data" }));
+
+		expect(
+			screen.queryByRole("button", { name: "Open data" }),
+		).not.toBeInTheDocument();
+		expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+	});
+
+	it("activates and selects an element on an inactive page with one click", () => {
+		const doc = makeDoc(2);
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+			selectedIds: ["title"],
+		});
+
+		const { container } = render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
+		const secondPage = container.querySelector('[data-page-view="1"]');
+		expect(secondPage).not.toBeNull();
+		const title = secondPage?.querySelector('[data-id="title"]');
+		expect(title).not.toBeNull();
+
+		fireEvent.click(title as Element);
 
 		expect(useStore.getState().focusedDocName).toBe("poster");
-		expect(useStore.getState().focusedCollectionName).toBe("clients");
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		expect(useStore.getState().selectedIds).toEqual(["title"]);
+		expect(secondPage).toHaveAttribute("data-active-page", "true");
+		expect(title).toHaveClass("selected");
 	});
 });
 
-function makeDoc(): Document {
+function makeDoc(pageCount = 1): Document {
 	return {
 		id: "doc-1",
 		name: "poster",
 		category: "smoke",
 		canvas: { w: 210, h: 297, background: "#fff" },
-		pages: [
-			{
-				id: "page-1",
-				name: "Page 1",
-				elements: [],
-				html: '<p data-id="title">{{ client_name }}</p>',
-				collection: { name: "clients" },
-			},
-		],
+		pages: Array.from({ length: pageCount }, (_, index) => ({
+			id: `page-${index + 1}`,
+			name: `Page ${index + 1}`,
+			elements: [],
+			html: '<p data-id="title">{{ client_name }}</p>',
+			collection: index === 0 ? { name: "clients" } : undefined,
+		})),
 		activePage: 0,
 	};
 }

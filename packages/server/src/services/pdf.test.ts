@@ -147,4 +147,64 @@ describe("PdfService.render", () => {
 		expect(browserLaunch).toHaveBeenCalled();
 		cleanup();
 	});
+
+	it("follows the page cursors by default and forces modes on demand", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "maket-pdf-"));
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const assets = createAssetsService({ assetsDir: tmp });
+		const config = { ASSETS_DIR: tmp } as unknown as Config;
+		const renderDocument = vi.fn((doc: Document) => doc);
+		const service = createPdfService(
+			{
+				documents,
+				config,
+				assets,
+				browserPool: {
+					get: async () => Promise.reject(new Error("stop")),
+					dispose: async () => {},
+				},
+				collections: { renderDocument },
+				collectionCursors: {
+					resolve: (docName, pageIndex) => ({
+						docName,
+						pageIndex,
+						collection: "clients",
+						mode: "rendered",
+						memberId: "member_2",
+					}),
+				},
+			},
+			{
+				browserLaunch: async () => {
+					throw new Error("no browser in tests");
+				},
+			},
+		);
+		const doc = makeDoc({
+			pages: [
+				{
+					id: "page-p",
+					name: "P",
+					elements: [],
+					html: `<div data-id="x">x</div>`,
+					collection: { name: "clients" },
+				},
+			],
+		});
+
+		await expect(service.render(doc)).rejects.toThrow(/no browser in tests/);
+		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
+			pages: { "page-p": { mode: "rendered", memberId: "member_2" } },
+		});
+
+		await expect(service.render(doc, "print", "all")).rejects.toThrow(
+			/no browser in tests/,
+		);
+		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
+			pages: { "page-p": { mode: "all", memberId: "member_2" } },
+		});
+		store.close();
+		rmSync(tmp, { recursive: true, force: true });
+	});
 });

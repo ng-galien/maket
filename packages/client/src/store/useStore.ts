@@ -1,14 +1,20 @@
-import type { Collection } from "@maket/shared";
+import {
+	type Collection,
+	type CollectionCursorMode,
+	collectionCursorKey,
+	type PageCollectionCursor,
+} from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import type { DocSummary, Document } from "./types";
 import { wsSend } from "./ws";
 
-export type CollectionPreviewMode = "template" | "rendered" | "all";
+export type CollectionPreviewMode = CollectionCursorMode;
 
-export interface CollectionPreviewState {
-	mode: CollectionPreviewMode;
-	memberId: string | null;
+export interface DraftCursorOverride {
+	docName: string;
+	pageIndex: number;
+	memberId: string;
 }
 
 export interface PendingMessage {
@@ -25,22 +31,43 @@ export interface PendingMessage {
 
 interface CollectionSlice {
 	focusedCollectionName: string | null;
-	collectionPreview: Record<string, CollectionPreviewState>;
+	/** Pinned data view: survives reloads (name + flag in localStorage) and
+	 * is surfaced in the toolbar. */
+	dataViewPinned: boolean;
+	toggleDataViewPinned: () => void;
+	/** Server-owned page↔collection cursors, mirrored wholesale from `state`
+	 * pushes and `collection_cursors` signals. Keyed by collectionCursorKey. */
+	collectionCursors: Record<string, PageCollectionCursor>;
+	/**
+	 * Local preview cursor for rows that only exist in a draft — the server
+	 * cannot point at them yet. The canvas renders them client-side (same
+	 * accepted divergence as edited draft values); on save the override is
+	 * promoted to the shared server cursor. Keyed by collectionCursorKey.
+	 */
+	draftCursorOverrides: Record<string, DraftCursorOverride>;
+	setDraftCursorOverride: (
+		docName: string,
+		pageIndex: number,
+		memberId: string | null,
+	) => void;
 	collections: Collection[];
 	collectionDrafts: Record<string, Collection>;
 	setCollections: (collections: Collection[]) => void;
+	setCollectionCursors: (cursors: PageCollectionCursor[]) => void;
 	setFocusedCollection: (name: string | null) => void;
 	setCollectionDraft: (collection: Collection) => void;
 	clearCollectionDraft: (name: string) => void;
-	setCollectionPreviewMode: (
-		collectionName: string,
-		mode: CollectionPreviewMode,
+	setCursorMode: (
+		docName: string,
+		pageIndex: number,
+		mode: CollectionCursorMode,
 	) => void;
-	setCollectionPreviewMember: (
-		collectionName: string,
+	setCursorMember: (
+		docName: string,
+		pageIndex: number,
 		memberId: string | null,
 	) => void;
-	moveCollectionPreviewMember: (collectionName: string, delta: number) => void;
+	moveCursorMember: (docName: string, pageIndex: number, delta: number) => void;
 }
 
 interface AppState extends CollectionSlice {
@@ -51,6 +78,7 @@ interface AppState extends CollectionSlice {
 	docs: Map<string, Document>;
 	workspaceDocNames: string[];
 	focusedDocName: string | null;
+	focusedPageIndex: number;
 
 	// Global
 	docList: DocSummary[];
@@ -91,6 +119,7 @@ interface AppState extends CollectionSlice {
 	addDocToWorkspace: (docName: string) => void;
 	removeDocFromWorkspace: (docName: string) => void;
 	setFocusedDoc: (docName: string | null) => void;
+	setFocusedPage: (docName: string, pageIndex: number) => void;
 	selectElement: (id: string | null, toggle?: boolean) => void;
 	setEditingElement: (id: string | null) => void;
 	setActivePanel: (
@@ -152,16 +181,14 @@ function saveFocusedDoc(name: string) {
 	localStorage.setItem("maket-focused-doc", name);
 }
 
-function reconcileCollectionPreview(
-	current: Record<string, CollectionPreviewState>,
-	collections: readonly Collection[],
-): Record<string, CollectionPreviewState> {
-	return Object.fromEntries(
-		collections.map((collection) => [
-			collection.name,
-			previewFor(current, collections, collection.name),
-		]),
-	);
+function persistDataViewPin(pinned: boolean, collectionName: string | null) {
+	if (useStore.getState().readOnly) return;
+	localStorage.setItem("maket-data-view-pinned", String(pinned));
+	if (pinned && collectionName) {
+		localStorage.setItem("maket-data-view-collection", collectionName);
+	} else {
+		localStorage.removeItem("maket-data-view-collection");
+	}
 }
 
 function reconcileCollectionDrafts(
@@ -184,60 +211,136 @@ function hasChangedCollection(
 	return source ? JSON.stringify(source) !== JSON.stringify(draft) : true;
 }
 
-function collectionsWithDrafts(
+/**
+ * Re-align draft cursor overrides with a fresh server collection push:
+ * a row that is now saved graduates to the shared cursor (`promoted`), a
+ * row still draft-only stays local, anything else (discarded draft,
+ * deleted row) is dropped.
+ */
+function reconcileDraftCursorOverrides(
+	overrides: Record<string, DraftCursorOverride>,
 	collections: readonly Collection[],
 	drafts: Record<string, Collection>,
-): Collection[] {
-	return collections.map((collection) => drafts[collection.name] ?? collection);
+): {
+	kept: Record<string, DraftCursorOverride>;
+	promoted: DraftCursorOverride[];
+} {
+	const kept: Record<string, DraftCursorOverride> = {};
+	const promoted: DraftCursorOverride[] = [];
+	const state = useStore.getState();
+	for (const [key, override] of Object.entries(overrides)) {
+		const collectionName = state.docs.get(override.docName)?.pages[
+			override.pageIndex
+		]?.collection?.name;
+		if (!collectionName) continue;
+		const saved = collections.find((item) => item.name === collectionName);
+		if (saved?.members.some((member) => member.id === override.memberId)) {
+			promoted.push(override);
+			continue;
+		}
+		const draft = drafts[collectionName];
+		if (draft?.members.some((member) => member.id === override.memberId)) {
+			kept[key] = override;
+		}
+	}
+	return { kept, promoted };
 }
 
-function previewFor(
-	current: Record<string, CollectionPreviewState>,
-	collections: readonly Collection[],
-	collectionName: string,
-): CollectionPreviewState {
-	const collection = collections.find((item) => item.name === collectionName);
-	const existing = current[collectionName];
-	const members = sortedCollectionMembers(collection);
-	const existingMember = members.find(
-		(member) => member.id === existing?.memberId,
-	);
-	return {
-		mode: existing?.mode ?? "template",
-		memberId: existingMember?.id ?? members[0]?.id ?? null,
-	};
-}
-
-function movedPreview(
-	current: Record<string, CollectionPreviewState>,
-	collections: readonly Collection[],
-	collectionName: string,
-	delta: number,
-): CollectionPreviewState {
-	const preview = previewFor(current, collections, collectionName);
-	const members = sortedCollectionMembers(
-		collections.find((item) => item.name === collectionName),
-	);
-	if (members.length === 0) return { ...preview, memberId: null };
-	const currentIndex = Math.max(
-		0,
-		members.findIndex((member) => member.id === preview.memberId),
-	);
-	const nextIndex = Math.min(
-		members.length - 1,
-		Math.max(0, currentIndex + delta),
-	);
-	return { ...preview, memberId: members[nextIndex]?.id ?? null };
-}
-
-function sortedCollectionMembers(collection: Collection | undefined) {
+export function sortedCollectionMembers(
+	collection: Collection | undefined | null,
+) {
 	return collection
 		? [...collection.members].sort((a, b) => a.position - b.position)
 		: [];
 }
 
+/**
+ * Effective cursor of a bound page: the server mirror when present, else the
+ * same default the server would lazily create (template mode, first row).
+ * Returns null when the page has no collection binding.
+ */
+export function cursorForPage(
+	state: Pick<
+		AppState,
+		"docs" | "collections" | "collectionDrafts" | "collectionCursors"
+	>,
+	docName: string,
+	pageIndex: number,
+): PageCollectionCursor | null {
+	const collectionName =
+		state.docs.get(docName)?.pages[pageIndex]?.collection?.name;
+	if (!collectionName) return null;
+	const mirrored =
+		state.collectionCursors[collectionCursorKey(docName, pageIndex)];
+	if (mirrored && mirrored.collection === collectionName) return mirrored;
+	const collection =
+		state.collectionDrafts[collectionName] ??
+		state.collections.find((item) => item.name === collectionName);
+	return {
+		docName,
+		pageIndex,
+		collection: collectionName,
+		mode: "template",
+		memberId: sortedCollectionMembers(collection)[0]?.id ?? null,
+	};
+}
+
+/**
+ * What the canvas should display for a page: the shared server cursor,
+ * except when a draft-only row is being previewed locally — then the
+ * override's member (rendered client-side from the draft) takes over.
+ */
+export function previewCursorForPage(
+	state: Pick<
+		AppState,
+		| "docs"
+		| "collections"
+		| "collectionDrafts"
+		| "collectionCursors"
+		| "draftCursorOverrides"
+	>,
+	docName: string,
+	pageIndex: number,
+): PageCollectionCursor | null {
+	const cursor = cursorForPage(state, docName, pageIndex);
+	if (!cursor) return null;
+	const override =
+		state.draftCursorOverrides[collectionCursorKey(docName, pageIndex)];
+	if (!override) return cursor;
+	const draft = state.collectionDrafts[cursor.collection];
+	const exists = draft?.members.some(
+		(member) => member.id === override.memberId,
+	);
+	return exists ? { ...cursor, memberId: override.memberId } : cursor;
+}
+
+function clampPageIndex(doc: Document | undefined, pageIndex: number): number {
+	if (!doc || doc.pages.length === 0) return 0;
+	return Math.min(doc.pages.length - 1, Math.max(0, Math.trunc(pageIndex)));
+}
+
+function preservePageIndex(
+	previousDoc: Document | undefined,
+	nextDoc: Document | undefined,
+	previousIndex: number,
+): number {
+	const previousPageId =
+		previousDoc?.pages[clampPageIndex(previousDoc, previousIndex)]?.id;
+	const nextIndex = previousPageId
+		? nextDoc?.pages.findIndex((page) => page.id === previousPageId)
+		: -1;
+	return nextIndex !== undefined && nextIndex >= 0
+		? nextIndex
+		: clampPageIndex(nextDoc, nextDoc?.activePage ?? 0);
+}
+
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
+const _savedDataViewPinned =
+	localStorage.getItem("maket-data-view-pinned") === "true";
+const _savedDataViewCollection = _savedDataViewPinned
+	? localStorage.getItem("maket-data-view-collection")
+	: null;
 
 export const useStore = create<AppState>((set, get) => ({
 	connected: false,
@@ -247,8 +350,11 @@ export const useStore = create<AppState>((set, get) => ({
 		_savedFocused && _savedWorkspace.includes(_savedFocused)
 			? _savedFocused
 			: null,
-	focusedCollectionName: null,
-	collectionPreview: {},
+	focusedPageIndex: 0,
+	focusedCollectionName: _savedDataViewCollection,
+	dataViewPinned: _savedDataViewPinned,
+	collectionCursors: {},
+	draftCursorOverrides: {},
 	collectionDrafts: {},
 	docList: [],
 	chartesCss: new Map(),
@@ -270,84 +376,113 @@ export const useStore = create<AppState>((set, get) => ({
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
 	setConnected: (connected) => set({ connected }),
-	setCollections: (collections) =>
+	setCollections: (collections) => {
+		const s = get();
+		const collectionDrafts = reconcileCollectionDrafts(
+			s.collectionDrafts,
+			collections,
+		);
+		const { kept, promoted } = reconcileDraftCursorOverrides(
+			s.draftCursorOverrides,
+			collections,
+			collectionDrafts,
+		);
+		set({ collections, collectionDrafts, draftCursorOverrides: kept });
+		// A previewed draft row that just got saved becomes the shared cursor.
+		for (const override of promoted) {
+			wsSend({
+				type: "collection_cursor_set",
+				docName: override.docName,
+				pageIndex: override.pageIndex,
+				memberId: override.memberId,
+			});
+		}
+	},
+	setDraftCursorOverride: (docName, pageIndex, memberId) =>
 		set((s) => {
-			const collectionDrafts = reconcileCollectionDrafts(
-				s.collectionDrafts,
-				collections,
-			);
+			const key = collectionCursorKey(docName, pageIndex);
+			if (memberId === null) {
+				const { [key]: _removed, ...draftCursorOverrides } =
+					s.draftCursorOverrides;
+				return { draftCursorOverrides };
+			}
 			return {
-				collections,
-				collectionDrafts,
-				collectionPreview: reconcileCollectionPreview(
-					s.collectionPreview,
-					collectionsWithDrafts(collections, collectionDrafts),
-				),
+				draftCursorOverrides: {
+					...s.draftCursorOverrides,
+					[key]: { docName, pageIndex, memberId },
+				},
 			};
 		}),
+	setCollectionCursors: (cursors) =>
+		set({
+			collectionCursors: Object.fromEntries(
+				cursors.map((cursor) => [
+					collectionCursorKey(cursor.docName, cursor.pageIndex),
+					cursor,
+				]),
+			),
+		}),
 	setFocusedCollection: (focusedCollectionName) =>
-		set({ focusedCollectionName, selectedIds: [] }),
+		set((s) => {
+			// Closing a pinned view means "don't bring it back": unpin.
+			const dataViewPinned = focusedCollectionName ? s.dataViewPinned : false;
+			persistDataViewPin(dataViewPinned, focusedCollectionName);
+			return { focusedCollectionName, dataViewPinned, selectedIds: [] };
+		}),
+	toggleDataViewPinned: () =>
+		set((s) => {
+			const dataViewPinned = !s.dataViewPinned;
+			persistDataViewPin(dataViewPinned, s.focusedCollectionName);
+			return { dataViewPinned };
+		}),
 	setCollectionDraft: (collection) =>
 		set((s) => ({
 			collectionDrafts: {
 				...s.collectionDrafts,
 				[collection.name]: collection,
 			},
-			collectionPreview: reconcileCollectionPreview(s.collectionPreview, [
-				...collectionsWithDrafts(s.collections, s.collectionDrafts).filter(
-					(item) => item.name !== collection.name,
-				),
-				collection,
-			]),
 		})),
-	clearCollectionDraft: (name) =>
-		set((s) => {
-			const { [name]: _removed, ...collectionDrafts } = s.collectionDrafts;
-			return { collectionDrafts };
-		}),
-	setCollectionPreviewMode: (collectionName, mode) =>
-		set((s) => ({
-			collectionPreview: {
-				...s.collectionPreview,
-				[collectionName]: {
-					...previewFor(
-						s.collectionPreview,
-						collectionsWithDrafts(s.collections, s.collectionDrafts),
-						collectionName,
-					),
-					mode,
-				},
-			},
-		})),
-	setCollectionPreviewMember: (collectionName, memberId) =>
-		set((s) => ({
-			collectionPreview: {
-				...s.collectionPreview,
-				[collectionName]: {
-					...previewFor(
-						s.collectionPreview,
-						collectionsWithDrafts(s.collections, s.collectionDrafts),
-						collectionName,
-					),
-					memberId,
-				},
-			},
-		})),
-	moveCollectionPreviewMember: (collectionName, delta) =>
-		set((s) => ({
-			collectionPreview: {
-				...s.collectionPreview,
-				[collectionName]: movedPreview(
-					s.collectionPreview,
-					collectionsWithDrafts(s.collections, s.collectionDrafts),
-					collectionName,
-					delta,
-				),
-			},
-		})),
+	clearCollectionDraft: (name) => {
+		const s = get();
+		const { [name]: _removed, ...collectionDrafts } = s.collectionDrafts;
+		// Discarding a draft also discards local previews of its unsaved rows.
+		const { kept } = reconcileDraftCursorOverrides(
+			s.draftCursorOverrides,
+			s.collections,
+			collectionDrafts,
+		);
+		set({ collectionDrafts, draftCursorOverrides: kept });
+	},
+	// Cursor mutations go through the server (single source of truth); the
+	// mirror updates when the `collection_cursors` broadcast comes back.
+	setCursorMode: (docName, pageIndex, mode) =>
+		wsSend({ type: "collection_cursor_set", docName, pageIndex, mode }),
+	setCursorMember: (docName, pageIndex, memberId) =>
+		wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId }),
+	moveCursorMember: (docName, pageIndex, delta) => {
+		const s = get();
+		const cursor = cursorForPage(s, docName, pageIndex);
+		if (!cursor) return;
+		const members = sortedCollectionMembers(
+			s.collections.find((item) => item.name === cursor.collection),
+		);
+		if (members.length === 0) return;
+		const currentIndex = Math.max(
+			0,
+			members.findIndex((member) => member.id === cursor.memberId),
+		);
+		const nextIndex = Math.min(
+			members.length - 1,
+			Math.max(0, currentIndex + delta),
+		);
+		const memberId = members[nextIndex]?.id ?? null;
+		if (memberId === cursor.memberId) return;
+		wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId });
+	},
 
 	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
 		set((s) => {
+			const previousFocusedDoc = s.docs.get(s.focusedDocName ?? "");
 			const docs = new Map(s.docs);
 			docs.set(doc.name, doc);
 			const inWorkspace = s.workspaceDocNames.includes(doc.name);
@@ -385,12 +520,28 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedDocName =
 					s.focusedDocName ?? (workspaceDocNames.length > 0 ? doc.name : null);
 			}
+			const focusedPageIndex =
+				focusedDocName === doc.name &&
+				(focus || focusedDocName !== s.focusedDocName)
+					? clampPageIndex(doc, doc.activePage)
+					: preservePageIndex(
+							previousFocusedDoc,
+							docs.get(focusedDocName ?? ""),
+							s.focusedPageIndex,
+						);
 			const chartesCss = new Map(s.chartesCss);
 			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
 			saveWorkspace(workspaceDocNames);
 			syncWorkspace();
 			if (focusedDocName) saveFocusedDoc(focusedDocName);
-			return { docs, workspaceDocNames, focusedDocName, docList, chartesCss };
+			return {
+				docs,
+				workspaceDocNames,
+				focusedDocName,
+				focusedPageIndex,
+				docList,
+				chartesCss,
+			};
 		}),
 
 	addDocToWorkspace: (docName) =>
@@ -414,11 +565,19 @@ export const useStore = create<AppState>((set, get) => ({
 				s.focusedDocName === docName
 					? (workspaceDocNames[workspaceDocNames.length - 1] ?? null)
 					: s.focusedDocName;
+			const focusChanged = focusedDocName !== s.focusedDocName;
+			const focusedPageIndex = clampPageIndex(
+				docs.get(focusedDocName ?? ""),
+				focusChanged
+					? (docs.get(focusedDocName ?? "")?.activePage ?? 0)
+					: s.focusedPageIndex,
+			);
 			return {
 				workspaceDocNames,
 				docs,
 				focusedDocName,
-				selectedIds: focusedDocName !== s.focusedDocName ? [] : s.selectedIds,
+				focusedPageIndex,
+				selectedIds: focusChanged ? [] : s.selectedIds,
 			};
 		}),
 
@@ -428,6 +587,27 @@ export const useStore = create<AppState>((set, get) => ({
 			saveFocusedDoc(docName ?? "");
 			return {
 				focusedDocName: docName,
+				focusedPageIndex: clampPageIndex(
+					s.docs.get(docName ?? ""),
+					s.docs.get(docName ?? "")?.activePage ?? 0,
+				),
+				selectedIds: [],
+			};
+		}),
+
+	setFocusedPage: (docName, pageIndex) =>
+		set((s) => {
+			const focusedPageIndex = clampPageIndex(s.docs.get(docName), pageIndex);
+			if (
+				s.focusedDocName === docName &&
+				s.focusedPageIndex === focusedPageIndex
+			) {
+				return {};
+			}
+			saveFocusedDoc(docName);
+			return {
+				focusedDocName: docName,
+				focusedPageIndex,
 				selectedIds: [],
 			};
 		}),
@@ -515,4 +695,11 @@ export const useWorkspaceDocNames = () =>
 /** Get a single doc by name (for WorkspaceDoc component) */
 export function useDocByName(name: string) {
 	return useStore(useShallow((s) => s.docs.get(name) ?? null));
+}
+
+/** Effective cursor of a page (null when the page has no data source). */
+export function useCursorFor(docName: string | null, pageIndex: number) {
+	return useStore(
+		useShallow((s) => (docName ? cursorForPage(s, docName, pageIndex) : null)),
+	);
 }

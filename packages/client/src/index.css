@@ -201,6 +201,26 @@ textarea:focus-visible {
   pointer-events: none;
 }
 
+/* Collection placeholders (template mode) — bound fields read as data slots,
+   unknown fields read as errors, in the document itself. */
+.page-canvas [data-collection-placeholder] {
+  background: var(--color-accent-soft);
+  box-shadow: inset 0 0 0 1px var(--color-accent-border);
+  border-radius: 3px;
+  padding: 0 0.15em;
+}
+.page-canvas [data-collection-bound="false"] {
+  background: var(--color-danger-soft);
+  box-shadow: inset 0 0 0 1px var(--color-danger-border);
+  color: var(--color-danger);
+}
+
+/* Row preview (rendered mode) — the frame says "live data, template locked". */
+.page-canvas.data-preview {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
 .page-canvas [data-id].flagged-delete {
   opacity: 0.3;
   outline: 2px dashed var(--color-danger);

@@ -7,6 +7,10 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type {
+	CollectionCursors,
+	CollectionCursorView,
+} from "../services/collection-cursor.js";
+import type {
 	CollectionSchemaValidation,
 	Collections,
 } from "../services/collections.js";
@@ -14,6 +18,7 @@ import { text } from "./_helpers.js";
 
 export interface CollectionsToolDeps {
 	collections: Collections;
+	collectionCursors: CollectionCursors;
 }
 
 const MaketCollectionSchema = z.object({
@@ -29,6 +34,7 @@ const MaketCollectionSchema = z.object({
 		"delete",
 		"bind",
 		"unbind",
+		"cursor",
 	]),
 	name: z.string().optional(),
 	description: z.string().optional(),
@@ -37,6 +43,7 @@ const MaketCollectionSchema = z.object({
 	row: z.string().optional(),
 	doc: z.string().optional(),
 	page: z.number().int().positive().optional(),
+	mode: z.enum(["template", "rendered", "all"]).optional(),
 });
 
 const DESCRIPTION = [
@@ -51,10 +58,12 @@ const DESCRIPTION = [
 	"  add_row / update_row / delete_row — edit collection members.",
 	"  delete — remove a collection.",
 	"  bind / unbind — bind or clear a collection on a document page.",
+	"  cursor — read or move a bound page's preview cursor (doc + page required). Without mode/row it reads; with mode (template|rendered|all) and/or row (member id or 1-based number) it moves. The human's live canvas, this cursor and the exports all share this state.",
 ].join("\n");
 
 export function createMaketCollectionTool({
 	collections,
+	collectionCursors,
 }: CollectionsToolDeps): ToolHandler {
 	return {
 		metadata: {
@@ -62,27 +71,40 @@ export function createMaketCollectionTool({
 			description: DESCRIPTION,
 			schema: MaketCollectionSchema,
 		},
-		handler: async (rawArgs) => handleCollectionTool(rawArgs, collections),
+		handler: async (rawArgs) =>
+			handleCollectionTool(rawArgs, collections, collectionCursors),
 	};
 }
 
 type Args = z.infer<typeof MaketCollectionSchema>;
 
-function handleCollectionTool(rawArgs: unknown, collections: Collections) {
+function handleCollectionTool(
+	rawArgs: unknown,
+	collections: Collections,
+	collectionCursors: CollectionCursors,
+) {
 	const parsed = MaketCollectionSchema.safeParse(rawArgs);
 	if (!parsed.success) return text(zodErrors(parsed.error), true);
-	return runCollectionAction(parsed.data, collections);
+	return runCollectionAction(parsed.data, collections, collectionCursors);
 }
 
-function runCollectionAction(args: Args, collections: Collections) {
+function runCollectionAction(
+	args: Args,
+	collections: Collections,
+	collectionCursors: CollectionCursors,
+) {
 	try {
-		return dispatchCollectionAction(args, collections);
+		return dispatchCollectionAction(args, collections, collectionCursors);
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}
 }
 
-function dispatchCollectionAction(args: Args, collections: Collections) {
+function dispatchCollectionAction(
+	args: Args,
+	collections: Collections,
+	collectionCursors: CollectionCursors,
+) {
 	if (args.action === "list") return runList(collections);
 	if (args.action === "view") return runView(args, collections);
 	if (args.action === "create") return runCreate(args, collections);
@@ -95,6 +117,7 @@ function dispatchCollectionAction(args: Args, collections: Collections) {
 	if (args.action === "delete_row") return runDeleteRow(args, collections);
 	if (args.action === "delete") return runDelete(args, collections);
 	if (args.action === "bind") return runBind(args, collections);
+	if (args.action === "cursor") return runCursor(args, collectionCursors);
 	return runUnbind(args, collections);
 }
 
@@ -210,9 +233,44 @@ function runBind(args: Args, collections: Collections) {
 			next: [
 				`maket_html get doc=${doc.name} page=${args.page}`,
 				`maket_html set doc=${doc.name} page=${args.page} html='<h1>{{ ${fields[0]?.key ?? "field_name"} }}</h1>'`,
+				`maket_collection action=cursor doc=${doc.name} page=${args.page} mode=rendered row=1`,
 			],
 		},
 	);
+}
+
+function runCursor(args: Args, collectionCursors: CollectionCursors) {
+	if (!args.doc) return text("doc is required for action=cursor", true);
+	if (!args.page) return text("page is required for action=cursor", true);
+	const pageIndex = args.page - 1;
+	const reading = args.mode === undefined && args.row === undefined;
+	if (!reading) {
+		const memberId =
+			args.row === undefined
+				? undefined
+				: collectionCursors.memberIdForRow(args.doc, pageIndex, args.row);
+		collectionCursors.set(args.doc, pageIndex, { mode: args.mode, memberId });
+	}
+	const view = collectionCursors.describe(args.doc, pageIndex);
+	if (!view) {
+		return text(`Page ${args.page} of "${args.doc}" has no data source.`, {
+			isError: !reading,
+			next: [
+				`maket_collection action=bind doc=${args.doc} page=${args.page} name=<collection>`,
+			],
+		});
+	}
+	return text(cursorSummaryText(view));
+}
+
+function cursorSummaryText(view: CollectionCursorView): string {
+	const { cursor } = view;
+	const label = view.rowLabel ? ` · "${view.rowLabel}"` : "";
+	const rowInfo =
+		view.rowNumber > 0
+			? `row ${view.rowNumber}/${view.rowCount} (${cursor.memberId}${label})`
+			: `no row (${view.rowCount} rows)`;
+	return `Cursor on "${cursor.docName}" page ${cursor.pageIndex + 1}: collection "${cursor.collection}", mode ${cursor.mode}, ${rowInfo}. The live canvas and exports follow this cursor.`;
 }
 
 function runUnbind(args: Args, collections: Collections) {
@@ -269,7 +327,7 @@ function zodErrors(error: z.ZodError): string {
 export const collectionsPack: ToolPack = {
 	id: "collections",
 	name: "Collections",
-	requires: ["collections"],
+	requires: ["collections", "collectionCursors"],
 	declaresTools: ["maket_collection"],
 	register(container) {
 		container.register({

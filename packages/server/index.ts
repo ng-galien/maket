@@ -20,6 +20,7 @@ import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
 import type { AssetsService } from "./src/services/assets.js";
 import type { Bus } from "./src/services/bus.js";
+import type { CollectionCursors } from "./src/services/collection-cursor.js";
 import type { Collections } from "./src/services/collections.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
@@ -84,6 +85,8 @@ const appContainer = createAppContainer();
 const config = appContainer.resolve<Config>("config");
 const bus = appContainer.resolve<Bus>("bus");
 const collections = appContainer.resolve<Collections>("collections");
+const collectionCursors =
+	appContainer.resolve<CollectionCursors>("collectionCursors");
 const documents = appContainer.resolve<Documents>("documents");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
@@ -189,6 +192,7 @@ function broadcastDoc(
 		doc: documents.lightView(doc, doc.activePage),
 		docList: documents.list(),
 		collections: collections.loadAll(),
+		collectionCursors: collectionCursors.snapshot(),
 		charteCss: documents.charteCss(doc),
 		addToWorkspace,
 		focus,
@@ -237,6 +241,13 @@ function broadcastCollections(): void {
 
 bus.on("collection:saved", broadcastCollections);
 bus.on("collection:deleted", broadcastCollections);
+
+bus.on("collection-cursor:changed", () => {
+	wsRegistry.broadcast({
+		type: "collection_cursors",
+		cursors: collectionCursors.snapshot(),
+	});
+});
 
 bus.on("toast", ({ text, level, duration }) => {
 	wsRegistry.broadcast({
@@ -348,6 +359,7 @@ wss.on("connection", (ws) => {
 		doc: documents.lightView(firstDoc ?? null),
 		docList: documents.list(),
 		collections: collections.loadAll(),
+		collectionCursors: collectionCursors.snapshot(),
 		charteCss: documents.charteCss(firstDoc ?? null),
 		addToWorkspace: true,
 	};
