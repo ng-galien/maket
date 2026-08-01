@@ -79,6 +79,10 @@ export function handleLayoutReport(
 	if (msg.measureId) ctx.wsBridge.resolveResponse(msg.measureId, msg);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// text_edit is a WS adapter workflow: resolve doc/page, patch HTML via
+// linkedom, strip active markup, persist, broadcast. Coordinating those
+// owners is intentional edge glue, not feature envy of Document alone.
 export function handleTextEdit(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "text_edit" }>,

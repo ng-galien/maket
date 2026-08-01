@@ -35,6 +35,10 @@ export function DocsTab() {
 	return <DocsTabView model={model} />;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Docs tab shell adapter: useDocsTabModel's job is to wire store, WS load,
+// selection, and pure factories (toolbar/category/item). Cross-owner calls
+// are composition, not logic that should move into documents or the store.
 function useDocsTabModel(): DocsTabModel {
 	const t = useT();
 	const docList = useStore((state) => state.docList);
