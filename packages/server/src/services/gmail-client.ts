@@ -148,6 +148,49 @@ function writeSavedToken(
 	renameSync(tmpPath, tokenPath);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// OAuth callback: state check, token exchange, profile lookup, token persist.
+async function completeGmailOAuthCallback(ctx: {
+	code: string;
+	state: string;
+	redirectUri: string;
+	consumeState: (state: string) => boolean;
+	resolveCreds: () => { client_id: string; client_secret: string };
+	tokenPath: string;
+	setAuth: (auth: unknown) => void;
+	setConnected: (v: boolean) => void;
+	setReadGranted: (v: boolean) => void;
+	clearPending: () => void;
+}): Promise<string> {
+	if (!ctx.consumeState(ctx.state)) {
+		throw new Error(
+			"Invalid or expired OAuth state — restart the connect flow",
+		);
+	}
+	const { google } = await import("googleapis");
+	const creds = ctx.resolveCreds();
+	const oauth2 = new google.auth.OAuth2(
+		creds.client_id,
+		creds.client_secret,
+		ctx.redirectUri,
+	);
+	const { tokens } = await oauth2.getToken(ctx.code);
+	oauth2.setCredentials(tokens);
+	const grantedScopes =
+		typeof tokens.scope === "string" ? tokens.scope.split(" ") : [];
+	const withRead = grantedScopes.includes(READ_SCOPE);
+	ctx.setReadGranted(withRead);
+	if (tokens.refresh_token) {
+		writeSavedToken(ctx.tokenPath, tokens.refresh_token, withRead);
+	}
+	ctx.setAuth(oauth2);
+	ctx.setConnected(true);
+	ctx.clearPending();
+	const gmail = google.gmail({ version: "v1", auth: oauth2 });
+	const profile = await gmail.users.getProfile({ userId: "me" });
+	return profile.data.emailAddress || "";
+}
+
 export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 	const env = inputs.env ?? process.env;
 	const credentialsPath = join(inputs.dataDir, "google-credentials.json");
@@ -221,38 +264,31 @@ export function createGmailClient(inputs: GmailClientInputs): GmailClient {
 			});
 		},
 
-		async handleCallback(code: string, state: string, redirectUri: string) {
-			if (!oauthStates.consumeState(state)) {
-				throw new Error(
-					"Invalid or expired OAuth state — restart the connect flow",
-				);
-			}
-			const { google } = await import("googleapis");
-			const creds = resolveCreds();
-			const oauth2 = new google.auth.OAuth2(
-				creds.client_id,
-				creds.client_secret,
+		handleCallback: (code, state, redirectUri) =>
+			completeGmailOAuthCallback({
+				code,
+				state,
 				redirectUri,
-			);
-			const { tokens } = await oauth2.getToken(code);
-			oauth2.setCredentials(tokens);
-			const grantedScopes =
-				typeof tokens.scope === "string" ? tokens.scope.split(" ") : [];
-			readGranted = grantedScopes.includes(READ_SCOPE);
-			if (tokens.refresh_token) {
-				writeSavedToken(tokenPath, tokens.refresh_token, readGranted);
-			}
-			auth = oauth2;
-			connected = true;
-			if (pendingResolve) {
-				pendingResolve();
-				pendingResolve = null;
-				pendingReject = null;
-			}
-			const gmail = google.gmail({ version: "v1", auth: oauth2 });
-			const profile = await gmail.users.getProfile({ userId: "me" });
-			return profile.data.emailAddress || "";
-		},
+				consumeState: (s) => oauthStates.consumeState(s),
+				resolveCreds,
+				tokenPath,
+				setAuth: (oauth2) => {
+					auth = oauth2;
+				},
+				setConnected: (v) => {
+					connected = v;
+				},
+				setReadGranted: (v) => {
+					readGranted = v;
+				},
+				clearPending: () => {
+					if (pendingResolve) {
+						pendingResolve();
+						pendingResolve = null;
+						pendingReject = null;
+					}
+				},
+			}),
 
 		async getGmail() {
 			if (!connected || !auth) {

@@ -85,6 +85,8 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 	return router;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler `handlePrint`: request/response adapter over services, not envied domain logic.
 function handlePrint(
 	req: Request,
 	res: Response,
@@ -172,6 +174,8 @@ function singleQueryValue(value: unknown): string | null {
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler `handlePdfExport`: request/response adapter over services, not envied domain logic.
 async function handlePdfExport(
 	req: Request,
 	res: Response,
@@ -202,6 +206,8 @@ async function handlePdfExport(
 	}
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler `handleMaketExport`: request/response adapter over services, not envied domain logic.
 async function handleMaketExport(
 	req: Request,
 	res: Response,
@@ -350,6 +356,8 @@ async function readBundleUpload(
 	}
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// HTTP handler `importBundleDocuments`: request/response adapter over services, not envied domain logic.
 function importBundleDocuments(
 	bundle: Awaited<ReturnType<typeof decodeBundle>>,
 	documents: Documents,

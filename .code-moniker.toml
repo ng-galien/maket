@@ -94,28 +94,15 @@ rationale = """
 Feature envy is behavior that mostly talks to another application owner and
 should move there. Runtime/framework calls are ignored.
 
-Intentional high fan-out ports are exempt by contract (not ignore comments —
-nested factory methods cannot host suppressions without tripping
-comment-inside-callable):
-- dispatch* switchboards (name prefix)
-- MCP tools, HTTP routes, stdio-bridge, tool-pack registration (path)
-- multi-service export/OAuth/layout/browser adapters listed below (path+name)
-
-UI shells and other edge adapters still use module-level
+Only an explicit naming contract is exempt in-rule: `dispatch*` switchboards
+route by message type and are allowed high fan-out. Every other intentional
+port (MCP tool, HTTP handler, UI shell, multi-service factory method) must
+either restructure so the logic lives with its owner, or carry a module-level
 `// code-moniker: ignore[smell-feature-envy-local]` with a design reason.
+Do not widen this predicate with package-wide moniker path globs.
 """
 expr      = """
   name =~ ^dispatch
-  OR moniker ~ '**/dir:tools/**'
-  OR moniker ~ '**/dir:routes/**'
-  OR moniker ~ '**/dir:stdio-bridge/**'
-  OR moniker ~ '**/module:tool-pack-registry/**'
-  OR moniker ~ '**/module:layout/**'
-  OR moniker ~ '**/module:pdf/**'
-  OR moniker ~ '**/module:thumbnail/**'
-  OR moniker ~ '**/module:gmail-client/**'
-  OR moniker ~ '**/module:page-network-guard/**'
-  OR moniker ~ '**/module:image-inline/**'
   OR count(out_refs, $application_call_ref AND source.parent != target.parent) < 8
   OR count(out_refs, $application_call_ref AND source.parent != target.parent)
      <= count(out_refs, $application_call_ref AND source.parent = target.parent)

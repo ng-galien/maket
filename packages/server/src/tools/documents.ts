@@ -250,6 +250,8 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 	}
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runNew`: edge adapter over services/store/bus, not domain ownership.
 function runNew(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=new", true);
 	if (documents.all().has(args.doc))
@@ -292,6 +294,8 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runList`: edge adapter over services/store/bus, not domain ownership.
 function runList(documents: Documents) {
 	const list = documents.list();
 	if (!list.length) return text("No documents.");
@@ -315,6 +319,8 @@ function runList(documents: Documents) {
 	return text(lines.join("\n"));
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runDelete`: edge adapter over services/store/bus, not domain ownership.
 function runDelete(
 	args: Args,
 	documents: Documents,
@@ -338,6 +344,8 @@ function runDelete(
 	return text(`Deleted "${args.doc}"`);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runDuplicate`: edge adapter over services/store/bus, not domain ownership.
 function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=duplicate", true);
 	if (!args.name) return text("name is required for action=duplicate", true);
@@ -390,6 +398,8 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runRename`: edge adapter over services/store/bus, not domain ownership.
 function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=rename", true);
 	if (!args.name) return text("name is required for action=rename", true);

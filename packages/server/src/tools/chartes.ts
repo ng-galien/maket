@@ -135,6 +135,8 @@ function runList(store: Store) {
 	return text(`Chartes (${chartes.length}):\n${lines.join("\n")}`);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runView`: edge adapter over services/store/bus, not domain ownership.
 function runView(args: Args, store: Store, assets: AssetsService) {
 	if (!args.name) return text("name is required for action=view", true);
 	const charte = store.loadCharte(args.name);
@@ -193,6 +195,8 @@ function runView(args: Args, store: Store, assets: AssetsService) {
 	return text(lines.join("\n"), next ? { next } : undefined);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action `runSet`: edge adapter over services/store/bus, not domain ownership.
 function runSet(args: Args, store: Store, bus: Bus) {
 	if (!args.name) return text("name is required for action=set", true);
 	const charte: Charte = {

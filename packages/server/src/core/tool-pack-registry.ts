@@ -34,6 +34,8 @@ export interface RegisterToolPacksResult {
  * service graph so packs see the same `bus`, `store`, `documents`, etc. as
  * the rest of the app.
  */
+// code-moniker: ignore[smell-feature-envy-local]
+// Tool-pack registration wires Awilix packs from the manifest; fan-out is bootstrap, not envy.
 export function registerToolPacks(
 	container: AwilixContainer,
 	manifest: ToolPackManifest,

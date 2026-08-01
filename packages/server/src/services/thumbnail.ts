@@ -71,6 +71,8 @@ const DEFAULT_CACHE_ENTRIES = 64;
 const DEVICE_SCALE_FACTOR = 2; // retina-quality thumbs
 const MM_TO_PX = 96 / 25.4; // CSS px per mm at 96 DPI
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Export `defaultSnapshot`: orchestrates docs, assets, and headless render for a binary output.
 async function defaultSnapshot(
 	html: string,
 	viewport: { width: number; height: number; deviceScaleFactor: number },
@@ -94,67 +96,60 @@ async function defaultSnapshot(
 	}
 }
 
-export function createThumbnailService(
-	deps: ThumbnailDeps,
-	opts: ThumbnailOptions = {},
-): ThumbnailService {
-	const { documents, config, assets, browserPool } = deps;
-	const maxEntries = opts.maxCacheEntries ?? DEFAULT_CACHE_ENTRIES;
-	const snapshot = opts.snapshot ?? defaultSnapshot;
-
-	const cache = new Map<string, Buffer>();
-
-	function cacheKey(
-		docId: string,
-		page: number,
-		widthPx: number,
-		updatedAt: string | undefined,
-	): string {
-		return `${docId}::${updatedAt ?? "-"}::${page}::${widthPx}`;
+// code-moniker: ignore[smell-feature-envy-local]
+// Thumbnail render coordinates cache, charte CSS, image inlining, and headless snapshot.
+async function renderThumbnailDocument(ctx: {
+	doc: Document;
+	renderOpts: { page?: number; widthPx?: number; updatedAt?: string };
+	documents: Documents;
+	config: Config;
+	assets: AssetsService;
+	browserPool: BrowserPool;
+	snapshot: typeof defaultSnapshot;
+	cache: Map<string, Buffer>;
+	remember: (key: string, buf: Buffer) => void;
+}): Promise<Buffer> {
+	const {
+		doc,
+		renderOpts,
+		documents,
+		config,
+		assets,
+		browserPool,
+		snapshot,
+		cache,
+		remember,
+	} = ctx;
+	const page = Math.max(0, Math.floor(renderOpts.page ?? 0));
+	const widthPx = Math.max(
+		60,
+		Math.min(2000, Math.floor(renderOpts.widthPx ?? DEFAULT_WIDTH_PX)),
+	);
+	const key = `${doc.id}::${renderOpts.updatedAt ?? "-"}::${page}::${widthPx}`;
+	const cached = cache.get(key);
+	if (cached) {
+		cache.delete(key);
+		cache.set(key, cached);
+		return cached;
 	}
 
-	function remember(key: string, buf: Buffer): void {
-		if (cache.has(key)) cache.delete(key);
-		cache.set(key, buf);
-		while (cache.size > maxEntries) {
-			const oldestKey = cache.keys().next().value;
-			if (oldestKey === undefined) break;
-			cache.delete(oldestKey);
-		}
-	}
+	const pageObj = doc.pages[page];
+	if (!pageObj)
+		throw new Error(`Document "${doc.name}" has no page ${page + 1}`);
 
-	return {
-		async render(doc, renderOpts = {}) {
-			const page = Math.max(0, Math.floor(renderOpts.page ?? 0));
-			const widthPx = Math.max(
-				60,
-				Math.min(2000, Math.floor(renderOpts.widthPx ?? DEFAULT_WIDTH_PX)),
-			);
-			const key = cacheKey(doc.id, page, widthPx, renderOpts.updatedAt);
-			const cached = cache.get(key);
-			if (cached) {
-				cache.delete(key);
-				cache.set(key, cached);
-				return cached;
-			}
+	const charteCss = documents.charteCss(doc);
+	const shadowVars = buildShadowVarMap(charteCss);
+	const inlined = await inlineImages(pageObj.html ?? "", {
+		assetsDir: config.ASSETS_DIR,
+		pageMm: { w: doc.canvas.w, h: doc.canvas.h },
+		dpi: 96,
+		mimeFromExt: (p) => assets.mimeFromExt(p),
+	});
+	const resolved = boxShadowToDropShadow(inlined, shadowVars);
 
-			const pageObj = doc.pages[page];
-			if (!pageObj)
-				throw new Error(`Document "${doc.name}" has no page ${page + 1}`);
-
-			const charteCss = documents.charteCss(doc);
-			const shadowVars = buildShadowVarMap(charteCss);
-			const inlined = await inlineImages(pageObj.html ?? "", {
-				assetsDir: config.ASSETS_DIR,
-				pageMm: { w: doc.canvas.w, h: doc.canvas.h },
-				dpi: 96,
-				mimeFromExt: (p) => assets.mimeFromExt(p),
-			});
-			const resolved = boxShadowToDropShadow(inlined, shadowVars);
-
-			const safeBg = escapeCssValue(doc.canvas.bg || "#ffffff");
-			const safeCharteCss = stripStyleClose(charteCss);
-			const fullHtml = `<!DOCTYPE html>
+	const safeBg = escapeCssValue(doc.canvas.bg || "#ffffff");
+	const safeCharteCss = stripStyleClose(charteCss);
+	const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -168,25 +163,60 @@ export function createThumbnailService(
 <body><div class="page">${resolved}</div></body>
 </html>`;
 
-			const canvasPxW = Math.round(doc.canvas.w * MM_TO_PX);
-			const pxH = Math.round((doc.canvas.h / doc.canvas.w) * widthPx);
-			const scale = widthPx / canvasPxW;
-			const scaledHtml = fullHtml.replace(
-				".page {",
-				`.page { transform: scale(${scale});`,
-			);
+	const canvasPxW = Math.round(doc.canvas.w * MM_TO_PX);
+	const pxH = Math.round((doc.canvas.h / doc.canvas.w) * widthPx);
+	const scale = widthPx / canvasPxW;
+	const scaledHtml = fullHtml.replace(
+		".page {",
+		`.page { transform: scale(${scale});`,
+	);
 
-			const buf = await snapshot(
-				scaledHtml,
-				{
-					width: widthPx,
-					height: pxH,
-					deviceScaleFactor: DEVICE_SCALE_FACTOR,
-				},
+	const buf = await snapshot(
+		scaledHtml,
+		{
+			width: widthPx,
+			height: pxH,
+			deviceScaleFactor: DEVICE_SCALE_FACTOR,
+		},
+		browserPool,
+	);
+	remember(key, buf);
+	return buf;
+}
+
+export function createThumbnailService(
+	deps: ThumbnailDeps,
+	opts: ThumbnailOptions = {},
+): ThumbnailService {
+	const { documents, config, assets, browserPool } = deps;
+	const maxEntries = opts.maxCacheEntries ?? DEFAULT_CACHE_ENTRIES;
+	const snapshot = opts.snapshot ?? defaultSnapshot;
+
+	const cache = new Map<string, Buffer>();
+
+	function remember(key: string, buf: Buffer): void {
+		if (cache.has(key)) cache.delete(key);
+		cache.set(key, buf);
+		while (cache.size > maxEntries) {
+			const oldestKey = cache.keys().next().value;
+			if (oldestKey === undefined) break;
+			cache.delete(oldestKey);
+		}
+	}
+
+	return {
+		async render(doc, renderOpts = {}) {
+			return renderThumbnailDocument({
+				doc,
+				renderOpts,
+				documents,
+				config,
+				assets,
 				browserPool,
-			);
-			remember(key, buf);
-			return buf;
+				snapshot,
+				cache,
+				remember,
+			});
 		},
 
 		invalidate(docId) {

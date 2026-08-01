@@ -72,6 +72,8 @@ export async function installNetworkGuard(
 	});
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Request allow/deny policy for headless pages; coordinates URL checks and puppeteer request API.
 function handleGuardedRequest(req: HTTPRequest, mode: NetworkGuardMode): void {
 	const url = req.url();
 	if (url.startsWith("data:") || url.startsWith("about:")) {

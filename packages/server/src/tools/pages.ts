@@ -79,35 +79,42 @@ function resolvePageIndex(d: Document, pageArg: unknown): number {
 	return -1;
 }
 
-export function createMaketPageTool(deps: PagesDeps): ToolHandler {
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP tool action handler for maket_page: routes actions over documents/bus.
+async function handleMaketPageTool(
+	rawArgs: unknown,
+	deps: PagesDeps,
+): Promise<ReturnType<typeof text>> {
 	const { documents, bus } = deps;
+	const args = MaketPageSchema.parse(rawArgs);
+	const d = documents.resolve(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (args.action !== "list") {
+		const locked = lockGuard(d);
+		if (locked) return locked;
+	}
+	switch (args.action) {
+		case "add":
+			return runAdd(args, d, documents, bus);
+		case "remove":
+			return runRemove(args, d, documents, bus);
+		case "rename":
+			return runRename(args, d, documents, bus);
+		case "reorder":
+			return runReorder(args, d, documents, bus);
+		case "list":
+			return runList(d);
+	}
+}
+
+export function createMaketPageTool(deps: PagesDeps): ToolHandler {
 	return {
 		metadata: {
 			name: "maket_page",
 			description: DESCRIPTION,
 			schema: MaketPageSchema,
 		},
-		handler: async (rawArgs) => {
-			const args = MaketPageSchema.parse(rawArgs);
-			const d = documents.resolve(args.doc);
-			if (!d) return text(`Document "${args.doc}" not found`, true);
-			if (args.action !== "list") {
-				const locked = lockGuard(d);
-				if (locked) return locked;
-			}
-			switch (args.action) {
-				case "add":
-					return runAdd(args, d, documents, bus);
-				case "remove":
-					return runRemove(args, d, documents, bus);
-				case "rename":
-					return runRename(args, d, documents, bus);
-				case "reorder":
-					return runReorder(args, d, documents, bus);
-				case "list":
-					return runList(d);
-			}
-		},
+		handler: async (rawArgs) => handleMaketPageTool(rawArgs, deps),
 	};
 }
 

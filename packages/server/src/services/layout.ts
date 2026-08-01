@@ -85,6 +85,73 @@ export interface LayoutServiceOptions {
  * optional test overrides there would require registering `undefined` for
  * them at the container level.
  */
+
+// code-moniker: ignore[smell-feature-envy-local]
+// Headless layout path coordinates browser, network guard, and DOM measure.
+async function runHeadlessLayoutCheck(ctx: {
+	doc: Document;
+	pageHtml: string;
+	documents: Documents;
+	getBrowser: () => Promise<Browser>;
+	getAssetBaseUrl: () => string;
+}): Promise<LayoutReport | null> {
+	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl } = ctx;
+	let b: Browser;
+	try {
+		b = await getBrowser();
+	} catch {
+		return null;
+	}
+	const page = await b.newPage();
+	try {
+		const { w, h, bg } = doc.canvas;
+		const charteCss = documents.charteCss(doc);
+		const html = pageHtml.replaceAll(
+			"/assets/",
+			`${getAssetBaseUrl()}/assets/`,
+		);
+		const safeBg = escapeCssValue(bg || "#ffffff");
+		const safeCharteCss = stripStyleClose(charteCss);
+		const fullHtml = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+${safeCharteCss}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
+</style>
+</head>
+<body>${html}</body>
+</html>`;
+		await installNetworkGuard(page, "localhost-only");
+		await page.setViewport({
+			width: Math.ceil(w * PX_PER_MM),
+			height: Math.ceil(h * PX_PER_MM),
+		});
+		await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await waitForPageStable(page);
+		const m = doc.canvas.margins;
+		const marginsPx = m
+			? {
+					top: m.top * PX_PER_MM,
+					right: m.right * PX_PER_MM,
+					bottom: m.bottom * PX_PER_MM,
+					left: m.left * PX_PER_MM,
+				}
+			: null;
+		return (await page.evaluate(
+			measureInBrowser,
+			PAGE_BLOCK_SELECTOR,
+			marginsPx,
+		)) as LayoutReport | null;
+	} catch {
+		return null;
+	} finally {
+		await page.close();
+	}
+}
+
 export function createLayoutService(
 	deps: LayoutServiceDeps,
 	opts: LayoutServiceOptions = {},
@@ -115,60 +182,13 @@ export function createLayoutService(
 		doc: Document,
 		pageHtml: string,
 	): Promise<LayoutReport | null> {
-		let b: Browser;
-		try {
-			b = await getBrowser();
-		} catch {
-			return null;
-		}
-		const page = await b.newPage();
-		try {
-			const { w, h, bg } = doc.canvas;
-			const charteCss = documents.charteCss(doc);
-			const html = pageHtml.replaceAll(
-				"/assets/",
-				`${getAssetBaseUrl()}/assets/`,
-			);
-			const safeBg = escapeCssValue(bg || "#ffffff");
-			const safeCharteCss = stripStyleClose(charteCss);
-			const fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-${safeCharteCss}
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
-</style>
-</head>
-<body>${html}</body>
-</html>`;
-			await installNetworkGuard(page, "localhost-only");
-			await page.setViewport({
-				width: Math.ceil(w * PX_PER_MM),
-				height: Math.ceil(h * PX_PER_MM),
-			});
-			await page.setContent(fullHtml, { waitUntil: "networkidle0" });
-			await waitForPageStable(page);
-			const m = doc.canvas.margins;
-			const marginsPx = m
-				? {
-						top: m.top * PX_PER_MM,
-						right: m.right * PX_PER_MM,
-						bottom: m.bottom * PX_PER_MM,
-						left: m.left * PX_PER_MM,
-					}
-				: null;
-			return (await page.evaluate(
-				measureInBrowser,
-				PAGE_BLOCK_SELECTOR,
-				marginsPx,
-			)) as LayoutReport | null;
-		} catch {
-			return null;
-		} finally {
-			await page.close();
-		}
+		return runHeadlessLayoutCheck({
+			doc,
+			pageHtml,
+			documents,
+			getBrowser,
+			getAssetBaseUrl,
+		});
 	}
 
 	async function runMeasure(
@@ -254,6 +274,8 @@ function parseMm(value: string | undefined): number | null {
 	return m ? Number.parseFloat(m[1] ?? "0") : null;
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `serverLayoutCheck`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function serverLayoutCheck(
 	html: string,
 	canvas: { w: number; h: number },
@@ -364,6 +386,8 @@ export function serverLayoutCheck(
 	};
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
 	_canvas: { w: number; h: number },
@@ -474,6 +498,8 @@ export function formatLayoutReport(
 // `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
 // declaring its own measurement zone. Falls back to firstElementChild for
 // legacy / non-canonical content.
+// code-moniker: ignore[smell-feature-envy-local]
+// Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
 function measureInBrowser(
 	pageSelector: string,
 	marginsPx: {
