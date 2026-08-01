@@ -69,14 +69,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
 		broadcastState: (d) => {
 			if (!d) return;
-			wsRegistry.broadcast({
-				type: "state",
-				doc: documents.lightView(d),
-				docList: documents.list(),
-				collections: collections.loadAll(),
-				collectionCursors: collectionCursors.snapshot(),
-				charteCss: documents.charteCss(d),
-			});
+			bus.emit("document:saved", { docName: d.name });
 		},
 	};
 

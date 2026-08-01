@@ -4,21 +4,20 @@
  * Two entry points:
  *
  * - `measure(doc, html, pageIdx)` — used by `set_html` / `patch_html`. First
- *   broadcasts the new state to connected browsers (fire-and-forget, so the
- *   live preview refreshes immediately), then returns a canvas-authoritative
- *   layout summary computed server-side (mm-math walker, with a headless
- *   Chromium fallback for content-driven overflow).
+ *   emits `document:saved` so index listeners refresh live previews, then
+ *   returns a canvas-authoritative layout summary (mm-math walker, with a
+ *   headless Chromium fallback for content-driven overflow).
  *
  * - `check(doc, html, pageIdx)` — used by `check_layout`. Same measurement
- *   path as `measure` but without the state broadcast, and the result is
+ *   path as `measure` but without the preview emit, and the result is
  *   trimmed (no leading newline).
  *
  * Earlier revisions awaited a browser-measured layout report via WebSocket
  * (measureId correlation). That reported the *thumbnail's* container size,
  * not the canvas, so agents routinely saw phantom overflow on pages that
- * fit the canvas perfectly. We kept the broadcast (for live preview sync,
- * which is independent of measurement) but dropped the round-trip wait
- * and report nothing but canvas-authoritative numbers.
+ * fit the canvas perfectly. We kept the preview emit (independent of
+ * measurement) but dropped the round-trip wait and report nothing but
+ * canvas-authoritative numbers.
  */
 
 import { parseHTML } from "linkedom";
@@ -35,8 +34,8 @@ import {
 	waitForPageStable,
 } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
+import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
-import type { WsRegistry } from "./ws-registry.js";
 
 /** px per mm at 96 DPI — matches the viewport puppeteer renders into. */
 const PX_PER_MM = 96 / 25.4;
@@ -54,7 +53,7 @@ export interface LayoutResult {
 }
 
 export interface LayoutService {
-	/** Broadcasts state for live preview, then measures. */
+	/** Emits document:saved for live preview, then measures. */
 	measure(
 		doc: Document,
 		pageHtml: string,
@@ -68,8 +67,8 @@ export interface LayoutService {
 }
 
 export interface LayoutServiceDeps {
+	bus: Bus;
 	documents: Documents;
-	wsRegistry: WsRegistry;
 }
 
 export interface LayoutServiceOptions {
@@ -156,7 +155,7 @@ export function createLayoutService(
 	deps: LayoutServiceDeps,
 	opts: LayoutServiceOptions = {},
 ): LayoutService {
-	const { documents, wsRegistry } = deps;
+	const { bus, documents } = deps;
 	const browserLaunch =
 		opts.browserLaunch ??
 		(() =>
@@ -210,19 +209,9 @@ export function createLayoutService(
 		return serverResult;
 	}
 
-	function broadcastState(doc: Document, pageIdx: number) {
-		if (!wsRegistry.hasClients()) return;
-		wsRegistry.broadcast({
-			type: "state",
-			doc: documents.lightView(doc, pageIdx),
-			docList: documents.list(),
-			charteCss: documents.charteCss(doc),
-		});
-	}
-
 	return {
-		async measure(doc, pageHtml, pageIdx) {
-			broadcastState(doc, pageIdx);
+		async measure(doc, pageHtml, _pageIdx) {
+			bus.emit("document:saved", { docName: doc.name });
 			return runMeasure(doc, pageHtml);
 		},
 		async check(doc, pageHtml, _pageIdx) {

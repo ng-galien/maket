@@ -50,13 +50,6 @@ ws_broadcast_call = """
     OR target ~ '**/method:broadcast**'
   )
 """
-# WS fan-out is allowed only on intentional edge adapters (not domain services).
-ws_broadcast_edge_source = """
-  source ~ '**/dir:ws-handler/**'
-  OR source ~ '**/module:ws-handler/**'
-  OR source ~ '**/module:ws-bridge/**'
-  OR source ~ '**/module:layout/**'
-"""
 
 [[refs.where]]
 id        = "architecture-shared-has-no-adapter-dependencies"
@@ -109,12 +102,9 @@ message   = "`packages/client/src/store` must not import UI components."
 [[refs.where]]
 id        = "architecture-domain-services-do-not-broadcast"
 severity  = "error"
-rationale = "Services emit on the bus; WS broadcast is edge-only (ws-handler, ws-bridge, layout measure)."
-expr      = """
-  $server_services_source AND $ws_broadcast_call
-  => $ws_broadcast_edge_source
-"""
-message   = "Domain services must not call `wsRegistry.broadcast`; emit on the bus and let edge listeners fan out (ws-handler / ws-bridge / layout measure are the only service-side exceptions)."
+rationale = "Services emit on the bus; WS fan-out lives in index.ts listeners only."
+expr      = "NOT ($server_services_source AND $ws_broadcast_call)"
+message   = "Domain services must not call `wsRegistry.broadcast`; emit on the bus and let index.ts listeners fan out."
 
 [[shape.callable.where]]
 id        = "smell-long-callable"

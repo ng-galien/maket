@@ -270,6 +270,10 @@ bus.on("assets:changed", () => {
 	wsRegistry.broadcast({ type: "assets_changed" });
 });
 
+bus.on("workspace:client-request", (msg) => {
+	wsRegistry.broadcast(msg);
+});
+
 // Dispose container (closes SQLite + future-proofed disposers) on exit.
 for (const sig of ["SIGINT", "SIGTERM"] as const) {
 	process.on(sig, () => {

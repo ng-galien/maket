@@ -160,7 +160,7 @@ export function handleRenameDocument(
 	d.name = newName;
 	ctx.documents.all().set(newName, d);
 	ctx.documents.persist(newName);
-	ctx.wsRegistry.broadcast({ type: "doc_removed", name });
+	ctx.bus.emit("document:deleted", { docName: name });
 	ctx.bus.emit("document:loaded", { docName: newName });
 	ctx.bus.emit("toast", {
 		text: `"${name}" → "${newName}"`,

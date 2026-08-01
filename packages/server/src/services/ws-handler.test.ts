@@ -41,7 +41,7 @@ function fixture() {
 	const documents = createDocuments({ store });
 	const pending = createPending({ bus });
 	const wsRegistry = createWsRegistry();
-	const wsBridge = createWsBridge({ wsRegistry });
+	const wsBridge = createWsBridge({ bus });
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
@@ -493,19 +493,23 @@ describe("ws-handler — file and document mutations", () => {
 		dispose();
 	});
 
-	it("rename_document succeeds and broadcasts removal of the old name", () => {
-		const { store, documents, bus, wsRegistry, handler, dispose } = fixture();
+	it("rename_document succeeds and emits delete + load for the rename", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("old"));
 		documents.loadAll();
-		const removed = vi.spyOn(wsRegistry, "broadcast");
+		const deleted = vi.fn();
+		const loaded = vi.fn();
 		const toast = vi.fn();
+		bus.on("document:deleted", deleted);
+		bus.on("document:loaded", loaded);
 		bus.on("toast", toast);
 
 		handler({ type: "rename_document", name: "old", newName: "new" }, STUB_WS);
 
 		expect(documents.resolve("old")).toBeNull();
 		expect(documents.resolve("new")?.name).toBe("new");
-		expect(removed).toHaveBeenCalledWith({ type: "doc_removed", name: "old" });
+		expect(deleted).toHaveBeenCalledWith({ docName: "old" });
+		expect(loaded).toHaveBeenCalledWith({ docName: "new" });
 		expect(toast).toHaveBeenCalledWith(
 			expect.objectContaining({ text: expect.stringMatching(/old.*new/i) }),
 		);
@@ -545,8 +549,8 @@ describe("ws-handler — file and document mutations", () => {
 });
 
 describe("ws-handler — text editing", () => {
-	it("updates the targeted page html, strips active content, and broadcasts state", () => {
-		const { store, documents, wsRegistry, handler, dispose } = fixture();
+	it("updates the targeted page html, strips active content, and emits document:saved", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
 		const doc = createDocument({
 			name: "editor",
 			canvas: {
@@ -572,7 +576,8 @@ describe("ws-handler — text editing", () => {
 		});
 		store.saveDoc(doc);
 		documents.loadAll();
-		const broadcast = vi.spyOn(wsRegistry, "broadcast");
+		const savedEvt = vi.fn();
+		bus.on("document:saved", savedEvt);
 
 		handler(
 			{
@@ -591,12 +596,7 @@ describe("ws-handler — text editing", () => {
 		expect(saved).not.toContain("<script");
 		expect(saved).not.toContain("javascript:");
 		expect(documents.resolve("editor")?.pages[1]?.html).toContain("untouched");
-		expect(broadcast).toHaveBeenCalledWith(
-			expect.objectContaining({
-				type: "state",
-				doc: expect.objectContaining({ name: "editor" }),
-			}),
-		);
+		expect(savedEvt).toHaveBeenCalledWith({ docName: "editor" });
 		dispose();
 	});
 

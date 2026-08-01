@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import type { LayoutCheckRequest } from "@maket/shared";
 
 export interface BusEvents {
 	"document:created": { docName: string };
@@ -33,6 +34,8 @@ export interface BusEvents {
 	"collection-cursor:changed": Record<string, never>;
 	"messages:acked": { ids: string[] };
 	toast: { text: string; level?: string; duration?: number };
+	/** Edge-only: push a correlated WS request to every connected client. */
+	"workspace:client-request": LayoutCheckRequest;
 }
 
 export interface Bus {
