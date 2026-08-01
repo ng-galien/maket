@@ -95,45 +95,21 @@ message   = "Client/server compile-time crossings must go through `packages/shar
 [[refs.where]]
 id        = "architecture-tools-do-not-import-routes"
 severity  = "error"
-rationale = """
-MCP tools are the agent-facing business surface. They resolve collaborators
-through Awilix (documents, bus, store, …), never by reaching into Express
-routers. Importing `routes/` would couple tool behaviour to HTTP mount order,
-leak web concerns into the MCP pack, and invert the edge: tools would depend
-on transport adapters instead of domain services. Routes may call services;
-tools must not import routes.
-"""
+rationale = "Tools resolve services via DI; importing routes couples MCP actions to HTTP mount order."
 expr      = "$tools_source AND $maket_import_ref => NOT $routes_target"
 message   = "`packages/server/src/tools` must not import routes; depend on services via DI instead."
 
 [[refs.where]]
 id        = "architecture-client-store-does-not-import-components"
 severity  = "error"
-rationale = """
-On the client, Zustand is the single source of truth and the optimistic /
-WS mirror of server state. React components subscribe with selectors; they
-never push domain ownership into the store graph. If `store/` imported
-`components/`, the dependency arrow would reverse: UI modules would become
-load-time deps of the state layer, breaking testability, hot-reload
-boundaries, and the rule that components are pure views over the store.
-Keep store free of React UI trees.
-"""
+rationale = "Components subscribe to the store; the store must not depend on UI modules."
 expr      = "$client_store_source AND $maket_import_ref => NOT $client_components_target"
 message   = "`packages/client/src/store` must not import UI components."
 
 [[refs.where]]
 id        = "architecture-domain-services-do-not-broadcast"
 severity  = "error"
-rationale = """
-Services mutate state and emit on the bus. Side effects such as WS broadcast
-live in edge listeners (primarily `packages/server/index.ts`).
-`wsRegistry.broadcast` is therefore forbidden in ordinary domain services
-(documents, pending, collections, …). The only service-layer exceptions are
-intentional transport / preview adapters: `ws-handler` (browser command
-switchboard), `ws-bridge` (correlated WS RPC), and `layout` (live measure /
-preview sync). New domain code must `bus.emit(...)` and let listeners fan out —
-never call broadcast directly.
-"""
+rationale = "Services emit on the bus; WS broadcast is edge-only (ws-handler, ws-bridge, layout measure)."
 expr      = """
   $server_services_source AND $ws_broadcast_call
   => $ws_broadcast_edge_source
