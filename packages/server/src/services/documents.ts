@@ -112,6 +112,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				id: d.id,
 				name: d.name,
 				category: d.category || "general",
+				dataModel: d.dataModel,
 				format: d.canvas?.format,
 				orientation: d.canvas?.orientation || "portrait",
 				rating: d.meta?.rating || 0,

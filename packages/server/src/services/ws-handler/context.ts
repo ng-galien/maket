@@ -9,6 +9,7 @@ import type { AssetsService } from "../assets.js";
 import type { Bus } from "../bus.js";
 import type { CollectionCursors } from "../collection-cursor.js";
 import type { Collections } from "../collections.js";
+import type { DocumentRenderer } from "../document-renderer.js";
 import type { Documents } from "../documents.js";
 import type { Pending } from "../pending.js";
 import type { Store } from "../store.js";
@@ -25,6 +26,7 @@ export interface WsHandlerDeps {
 	bus: Bus;
 	collections?: Collections;
 	collectionCursors?: CollectionCursors;
+	documentRenderer: DocumentRenderer;
 	documents: Documents;
 	pending: Pending;
 	store: Store;

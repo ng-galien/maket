@@ -171,6 +171,7 @@ export interface DocSummary {
 	id: string;
 	name: string;
 	category: string;
+	dataModel: DocumentDataModel;
 	format: string;
 	orientation: string;
 	rating: number;

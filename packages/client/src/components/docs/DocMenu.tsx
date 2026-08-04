@@ -287,6 +287,7 @@ function useDocMenuModel(
 // Pure React view: composing menu items is the component's adapter role, not misplaced domain behavior.
 function DocMenuView({ menu }: { menu: DocMenuViewModel }) {
 	const t = useT();
+	const stateBacked = menu.doc.dataModel === "state";
 	return (
 		<div
 			ref={menu.ref}
@@ -299,15 +300,20 @@ function DocMenuView({ menu }: { menu: DocMenuViewModel }) {
 			<MenuItem
 				icon={<Pencil size={13} />}
 				onClick={menu.actions.rename}
-				disabled={menu.locked}
+				disabled={menu.locked || stateBacked}
 			>
 				{t("doc_rename")}
 			</MenuItem>
-			<MenuItem icon={<Files size={13} />} onClick={menu.actions.duplicate}>
+			<MenuItem
+				icon={<Files size={13} />}
+				onClick={menu.actions.duplicate}
+				disabled={stateBacked}
+			>
 				{t("doc_duplicate")}
 			</MenuItem>
 			<MenuItem
 				icon={<Download size={13} />}
+				disabled={stateBacked}
 				onClick={() => {
 					exportMaketBundle([menu.doc.name]);
 					menu.actions.close();

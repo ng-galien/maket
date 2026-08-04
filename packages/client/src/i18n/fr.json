@@ -7,6 +7,8 @@
 	"no_document": "Aucun document",
 	"doc_menu": "Actions",
 	"doc_locked": "Document verrouillé",
+	"state_document_badge": "Vivant",
+	"state_document_read_only": "Document vivant — contenu piloté par son état, édition directe désactivée",
 	"doc_copy_name": "Copier le nom",
 	"doc_rename": "Renommer",
 	"doc_duplicate": "Dupliquer",

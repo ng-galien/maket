@@ -32,12 +32,38 @@ describe("document state primitives", () => {
 		).toBe("<h1>Safety &amp; quality</h1>");
 	});
 
-	it("rejects raw or non-state placeholders", () => {
+	it("renders Mustache sections from document state", () => {
+		expect(
+			resolveDocumentStateText(
+				"{{#state.items}}<li>{{label}}</li>{{/state.items}}",
+				{ items: [{ label: "One" }, { label: "Two" }] },
+			),
+		).toBe("<li>One</li><li>Two</li>");
+	});
+
+	it("renders inverted sections for an empty state value", () => {
+		expect(
+			resolveDocumentStateText(
+				"{{^state.items}}<p>Nothing to do</p>{{/state.items}}",
+				{ items: [] },
+			),
+		).toBe("<p>Nothing to do</p>");
+	});
+
+	it("rejects unsafe or unscoped Mustache features", () => {
 		expect(() =>
 			resolveDocumentStateText("{{{ state.title }}}", { title: "<b>x</b>" }),
-		).toThrow(/escaped value placeholders/);
+		).toThrow(/escaped values/);
+		expect(() =>
+			resolveDocumentStateText("{{> shared}}", { title: "x" }),
+		).toThrow(/sections/);
 		expect(() =>
 			resolveDocumentStateText("{{ title }}", { title: "x" }),
+		).toThrow(/state namespace/);
+		expect(() =>
+			resolveDocumentStateText("{{#items}}{{title}}{{/items}}", {
+				items: [{ title: "x" }],
+			}),
 		).toThrow(/state namespace/);
 	});
 });

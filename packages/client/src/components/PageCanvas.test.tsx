@@ -50,6 +50,25 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(target.classList.contains("selected")).toBe(true);
 	});
 
+	it("renders state-backed documents without direct element interaction", async () => {
+		const doc = makeDoc('<p data-id="a">Rendered state</p>');
+		doc.dataModel = "state";
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		const canvas = container.querySelector(".page-canvas");
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+		await act(async () => {
+			fireEvent.click(target);
+		});
+
+		expect(canvas).toHaveAttribute("data-document-mode", "state");
+		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+		expect(target).not.toHaveClass("selected");
+	});
+
 	it("marks placeholders on collection-bound pages", () => {
 		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
 		doc.pages[0].collection = { name: "clients" };

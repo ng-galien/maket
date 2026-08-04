@@ -10,7 +10,7 @@ import { join } from "node:path";
 import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
-import { computeCanvasDims, createDocument } from "../types.js";
+import { computeCanvasDims, createDocument, type Document } from "../types.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
 import { createCollectionCursors } from "./collection-cursor.js";
@@ -35,7 +35,9 @@ function makeDoc(name: string) {
 	});
 }
 
-function fixture() {
+function fixture(
+	opts: { documentRenderer?: { render(doc: Document): Document } } = {},
+) {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
@@ -47,6 +49,7 @@ function fixture() {
 	const handler = createWsHandler({
 		assets,
 		bus,
+		documentRenderer: opts.documentRenderer ?? { render: (doc) => doc },
 		documents,
 		pending,
 		store,
@@ -227,6 +230,38 @@ describe("ws-handler — document and canvas flows", () => {
 		expect(payload.doc.name).toBe("lazy");
 		expect(payload.addToWorkspace).toBe(true);
 		expect(payload.focus).toBe(true);
+		dispose();
+	});
+
+	it("load_document sends the rendered projection without replacing the persisted template", () => {
+		const render = vi.fn((doc: Document) => ({
+			...doc,
+			pages: doc.pages.map((page) => ({
+				...page,
+				html: page.html?.replace("{{ state.title }}", "Ready"),
+			})),
+		}));
+		const { store, handler, dispose } = fixture({
+			documentRenderer: { render },
+		});
+		const doc = makeDoc("living");
+		doc.dataModel = "state";
+		const page = doc.pages[0];
+		if (!page) throw new Error("living fixture requires one page");
+		page.html = '<h1 data-id="title">{{ state.title }}</h1>';
+		store.saveDoc(doc);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler({ type: "load_document", name: "living" }, ws);
+
+		const payload = JSON.parse(String(ws.send.mock.calls[0]?.[0])) as {
+			doc: Document;
+		};
+		expect(render).toHaveBeenCalledOnce();
+		expect(payload.doc.pages[0]?.html).toContain("Ready");
+		expect(store.loadOne("living")?.pages[0]?.html).toContain(
+			"{{ state.title }}",
+		);
 		dispose();
 	});
 
@@ -985,6 +1020,7 @@ describe("ws-handler — collection cursor", () => {
 			bus: base.bus,
 			collections,
 			collectionCursors,
+			documentRenderer: { render: (doc) => doc },
 			documents: base.documents,
 			pending: base.pending,
 			store: base.store,

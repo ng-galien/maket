@@ -48,17 +48,38 @@ export function validateDocumentStateTemplate(template: string): void {
 	const tokens = Mustache.parse(template) as Array<
 		[string, string, ...unknown[]]
 	>;
+	let stateScopeDepth = 0;
 	for (const [kind, name] of tokens) {
 		if (kind === "text") continue;
+		if (kind === "!") continue;
+		if (kind === "#" || kind === "^") {
+			if (!isStateReference(name) && stateScopeDepth === 0) {
+				throw stateNamespaceError(name);
+			}
+			stateScopeDepth += 1;
+			continue;
+		}
+		if (kind === "/") {
+			stateScopeDepth -= 1;
+			continue;
+		}
 		if (kind !== "name") {
 			throw new Error(
-				"Document state templates support escaped value placeholders only.",
+				"Document state templates support escaped values, sections, inverted sections, and comments only.",
 			);
 		}
-		if (!name.startsWith("state.") || name.length === "state.".length) {
-			throw new Error(
-				`Document state placeholder "${name}" must use the state namespace.`,
-			);
+		if (!isStateReference(name) && stateScopeDepth === 0) {
+			throw stateNamespaceError(name);
 		}
 	}
+}
+
+function isStateReference(name: string): boolean {
+	return name.startsWith("state.") && name.length > "state.".length;
+}
+
+function stateNamespaceError(name: string): Error {
+	return new Error(
+		`Document state placeholder "${name}" must use the state namespace.`,
+	);
 }

@@ -18,7 +18,10 @@ export function BulkActionBar({ model, actions }: BulkActionBarProps) {
 			</span>
 			<div className="flex-1 min-w-0 flex items-center gap-1 flex-wrap">
 				<BulkCategoryPicker model={bar.categoryPicker} />
-				<BulkExportButton onClick={actions.export} />
+				<BulkExportButton
+					onClick={actions.export}
+					disabled={bar.exportDisabled}
+				/>
 				{bar.anyUnlocked && (
 					<BulkTextButton onClick={actions.lock} label={t("doc_lock")} />
 				)}
@@ -44,6 +47,7 @@ export function BulkActionBar({ model, actions }: BulkActionBarProps) {
 interface BulkActionBarViewModel {
 	anyUnlocked: boolean;
 	anyLocked: boolean;
+	exportDisabled: boolean;
 	categoryPicker: BulkCategoryPickerModel;
 	deleteButton: BulkDeleteButtonModel;
 }
@@ -87,6 +91,7 @@ function useBulkActionBarModel(
 	return {
 		anyUnlocked: selectedDocs.some((doc) => doc.locked !== true),
 		anyLocked: selectedDocs.some((doc) => doc.locked === true),
+		exportDisabled: selectedDocs.some((doc) => doc.dataModel === "state"),
 		categoryPicker: createBulkCategoryPickerModel({
 			docList,
 			actions,
@@ -279,13 +284,25 @@ function NewCategoryButton({ onClick }: { onClick: () => void }) {
 	);
 }
 
-function BulkExportButton({ onClick }: { onClick: () => void }) {
+function BulkExportButton({
+	onClick,
+	disabled,
+}: {
+	onClick: () => void;
+	disabled: boolean;
+}) {
 	const t = useT();
 	return (
 		<button
 			type="button"
 			onClick={onClick}
-			className="px-2 py-1 rounded-md text-xs font-semibold text-text-1 hover:bg-black/[0.05] transition inline-flex items-center gap-1"
+			disabled={disabled}
+			title={disabled ? t("state_document_read_only") : undefined}
+			className={`px-2 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1 ${
+				disabled
+					? "text-text-3 cursor-not-allowed"
+					: "text-text-1 hover:bg-black/[0.05]"
+			}`}
 		>
 			<Download size={12} />
 			{t("bulk_export_maket")}

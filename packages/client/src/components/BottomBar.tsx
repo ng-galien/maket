@@ -3,6 +3,7 @@ import {
 	ChevronUp,
 	FileText,
 	HelpCircle,
+	History,
 	Image,
 	Lock,
 	LockOpen,
@@ -103,6 +104,7 @@ export function BottomBar() {
 				</div>
 
 				<DataSourceToolbarControl />
+				<StateDocumentIndicator doc={focusedDoc} />
 
 				<PanelButton
 					panel="exchange"
@@ -142,6 +144,22 @@ export function BottomBar() {
 			{position === "bottom" && (
 				<PositionToggle direction="top" onToggle={togglePosition} />
 			)}
+		</div>
+	);
+}
+
+function StateDocumentIndicator({ doc }: { doc: Document | null }) {
+	const t = useT();
+	if (doc?.dataModel !== "state") return null;
+	return (
+		<div
+			role="status"
+			aria-label={t("state_document_read_only")}
+			title={t("state_document_read_only")}
+			className="relative w-9 h-9 rounded-full flex items-center justify-center text-accent bg-accent-soft"
+		>
+			<History size={16} />
+			<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-accent ring-2 ring-panel" />
 		</div>
 	);
 }

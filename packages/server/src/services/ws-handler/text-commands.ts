@@ -24,7 +24,7 @@ export function handleOpenOnboarding(
 	const doc = onboardingDocument(ctx, onboardingLocale(msg.lang));
 	const state: WorkspaceStateSignal = {
 		type: "state",
-		doc: ctx.documents.lightView(doc),
+		doc: ctx.documents.lightView(ctx.documentRenderer.render(doc)),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),

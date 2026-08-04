@@ -76,6 +76,27 @@ describe("BottomBar", () => {
 		expect(print).toHaveAttribute("target", "_blank");
 	});
 
+	it("shows a read-only state indicator instead of the data-source control", () => {
+		const doc = makeDoc("living-checklist");
+		doc.dataModel = "state";
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			focusedDocName: doc.name,
+			collections: [clientsCollection],
+		});
+
+		render(<BottomBar />);
+
+		expect(
+			screen.getByRole("status", {
+				name: /living document.*direct editing is disabled/i,
+			}),
+		).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "Link data" }),
+		).not.toBeInTheDocument();
+	});
+
 	it("URL-encodes the doc name in the Print href", () => {
 		const doc = makeDoc("flyer été 2026");
 		useStore.setState({

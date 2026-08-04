@@ -25,6 +25,7 @@ import type { CollectionCursors } from "./src/services/collection-cursor.js";
 import type { Collections } from "./src/services/collections.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
+import type { DocumentRenderer } from "./src/services/document-renderer.js";
 import type { Documents } from "./src/services/documents.js";
 import type { WorkspaceCommandHandler } from "./src/services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./src/services/ws-registry.js";
@@ -90,6 +91,8 @@ const collections = appContainer.resolve<Collections>("collections");
 const collectionCursors =
 	appContainer.resolve<CollectionCursors>("collectionCursors");
 const documents = appContainer.resolve<Documents>("documents");
+const documentRenderer =
+	appContainer.resolve<DocumentRenderer>("documentRenderer");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
 const assets = appContainer.resolve<AssetsService>("assets");
@@ -194,7 +197,7 @@ function broadcastDoc(
 	if (!doc) return;
 	wsRegistry.broadcast({
 		type: "state",
-		doc: documents.lightView(doc, doc.activePage),
+		doc: documents.lightView(documentRenderer.render(doc), doc.activePage),
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),
@@ -366,7 +369,9 @@ wss.on("connection", (ws) => {
 	const firstDoc = docs.size > 0 ? (docs.values().next().value ?? null) : null;
 	const initialState: WorkspaceStateSignal = {
 		type: "state",
-		doc: documents.lightView(firstDoc ?? null),
+		doc: documents.lightView(
+			firstDoc ? documentRenderer.render(firstDoc) : null,
+		),
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),

@@ -50,7 +50,16 @@ import {
 export type { WorkspaceCommandHandler, WsHandlerDeps } from "./context.js";
 
 export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
-	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
+	const {
+		assets,
+		bus,
+		documentRenderer,
+		documents,
+		pending,
+		store,
+		wsBridge,
+		wsRegistry,
+	} = deps;
 	const collections =
 		deps.collections ?? createCollections({ bus, documents, store });
 	const collectionCursors =
@@ -61,6 +70,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		bus,
 		collections,
 		collectionCursors,
+		documentRenderer,
 		documents,
 		pending,
 		store,

@@ -160,7 +160,9 @@ export const PageCanvas = memo(function PageCanvas({
 	const pending = useStore((s) => s.pending);
 	const isEditing = useStore((s) => s.editingElementId !== null);
 	const readOnly = useStore((s) => s.readOnly);
-	const canEditTemplate = preview?.mode !== "rendered";
+	const stateBacked = doc.dataModel === "state";
+	const canInteract = !readOnly && !stateBacked;
+	const canEditTemplate = canInteract && preview?.mode !== "rendered";
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
 	const placeholderOptions = useMemo(
 		() => [
@@ -332,7 +334,7 @@ export const PageCanvas = memo(function PageCanvas({
 	);
 
 	useEffect(() => {
-		if (!pageRef.current || !focused || readOnly) return;
+		if (!pageRef.current || !focused || !canInteract) return;
 		const el = pageRef.current;
 
 		const onClick = (e: MouseEvent) => {
@@ -381,7 +383,7 @@ export const PageCanvas = memo(function PageCanvas({
 		focused,
 		toolbar?.id,
 		canEditTemplate,
-		readOnly,
+		canInteract,
 		doc.name,
 		pageIndex,
 	]);
@@ -408,8 +410,9 @@ export const PageCanvas = memo(function PageCanvas({
 		<>
 			<div
 				ref={pageRef}
-				className={`page-canvas${preview?.mode === "rendered" ? " data-preview" : ""}`}
+				className={`page-canvas${preview?.mode === "rendered" || stateBacked ? " data-preview" : ""}`}
 				data-page={pageIndex}
+				data-document-mode={doc.dataModel}
 				style={{
 					width: `${canvas.w}mm`,
 					height: `${canvas.h}mm`,
