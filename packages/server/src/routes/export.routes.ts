@@ -34,6 +34,7 @@ import type { Bus } from "../services/bus.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
+import type { DocumentRenderer } from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
 import {
 	boxShadowToDropShadow,
@@ -46,7 +47,8 @@ import { type Charte, createDocument, type Document } from "../types.js";
 
 export interface ExportRouterDeps {
 	documents: Documents;
-	collections?: Pick<Collections, "renderDocument" | "referencedBy">;
+	collections?: Pick<Collections, "referencedBy">;
+	documentRenderer?: Pick<DocumentRenderer, "render">;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	pdfService: PdfService;
 	store: Store;
@@ -61,8 +63,10 @@ function safeName(raw: string): string {
 export function createExportRouter(deps: ExportRouterDeps): Router {
 	const { documents, pdfService, store, bus, config } = deps;
 	const collectionService = deps.collections ?? {
-		renderDocument: (doc: Document) => doc,
 		referencedBy: () => [],
+	};
+	const documentRenderer = deps.documentRenderer ?? {
+		render: (doc: Document) => doc,
 	};
 	const collectionCursors = deps.collectionCursors ?? { resolve: () => null };
 	const router = createRouter();
@@ -70,7 +74,7 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 	router.use(requireBrowserContextLoopback);
 
 	router.get("/print", (req, res) =>
-		handlePrint(req, res, documents, collectionService, collectionCursors),
+		handlePrint(req, res, documents, documentRenderer, collectionCursors),
 	);
 	router.get("/api/export-pdf", (req, res) =>
 		handlePdfExport(req, res, documents, pdfService),
@@ -91,7 +95,7 @@ function handlePrint(
 	req: Request,
 	res: Response,
 	documents: Documents,
-	collections: Pick<Collections, "renderDocument">,
+	documentRenderer: Pick<DocumentRenderer, "render">,
 	collectionCursors: Pick<CollectionCursors, "resolve">,
 ): void {
 	const name = req.query.name as string | undefined;
@@ -105,13 +109,13 @@ function handlePrint(
 		return;
 	}
 	try {
-		const rendered = collections.renderDocument(
-			d,
-			printOptions(req) ??
+		const rendered = documentRenderer.render(d, {
+			collection:
+				printOptions(req) ??
 				cursorRenderOptions(d, (docName, pageIndex) =>
 					collectionCursors.resolve(docName, pageIndex),
 				),
-		);
+		});
 		const rawHtmls = rendered.pages
 			.map((p) => p.html)
 			.filter(Boolean) as string[];
@@ -224,6 +228,13 @@ async function handleMaketExport(
 		}
 		const docs = resolveExportDocs(names, documents, res);
 		if (!docs) return;
+		const stateful = docs.filter((doc) => doc.dataModel === "state");
+		if (stateful.length > 0) {
+			res.status(400).json({
+				error: `State-backed documents cannot be bundled yet: ${stateful.map((doc) => doc.name).join(", ")}.`,
+			});
+			return;
+		}
 		const chartes = loadReferencedChartes(docs, store);
 		const collectionRefs = collections.referencedBy(docs);
 		const refs = collectAssetFilenames(docs);
@@ -367,10 +378,16 @@ function importBundleDocuments(
 	const renamed: { from: string; to: string }[] = [];
 	const all = documents.all();
 	for (const snap of bundle.documents) {
+		if (snap.dataModel === "state") {
+			throw new Error(
+				`Bundle document "${snap.name}" declares state without bundled revisions.`,
+			);
+		}
 		const finalName = uniqueName(snap.name, (n) => all.has(n));
 		const doc = createDocument({
 			name: finalName,
 			category: snap.category || "general",
+			dataModel: snap.dataModel,
 			canvas: snap.canvas,
 			meta: snap.meta || {},
 			pages: sanitiseBundlePages(snap.pages),

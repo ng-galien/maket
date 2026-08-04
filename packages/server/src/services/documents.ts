@@ -13,7 +13,7 @@
 
 import { charteFontImport, charteToCSS } from "../lib/charte-css.js";
 import type { DocSummary, Document } from "../types.js";
-import { normalizeCanvas } from "../types.js";
+import { normalizeCanvas, normalizeDocumentDataModel } from "../types.js";
 import type { Store } from "./store.js";
 
 export interface Documents {
@@ -81,6 +81,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 		persist(name) {
 			const d = cache.get(name);
 			if (!d) return;
+			normalizeDocumentDataModel(d);
 			store.saveDoc(d);
 		},
 		delete(name) {

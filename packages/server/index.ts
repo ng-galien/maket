@@ -40,6 +40,7 @@ import { mermaidPack } from "./src/tools/mermaid.js";
 import { pagesPack } from "./src/tools/pages.js";
 import { pdfPack } from "./src/tools/pdf.js";
 import { previewPack } from "./src/tools/preview.js";
+import { statePack } from "./src/tools/state.js";
 import { workspacePack } from "./src/tools/workspace.js";
 
 const _logFile = join(
@@ -116,6 +117,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 			assets: {},
 			chartes: {},
 			collections: {},
+			state: {},
 			learn: {},
 			pages: {},
 			documents: {},
@@ -132,6 +134,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		assetsPack,
 		chartesPack,
 		collectionsPack,
+		statePack,
 		learnPack,
 		pagesPack,
 		documentsPack,
@@ -212,6 +215,7 @@ const MUTATION_EVENTS = [
 	"element:reordered",
 	"elements:cleared",
 	"meta:updated",
+	"document-state:changed",
 ] as const;
 
 for (const evt of LOAD_EVENTS) {

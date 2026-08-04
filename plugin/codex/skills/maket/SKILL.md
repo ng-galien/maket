@@ -7,6 +7,6 @@ description: Orientation skill for Maket visual document work. Use when Codex is
 
 Maket guidance lives in the MCP server.
 
-Start with `maket_learn action=overview audience=agent`, then ask for focused topics such as `workflow`, `html`, `chartes`, `collections`, `review`, or `install`.
+Start with `maket_learn action=overview audience=agent`, then ask for focused topics such as `workflow`, `html`, `chartes`, `collections`, `state`, `review`, or `install`.
 
 Use the MCP tool surface as the source of truth. The built-in Help document is user onboarding opened from the Maket UI, and must not be recreated by this skill.

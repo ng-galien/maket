@@ -4,6 +4,7 @@ export const LEARN_TOPICS = [
 	"html",
 	"chartes",
 	"collections",
+	"state",
 	"review",
 	"install",
 	"gemini",
@@ -19,6 +20,7 @@ const TOPIC_TITLES: Record<LearnTopic, string> = {
 	html: "HTML composition",
 	chartes: "Brand chartes",
 	collections: "Collections and placeholders",
+	state: "Living document state",
 	review: "Review loop",
 	install: "MCP installation",
 	gemini: "Gemini CLI setup",
@@ -28,7 +30,7 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 	overview: [
 		"Maket is a live visual workspace driven through MCP tools.",
 		"Start by reading the current workspace, then create or focus one document, compose HTML with stable data-id markers, and keep the preview open while iterating.",
-		"Use maket_workspace for session state, maket_doc for document lifecycle, maket_html for page content, maket_charte for brand language, maket_collection for typed placeholder data, maket_preview for visual checks, and maket_pdf for final export.",
+		"Use maket_workspace for session state, maket_doc for document lifecycle, maket_html for page content, maket_charte for brand language, maket_collection for typed mail-merge data, maket_state for document-owned living data, maket_preview for visual checks, and maket_pdf for final export.",
 		"Do not treat this tool as user help content. The user-facing onboarding lives in the built-in Help document opened from the UI.",
 	],
 	workflow: [
@@ -59,6 +61,11 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 		"Use placeholders for textual values only when the page is bound to the collection that owns the field.",
 		"Every bound page has a shared preview cursor: mode (template, rendered, all) plus current row, owned by the server. Read or move it with maket_collection action=cursor doc=<doc> page=<n> [mode=...] [row=...]. The human's live canvas, maket_workspace state and the exports all follow the same cursor, so 'look at row 3' means the same thing for everyone.",
 		"Exports follow the cursor by default. maket_pdf rows=preview|current|all|template makes the choice explicit — 'all rows' mail merge is a deliberate option, not a hidden default.",
+	],
+	state: [
+		"Document state is a separate data model from collections. It belongs to one document, has one current snapshot, and records immutable full revisions.",
+		"Initialize and update it through maket_state. Stateful templates resolve namespaced placeholders such as {{ state.title }} without expanding pages as mail merge does.",
+		"Every update requires expected_revision, stores a complete schema-validated snapshot, and leaves prior revisions unchanged. Diffs are calculated on demand and are not persisted.",
 	],
 	review: [
 		"Review is visual and structural. Use maket_preview snapshot or maket_html check, inspect user notes, and fix the smallest coherent design issue.",
@@ -92,6 +99,9 @@ const HUMAN_CONTENT: Record<LearnTopic, string[]> = {
 	],
 	collections: [
 		"Collections store structured data that can drive repeated document variants, such as names, dates, places, or product details.",
+	],
+	state: [
+		"Living documents keep their own structured data and an immutable history of complete revisions, independently from mail-merge collections.",
 	],
 	review: [
 		"Leave comments on the document. The assistant reads them from Maket, applies corrections, and marks them done.",

@@ -192,6 +192,7 @@ export interface BundleDocumentLike {
 	id?: string;
 	name: string;
 	category?: string;
+	dataModel?: "static" | "collection" | "state";
 	canvas?: unknown;
 	meta?: object | undefined;
 	pages?: readonly object[] | undefined;
@@ -208,6 +209,7 @@ export function snapshotBundleDocument(
 		id: doc.id,
 		name: doc.name,
 		category: doc.category || "general",
+		dataModel: doc.dataModel,
 		canvas: doc.canvas,
 		meta: doc.meta ? { ...doc.meta } : {},
 		pages: (doc.pages ?? []).map((page) => {

@@ -164,7 +164,7 @@ describe("PdfService.render", () => {
 					get: async () => Promise.reject(new Error("stop")),
 					dispose: async () => {},
 				},
-				collections: { renderDocument },
+				documentRenderer: { render: renderDocument },
 				collectionCursors: {
 					resolve: (docName, pageIndex) => ({
 						docName,
@@ -182,6 +182,7 @@ describe("PdfService.render", () => {
 			},
 		);
 		const doc = makeDoc({
+			dataModel: "collection",
 			pages: [
 				{
 					id: "page-p",
@@ -195,14 +196,18 @@ describe("PdfService.render", () => {
 
 		await expect(service.render(doc)).rejects.toThrow(/no browser in tests/);
 		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
-			pages: { "page-p": { mode: "rendered", memberId: "member_2" } },
+			collection: {
+				pages: { "page-p": { mode: "rendered", memberId: "member_2" } },
+			},
 		});
 
 		await expect(service.render(doc, "print", "all")).rejects.toThrow(
 			/no browser in tests/,
 		);
 		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
-			pages: { "page-p": { mode: "all", memberId: "member_2" } },
+			collection: {
+				pages: { "page-p": { mode: "all", memberId: "member_2" } },
+			},
 		});
 		store.close();
 		rmSync(tmp, { recursive: true, force: true });

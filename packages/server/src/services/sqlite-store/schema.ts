@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const log = (...a: unknown[]) =>
 	process.stderr.write(`${a.map(String).join(" ")}\n`);
@@ -11,6 +11,7 @@ const SCHEMA_SQL = `
     name       TEXT PRIMARY KEY,
     id         TEXT NOT NULL UNIQUE,
     category   TEXT NOT NULL DEFAULT 'general',
+    data_model TEXT NOT NULL DEFAULT 'static',
     canvas     TEXT NOT NULL,
     meta       TEXT NOT NULL DEFAULT '{}',
     active_page INTEGER NOT NULL DEFAULT 0,
@@ -65,6 +66,18 @@ const SCHEMA_SQL = `
   );
   CREATE UNIQUE INDEX collection_rows_position_idx
     ON collection_rows(collection_name, position);
+  CREATE TABLE document_states (
+    document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+    schema      TEXT NOT NULL CHECK (json_valid(schema)),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE document_state_revisions (
+    document_id TEXT NOT NULL REFERENCES document_states(document_id) ON DELETE CASCADE,
+    revision    INTEGER NOT NULL CHECK (revision > 0),
+    data        TEXT NOT NULL CHECK (json_valid(data)),
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (document_id, revision)
+  );
 `;
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -73,6 +86,46 @@ export function initializeSQLiteSchema(db: DatabaseSync): void {
 	backfillDocumentIds(db);
 	backfillPageIds(db);
 	assertPageIdsBackfilled(db);
+	ensureDocumentStateSchema(db);
+	ensureDocumentDataModel(db);
+}
+
+function ensureDocumentStateSchema(db: DatabaseSync): void {
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS document_states (
+      document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
+      schema      TEXT NOT NULL CHECK (json_valid(schema)),
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS document_state_revisions (
+      document_id TEXT NOT NULL REFERENCES document_states(document_id) ON DELETE CASCADE,
+      revision    INTEGER NOT NULL CHECK (revision > 0),
+      data        TEXT NOT NULL CHECK (json_valid(data)),
+      created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (document_id, revision)
+    );
+  `);
+	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
+}
+
+function ensureDocumentDataModel(db: DatabaseSync): void {
+	addColumnIfMissing(
+		db,
+		"documents",
+		"data_model",
+		"TEXT NOT NULL DEFAULT 'static'",
+	);
+	db.exec(`
+    UPDATE documents
+    SET data_model = 'collection'
+    WHERE data_model = 'static'
+      AND EXISTS (
+        SELECT 1 FROM pages
+        WHERE pages.doc_name = documents.name
+          AND pages.collection IS NOT NULL
+      );
+  `);
+	db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`);
 }
 
 function initializeBaseSchema(db: DatabaseSync): void {

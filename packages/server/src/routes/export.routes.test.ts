@@ -5,11 +5,24 @@ import { startTestApp } from "../../tests/helpers.js";
 import { encodeBundleV1 } from "../lib/maket-format.js";
 import { createBus } from "../services/bus.js";
 import {
+	type CollectionRenderer,
+	createCollectionRenderer,
+} from "../services/collection-renderer.js";
+import {
 	type Collections,
 	createCollections,
 } from "../services/collections.js";
+import {
+	createDocumentRenderer,
+	type DocumentRenderer,
+} from "../services/document-renderer.js";
+import {
+	createDocumentStates,
+	type DocumentStates,
+} from "../services/document-states.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
+import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createExportRouter } from "./export.routes.js";
@@ -18,6 +31,9 @@ describe("export routes — .maket bundle", () => {
 	let store: Store;
 	let documents: Documents;
 	let collections: Collections;
+	let collectionRenderer: CollectionRenderer;
+	let documentRenderer: DocumentRenderer;
+	let documentStates: DocumentStates;
 	let baseUrl: string;
 	let close: () => Promise<void>;
 	let bus: ReturnType<typeof createBus>;
@@ -28,6 +44,12 @@ describe("export routes — .maket bundle", () => {
 		bus = createBus();
 		documents = createDocuments({ store });
 		collections = createCollections({ bus, documents, store });
+		collectionRenderer = createCollectionRenderer({ collections });
+		documentStates = createDocumentStates({ bus, documents, store });
+		documentRenderer = createDocumentRenderer({
+			collectionRenderer,
+			stateRenderer: createStateRenderer({ documentStates }),
+		});
 		pdfService = {
 			render: vi.fn(async () => ({
 				buffer: Buffer.from("%PDF-test"),
@@ -40,6 +62,7 @@ describe("export routes — .maket bundle", () => {
 			createExportRouter({
 				documents,
 				collections,
+				documentRenderer,
 				pdfService: pdfService as unknown as PdfService,
 				store,
 				bus,
@@ -217,6 +240,7 @@ describe("export routes — .maket bundle", () => {
 		const page = doc.pages[0];
 		if (!page) throw new Error("Expected fixture page");
 		page.collection = { name: "clients" };
+		doc.dataModel = "collection";
 		page.html = '<div data-id="e0">{{ client_name }}</div>';
 		store.saveDoc(doc);
 		store.saveCollection(makeCollection());
@@ -243,6 +267,7 @@ describe("export routes — .maket bundle", () => {
 		const page = doc.pages[0];
 		if (!page) throw new Error("Expected fixture page");
 		page.collection = { name: "clients" };
+		doc.dataModel = "collection";
 		page.html = '<div data-id="e0">{{ client_name }}</div>';
 		store.saveDoc(doc);
 		store.saveCollection(makeCollection());
@@ -261,6 +286,40 @@ describe("export routes — .maket bundle", () => {
 		const html = await res.text();
 		expect(html).toContain("Acme");
 		expect(html).toContain("Globex");
+	});
+
+	it("GET /print renders the current document-state snapshot without collection expansion", async () => {
+		const doc = makeDoc("living-checklist");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html =
+			'<div data-id="e0">{{ state.title }} — {{ state.status }}</div>';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"living-checklist",
+			{
+				type: "object",
+				properties: {
+					title: { type: "string" },
+					status: { type: "string" },
+				},
+				required: ["title", "status"],
+			},
+			{ title: "Site audit", status: "open" },
+		);
+		documentStates.update("living-checklist", 1, {
+			title: "Site audit",
+			status: "complete",
+		});
+
+		const res = await fetch(`${baseUrl}/print?name=living-checklist`);
+
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain("Site audit — complete");
+		expect(html).not.toContain("{{ state.");
+		expect((html.match(/class="page"/g) ?? []).length).toBe(1);
 	});
 
 	it("GET /api/export-pdf streams the rendered PDF with the default quality", async () => {

@@ -10,6 +10,7 @@ export * from "./activity.js";
 export * from "./charte.js";
 export * from "./collection-cursor.js";
 export * from "./collections.js";
+export * from "./document-state.js";
 export * from "./formats.js";
 export * from "./http.js";
 export * from "./maket-bundle.js";

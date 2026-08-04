@@ -88,6 +88,8 @@ export interface Page {
 
 export type PageInit = Page | Omit<Page, "id">;
 
+export type DocumentDataModel = "static" | "collection" | "state";
+
 export interface LayoutReport {
 	overflow: boolean;
 	containerHeight: number;
@@ -104,6 +106,7 @@ export interface Document {
 	id: string;
 	name: string;
 	category: string;
+	dataModel: DocumentDataModel;
 	canvas: Canvas;
 	meta: DocMeta;
 	pages: Page[];
@@ -119,6 +122,7 @@ export interface DocumentInit {
 	id?: string;
 	name: string;
 	category?: string;
+	dataModel?: DocumentDataModel;
 	canvas: Canvas;
 	meta?: DocMeta;
 	pages?: PageInit[];
@@ -136,18 +140,31 @@ function pageWithIdentity(page: PageInit): Page {
 
 /** Factory — produces a plain Document with sane defaults. */
 export function createDocument(init: DocumentInit): Document {
+	const pages = (
+		init.pages || [{ name: "Page 1", elements: init.elements || [] }]
+	).map(pageWithIdentity);
 	return {
 		id: init.id || crypto.randomUUID(),
 		name: init.name,
 		category: init.category || "general",
+		dataModel:
+			init.dataModel ??
+			(pages.some((page) => page.collection) ? "collection" : "static"),
 		canvas: init.canvas,
 		meta: init.meta || {},
-		pages: (
-			init.pages || [{ name: "Page 1", elements: init.elements || [] }]
-		).map(pageWithIdentity),
+		pages,
 		activePage: init.activePage || 0,
 		nextId: init.nextId || 1,
 	};
+}
+
+/** Keep the non-state data model aligned with page collection bindings. */
+export function normalizeDocumentDataModel(doc: Document): Document {
+	if (doc.dataModel === "state") return doc;
+	doc.dataModel = doc.pages.some((page) => page.collection)
+		? "collection"
+		: "static";
+	return doc;
 }
 
 export interface DocSummary {

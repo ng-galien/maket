@@ -9,10 +9,6 @@ import {
 	summarizeCollection,
 	validateCollection,
 } from "@maket/shared";
-import {
-	type CollectionRenderOptions,
-	renderCollectionDocument,
-} from "../lib/collection-render.js";
 import type { Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -51,7 +47,6 @@ export interface Collections {
 		collectionName: string,
 	): Document;
 	clearPageBinding(docName: string, pageIndex: number): Document;
-	renderDocument(doc: Document, options?: CollectionRenderOptions): Document;
 	referencedBy(docs: readonly Document[]): Collection[];
 }
 
@@ -109,14 +104,6 @@ export function createCollections(deps: CollectionsDeps): Collections {
 		},
 		clearPageBinding(docName, pageIndex) {
 			return updatePageBinding(deps, docName, pageIndex, null);
-		},
-		renderDocument(doc, options) {
-			const referenced = referencedBy(deps, [doc]);
-			return renderCollectionDocument(
-				doc,
-				new Map(referenced.map((collection) => [collection.name, collection])),
-				options,
-			);
 		},
 		referencedBy(docs) {
 			return referencedBy(deps, docs);
@@ -255,9 +242,21 @@ function updatePageBinding(
 	if (!doc) throw new Error(`Document "${docName}" not found.`);
 	const page = doc.pages[pageIndex];
 	if (!page) throw new Error(`Page ${pageIndex + 1} not found.`);
+	if (collectionName && doc.dataModel === "state") {
+		throw new Error(
+			`Document "${doc.name}" is state-backed and cannot bind a collection.`,
+		);
+	}
 	if (collectionName) resolveRequiredCollection(deps, collectionName);
-	if (collectionName) page.collection = { name: collectionName };
-	else delete page.collection;
+	if (collectionName) {
+		page.collection = { name: collectionName };
+		doc.dataModel = "collection";
+	} else {
+		delete page.collection;
+		if (!doc.pages.some((candidate) => candidate.collection)) {
+			doc.dataModel = "static";
+		}
+	}
 	deps.documents.persist(doc.name);
 	deps.bus.emit("document:saved", { docName: doc.name });
 	return doc;

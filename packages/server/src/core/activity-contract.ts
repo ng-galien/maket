@@ -94,6 +94,18 @@ export const ACTIVITY_POLICIES = {
 			},
 		},
 	},
+	maket_state: {
+		icon: "history",
+		actions: {
+			init: "bubble_maket_state_init",
+			get: null,
+			update: "bubble_maket_state_update",
+			history: null,
+			revision: null,
+			restore: "bubble_maket_state_restore",
+			diff: null,
+		},
+	},
 	maket_learn: {
 		icon: "graduation-cap",
 		key: null,
