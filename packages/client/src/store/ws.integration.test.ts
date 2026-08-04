@@ -273,6 +273,31 @@ describe("state message", () => {
 		expect(s.docs.size).toBe(0);
 	});
 
+	it("adds the first created doc after an initial empty state", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ workspaceDocNames: [], focusedDocName: null });
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: null,
+			docList: [],
+			charteCss: "",
+		});
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("created"),
+			docList: [summary("created")],
+			charteCss: "",
+			addToWorkspace: true,
+		});
+
+		const s = useStore.getState();
+		expect(s.workspaceDocNames).toEqual(["created"]);
+		expect(s.focusedDocName).toBe("created");
+	});
+
 	it("preserves collections when a layout state refresh omits them", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		initWs();
@@ -449,9 +474,28 @@ describe("activity", () => {
 
 		expect(document.body.textContent).toContain("Page composée");
 		expect(document.body.textContent).toContain("2 éléments");
+		expect(document.querySelector("[data-maket-activity]")).not.toBeNull();
 		expect(document.querySelector("svg")).not.toBeNull();
 
 		document.body.innerHTML = "";
+	});
+
+	it("renders server-authored toasts through their dedicated UI path", async () => {
+		const { initWs } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "toast",
+			text: "Saved",
+			level: "success",
+			duration: 3000,
+		});
+
+		const toast = document.querySelector('[role="status"]');
+		expect(toast?.textContent).toBe("Saved");
+		expect(document.getElementById("maket-toast-region")).not.toBeNull();
+		document.getElementById("maket-toast-region")?.remove();
 	});
 });
 

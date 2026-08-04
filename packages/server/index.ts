@@ -15,6 +15,7 @@ import type { WorkspaceStateSignal } from "@maket/shared";
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createAppContainer } from "./src/bootstrap.js";
+import { assertActivityContract } from "./src/core/activity-contract.js";
 import { registerToolPacks } from "./src/core/tool-pack-registry.js";
 import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
@@ -142,6 +143,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		gmailPack,
 	],
 );
+assertActivityContract(toolRegistry);
 log(`[boot] Plugins loaded: ${loadedPacks.join(", ")}`);
 
 // Cross-check: manifest.json tool list must match the resolved registry.

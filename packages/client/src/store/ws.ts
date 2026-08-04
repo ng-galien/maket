@@ -1,4 +1,5 @@
 import type {
+	ActivityKey,
 	Collection,
 	LayoutReportCommand,
 	WorkspaceCommand,
@@ -12,16 +13,14 @@ import type { DocSummary, Document } from "./types";
 import { useStore } from "./useStore";
 import { fitToDoc, fitToView } from "./zoomBridge";
 
-const BUBBLE_LANGS: Record<string, Record<string, string>> = { fr, en };
+const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
 
 export function translateBubble(
-	key: string | undefined,
+	key: ActivityKey,
 	params?: Record<string, string>,
 ): string {
-	if (!key) return "";
 	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
-	const toolKey = key.replace(/(bubble_[^_]+(?:_[^_]+)?)_.*/, "$1");
-	let text = dict[key] ?? dict[toolKey] ?? dict.bubble_default ?? "";
+	let text = dict[key];
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
 			text = text.replace(`{${k}}`, v);
@@ -166,14 +165,20 @@ const LUCIDE: Record<string, string> = {
 };
 
 function spawnBubble(text: string, icon?: string) {
+	if (!text.trim()) return;
 	const barPos = useStore.getState().barPosition;
 	const isTop = barPos === "top";
 	const bubble = document.createElement("div");
+	bubble.dataset.maketActivity = "";
+	bubble.setAttribute("role", "status");
 	const svgHtml =
 		icon && LUCIDE[icon]
 			? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">${LUCIDE[icon]}</svg>`
 			: "";
-	bubble.innerHTML = `${svgHtml}<span>${text}</span>`;
+	bubble.innerHTML = svgHtml;
+	const label = document.createElement("span");
+	label.textContent = text;
+	bubble.appendChild(label);
 	Object.assign(bubble.style, {
 		position: "fixed",
 		[isTop ? "top" : "bottom"]: "80px",
@@ -198,6 +203,62 @@ function spawnBubble(text: string, icon?: string) {
 	});
 	document.body.appendChild(bubble);
 	setTimeout(() => bubble.remove(), 2500);
+}
+
+function spawnToast(text: string, level: string, duration: number): void {
+	if (!text.trim()) return;
+	let region = document.getElementById("maket-toast-region");
+	if (!region) {
+		region = document.createElement("div");
+		region.id = "maket-toast-region";
+		document.body.appendChild(region);
+	}
+	const isTop = useStore.getState().barPosition === "top";
+	Object.assign(region.style, {
+		position: "fixed",
+		[isTop ? "top" : "bottom"]: "80px",
+		[isTop ? "bottom" : "top"]: "auto",
+		right: "24px",
+		display: "flex",
+		flexDirection: "column",
+		gap: "8px",
+		alignItems: "flex-end",
+		pointerEvents: "none",
+		zIndex: "var(--z-toast, 9999)",
+	});
+	const toast = document.createElement("div");
+	toast.setAttribute("role", level === "error" ? "alert" : "status");
+	toast.textContent = text;
+	const backgrounds: Record<string, string> = {
+		success: "#047857",
+		error: "#b91c1c",
+		warning: "#b45309",
+		info: "#1f2937",
+	};
+	Object.assign(toast.style, {
+		maxWidth: "360px",
+		background: backgrounds[level] ?? backgrounds.info,
+		color: "white",
+		fontSize: "13px",
+		fontWeight: "600",
+		padding: "10px 14px",
+		borderRadius: "10px",
+		boxShadow: "0 8px 24px rgba(0,0,0,0.2)",
+		opacity: "1",
+		transition: "opacity 180ms ease",
+		fontFamily: "-apple-system, BlinkMacSystemFont, 'Inter', sans-serif",
+	});
+	region.appendChild(toast);
+	setTimeout(
+		() => {
+			toast.style.opacity = "0";
+			setTimeout(() => {
+				toast.remove();
+				if (region?.childElementCount === 0) region.remove();
+			}, 180);
+		},
+		Math.max(1000, duration || 3000),
+	);
 }
 
 // Inject the animation keyframes once
@@ -296,6 +357,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "state":
 			applyStateMessage(msg);
 			break;
+		case "toast":
+			spawnToast(msg.text, msg.level, msg.duration);
+			break;
 		case "charte_updated":
 			applyCharteUpdated(msg.name, msg.css);
 			break;
@@ -332,7 +396,13 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "ack_messages":
 			applyAckMessages(msg.ids as string[]);
 			break;
+		default:
+			reportUnhandledSignal(msg);
 	}
+}
+
+function reportUnhandledSignal(msg: never): void {
+	console.error("[ws] unhandled server signal", msg);
 }
 
 function applyStateMessage(
@@ -348,6 +418,7 @@ function applyStateMessage(
 	}
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 	if (!doc) {
+		initialStateReceived = true;
 		useStore.setState({ docList });
 		return;
 	}

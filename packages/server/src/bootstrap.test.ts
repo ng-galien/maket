@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createAppContainer } from "./bootstrap.js";
+import { assertActivityContract } from "./core/activity-contract.js";
 import { registerToolPacks } from "./core/tool-pack-registry.js";
 import { createConfig } from "./services/config.js";
 import { assetsPack } from "./tools/assets.js";
@@ -186,6 +187,7 @@ describe("registerToolPacks", () => {
 		};
 		const manifestNames = new Set(manifest.tools.map((t) => t.name));
 		const registryNames = new Set(toolRegistry.keys());
+		assertActivityContract(toolRegistry);
 		expect([...registryNames].sort()).toEqual([...manifestNames].sort());
 		c.dispose();
 	});

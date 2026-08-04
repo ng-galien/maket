@@ -1,3 +1,4 @@
+import { ACTIVITY_KEYS } from "@maket/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
 import { measurePageLayout, translateBubble } from "./ws";
@@ -151,19 +152,12 @@ describe("translateBubble", () => {
 		).toBe("Image importée : hero.jpg");
 	});
 
-	it("falls back to the tool-level key when the action is unknown", () => {
-		setLang("en");
-		expect(translateBubble("bubble_maket_pdf_foo")).toBe("PDF exported");
-	});
-
-	it("returns empty when neither action-specific nor tool-level key exists", () => {
-		setLang("en");
-		const result = translateBubble("does_not_exist");
-		// bubble_default is now empty — unknown keys render nothing.
-		expect(result).toBe("");
-	});
-
-	it("returns empty string when key is undefined", () => {
-		expect(translateBubble(undefined)).toBe("");
+	it("provides non-empty English and French text for every visible activity", () => {
+		for (const lang of ["en", "fr"] as const) {
+			setLang(lang);
+			for (const key of ACTIVITY_KEYS) {
+				expect(translateBubble(key).trim(), `${lang}:${key}`).not.toBe("");
+			}
+		}
 	});
 });

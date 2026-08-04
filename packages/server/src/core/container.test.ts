@@ -79,6 +79,46 @@ describe("mountTools", () => {
 		expect(result.content[0]?.text).toBe("foo:hello");
 	});
 
+	it("passes the completed result to the call observer", async () => {
+		const tool = makeTool("foo");
+		const registry = new Map([["foo", tool]]);
+		const container = createContainer().register({
+			toolRegistry: asValue(registry),
+		});
+		const server = makeServer();
+		const onCall = vi.fn();
+
+		mountTools(server as any, container, onCall);
+		const cb = server.tool.mock.calls[0]?.[3] as (
+			args: Record<string, unknown>,
+			extra: unknown,
+		) => Promise<unknown>;
+		const result = await cb({ value: "hello" }, {});
+
+		expect(onCall).toHaveBeenCalledWith("foo", { value: "hello" }, result);
+	});
+
+	it("propagates observer failures so contract drift stays observable", async () => {
+		const tool = makeTool("foo");
+		const registry = new Map([["foo", tool]]);
+		const container = createContainer().register({
+			toolRegistry: asValue(registry),
+		});
+		const server = makeServer();
+
+		mountTools(server as any, container, () => {
+			throw new Error("activity contract drift");
+		});
+		const cb = server.tool.mock.calls[0]?.[3] as (
+			args: Record<string, unknown>,
+			extra: unknown,
+		) => Promise<unknown>;
+
+		await expect(cb({ value: "hello" }, {})).rejects.toThrow(
+			"activity contract drift",
+		);
+	});
+
 	it("resolves toolRegistry from the container at mount time", () => {
 		// Ensure the function actually calls container.resolve — not captured closure
 		const registry = new Map<string, ToolHandler>();

@@ -6,6 +6,7 @@
 // recreate the coupling.
 // ============================================================
 
+export * from "./activity.js";
 export * from "./charte.js";
 export * from "./collection-cursor.js";
 export * from "./collections.js";

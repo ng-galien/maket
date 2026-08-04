@@ -1,3 +1,5 @@
+import type { ActivityKey } from "./activity.js";
+
 /**
  * WebSocket wire contract between the server and browser clients.
  *
@@ -76,7 +78,7 @@ export interface WorkspaceReloadSignal {
 
 export interface ActivitySignal {
 	type: "activity";
-	key: string;
+	key: ActivityKey;
 	params: Record<string, string>;
 	icon: string;
 }

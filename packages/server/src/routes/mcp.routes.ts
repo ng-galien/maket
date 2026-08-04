@@ -10,31 +10,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { AwilixContainer } from "awilix";
 import { Router as createRouter, type Router } from "express";
-import { mountTools } from "../core/container.js";
+import { resolveActivity } from "../core/activity-contract.js";
+import { mountTools, type ToolResult } from "../core/container.js";
 import type { WsRegistry } from "../services/ws-registry.js";
 
 export interface McpRouterDeps {
 	container: AwilixContainer;
 	wsRegistry: WsRegistry;
 }
-
-// Icons for the activity bubbles broadcast to the client. One per compound
-// tool — the action is shown in the bubble text, not the icon.
-const ACTIVITY_ICONS: Record<string, string> = {
-	maket_doc: "folder-open",
-	maket_page: "file-plus-2",
-	maket_canvas: "ruler",
-	maket_html: "file-pen",
-	maket_workspace: "pin",
-	maket_charte: "palette",
-	maket_collection: "table",
-	maket_learn: "graduation-cap",
-	maket_image: "images",
-	maket_preview: "eye",
-	maket_mermaid: "git-branch",
-	maket_pdf: "download",
-	maket_gmail: "send",
-};
 
 export function createMcpRouter({
 	container,
@@ -45,13 +28,20 @@ export function createMcpRouter({
 	function broadcastActivity(
 		name: string,
 		args: Record<string, unknown>,
+		result: ToolResult,
 	): void {
-		const icon = ACTIVITY_ICONS[name] || "zap";
+		if (result.isError === true) return;
+		const activity = resolveActivity(name, args);
+		if (!activity) return;
 		const params: Record<string, string> = {};
-		if (typeof args.filename === "string") params.name = args.filename;
-		else if (typeof args.name === "string") params.name = args.name;
-		else if (typeof args.doc === "string") params.name = args.doc;
-		else params.name = "";
+		const cursorActivity =
+			name === "maket_collection" && args.action === "cursor";
+		if (!cursorActivity) {
+			if (typeof args.filename === "string") params.name = args.filename;
+			else if (typeof args.name === "string") params.name = args.name;
+			else if (typeof args.doc === "string") params.name = args.doc;
+			else params.name = "";
+		}
 		if (
 			name === "maket_html" &&
 			args.action === "set" &&
@@ -59,13 +49,11 @@ export function createMcpRouter({
 		) {
 			params.count = String((args.html.match(/data-id=/g) || []).length);
 		}
-		const action = typeof args.action === "string" ? args.action : null;
-		const key = action ? `bubble_${name}_${action}` : `bubble_${name}`;
 		wsRegistry.broadcast({
 			type: "activity",
-			key,
+			key: activity.key,
 			params,
-			icon,
+			icon: activity.icon,
 		});
 	}
 

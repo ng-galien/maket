@@ -43,13 +43,18 @@ export interface ToolHandler {
  * Register every tool from the container's toolRegistry onto an McpServer.
  * Called per-request after a fresh McpServer is created (stateless transport).
  *
- * `onCall` fires after every successful tool invocation — used by the Express
- * server to broadcast an activity bubble over WebSocket.
+ * `onCall` observes the completed tool result — used by the Express server to
+ * broadcast an activity bubble over WebSocket. Observer failures deliberately
+ * propagate so contract drift cannot disappear behind a successful MCP call.
  */
 export function mountTools(
 	server: McpServer,
 	container: AwilixContainer,
-	onCall?: (name: string, args: Record<string, unknown>) => void,
+	onCall?: (
+		name: string,
+		args: Record<string, unknown>,
+		result: ToolResult,
+	) => void,
 ): void {
 	const registry: Map<string, ToolHandler> = container.resolve("toolRegistry");
 
@@ -60,9 +65,7 @@ export function mountTools(
 			tool.metadata.schema.shape,
 			async (args: Record<string, unknown>, extra: ToolExtra) => {
 				const result = await tool.handler(args, extra);
-				try {
-					onCall?.(tool.metadata.name, args);
-				} catch {}
+				onCall?.(tool.metadata.name, args, result);
 				return result;
 			},
 		);
