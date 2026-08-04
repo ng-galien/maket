@@ -13,6 +13,39 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-08-04
+
+### Added
+- **Standalone viewer and interactive demo.** Local `.maket` bundles can be
+  explored in a responsive, multi-page read-only viewer, with starter documents
+  and guided scenarios available from the project site.
+- **Shared collection preview cursors.** A page bound to a collection now has a
+  server-owned preview mode and row selection shared by the browser, MCP tools,
+  and exports.
+
+### Changed
+- **Data sources live in the document toolbar.** Collection controls now stay
+  close to the active page instead of occupying a separate workspace panel.
+- **WebSocket propagation follows the service bus.** Server-side mutations emit
+  domain events and a single integration layer fans state out to browsers.
+
+### Fixed
+- **Documents and edits refresh immediately.** Creating the first document in an
+  empty workspace, replacing HTML, patching HTML, and applying chartes now update
+  the live canvas without requiring a page reload.
+- **Activity feedback is exhaustive and never empty.** Visible MCP activities
+  have typed, translated messages; intentional reads stay silent, failed tools
+  do not display success bubbles, and unknown activity contracts fail loudly.
+- **Collection cursor feedback matches the operation.** Cursor reads are silent
+  while mutations display a correctly labelled activity without confusing the
+  document name for a collection name.
+- **Project-site social previews use the Maket identity.** Shared previews no
+  longer fall back to the previous placeholder artwork.
+
+### Internal
+- Added executable Code Moniker architecture invariants and split large document
+  and WebSocket handlers into focused modules.
+
 ## [1.4.4] — 2026-07-26
 
 ### Added
@@ -294,7 +327,12 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v1.4.5...HEAD
+[1.4.5]: https://github.com/ng-galien/maket/compare/v1.4.4...v1.4.5
+[1.4.4]: https://github.com/ng-galien/maket/compare/v1.4.3...v1.4.4
+[1.4.3]: https://github.com/ng-galien/maket/compare/v1.4.2...v1.4.3
+[1.4.2]: https://github.com/ng-galien/maket/compare/v1.4.1...v1.4.2
+[1.4.1]: https://github.com/ng-galien/maket/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ng-galien/maket/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ng-galien/maket/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ng-galien/maket/compare/v1.1.0...v1.2.0
