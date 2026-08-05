@@ -40,6 +40,7 @@ export interface BundleDocument {
 	id?: string;
 	name: string;
 	category?: string;
+	dataModel?: Document["dataModel"];
 	canvas: Document["canvas"];
 	meta?: Document["meta"];
 	pages: Document["pages"];

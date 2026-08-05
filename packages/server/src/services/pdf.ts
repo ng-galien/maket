@@ -28,8 +28,8 @@ import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
 import type { CollectionCursors } from "./collection-cursor.js";
-import type { Collections } from "./collections.js";
 import type { Config } from "./config.js";
+import type { DocumentRenderer } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 
 const DPI_PRESETS: Record<string, number> = {
@@ -59,7 +59,7 @@ export interface PdfService {
 
 export interface PdfServiceDeps {
 	documents: Documents;
-	collections?: Pick<Collections, "renderDocument">;
+	documentRenderer?: Pick<DocumentRenderer, "render">;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	config: Config;
 	assets: AssetsService;
@@ -81,7 +81,7 @@ async function renderPdfDocument(
 		documents: Documents;
 		config: Config;
 		assets: AssetsService;
-		collections: Pick<Collections, "renderDocument">;
+		documentRenderer: Pick<DocumentRenderer, "render">;
 		collectionCursors: Pick<CollectionCursors, "resolve">;
 		pool: BrowserPool;
 		forcedMode: Record<
@@ -97,19 +97,18 @@ async function renderPdfDocument(
 		documents,
 		config,
 		assets,
-		collections,
+		documentRenderer,
 		collectionCursors,
 		pool,
 		forcedMode,
 	} = ctx;
-	const renderedDoc = collections.renderDocument(
-		doc,
-		cursorRenderOptions(
+	const renderedDoc = documentRenderer.render(doc, {
+		collection: cursorRenderOptions(
 			doc,
 			(docName, pageIndex) => collectionCursors.resolve(docName, pageIndex),
 			rows === "preview" ? undefined : forcedMode[rows],
 		),
-	);
+	});
 	const dpi = DPI_PRESETS[quality] || 150;
 	const rawHtmls = renderedDoc.pages
 		.map((p) => p.html)
@@ -160,8 +159,8 @@ export function createPdfService(
 	opts: PdfServiceOptions = {},
 ): PdfService {
 	const { documents, config, assets, browserPool } = deps;
-	const collections = deps.collections ?? {
-		renderDocument: (doc: Document) => doc,
+	const documentRenderer = deps.documentRenderer ?? {
+		render: (doc: Document) => doc,
 	};
 	const collectionCursors = deps.collectionCursors ?? { resolve: () => null };
 	const forcedMode: Record<
@@ -182,7 +181,7 @@ export function createPdfService(
 					documents,
 					config,
 					assets,
-					collections,
+					documentRenderer,
 					collectionCursors,
 					pool,
 					forcedMode,

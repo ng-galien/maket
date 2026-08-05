@@ -1,6 +1,7 @@
 import {
 	type Collection,
 	markCollectionPlaceholders,
+	readJsonPointer,
 	resolveCollectionText,
 } from "@maket/shared";
 import { MessageCircle, Pencil } from "lucide-react";
@@ -8,8 +9,12 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
-import { useStore } from "../store/useStore";
-import { sendTextEdit } from "../store/ws";
+import {
+	hasPendingStatePatchForDocument,
+	statePatchKey,
+	useStore,
+} from "../store/useStore";
+import { sendStateValuePatch, sendTextEdit } from "../store/ws";
 
 export function parseCSSVars(css: string): Record<string, string> {
 	const vars: Record<string, string> = {};
@@ -20,6 +25,17 @@ export function parseCSSVars(css: string): Record<string, string> {
 }
 
 const NON_EDITABLE_TAGS = new Set(["img", "video", "canvas", "svg", "iframe"]);
+
+function isTerminalStateValue(
+	value: unknown,
+): value is string | number | boolean | null {
+	return (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	);
+}
 
 export function isTextEditable(el: HTMLElement): boolean {
 	if (NON_EDITABLE_TAGS.has(el.tagName.toLowerCase())) return false;
@@ -122,6 +138,14 @@ interface ToolbarState {
 	editable: boolean;
 }
 
+interface StateValueEditorState {
+	pointer: string;
+	type: "string" | "number" | "boolean" | "null";
+	value: string | number | boolean | null;
+	top: number;
+	left: number;
+}
+
 export const PageCanvas = memo(function PageCanvas({
 	doc,
 	pageIndex,
@@ -137,8 +161,22 @@ export const PageCanvas = memo(function PageCanvas({
 		originalHtml: string;
 		target: HTMLElement;
 	} | null>(null);
+	const textCommitRef = useRef(new WeakMap<HTMLInputElement, string>());
 	const page = doc.pages[pageIndex];
-	const rawHtml = page?.html ?? "";
+	const stateBacked = doc.dataModel === "state";
+	const stateView = useStore((s) => s.documentStates[doc.name]);
+	const stateMode = useStore((s) => s.stateCanvasModes[doc.name] ?? "live");
+	const statePatchPending = useStore((s) => s.statePatchPending);
+	const statePatchErrors = useStore((s) => s.statePatchErrors);
+	const stateDocumentPending = hasPendingStatePatchForDocument(
+		statePatchPending,
+		doc.name,
+	);
+	const liveState = stateBacked && stateMode === "live";
+	const rawHtml =
+		stateBacked && stateMode === "design"
+			? (stateView?.templates[page?.id ?? ""] ?? page?.html ?? "")
+			: (page?.html ?? "");
 	const collectionRender = useMemo(() => {
 		return collectionPreviewHtml(
 			rawHtml,
@@ -160,7 +198,11 @@ export const PageCanvas = memo(function PageCanvas({
 	const pending = useStore((s) => s.pending);
 	const isEditing = useStore((s) => s.editingElementId !== null);
 	const readOnly = useStore((s) => s.readOnly);
-	const canEditTemplate = preview?.mode !== "rendered";
+	const canInteract =
+		!readOnly &&
+		doc.meta?.locked !== true &&
+		(!stateBacked || stateMode === "design");
+	const canEditTemplate = canInteract && preview?.mode !== "rendered";
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
 	const placeholderOptions = useMemo(
 		() => [
@@ -193,6 +235,9 @@ export const PageCanvas = memo(function PageCanvas({
 	}, [rawHtml]);
 
 	const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
+	const [stateEditor, setStateEditor] = useState<StateValueEditorState | null>(
+		null,
+	);
 
 	const dismissToolbar = useCallback(() => setToolbar(null), []);
 
@@ -331,8 +376,265 @@ export const PageCanvas = memo(function PageCanvas({
 		[doc.name, pageIndex],
 	);
 
+	const activateStateButton = useCallback(
+		(target: HTMLElement) => {
+			if (!stateView || readOnly || doc.meta?.locked === true) return;
+			const pointer = target.dataset.maketPath;
+			const type = target.dataset.maketType;
+			if (!pointer || !type) return;
+			if (stateDocumentPending) return;
+			let value: unknown;
+			try {
+				value = readJsonPointer(stateView.data, pointer);
+			} catch {
+				return;
+			}
+			if (
+				type !== "string" &&
+				type !== "number" &&
+				type !== "boolean" &&
+				type !== "null"
+			)
+				return;
+			const rect = target.getBoundingClientRect();
+			setStateEditor({
+				pointer,
+				type,
+				value: isTerminalStateValue(value) ? value : null,
+				top: Math.min(window.innerHeight - 128, rect.bottom + 8),
+				left: Math.min(window.innerWidth - 292, Math.max(12, rect.left)),
+			});
+		},
+		[doc.meta?.locked, readOnly, stateDocumentPending, stateView],
+	);
+
 	useEffect(() => {
-		if (!pageRef.current || !focused || readOnly) return;
+		const canvas = pageRef.current;
+		if (!canvas || !liveState) return;
+		canvas.toggleAttribute("inert", stateDocumentPending);
+		return () => canvas.removeAttribute("inert");
+	}, [liveState, stateDocumentPending]);
+
+	useEffect(() => {
+		if (!pageRef.current || !liveState) return;
+		const el = pageRef.current;
+		const authoritativeValue = (pointer: string): unknown => {
+			try {
+				return readJsonPointer(stateView?.data ?? {}, pointer);
+			} catch {
+				return undefined;
+			}
+		};
+		const restoreControl = (
+			binding: HTMLInputElement | HTMLSelectElement,
+			pointer: string,
+		) => {
+			const authoritative = authoritativeValue(pointer);
+			if (binding instanceof HTMLSelectElement) {
+				if (typeof authoritative === "string") binding.value = authoritative;
+				return;
+			}
+			if (binding.type === "checkbox") {
+				if (typeof authoritative === "boolean") {
+					binding.checked = authoritative;
+				}
+				return;
+			}
+			if (binding.type === "text" && typeof authoritative === "string") {
+				binding.value = authoritative;
+			}
+		};
+		const commitStringControl = (
+			binding: HTMLInputElement | HTMLSelectElement,
+		): "sent" | "unchanged" | "restored" => {
+			if (!stateView) return "restored";
+			const pointer = binding.dataset.maketPath;
+			if (!pointer) return "restored";
+			const authoritative = authoritativeValue(pointer);
+			if (
+				readOnly ||
+				doc.meta?.locked === true ||
+				stateDocumentPending ||
+				typeof authoritative !== "string"
+			) {
+				restoreControl(binding, pointer);
+				return "restored";
+			}
+			if (binding.value === authoritative) return "unchanged";
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			const requestId = sendStateValuePatch(
+				doc.name,
+				pointer,
+				stateView.revision,
+				binding.value,
+			);
+			if (!requestId) {
+				restoreControl(binding, pointer);
+				return "restored";
+			}
+			setStateEditor(null);
+			return "sent";
+		};
+		const onClick = (event: MouseEvent) => {
+			const binding = (event.target as HTMLElement).closest(
+				'button[type="button"][data-maket-bind][data-maket-path]',
+			) as HTMLButtonElement | null;
+			if (!binding) return;
+			event.preventDefault();
+			event.stopPropagation();
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			activateStateButton(binding);
+		};
+		const onChange = (event: Event) => {
+			const target = event.target;
+			if (!(target instanceof HTMLElement) || !stateView) return;
+			const binding = target.closest(
+				'input[type="checkbox"][data-maket-bind][data-maket-path], input[type="text"][data-maket-bind][data-maket-path], select[data-maket-bind][data-maket-path]',
+			) as HTMLInputElement | HTMLSelectElement | null;
+			if (!binding) return;
+			const pointer = binding.dataset.maketPath;
+			if (!pointer) return;
+			if (
+				binding instanceof HTMLInputElement &&
+				binding.type === "text" &&
+				textCommitRef.current.get(binding) === binding.value
+			) {
+				textCommitRef.current.delete(binding);
+				return;
+			}
+			if (
+				binding instanceof HTMLSelectElement ||
+				(binding instanceof HTMLInputElement && binding.type === "text")
+			) {
+				commitStringControl(binding);
+				return;
+			}
+			if (readOnly || doc.meta?.locked === true) {
+				restoreControl(binding, pointer);
+				return;
+			}
+			if (stateDocumentPending) {
+				restoreControl(binding, pointer);
+				return;
+			}
+			if (!(binding instanceof HTMLInputElement)) return;
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			const requestId = sendStateValuePatch(
+				doc.name,
+				pointer,
+				stateView.revision,
+				binding.checked,
+			);
+			if (!requestId) {
+				restoreControl(binding, pointer);
+				return;
+			}
+			setStateEditor(null);
+		};
+		const onInput = (event: Event) => {
+			const target = event.target;
+			if (target instanceof HTMLInputElement && target.type === "text") {
+				textCommitRef.current.delete(target);
+			}
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			const target = event.target;
+			if (
+				!(target instanceof HTMLInputElement) ||
+				target.type !== "text" ||
+				!target.matches("[data-maket-bind][data-maket-path]")
+			)
+				return;
+			event.stopPropagation();
+			const pointer = target.dataset.maketPath;
+			if (!pointer) return;
+			if (event.key === "Escape") {
+				event.preventDefault();
+				textCommitRef.current.delete(target);
+				restoreControl(target, pointer);
+				return;
+			}
+			if (event.key !== "Enter") return;
+			event.preventDefault();
+			const result = commitStringControl(target);
+			if (result !== "restored") {
+				textCommitRef.current.set(target, target.value);
+			}
+		};
+		el.addEventListener("click", onClick);
+		el.addEventListener("change", onChange);
+		el.addEventListener("input", onInput);
+		el.addEventListener("keydown", onKeyDown);
+		return () => {
+			el.removeEventListener("click", onClick);
+			el.removeEventListener("change", onChange);
+			el.removeEventListener("input", onInput);
+			el.removeEventListener("keydown", onKeyDown);
+		};
+	}, [
+		activateStateButton,
+		doc.meta?.locked,
+		doc.name,
+		liveState,
+		pageIndex,
+		readOnly,
+		stateDocumentPending,
+		statePatchPending,
+		stateView,
+	]);
+
+	useEffect(() => {
+		if (!pageRef.current || !liveState) return;
+		pageRef.current
+			.querySelectorAll<HTMLElement>("[data-maket-bind][data-maket-path]")
+			.forEach((binding) => {
+				const pointer = binding.dataset.maketPath;
+				const key = pointer ? statePatchKey(doc.name, pointer) : "";
+				const isPending = Boolean(key && statePatchPending[key]);
+				const error = key ? statePatchErrors[key] : undefined;
+				binding.toggleAttribute("data-maket-pending", isPending);
+				binding.setAttribute("aria-busy", String(isPending));
+				if (error) binding.setAttribute("data-maket-error", error);
+				else binding.removeAttribute("data-maket-error");
+				if (error && pointer) {
+					const authoritative = readJsonPointer(stateView?.data ?? {}, pointer);
+					if (
+						binding instanceof HTMLInputElement &&
+						binding.type === "checkbox" &&
+						typeof authoritative === "boolean"
+					) {
+						binding.checked = authoritative;
+					}
+					if (
+						binding instanceof HTMLInputElement &&
+						binding.type === "text" &&
+						typeof authoritative === "string"
+					) {
+						binding.value = authoritative;
+					}
+					if (
+						binding instanceof HTMLSelectElement &&
+						typeof authoritative === "string"
+					) {
+						binding.value = authoritative;
+					}
+				}
+			});
+	}, [
+		doc.name,
+		liveState,
+		renderHtml,
+		statePatchErrors,
+		statePatchPending,
+		stateView?.data,
+	]);
+
+	useEffect(() => {
+		setStateEditor(null);
+	}, [stateMode, stateView?.revision]);
+
+	useEffect(() => {
+		if (!pageRef.current || !focused || !canInteract) return;
 		const el = pageRef.current;
 
 		const onClick = (e: MouseEvent) => {
@@ -381,7 +683,7 @@ export const PageCanvas = memo(function PageCanvas({
 		focused,
 		toolbar?.id,
 		canEditTemplate,
-		readOnly,
+		canInteract,
 		doc.name,
 		pageIndex,
 	]);
@@ -408,8 +710,10 @@ export const PageCanvas = memo(function PageCanvas({
 		<>
 			<div
 				ref={pageRef}
-				className={`page-canvas${preview?.mode === "rendered" ? " data-preview" : ""}`}
+				className={`page-canvas${preview?.mode === "rendered" || liveState ? " data-preview" : ""}${liveState ? " state-live" : ""}`}
 				data-page={pageIndex}
+				data-document-mode={doc.dataModel}
+				aria-busy={liveState ? stateDocumentPending : undefined}
 				style={{
 					width: `${canvas.w}mm`,
 					height: `${canvas.h}mm`,
@@ -471,23 +775,25 @@ export const PageCanvas = memo(function PageCanvas({
 								>
 									<Pencil size={12} />
 								</button>
-								<select
-									title={t("collection_use_placeholder")}
-									aria-label={t("collection_use_placeholder")}
-									defaultValue=""
-									onClick={(e) => e.stopPropagation()}
-									onChange={(event) =>
-										applyPlaceholder(toolbar.id, event.target.value)
-									}
-									className="h-7 max-w-36 rounded-md bg-panel border border-border text-xs text-text-2 px-2 outline-none"
-								>
-									<option value="">{t("collection_placeholder")}</option>
-									{placeholderOptions.map((option) => (
-										<option key={option.value} value={option.value}>
-											{option.label}
-										</option>
-									))}
-								</select>
+								{!stateBacked && (
+									<select
+										title={t("collection_use_placeholder")}
+										aria-label={t("collection_use_placeholder")}
+										defaultValue=""
+										onClick={(e) => e.stopPropagation()}
+										onChange={(event) =>
+											applyPlaceholder(toolbar.id, event.target.value)
+										}
+										className="h-7 max-w-36 rounded-md bg-panel border border-border text-xs text-text-2 px-2 outline-none"
+									>
+										<option value="">{t("collection_placeholder")}</option>
+										{placeholderOptions.map((option) => (
+											<option key={option.value} value={option.value}>
+												{option.label}
+											</option>
+										))}
+									</select>
+								)}
 							</>
 						)}
 						<button
@@ -505,6 +811,143 @@ export const PageCanvas = memo(function PageCanvas({
 					</div>,
 					document.body,
 				)}
+			{stateEditor &&
+				stateView &&
+				createPortal(
+					<StateValueEditor
+						state={stateEditor}
+						onCancel={() => setStateEditor(null)}
+						onSubmit={(value) => {
+							if (stateDocumentPending) return;
+							const requestId = sendStateValuePatch(
+								doc.name,
+								stateEditor.pointer,
+								stateView.revision,
+								value,
+							);
+							if (requestId) setStateEditor(null);
+						}}
+					/>,
+					document.body,
+				)}
 		</>
 	);
 });
+
+function StateValueEditor({
+	state,
+	onCancel,
+	onSubmit,
+}: {
+	state: StateValueEditorState;
+	onCancel: () => void;
+	onSubmit: (value: string | number | boolean | null) => void;
+}) {
+	const t = useT();
+	const [value, setValue] = useState(
+		typeof state.value === "string" || typeof state.value === "number"
+			? String(state.value)
+			: "",
+	);
+	const [booleanValue, setBooleanValue] = useState(state.value === true);
+	const [invalid, setInvalid] = useState(false);
+	const inputRef = useRef<HTMLInputElement>(null);
+
+	useEffect(() => {
+		inputRef.current?.focus();
+		inputRef.current?.select();
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key === "Escape") onCancel();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [onCancel]);
+
+	return (
+		<form
+			data-state-value-editor
+			aria-label={t("state_edit_value")}
+			className="fixed z-[var(--z-popover)] w-[280px] rounded-xl border border-border bg-panel p-3 shadow-[0_16px_48px_rgba(0,0,0,0.18)]"
+			style={{ top: state.top, left: state.left }}
+			onSubmit={(event) => {
+				event.preventDefault();
+				if (state.type === "number") {
+					const number = Number(value);
+					if (value.trim() === "" || !Number.isFinite(number)) {
+						setInvalid(true);
+						return;
+					}
+					onSubmit(number);
+					return;
+				}
+				if (state.type === "boolean") {
+					onSubmit(booleanValue);
+					return;
+				}
+				if (state.type === "null") {
+					onSubmit(null);
+					return;
+				}
+				onSubmit(value);
+			}}
+		>
+			<label
+				className="mb-1.5 block text-xs font-semibold text-text-2"
+				htmlFor="maket-state-value"
+			>
+				{t("state_value")}
+			</label>
+			{state.type === "boolean" ? (
+				<input
+					ref={inputRef}
+					id="maket-state-value"
+					type="checkbox"
+					checked={booleanValue}
+					onChange={(event) => setBooleanValue(event.target.checked)}
+					className="size-5 accent-accent"
+				/>
+			) : state.type === "null" ? (
+				<input
+					ref={inputRef}
+					id="maket-state-value"
+					type="text"
+					value="null"
+					readOnly
+					className="h-9 w-full rounded-lg border border-border bg-input px-3 font-mono text-sm text-text-1 outline-none"
+				/>
+			) : (
+				<input
+					ref={inputRef}
+					id="maket-state-value"
+					type={state.type === "number" ? "number" : "text"}
+					step="any"
+					value={value}
+					onChange={(event) => {
+						setValue(event.target.value);
+						setInvalid(false);
+					}}
+					aria-invalid={invalid}
+					className="h-9 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-1 outline-none focus:border-accent"
+				/>
+			)}
+			{invalid && (
+				<p className="mt-1 text-xs text-danger">{t("state_invalid_number")}</p>
+			)}
+			<div className="mt-3 flex justify-end gap-2">
+				<button
+					type="button"
+					onClick={onCancel}
+					className="h-8 rounded-lg px-3 text-xs font-semibold text-text-2 hover:bg-input"
+				>
+					{t("cancel")}
+				</button>
+				<button
+					type="submit"
+					className="h-8 rounded-lg bg-accent px-3 text-xs font-semibold text-white hover:brightness-95"
+				>
+					{t("save")}
+				</button>
+			</div>
+		</form>
+	);
+}

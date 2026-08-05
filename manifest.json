@@ -49,8 +49,12 @@
       "description": "Manage placeholder collections: list, view, create, validate/change schema, edit rows, delete, bind/unbind a document page."
     },
     {
+      "name": "maket_state",
+      "description": "Attach document-owned state, update it with snapshots or JSON Patch, validate/change its schema, inspect history, and restore revisions."
+    },
+    {
       "name": "maket_learn",
-      "description": "Agent onboarding and operating guidance for Maket: workflow, HTML composition, chartes, collections, review, and MCP client installation."
+      "description": "Agent onboarding and operating guidance for Maket: workflow, HTML composition, chartes, collections, living document state, review, and MCP client installation."
     },
     {
       "name": "maket_image",

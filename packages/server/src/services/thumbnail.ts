@@ -21,6 +21,7 @@ import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
 import type { Config } from "./config.js";
+import type { DocumentRenderer } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 import { boxShadowToDropShadow, buildShadowVarMap } from "./pdf.js";
 
@@ -51,6 +52,7 @@ export interface ThumbnailDeps {
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
+	documentRenderer?: Pick<DocumentRenderer, "render">;
 }
 
 export interface ThumbnailOptions {
@@ -102,6 +104,7 @@ async function renderThumbnailDocument(ctx: {
 	doc: Document;
 	renderOpts: { page?: number; widthPx?: number; updatedAt?: string };
 	documents: Documents;
+	documentRenderer: Pick<DocumentRenderer, "render">;
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
@@ -113,6 +116,7 @@ async function renderThumbnailDocument(ctx: {
 		doc,
 		renderOpts,
 		documents,
+		documentRenderer,
 		config,
 		assets,
 		browserPool,
@@ -133,21 +137,22 @@ async function renderThumbnailDocument(ctx: {
 		return cached;
 	}
 
-	const pageObj = doc.pages[page];
+	const renderedDoc = documentRenderer.render(doc);
+	const pageObj = renderedDoc.pages[page];
 	if (!pageObj)
 		throw new Error(`Document "${doc.name}" has no page ${page + 1}`);
 
-	const charteCss = documents.charteCss(doc);
+	const charteCss = documents.charteCss(renderedDoc);
 	const shadowVars = buildShadowVarMap(charteCss);
 	const inlined = await inlineImages(pageObj.html ?? "", {
 		assetsDir: config.ASSETS_DIR,
-		pageMm: { w: doc.canvas.w, h: doc.canvas.h },
+		pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
 		dpi: 96,
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
 	const resolved = boxShadowToDropShadow(inlined, shadowVars);
 
-	const safeBg = escapeCssValue(doc.canvas.bg || "#ffffff");
+	const safeBg = escapeCssValue(renderedDoc.canvas.bg || "#ffffff");
 	const safeCharteCss = stripStyleClose(charteCss);
 	const fullHtml = `<!DOCTYPE html>
 <html>
@@ -157,14 +162,16 @@ async function renderThumbnailDocument(ctx: {
   ${safeCharteCss}
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { width: 100%; height: 100%; background: ${safeBg}; overflow: hidden; }
-  .page { width: ${doc.canvas.w}mm; height: ${doc.canvas.h}mm; background: ${safeBg}; position: relative; overflow: hidden; transform-origin: top left; }
+  .page { width: ${renderedDoc.canvas.w}mm; height: ${renderedDoc.canvas.h}mm; background: ${safeBg}; position: relative; overflow: hidden; transform-origin: top left; }
 </style>
 </head>
 <body><div class="page">${resolved}</div></body>
 </html>`;
 
-	const canvasPxW = Math.round(doc.canvas.w * MM_TO_PX);
-	const pxH = Math.round((doc.canvas.h / doc.canvas.w) * widthPx);
+	const canvasPxW = Math.round(renderedDoc.canvas.w * MM_TO_PX);
+	const pxH = Math.round(
+		(renderedDoc.canvas.h / renderedDoc.canvas.w) * widthPx,
+	);
 	const scale = widthPx / canvasPxW;
 	const scaledHtml = fullHtml.replace(
 		".page {",
@@ -189,6 +196,9 @@ export function createThumbnailService(
 	opts: ThumbnailOptions = {},
 ): ThumbnailService {
 	const { documents, config, assets, browserPool } = deps;
+	const documentRenderer = deps.documentRenderer ?? {
+		render: (doc: Document) => doc,
+	};
 	const maxEntries = opts.maxCacheEntries ?? DEFAULT_CACHE_ENTRIES;
 	const snapshot = opts.snapshot ?? defaultSnapshot;
 
@@ -210,6 +220,7 @@ export function createThumbnailService(
 				doc,
 				renderOpts,
 				documents,
+				documentRenderer,
 				config,
 				assets,
 				browserPool,

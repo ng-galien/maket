@@ -25,6 +25,7 @@ import type { CollectionCursors } from "./src/services/collection-cursor.js";
 import type { Collections } from "./src/services/collections.js";
 import type { Config } from "./src/services/config.js";
 import { loadEnvFile } from "./src/services/config.js";
+import type { DocumentRenderer } from "./src/services/document-renderer.js";
 import type { Documents } from "./src/services/documents.js";
 import type { WorkspaceCommandHandler } from "./src/services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./src/services/ws-registry.js";
@@ -40,6 +41,7 @@ import { mermaidPack } from "./src/tools/mermaid.js";
 import { pagesPack } from "./src/tools/pages.js";
 import { pdfPack } from "./src/tools/pdf.js";
 import { previewPack } from "./src/tools/preview.js";
+import { statePack } from "./src/tools/state.js";
 import { workspacePack } from "./src/tools/workspace.js";
 
 const _logFile = join(
@@ -89,6 +91,8 @@ const collections = appContainer.resolve<Collections>("collections");
 const collectionCursors =
 	appContainer.resolve<CollectionCursors>("collectionCursors");
 const documents = appContainer.resolve<Documents>("documents");
+const documentRenderer =
+	appContainer.resolve<DocumentRenderer>("documentRenderer");
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
 const assets = appContainer.resolve<AssetsService>("assets");
@@ -116,6 +120,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 			assets: {},
 			chartes: {},
 			collections: {},
+			state: {},
 			learn: {},
 			pages: {},
 			documents: {},
@@ -132,6 +137,7 @@ const { loadedPacks, toolRegistry } = registerToolPacks(
 		assetsPack,
 		chartesPack,
 		collectionsPack,
+		statePack,
 		learnPack,
 		pagesPack,
 		documentsPack,
@@ -182,6 +188,8 @@ try {
 // ============================================================
 // BUS LISTENERS — broadcast state & toasts to WS clients
 // ============================================================
+// code-moniker: ignore[smell-feature-envy-local]
+// The server entrypoint is the intentional composition boundary for WS fan-out.
 function broadcastDoc(
 	docName: string,
 	addToWorkspace = false,
@@ -191,7 +199,8 @@ function broadcastDoc(
 	if (!doc) return;
 	wsRegistry.broadcast({
 		type: "state",
-		doc: documents.lightView(doc, doc.activePage),
+		doc: documents.lightView(documentRenderer.render(doc), doc.activePage),
+		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),
@@ -220,6 +229,23 @@ for (const evt of LOAD_EVENTS) {
 for (const evt of MUTATION_EVENTS) {
 	bus.on(evt, ({ docName }) => broadcastDoc(docName));
 }
+bus.on("document-state:changed", ({ docName, paths, attached }) => {
+	if (attached) {
+		broadcastDoc(docName);
+		return;
+	}
+	const doc = documents.resolve(docName);
+	if (!doc || doc.dataModel !== "state") return;
+	const documentState = documentRenderer.stateView(doc);
+	if (!documentState) return;
+	wsRegistry.broadcast({
+		type: "state_pages",
+		docName,
+		documentState,
+		pages: documentRenderer.statePages(doc, paths),
+		docList: documents.list(),
+	});
+});
 bus.on("document:focused", ({ docName }) => broadcastDoc(docName, true, true));
 
 bus.on("workspace:fit-view", () => {
@@ -362,7 +388,10 @@ wss.on("connection", (ws) => {
 	const firstDoc = docs.size > 0 ? (docs.values().next().value ?? null) : null;
 	const initialState: WorkspaceStateSignal = {
 		type: "state",
-		doc: documents.lightView(firstDoc ?? null),
+		doc: documents.lightView(
+			firstDoc ? documentRenderer.render(firstDoc) : null,
+		),
+		documentState: firstDoc ? documentRenderer.stateView(firstDoc) : null,
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),

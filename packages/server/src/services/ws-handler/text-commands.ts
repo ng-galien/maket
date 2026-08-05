@@ -13,6 +13,7 @@ import {
 } from "../../lib/onboarding-document.js";
 import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import type { Document } from "../../types.js";
+import { validateStateTemplateUpdate } from "../document-states.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
 
@@ -24,7 +25,8 @@ export function handleOpenOnboarding(
 	const doc = onboardingDocument(ctx, onboardingLocale(msg.lang));
 	const state: WorkspaceStateSignal = {
 		type: "state",
-		doc: ctx.documents.lightView(doc),
+		doc: ctx.documents.lightView(ctx.documentRenderer.render(doc)),
+		documentState: ctx.documentRenderer.stateView(doc),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),
@@ -98,6 +100,11 @@ export function handleTextEdit(
 		log(`[text_edit] FAIL: doc not found: ${msg.docName}`);
 		return;
 	}
+	if (d.meta?.locked === true) {
+		log(`[text_edit] FAIL: document is locked: ${msg.docName}`);
+		ctx.broadcastState(d);
+		return;
+	}
 	const pi = typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
 	const page = d.pages[pi];
 	if (!page?.html) {
@@ -114,7 +121,17 @@ export function handleTextEdit(
 		`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
 	);
 	el.innerHTML = (msg.html as string).replace(/<style[\s\S]*?<\/style>/gi, "");
-	page.html = stripActiveHtml(dom.body.innerHTML);
+	const nextHtml = stripActiveHtml(dom.body.innerHTML);
+	try {
+		validateStateTemplateUpdate(d, ctx.store, nextHtml);
+	} catch (error) {
+		log(
+			`[text_edit] FAIL: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		ctx.broadcastState(d);
+		return;
+	}
+	page.html = nextHtml;
 	log(`[text_edit] updated page.html length: ${page.html.length}`);
 	ctx.documents.persist(d.name);
 	ctx.broadcastState(d);

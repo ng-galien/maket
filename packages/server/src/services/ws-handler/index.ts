@@ -40,6 +40,7 @@ import {
 	handleUpdateCanvas,
 	handleUpdateMeta,
 } from "./document-commands.js";
+import { handleStatePatch } from "./state-commands.js";
 import {
 	handleLayoutReport,
 	handleOpenOnboarding,
@@ -50,7 +51,17 @@ import {
 export type { WorkspaceCommandHandler, WsHandlerDeps } from "./context.js";
 
 export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
-	const { assets, bus, documents, pending, store, wsBridge, wsRegistry } = deps;
+	const {
+		assets,
+		bus,
+		documentRenderer,
+		documentStates,
+		documents,
+		pending,
+		store,
+		wsBridge,
+		wsRegistry,
+	} = deps;
 	const collections =
 		deps.collections ?? createCollections({ bus, documents, store });
 	const collectionCursors =
@@ -61,6 +72,8 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		bus,
 		collections,
 		collectionCursors,
+		documentRenderer,
+		documentStates,
 		documents,
 		pending,
 		store,
@@ -153,6 +166,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "text_edit":
 			handleTextEdit(ctx, msg);
+			break;
+		case "state_patch":
+			handleStatePatch(ctx, msg, ws);
 			break;
 		case "check_layout_response":
 			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);

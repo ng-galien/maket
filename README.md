@@ -69,6 +69,10 @@ Collections turn a page into a reusable template for product labels, event badge
 
 The Collections workspace and `maket_collection` tool both support schema changes, row insertion/update/delete, paste-oriented tabular editing, and validation feedback. Maket validates the schema, every row, and every placeholder before rendering. In the preview you can keep the raw template visible, inspect one selected row, or display the complete generated series; print and PDF output expand the bound page across all rows.
 
+The runtime contract for document-owned persistent state and standard HTML
+controls is documented in
+[Document-state HTML binding contract](docs/document-state-bindings.md).
+
 ```text
 You    — crée une série d'étiquettes produit avec le nom et le prix
 

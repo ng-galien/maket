@@ -3,7 +3,7 @@ import {
 	collectionCursorKey,
 	type PageCollectionCursor,
 } from "@maket/shared";
-import { X } from "lucide-react";
+import { History, X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
 import type { DraftCursorOverride } from "../store/useStore";
@@ -289,6 +289,15 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					<span className="text-2xs text-text-3 shrink-0">
 						{doc.canvas.format} · {doc.pages.length}p
 					</span>
+					{doc.dataModel === "state" && (
+						<span
+							title={t("state_document_badge_label")}
+							className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-2xs font-bold text-accent shrink-0"
+						>
+							<History size={10} />
+							{t("state_document_badge")}
+						</span>
+					)}
 					{doc.meta?.emailDraftUrl && (
 						<DraftPill
 							kind={

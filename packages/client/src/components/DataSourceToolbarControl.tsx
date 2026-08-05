@@ -155,7 +155,7 @@ function useDataSourceControlModel(): DataSourceControlModel | null {
 	useCloseAddonOnOutsideInteraction(open, rootRef, addonRef, close);
 	useToolbarAnchor(open, position, rootRef, setAnchorOffset);
 
-	if (!focusedDoc || !page) return null;
+	if (!focusedDoc || !page || focusedDoc.dataModel === "state") return null;
 
 	const toggleAddon = () =>
 		setOpen((wasOpen) => {

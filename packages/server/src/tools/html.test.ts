@@ -104,6 +104,118 @@ describe("maket_html — action=set", () => {
 		store.close();
 	});
 
+	it("rejects an invalid state template before changing the page", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const doc = makeDoc("living", '<div data-id="a">{{ state.title }}</div>');
+		store.saveDoc(doc);
+		store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Original" },
+		);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const result = await tool.handler(
+			{
+				action: "set",
+				doc: "living",
+				page: 1,
+				html: '<div data-id="a">{{ page.number }}</div>',
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(documents.resolve("living")?.pages[0]?.html).toContain(
+			"{{ state.title }}",
+		);
+		expect(store.loadOne("living")?.pages[0]?.html).toContain(
+			"{{ state.title }}",
+		);
+		store.close();
+	});
+
+	it("rejects an incompatible state control before changing the page", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const doc = makeDoc("living", '<div data-id="a">{{ state.title }}</div>');
+		store.saveDoc(doc);
+		store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Original" },
+		);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const result = await tool.handler(
+			{
+				action: "set",
+				doc: "living",
+				page: 1,
+				html: '<label data-id="a"><input type="checkbox" data-maket-bind="state.title">Title</label>',
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0]).toMatchObject({
+			text: expect.stringContaining("requires a boolean"),
+		});
+		expect(store.loadOne("living")?.pages[0]?.html).toContain(
+			"{{ state.title }}",
+		);
+		store.close();
+	});
+
+	it("rejects an incomplete state select before changing the page", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const doc = makeDoc("living", '<div data-id="a">{{ state.status }}</div>');
+		store.saveDoc(doc);
+		store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: {
+					status: { type: "string", enum: ["todo", "done"] },
+				},
+				required: ["status"],
+			},
+			{ status: "todo" },
+		);
+		doc.dataModel = "state";
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const result = await tool.handler(
+			{
+				action: "set",
+				doc: "living",
+				page: 1,
+				html: '<select data-id="a" data-maket-bind="state.status"><option value="todo">À faire</option></select>',
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0]).toMatchObject({
+			text: expect.stringContaining("exactly one selectable option"),
+		});
+		expect(store.loadOne("living")?.pages[0]?.html).toContain(
+			"{{ state.status }}",
+		);
+		store.close();
+	});
+
 	it("errors when page out of range", async () => {
 		const { store, documents, layout, assets } = fixture();
 		store.saveDoc(makeDoc("d"));

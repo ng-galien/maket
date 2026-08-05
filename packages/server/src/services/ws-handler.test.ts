@@ -10,11 +10,13 @@ import { join } from "node:path";
 import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
-import { computeCanvasDims, createDocument } from "../types.js";
+import { computeCanvasDims, createDocument, type Document } from "../types.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
 import { createCollectionCursors } from "./collection-cursor.js";
 import { createCollections } from "./collections.js";
+import type { DocumentRenderer } from "./document-renderer.js";
+import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
@@ -35,10 +37,17 @@ function makeDoc(name: string) {
 	});
 }
 
-function fixture() {
+function rendererStub(
+	render: (doc: Document) => Document = (doc) => doc,
+): DocumentRenderer {
+	return { render, stateView: () => null, statePages: () => [] };
+}
+
+function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
+	const documentStates = createDocumentStates({ store, documents, bus });
 	const pending = createPending({ bus });
 	const wsRegistry = createWsRegistry();
 	const wsBridge = createWsBridge({ bus });
@@ -47,6 +56,8 @@ function fixture() {
 	const handler = createWsHandler({
 		assets,
 		bus,
+		documentRenderer: opts.documentRenderer ?? rendererStub(),
+		documentStates,
 		documents,
 		pending,
 		store,
@@ -57,6 +68,7 @@ function fixture() {
 		store,
 		bus,
 		documents,
+		documentStates,
 		pending,
 		handler,
 		wsBridge,
@@ -126,6 +138,210 @@ describe("ws-handler — sync_pending", () => {
 
 		expect(pending.forDoc("a")).toEqual([]);
 		expect(pending.forDoc("b").map((m) => m.id)).toEqual(["2"]);
+		dispose();
+	});
+});
+
+describe("ws-handler — living document state", () => {
+	it("replaces one terminal value and acknowledges the resulting revision", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = makeDoc("checklist");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<input type="checkbox" data-maket-bind="state.done">';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"checklist",
+			{
+				type: "object",
+				properties: { done: { type: "boolean" } },
+				required: ["done"],
+			},
+			{ done: false },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-1",
+				docName: "checklist",
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/done", value: true },
+			},
+			ws,
+		);
+
+		expect(documentStates.get("checklist")?.current).toMatchObject({
+			revision: 2,
+			data: { done: true },
+		});
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
+			type: "state_patch_result",
+			requestId: "request-1",
+			ok: true,
+			revision: 2,
+		});
+		dispose();
+	});
+
+	it("replaces text and select string values through the same terminal endpoint", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = makeDoc("form-controls");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<input type="text" data-maket-bind="state.title"><select data-maket-bind="state.status"><option value="todo">À faire</option><option value="done">Fait</option></select>';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"form-controls",
+			{
+				type: "object",
+				properties: {
+					title: { type: "string" },
+					status: { type: "string", enum: ["todo", "done"] },
+				},
+				required: ["title", "status"],
+			},
+			{ title: "Opening", status: "todo" },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-title",
+				docName: "form-controls",
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/title", value: "Closing" },
+			},
+			ws,
+		);
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-status",
+				docName: "form-controls",
+				expectedRevision: 2,
+				operation: { op: "replace", path: "/status", value: "done" },
+			},
+			ws,
+		);
+
+		expect(documentStates.get("form-controls")?.current).toMatchObject({
+			revision: 3,
+			data: { title: "Closing", status: "done" },
+		});
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+			requestId: "request-title",
+			ok: true,
+			revision: 2,
+		});
+		expect(JSON.parse(ws.send.mock.calls[1][0])).toMatchObject({
+			requestId: "request-status",
+			ok: true,
+			revision: 3,
+		});
+		dispose();
+	});
+
+	it("rejects terminal paths that are not exposed by an active binding", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = makeDoc("conditional-form");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'{{#state.visible}}<input type="text" data-maket-bind="state.secret">{{/state.visible}}';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"conditional-form",
+			{
+				type: "object",
+				properties: {
+					visible: { type: "boolean" },
+					secret: { type: "string" },
+				},
+				required: ["visible", "secret"],
+			},
+			{ visible: false, secret: "private" },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-hidden",
+				docName: "conditional-form",
+				expectedRevision: 1,
+				operation: {
+					op: "replace",
+					path: "/secret",
+					value: "exposed",
+				},
+			},
+			ws,
+		);
+
+		expect(documentStates.get("conditional-form")?.current).toMatchObject({
+			revision: 1,
+			data: { visible: false, secret: "private" },
+		});
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+			type: "state_patch_result",
+			requestId: "request-hidden",
+			ok: false,
+			error: expect.stringMatching(/not exposed by an active document binding/),
+		});
+		dispose();
+	});
+
+	it("rejects a stale terminal patch without changing authoritative state", () => {
+		const { store, bus, documents, documentStates, handler, dispose } =
+			fixture();
+		const doc = makeDoc("checklist");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<input type="checkbox" data-maket-bind="state.done">';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"checklist",
+			{
+				type: "object",
+				properties: { done: { type: "boolean" } },
+				required: ["done"],
+			},
+			{ done: false },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+		const rebroadcast = vi.fn();
+		bus.on("document:saved", rebroadcast);
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-stale",
+				docName: "checklist",
+				expectedRevision: 2,
+				operation: { op: "replace", path: "/done", value: true },
+			},
+			ws,
+		);
+
+		expect(documentStates.get("checklist")?.current).toMatchObject({
+			revision: 1,
+			data: { done: false },
+		});
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toMatchObject({
+			type: "state_patch_result",
+			requestId: "request-stale",
+			ok: false,
+			error: expect.stringMatching(/expected 2, current 1/),
+		});
+		expect(rebroadcast).toHaveBeenCalledWith({ docName: "checklist" });
 		dispose();
 	});
 });
@@ -227,6 +443,38 @@ describe("ws-handler — document and canvas flows", () => {
 		expect(payload.doc.name).toBe("lazy");
 		expect(payload.addToWorkspace).toBe(true);
 		expect(payload.focus).toBe(true);
+		dispose();
+	});
+
+	it("load_document sends the rendered projection without replacing the persisted template", () => {
+		const render = vi.fn((doc: Document) => ({
+			...doc,
+			pages: doc.pages.map((page) => ({
+				...page,
+				html: page.html?.replace("{{ state.title }}", "Ready"),
+			})),
+		}));
+		const { store, handler, dispose } = fixture({
+			documentRenderer: rendererStub(render),
+		});
+		const doc = makeDoc("living");
+		doc.dataModel = "state";
+		const page = doc.pages[0];
+		if (!page) throw new Error("living fixture requires one page");
+		page.html = '<h1 data-id="title">{{ state.title }}</h1>';
+		store.saveDoc(doc);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler({ type: "load_document", name: "living" }, ws);
+
+		const payload = JSON.parse(String(ws.send.mock.calls[0]?.[0])) as {
+			doc: Document;
+		};
+		expect(render).toHaveBeenCalledOnce();
+		expect(payload.doc.pages[0]?.html).toContain("Ready");
+		expect(store.loadOne("living")?.pages[0]?.html).toContain(
+			"{{ state.title }}",
+		);
 		dispose();
 	});
 
@@ -597,6 +845,84 @@ describe("ws-handler — text editing", () => {
 		expect(saved).not.toContain("javascript:");
 		expect(documents.resolve("editor")?.pages[1]?.html).toContain("untouched");
 		expect(savedEvt).toHaveBeenCalledWith({ docName: "editor" });
+		dispose();
+	});
+
+	it("rejects invalid state-template edits without changing persisted html", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = createDocument({
+			name: "state-editor",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					name: "P1",
+					elements: [],
+					html: '<div data-id="a">{{ state.title }}</div>',
+				},
+			],
+		});
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"state-editor",
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Original" },
+		);
+
+		handler(
+			{
+				type: "text_edit",
+				docName: "state-editor",
+				pageIndex: 0,
+				elementId: "a",
+				html: "{{ page.number }}",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("state-editor")?.pages[0]?.html).toBe(
+			'<div data-id="a">{{ state.title }}</div>',
+		);
+		expect(store.loadOne("state-editor")?.pages[0]?.html).toBe(
+			'<div data-id="a">{{ state.title }}</div>',
+		);
+		dispose();
+	});
+
+	it("rejects text edits on locked documents", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const doc = makeDoc("locked-editor");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<div data-id="a">Original</div>';
+		doc.meta.locked = true;
+		store.saveDoc(doc);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "text_edit",
+				docName: "locked-editor",
+				pageIndex: 0,
+				elementId: "a",
+				html: "Changed",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadOne("locked-editor")?.pages[0]?.html).toContain(
+			"Original",
+		);
 		dispose();
 	});
 
@@ -985,6 +1311,8 @@ describe("ws-handler — collection cursor", () => {
 			bus: base.bus,
 			collections,
 			collectionCursors,
+			documentRenderer: rendererStub(),
+			documentStates: base.documentStates,
 			documents: base.documents,
 			pending: base.pending,
 			store: base.store,

@@ -94,6 +94,20 @@ export const ACTIVITY_POLICIES = {
 			},
 		},
 	},
+	maket_state: {
+		icon: "history",
+		actions: {
+			init: null,
+			get: null,
+			update: null,
+			patch: null,
+			validate_schema: null,
+			change_schema: null,
+			history: null,
+			revision: null,
+			restore: null,
+		},
+	},
 	maket_learn: {
 		icon: "graduation-cap",
 		key: null,

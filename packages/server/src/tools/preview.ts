@@ -25,6 +25,7 @@ import { waitForPageStable } from "../lib/page-stable-wait.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Config } from "../services/config.js";
+import type { DocumentRenderer } from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
 import { text } from "./_helpers.js";
 
@@ -32,6 +33,7 @@ export interface PreviewDeps {
 	documents: Documents;
 	config: Config;
 	assets: AssetsService;
+	documentRenderer?: Pick<DocumentRenderer, "render">;
 }
 
 function safeFilename(name: string): string {
@@ -66,6 +68,9 @@ const DESCRIPTION = [
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 	const { documents, config, assets } = deps;
+	const documentRenderer = deps.documentRenderer ?? {
+		render: (doc: import("../types.js").Document) => doc,
+	};
 	return {
 		metadata: {
 			name: "maket_preview",
@@ -75,7 +80,7 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 		handler: async (rawArgs) => {
 			const args = MaketPreviewSchema.parse(rawArgs);
 			if (args.action === "open") return runOpen(config);
-			return runSnapshot(args, documents, config, assets);
+			return runSnapshot(args, documents, config, assets, documentRenderer);
 		},
 	};
 }
@@ -103,14 +108,16 @@ async function runSnapshot(
 	documents: Documents,
 	config: Config,
 	assets: AssetsService,
+	documentRenderer: Pick<DocumentRenderer, "render">,
 ): Promise<ToolResult> {
 	if (!args.doc) return text("doc is required for action=snapshot", true);
 	if (args.page == null)
 		return text("page is required for action=snapshot", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	const rendered = documentRenderer.render(d);
 	const pageIdx = args.page - 1;
-	const page = d.pages[pageIdx];
+	const page = rendered.pages[pageIdx];
 	if (!page)
 		return text(`Page ${args.page} not found (${d.pages.length} pages)`, true);
 	const html = page.html;
@@ -120,7 +127,7 @@ async function runSnapshot(
 			true,
 		);
 
-	const { w, h } = d.canvas;
+	const { w, h } = rendered.canvas;
 	const inlinedHtml = await inlineImages(html, {
 		assetsDir: config.ASSETS_DIR,
 		pageMm: { w, h },
@@ -128,7 +135,7 @@ async function runSnapshot(
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
 
-	const charteCss = documents.charteCss(d);
+	const charteCss = documents.charteCss(rendered);
 	const safeCharteCss = stripStyleClose(charteCss);
 	const safeBg = escapeCssValue(d.canvas.bg || "#ffffff");
 	const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
@@ -181,7 +188,7 @@ async function runSnapshot(
 export const previewPack: ToolPack = {
 	id: "preview",
 	name: "Preview",
-	requires: ["documents", "config", "assets"],
+	requires: ["documents", "config", "assets", "documentRenderer"],
 	declaresTools: ["maket_preview"],
 	register(container) {
 		container.register({

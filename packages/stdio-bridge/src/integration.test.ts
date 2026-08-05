@@ -1,6 +1,6 @@
 /**
  * Integration test: spawns a real Maket server subprocess, then exercises the
- * JSON-RPC proxy end-to-end. Validates that a Claude Desktop stdio client
+ * JSON-RPC proxy end-to-end. Validates that a desktop MCP stdio client
  * would receive correct MCP responses through the bridge.
  */
 

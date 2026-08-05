@@ -120,6 +120,9 @@ export function createMaketPageTool(deps: PagesDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketPageSchema>;
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Page creation is MCP adapter orchestration across normalization, guarded
+// persistence, and the post-commit bus notification.
 function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=add", true);
 	if (args.html == null) return text("html is required for action=add", true);
@@ -131,7 +134,11 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 	};
 	d.pages.push(page);
 	d.activePage = d.pages.length - 1;
-	documents.persist(d.name);
+	try {
+		documents.persist(d.name);
+	} catch (error) {
+		return text(error instanceof Error ? error.message : String(error), true);
+	}
 	const count = (args.html.match(/data-id=/g) || []).length;
 	bus.emit("document:loaded", { docName: d.name });
 	return text(

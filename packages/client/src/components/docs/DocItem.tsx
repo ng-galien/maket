@@ -1,5 +1,5 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { FileText, Lock } from "lucide-react";
+import { FileText, History, Lock } from "lucide-react";
 import { useRef } from "react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
@@ -295,10 +295,20 @@ export function DocCardSummary({
 }
 
 export function DocCardMetadata({ doc }: { doc: DocSummary }) {
+	const t = useT();
 	return (
 		<div className="flex items-center gap-1 text-2xs text-text-3">
 			<span className="font-bold">{doc.format}</span>
 			<span>{doc.pageCount ?? 1}p</span>
+			{doc.dataModel === "state" && (
+				<span
+					title={t("state_document_badge_label")}
+					className="inline-flex items-center gap-0.5 font-bold text-accent"
+				>
+					<History size={9} />
+					{t("state_document_badge")}
+				</span>
+			)}
 			{(doc.rating ?? 0) > 0 && (
 				<span className="text-amber-500">★{doc.rating}</span>
 			)}
@@ -389,10 +399,20 @@ function CharteDot({ doc }: { doc: DocSummary }) {
 }
 
 export function DocRowMetadata({ doc }: { doc: DocSummary }) {
+	const t = useT();
 	return (
 		<div className="flex items-center gap-1.5 mt-0.5 text-2xs text-text-3">
 			<span className="font-bold">{doc.format}</span>
 			<span>{doc.pageCount ?? 1}p</span>
+			{doc.dataModel === "state" && (
+				<span
+					title={t("state_document_badge_label")}
+					className="inline-flex items-center gap-0.5 font-bold text-accent"
+				>
+					<History size={9} />
+					{t("state_document_badge")}
+				</span>
+			)}
 			{(doc.rating ?? 0) > 0 && <DocRating rating={doc.rating ?? 0} />}
 			<DocDraftPill doc={doc} />
 			{doc.updatedAt && <DocUpdatedAt doc={doc} />}

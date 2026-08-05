@@ -19,6 +19,7 @@ import { mermaidPack } from "./tools/mermaid.js";
 import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
+import { statePack } from "./tools/state.js";
 import { workspacePack } from "./tools/workspace.js";
 
 describe("createAppContainer", () => {
@@ -124,6 +125,7 @@ describe("registerToolPacks", () => {
 		assetsPack,
 		chartesPack,
 		collectionsPack,
+		statePack,
 		learnPack,
 		pagesPack,
 		documentsPack,
@@ -140,6 +142,7 @@ describe("registerToolPacks", () => {
 		assets: {},
 		chartes: {},
 		collections: {},
+		state: {},
 		learn: {},
 		pages: {},
 		documents: {},

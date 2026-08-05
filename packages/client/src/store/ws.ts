@@ -1,6 +1,7 @@
 import type {
 	ActivityKey,
 	Collection,
+	DocumentStateClientView,
 	LayoutReportCommand,
 	WorkspaceCommand,
 	WorkspaceSignal,
@@ -10,7 +11,7 @@ import en from "../i18n/en.json";
 import fr from "../i18n/fr.json";
 import { getLang } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
-import { useStore } from "./useStore";
+import { hasPendingStatePatchForDocument, useStore } from "./useStore";
 import { fitToDoc, fitToView } from "./zoomBridge";
 
 const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
@@ -38,6 +39,46 @@ export function sendTextEdit(
 	html: string,
 ): void {
 	wsSend({ type: "text_edit", docName, pageIndex, elementId, html });
+}
+
+export function sendStateValuePatch(
+	docName: string,
+	pointer: string,
+	expectedRevision: number,
+	value: null | string | number | boolean,
+): string | null {
+	if (
+		hasPendingStatePatchForDocument(
+			useStore.getState().statePatchPending,
+			docName,
+		)
+	) {
+		return null;
+	}
+	const requestId = crypto.randomUUID();
+	const sent = wsSend({
+		type: "state_patch",
+		requestId,
+		docName,
+		expectedRevision,
+		operation: { op: "replace", path: pointer, value },
+	});
+	if (!sent) {
+		useStore.getState().beginStatePatch(docName, pointer, requestId);
+		useStore
+			.getState()
+			.settleStatePatch(requestId, "State update could not be sent.");
+		return null;
+	}
+	useStore.getState().beginStatePatch(docName, pointer, requestId);
+	setTimeout(
+		() =>
+			useStore
+				.getState()
+				.timeoutStatePatch(requestId, "State update timed out."),
+		10_000,
+	);
+	return requestId;
 }
 
 /** Find the page canvas element by doc name + page index, with progressive fallback */
@@ -338,6 +379,7 @@ function handleWsOpen(): void {
 
 function handleWsClose(): void {
 	useStore.getState().setConnected(false);
+	useStore.getState().clearStatePatches();
 	ws = null;
 	setTimeout(connect, 2000);
 }
@@ -356,6 +398,27 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 	switch (msg.type) {
 		case "state":
 			applyStateMessage(msg);
+			break;
+		case "state_pages":
+			useStore
+				.getState()
+				.applyStatePages(
+					msg.docName,
+					msg.pages,
+					msg.documentState,
+					(msg.docList ?? []) as DocSummary[],
+				);
+			break;
+		case "state_patch_result":
+			useStore
+				.getState()
+				.settleStatePatch(
+					msg.requestId,
+					msg.ok ? undefined : (msg.error ?? "State update failed."),
+				);
+			if (!msg.ok) {
+				spawnToast(msg.error ?? "State update failed.", "error", 4000);
+			}
 			break;
 		case "toast":
 			spawnToast(msg.text, msg.level, msg.duration);
@@ -421,6 +484,14 @@ function applyStateMessage(
 		initialStateReceived = true;
 		useStore.setState({ docList });
 		return;
+	}
+	if (msg.documentState !== undefined) {
+		useStore
+			.getState()
+			.setDocumentState(
+				doc.name,
+				(msg.documentState as DocumentStateClientView | null) ?? null,
+			);
 	}
 	if (!initialStateReceived)
 		applyInitialState(doc, docList, msg.charteCss || "");
@@ -515,10 +586,12 @@ function applyAckMessages(idsList: string[]): void {
 	}
 }
 
-export function wsSend(msg: WorkspaceCommand): void {
+export function wsSend(msg: WorkspaceCommand): boolean {
 	if (ws && ws.readyState === 1) {
 		ws.send(JSON.stringify(msg));
+		return true;
 	}
+	return false;
 }
 
 export function sendLoadDoc(name: string): void {

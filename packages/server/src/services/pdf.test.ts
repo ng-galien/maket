@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Document } from "../types.js";
 import { createAssetsService } from "./assets.js";
 import type { Config } from "./config.js";
+import { createDocumentRenderer } from "./document-renderer.js";
 import { createDocuments } from "./documents.js";
 import {
 	boxShadowToDropShadow,
@@ -12,6 +13,7 @@ import {
 	buildShadowVarMap,
 	createPdfService,
 } from "./pdf.js";
+import { createStateRenderer } from "./state-renderer.js";
 import { createSQLiteStore } from "./store.js";
 
 function fixture() {
@@ -123,6 +125,87 @@ describe("buildPrintHtml", () => {
 });
 
 describe("PdfService.render", () => {
+	it("passes hydrated native control state into the PDF page", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "maket-pdf-state-"));
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const assets = createAssetsService({ assetsDir: tmp });
+		const setContent = vi.fn(async (_html: string, _options?: unknown) => {});
+		const page = {
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setContent,
+			evaluate: vi.fn(async () => {}),
+			pdf: vi.fn(async () => new Uint8Array([1, 2, 3])),
+			close: vi.fn(async () => {}),
+		};
+		const doc = makeDoc({
+			dataModel: "state",
+			pages: [
+				{
+					id: "page-p",
+					name: "P",
+					elements: [],
+					html: '<input type="checkbox" data-maket-bind="state.done"><input type="text" data-maket-bind="state.title"><select data-maket-bind="state.status"><option value="open">Ouvert</option><option value="complete">Terminé</option></select>',
+				},
+			],
+		});
+		const schema = {
+			type: "object",
+			properties: {
+				done: { type: "boolean" },
+				title: { type: "string" },
+				status: { type: "string", enum: ["open", "complete"] },
+			},
+			required: ["done", "title", "status"],
+		};
+		const stateRenderer = createStateRenderer({
+			documentStates: {
+				get: () => ({
+					definition: { documentId: doc.id, schema, createdAt: "" },
+					current: {
+						documentId: doc.id,
+						revision: 1,
+						schema,
+						data: { done: true, title: "Site audit", status: "complete" },
+						createdAt: "",
+					},
+				}),
+			},
+		});
+		const documentRenderer = createDocumentRenderer({
+			collectionRenderer: { render: (value) => value },
+			stateRenderer,
+		});
+		const service = createPdfService({
+			documents,
+			config: { ASSETS_DIR: tmp } as unknown as Config,
+			assets,
+			documentRenderer,
+			browserPool: {
+				get: async () => ({ newPage: async () => page }) as never,
+				dispose: async () => {},
+			},
+		});
+
+		await service.render(doc);
+
+		const pdfHtml = setContent.mock.calls[0]?.[0];
+		expect(pdfHtml).toMatch(/<input[^>]*data-maket-path="\/done"[^>]* checked/);
+		expect(pdfHtml).toMatch(
+			/<input[^>]*type="text"[^>]*data-maket-path="\/title"[^>]*value="Site audit"/,
+		);
+		expect(pdfHtml).toContain(
+			'<option value="complete" selected>Terminé</option>',
+		);
+		expect(setContent).toHaveBeenCalledWith(
+			expect.any(String),
+			expect.objectContaining({ waitUntil: "networkidle0" }),
+		);
+		store.close();
+		rmSync(tmp, { recursive: true, force: true });
+	});
+
 	it("rejects documents with no page HTML", async () => {
 		const { service, cleanup } = fixture();
 		await expect(service.render(makeDoc())).rejects.toThrow(
@@ -164,7 +247,7 @@ describe("PdfService.render", () => {
 					get: async () => Promise.reject(new Error("stop")),
 					dispose: async () => {},
 				},
-				collections: { renderDocument },
+				documentRenderer: { render: renderDocument },
 				collectionCursors: {
 					resolve: (docName, pageIndex) => ({
 						docName,
@@ -182,6 +265,7 @@ describe("PdfService.render", () => {
 			},
 		);
 		const doc = makeDoc({
+			dataModel: "collection",
 			pages: [
 				{
 					id: "page-p",
@@ -195,14 +279,18 @@ describe("PdfService.render", () => {
 
 		await expect(service.render(doc)).rejects.toThrow(/no browser in tests/);
 		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
-			pages: { "page-p": { mode: "rendered", memberId: "member_2" } },
+			collection: {
+				pages: { "page-p": { mode: "rendered", memberId: "member_2" } },
+			},
 		});
 
 		await expect(service.render(doc, "print", "all")).rejects.toThrow(
 			/no browser in tests/,
 		);
 		expect(renderDocument).toHaveBeenLastCalledWith(doc, {
-			pages: { "page-p": { mode: "all", memberId: "member_2" } },
+			collection: {
+				pages: { "page-p": { mode: "all", memberId: "member_2" } },
+			},
 		});
 		store.close();
 		rmSync(tmp, { recursive: true, force: true });

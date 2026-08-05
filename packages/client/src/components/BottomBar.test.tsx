@@ -50,6 +50,10 @@ beforeEach(() => {
 		barPosition: "bottom",
 		darkMode: false,
 		readOnly: false,
+		documentStates: {},
+		stateCanvasModes: {},
+		statePatchPending: {},
+		statePatchErrors: {},
 	});
 });
 
@@ -74,6 +78,33 @@ describe("BottomBar", () => {
 		const print = screen.getByRole("link");
 		expect(print).toHaveAttribute("href", "/print?name=my-flyer");
 		expect(print).toHaveAttribute("target", "_blank");
+	});
+
+	it("shows explicit live/template modes instead of the collection control", async () => {
+		const user = userEvent.setup();
+		const doc = makeDoc("living-checklist");
+		doc.dataModel = "state";
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			focusedDocName: doc.name,
+			collections: [clientsCollection],
+		});
+
+		render(<BottomBar />);
+
+		expect(
+			screen.getByRole("group", { name: "Living document mode" }),
+		).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Live" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		expect(
+			screen.queryByRole("button", { name: "Link data" }),
+		).not.toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Template" }));
+		expect(useStore.getState().stateCanvasModes[doc.name]).toBe("design");
 	});
 
 	it("URL-encodes the doc name in the Print href", () => {
@@ -142,7 +173,7 @@ describe("BottomBar", () => {
 
 	it("binds a collection to the active page without optimistic state", async () => {
 		const user = userEvent.setup();
-		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => true);
 		const doc = makeDoc("poster");
 		useStore.setState({
 			docs: new Map([["poster", doc]]),
@@ -170,7 +201,7 @@ describe("BottomBar", () => {
 
 	it("keeps detach explicit and scoped to the active page", async () => {
 		const user = userEvent.setup();
-		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => true);
 		const doc = makeDoc("poster");
 		doc.pages[0].collection = { name: "clients" };
 		useStore.setState({
@@ -196,7 +227,7 @@ describe("BottomBar", () => {
 
 	it("sends cursor moves to the server and opens the bound collection workspace", async () => {
 		const user = userEvent.setup();
-		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => true);
 		const doc = makeDoc("poster");
 		doc.pages[0].collection = { name: "clients" };
 		useStore.setState({
@@ -333,7 +364,7 @@ describe("BottomBar", () => {
 
 	it("opens the built-in help document", async () => {
 		const user = userEvent.setup();
-		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => {});
+		const send = vi.spyOn(wsClient, "wsSend").mockImplementation(() => true);
 		render(<BottomBar />);
 		await user.click(screen.getByRole("button", { name: /help|aide/i }));
 		expect(send).toHaveBeenCalledWith({ type: "open_onboarding", lang: "en" });

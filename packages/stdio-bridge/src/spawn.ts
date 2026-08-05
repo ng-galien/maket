@@ -19,7 +19,7 @@ export interface EnsureServerOpts {
 
 /**
  * Resolve a real `node` binary when the current process is Electron running
- * with ELECTRON_RUN_AS_NODE=1 (Claude Desktop case). Spawning the server with
+ * with ELECTRON_RUN_AS_NODE=1 (desktop MCP host case). Spawning the server with
  * Electron would trigger a 10-15s cold start from helper-app/crashpad spam;
  * falling back to system Node boots in <1s.
  *
@@ -54,7 +54,7 @@ export function findSystemNode(env = process.env): string | null {
 /**
  * True when process.execPath is NOT a real `node` binary — signals that the
  * server child must be spawned with a system Node to avoid slow/flaky
- * Electron/Claude-Helper cold starts. Desktop does not reliably set
+ * Electron helper cold starts. Desktop hosts do not reliably set
  * ELECTRON_RUN_AS_NODE in the child env, so path-name matching is used.
  */
 function isNonNodeHost(): boolean {

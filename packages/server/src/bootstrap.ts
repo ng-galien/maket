@@ -20,8 +20,11 @@ import { createAssetsService } from "./services/assets.js";
 import { createBrowserPool } from "./services/browser-pool.js";
 import { createBus } from "./services/bus.js";
 import { createCollectionCursors } from "./services/collection-cursor.js";
+import { createCollectionRenderer } from "./services/collection-renderer.js";
 import { createCollections } from "./services/collections.js";
 import { type Config, createConfig, ensureDirs } from "./services/config.js";
+import { createDocumentRenderer } from "./services/document-renderer.js";
+import { createDocumentStates } from "./services/document-states.js";
 import { createDocuments, type Documents } from "./services/documents.js";
 import {
 	createGmailClient,
@@ -30,6 +33,7 @@ import {
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
 import { createPending } from "./services/pending.js";
+import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
 import { createWsBridge } from "./services/ws-bridge.js";
@@ -82,6 +86,14 @@ export function createAppContainer(
 		pending: asFunction(createPending).singleton(),
 
 		collections: asFunction(createCollections).singleton(),
+
+		collectionRenderer: asFunction(createCollectionRenderer).singleton(),
+
+		documentStates: asFunction(createDocumentStates).singleton(),
+
+		stateRenderer: asFunction(createStateRenderer).singleton(),
+
+		documentRenderer: asFunction(createDocumentRenderer).singleton(),
 
 		collectionCursors: asFunction(createCollectionCursors).singleton(),
 

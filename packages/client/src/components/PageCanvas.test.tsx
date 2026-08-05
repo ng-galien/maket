@@ -2,7 +2,7 @@ import type { Collection } from "@maket/shared";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "../store/types";
-import { useStore } from "../store/useStore";
+import { statePatchKey, useStore } from "../store/useStore";
 import * as ws from "../store/ws";
 import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 
@@ -27,6 +27,11 @@ afterEach(() => {
 		showPopover: false,
 		collections: [],
 		collectionCursors: {},
+		documentStates: {},
+		stateCanvasModes: {},
+		statePatchPending: {},
+		statePatchRequests: {},
+		statePatchErrors: {},
 	});
 });
 
@@ -48,6 +53,398 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(useStore.getState().selectedIds).toEqual(["a"]);
 		expect(document.querySelector(".element-toolbar")).not.toBeNull();
 		expect(target.classList.contains("selected")).toBe(true);
+	});
+
+	it("keeps state-backed live layout passive without selecting elements", async () => {
+		const doc = makeDoc('<p data-id="a">Rendered state</p>');
+		doc.dataModel = "state";
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		const canvas = container.querySelector(".page-canvas");
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+		await act(async () => {
+			fireEvent.click(target);
+		});
+
+		expect(canvas).toHaveAttribute("data-document-mode", "state");
+		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+		expect(target).not.toHaveClass("selected");
+	});
+
+	it("patches a native checkbox from its change event and current revision", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-1");
+		const doc = makeDoc(
+			'<label data-id="a"><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean"></label>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 4,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "{{ state.done }}" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		await act(async () => {
+			fireEvent.change(document.querySelector("input") as HTMLInputElement, {
+				target: { checked: true },
+			});
+		});
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/done", 4, true);
+		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
+	});
+
+	it("keeps text typing local and commits once on change or Enter", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-text");
+		const doc = makeDoc(
+			'<input type="text" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string" value="Before">',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before" },
+					revision: 5,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		const input = document.querySelector("input") as HTMLInputElement;
+
+		fireEvent.input(input, { target: { value: "Draft" } });
+		expect(sendPatch).not.toHaveBeenCalled();
+
+		fireEvent.change(input, { target: { value: "After blur" } });
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/title", 5, "After blur");
+
+		sendPatch.mockClear();
+		fireEvent.input(input, { target: { value: "After Enter" } });
+		fireEvent.keyDown(input, { key: "Enter" });
+		expect(sendPatch).toHaveBeenCalledTimes(1);
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/title", 5, "After Enter");
+		fireEvent.change(input, { target: { value: "After Enter" } });
+		expect(sendPatch).toHaveBeenCalledTimes(1);
+	});
+
+	it("cancels text edits on Escape and skips unchanged commits", () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<input type="text" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string" value="Before">',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before" },
+					revision: 5,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		const input = document.querySelector("input") as HTMLInputElement;
+
+		fireEvent.input(input, { target: { value: "Discard me" } });
+		fireEvent.keyDown(input, { key: "Escape" });
+		expect(input.value).toBe("Before");
+		fireEvent.change(input, { target: { value: "Before" } });
+		expect(sendPatch).not.toHaveBeenCalled();
+	});
+
+	it("patches a native select from its change event", () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-select");
+		const doc = makeDoc(
+			'<select data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: {
+						type: "object",
+						properties: {
+							status: { type: "string", enum: ["todo", "done"] },
+						},
+					},
+					data: { status: "todo" },
+					revision: 6,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.change(document.querySelector("select") as HTMLSelectElement, {
+			target: { value: "done" },
+		});
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/status", 6, "done");
+		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
+	});
+
+	it("edits one bound string through the small value editor", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-2");
+		const doc = makeDoc(
+			'<p data-id="a"><button type="button" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string">Before</button></p>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before" },
+					revision: 7,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "{{ state.title }}" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		await act(async () => {
+			fireEvent.click(
+				document.querySelector("[data-maket-bind]") as HTMLElement,
+			);
+		});
+		const input = document.querySelector(
+			"#maket-state-value",
+		) as HTMLInputElement;
+		expect(input).not.toBeNull();
+		fireEvent.change(input, { target: { value: "After" } });
+		fireEvent.submit(
+			document.querySelector("[data-state-value-editor]") as HTMLFormElement,
+		);
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/title", 7, "After");
+		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
+	});
+
+	it("edits a boolean button through the same single-value editor", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-boolean");
+		const doc = makeDoc(
+			'<button type="button" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean">Edit</button>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: true },
+					revision: 8,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.click(document.querySelector("[data-maket-bind]") as HTMLElement);
+		const editorInput = document.querySelector(
+			"#maket-state-value",
+		) as HTMLInputElement;
+		expect(editorInput).toBeChecked();
+		fireEvent.click(editorInput);
+		fireEvent.submit(
+			document.querySelector("[data-state-value-editor]") as HTMLFormElement,
+		);
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/done", 8, false);
+	});
+
+	it("exposes pending and error hooks and restores a failed checkbox", async () => {
+		const doc = makeDoc(
+			'<label data-id="a"><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean"></label>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 4,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		let input = document.querySelector("input") as HTMLInputElement;
+		input.checked = true;
+
+		act(() => useStore.getState().beginStatePatch(doc.name, "/done", "r1"));
+		input = document.querySelector("input") as HTMLInputElement;
+		expect(input).toHaveAttribute("data-maket-pending");
+
+		act(() => useStore.getState().settleStatePatch("r1", "revision conflict"));
+		input = document.querySelector("input") as HTMLInputElement;
+		expect(input).not.toBeChecked();
+		expect(input).toHaveAttribute("data-maket-error", "revision conflict");
+		expect(useStore.getState().statePatchErrors).toEqual({
+			[statePatchKey(doc.name, "/done")]: "revision conflict",
+		});
+	});
+
+	it("blocks every live control while one document patch is pending", () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<input type="text" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string" value="Before"><select data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before", status: "todo" },
+					revision: 4,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		act(() =>
+			useStore.getState().beginStatePatch(doc.name, "/title", "r-title"),
+		);
+		const select = container.querySelector("select") as HTMLSelectElement;
+		fireEvent.change(select, { target: { value: "done" } });
+
+		expect(sendPatch).not.toHaveBeenCalled();
+		expect(select.value).toBe("todo");
+		expect(container.querySelector(".page-canvas")).toHaveAttribute("inert");
+		expect(container.querySelector(".page-canvas")).toHaveAttribute(
+			"aria-busy",
+			"true",
+		);
+	});
+
+	it("restores failed text and select controls from authoritative state", () => {
+		const doc = makeDoc(
+			'<input type="text" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string" value="Before"><select data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before", status: "todo" },
+					revision: 4,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		let input = document.querySelector("input") as HTMLInputElement;
+		let select = document.querySelector("select") as HTMLSelectElement;
+		input.value = "Draft";
+		select.value = "done";
+
+		act(() => useStore.getState().beginStatePatch(doc.name, "/title", "rt"));
+		act(() => useStore.getState().settleStatePatch("rt", "invalid title"));
+		act(() => useStore.getState().beginStatePatch(doc.name, "/status", "rs"));
+		act(() => useStore.getState().settleStatePatch("rs", "revision conflict"));
+
+		input = document.querySelector("input") as HTMLInputElement;
+		select = document.querySelector("select") as HTMLSelectElement;
+		expect(input.value).toBe("Before");
+		expect(select.value).toBe("todo");
+		expect(input).toHaveAttribute("data-maket-error", "invalid title");
+		expect(select).toHaveAttribute("data-maket-error", "revision conflict");
+	});
+
+	it("renders and edits the raw Mustache template in design mode", async () => {
+		const doc = makeDoc('<p data-id="a">Rendered title</p>');
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Rendered title" },
+					revision: 1,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: {
+						[doc.pages[0]?.id ?? ""]: '<p data-id="a">{{ state.title }}</p>',
+					},
+				},
+			},
+			stateCanvasModes: { [doc.name]: "design" },
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		const target = document.querySelector('[data-id="a"]') as HTMLElement;
+		expect(target.textContent).toContain("{{ state.title }}");
+		await act(async () => fireEvent.click(target));
+		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+		expect(document.querySelector(".element-toolbar select")).toBeNull();
+	});
+
+	it("keeps a locked living document passive in both modes", async () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<label data-id="a"><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean"></label>',
+		);
+		doc.dataModel = "state";
+		doc.meta = { locked: true };
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 1,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: {
+						[doc.pages[0]?.id ?? ""]: '<p data-id="a">{{ state.done }}</p>',
+					},
+				},
+			},
+		});
+		const { rerender } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		await act(async () =>
+			fireEvent.change(document.querySelector("input") as HTMLInputElement, {
+				target: { checked: true },
+			}),
+		);
+		expect(sendPatch).not.toHaveBeenCalled();
+
+		useStore.getState().setStateCanvasMode(doc.name, "design");
+		rerender(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+		await act(async () =>
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement),
+		);
+		expect(document.querySelector(".element-toolbar")).toBeNull();
 	});
 
 	it("marks placeholders on collection-bound pages", () => {

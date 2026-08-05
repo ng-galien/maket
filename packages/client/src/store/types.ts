@@ -36,6 +36,8 @@ export interface Document {
 	id: string;
 	name: string;
 	category: string;
+	/** Absent on legacy viewer bundles; the client treats it as static. */
+	dataModel?: "static" | "collection" | "state";
 	canvas: Canvas;
 	pages: Page[];
 	activePage: number;
@@ -49,6 +51,8 @@ export interface DocSummary {
 	id: string;
 	name: string;
 	category: string;
+	/** Absent on summaries emitted by older Maket servers. */
+	dataModel?: "static" | "collection" | "state";
 	format: string;
 	pageCount: number;
 	elementCount: number;

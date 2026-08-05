@@ -351,6 +351,12 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=duplicate", true);
 	const sourceDoc = documents.resolve(args.doc);
 	if (!sourceDoc) return text(`Document "${args.doc}" not found`, true);
+	if (sourceDoc.dataModel === "state") {
+		return text(
+			"State-backed documents cannot be duplicated until state history is included in document cloning.",
+			true,
+		);
+	}
 	if (documents.all().has(args.name))
 		return text(`Document "${args.name}" already exists`, true);
 	const cloneData = structuredClone({
@@ -405,6 +411,12 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=rename", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (d.dataModel === "state") {
+		return text(
+			"State-backed documents cannot be renamed until state identity is preserved by the rename workflow.",
+			true,
+		);
+	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	if (documents.all().has(args.name))
@@ -450,6 +462,13 @@ async function runExport(
 	}
 	if (missing.length)
 		return text(`Documents not found: ${missing.join(", ")}`, true);
+	const stateful = selected.filter((doc) => doc.dataModel === "state");
+	if (stateful.length > 0) {
+		return text(
+			`State-backed documents cannot be bundled yet: ${stateful.map((doc) => doc.name).join(", ")}.`,
+			true,
+		);
+	}
 
 	const charteNames = new Set<string>();
 	for (const d of selected) if (d.meta?.charte) charteNames.add(d.meta.charte);
@@ -542,10 +561,17 @@ async function runImport(
 	const renamedDocs: string[] = [];
 	const all = documents.all();
 	for (const snap of bundle.documents) {
+		if (snap.dataModel === "state") {
+			return text(
+				`Bundle document "${snap.name}" declares state without bundled revisions.`,
+				true,
+			);
+		}
 		const finalName = uniqueName(snap.name, (n) => all.has(n));
 		const doc = createDocument({
 			name: finalName,
 			category: snap.category || "general",
+			dataModel: snap.dataModel,
 			canvas: snap.canvas,
 			meta: snap.meta || {},
 			pages: snap.pages?.length ? snap.pages : undefined,

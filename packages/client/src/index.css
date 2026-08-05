@@ -117,11 +117,11 @@ body {
 }
 
 /* Global focus states */
-button:focus-visible,
-[role="button"]:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
+button:not(.page-canvas *):focus-visible,
+[role="button"]:not(.page-canvas *):focus-visible,
+a:not(.page-canvas *):focus-visible,
+input:not(.page-canvas *):focus-visible,
+textarea:not(.page-canvas *):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
@@ -176,16 +176,16 @@ textarea:focus-visible {
   font-size: revert;
 }
 
-.page-canvas [data-id] {
+.page-canvas:not(.state-live) [data-id] {
   cursor: pointer;
   transition: outline var(--duration-base) var(--ease-out);
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
-.page-canvas [data-id]:hover {
+.page-canvas:not(.state-live) [data-id]:hover {
   outline-color: var(--color-accent-border);
 }
-.page-canvas [data-id].selected {
+.page-canvas:not(.state-live) [data-id].selected {
   outline-color: var(--color-accent);
 }
 

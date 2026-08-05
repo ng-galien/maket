@@ -4,6 +4,7 @@ export const LEARN_TOPICS = [
 	"html",
 	"chartes",
 	"collections",
+	"state",
 	"review",
 	"install",
 	"gemini",
@@ -19,6 +20,7 @@ const TOPIC_TITLES: Record<LearnTopic, string> = {
 	html: "HTML composition",
 	chartes: "Brand chartes",
 	collections: "Collections and placeholders",
+	state: "Living document state",
 	review: "Review loop",
 	install: "MCP installation",
 	gemini: "Gemini CLI setup",
@@ -28,7 +30,7 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 	overview: [
 		"Maket is a live visual workspace driven through MCP tools.",
 		"Start by reading the current workspace, then create or focus one document, compose HTML with stable data-id markers, and keep the preview open while iterating.",
-		"Use maket_workspace for session state, maket_doc for document lifecycle, maket_html for page content, maket_charte for brand language, maket_collection for typed placeholder data, maket_preview for visual checks, and maket_pdf for final export.",
+		"Use maket_workspace for session state, maket_doc for document lifecycle, maket_html for page content, maket_charte for brand language, maket_collection for typed mail-merge data, maket_state for document-owned living data, maket_preview for visual checks, and maket_pdf for final export.",
 		"Do not treat this tool as user help content. The user-facing onboarding lives in the built-in Help document opened from the UI.",
 	],
 	workflow: [
@@ -60,17 +62,27 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 		"Every bound page has a shared preview cursor: mode (template, rendered, all) plus current row, owned by the server. Read or move it with maket_collection action=cursor doc=<doc> page=<n> [mode=...] [row=...]. The human's live canvas, maket_workspace state and the exports all follow the same cursor, so 'look at row 3' means the same thing for everyone.",
 		"Exports follow the cursor by default. maket_pdf rows=preview|current|all|template makes the choice explicit — 'all rows' mail merge is a deliberate option, not a hidden default.",
 	],
+	state: [
+		"Choose the data model deliberately. Collections hold ordered business rows and can expand one page into mail-merge variants. Document state belongs to one document, has one current JSON snapshot, records immutable full revisions, and never expands the page count.",
+		"Author the persistent HTML template and state schema together. Supported Mustache is escaped values, positive sections, inverted sections, loops/current context, and comments: {{ state.title }}, {{#state.items}}...{{ label }} / {{ . }}...{{/state.items}}, and {{^state.items}}...{{/state.items}}. Root references use state.*; relative names are allowed inside positive state sections. Triple braces, partials, lambdas, unscoped root names, and Mustache inside HTML attributes, style, or script are invalid.",
+		'Complete minimal example:\n```html\n<h1 data-id="title">{{ state.title }}</h1>\n<label data-id="done-label"><input data-id="done-input" type="checkbox" data-maket-bind="state.done"> Done</label>\n<input data-id="owner-input" type="text" data-maket-bind="state.owner">\n<select data-id="status-select" data-maket-bind="state.status"><option value="todo">To do</option><option value="done">Done</option></select>\n<button data-id="owner-editor" type="button" data-maket-bind="state.owner">Edit owner</button>\n```\n```json\n{"schema":{"type":"object","properties":{"title":{"type":"string"},"done":{"type":"boolean"},"owner":{"type":"string"},"status":{"type":"string","enum":["todo","done"]}},"required":["title","done","owner","status"]},"data":{"title":"Opening","done":false,"owner":"Camille","status":"todo"}}\n```\nCreate a static document and page template, then call maket_state action=init doc=<doc> schema=<schema> data=<data>. Init creates revision 1 and does not use expected_revision.',
+		"Mustache interpolation is display-only. Human editing requires document-authored standard HTML and CSS: checkbox binds a boolean; text input binds a string and commits on blur or Enter (Escape cancels); select binds one string enum and must contain exactly one static, selectable option for every enum value (no multiple, duplicate values, dynamic options, or disabled optgroup coverage); button[type=button] opens the single-terminal-value editor. data-id identifies authored structure and is not a binding. Never author or persist data-maket-path, data-maket-type, pending, or error attributes. The document owns all labels, accessibility, CSS, and native-state styling.",
+		"Template-referenced schema paths must use direct type, properties, and items declarations. Do not place $ref, allOf, anyOf, oneOf, not, or conditional schema keywords on referenced paths. Structural arrays/objects are displayable through sections but are never human-editable as one value.",
+		"Revision workflow: call get and read current.revision; update replaces the complete data snapshot, while patch applies RFC 6902 operations and is the preferred agent path for precise or structural changes. update, patch, change_schema, and restore require expected_revision; init, get, validate_schema, history, and revision do not. Validate a proposed schema first, then change_schema with compatible data. Restore appends a new revision instead of rewriting history.",
+		"On a revision conflict, call maket_state action=get, reconcile or recalculate the intended change against current.data, and retry with the new current.revision. Failed template, schema, or data validation is atomic and leaves the persisted template and state unchanged.",
+		"The canvas Live mode shows hydrated interactive controls. Model/Template mode shows the persistent source and is non-interactive. Static rendered output, print, and PDF render the same current values passively, including checked/value/selected serialization, without mutation behavior. Portable .maket bundle export does not yet support state-backed documents.",
+	],
 	review: [
 		"Review is visual and structural. Use maket_preview snapshot or maket_html check, inspect user notes, and fix the smallest coherent design issue.",
 		"Do not acknowledge pending messages before the corresponding correction is applied. Do not redesign when the request is a review unless the defect is structural.",
 	],
 	install: [
-		"Claude, Codex, and Gemini should all launch the same Maket MCP bridge. The install command writes client config; the bridge then proxies stdio JSON-RPC to the local HTTP MCP endpoint.",
+		"Supported agents should all launch the same Maket MCP bridge. The install command writes client config; the bridge then proxies stdio JSON-RPC to the local HTTP MCP endpoint.",
 		"Use maket install claude --apply, maket install codex --apply, or maket install gemini --apply.",
 	],
 	gemini: [
 		"Gemini CLI reads MCP servers from ~/.gemini/settings.json.",
-		"Run maket install gemini --apply to add the maket server entry. The entry starts npx -y @ng-galien/maket in bridge mode, matching the Claude and Codex setup.",
+		"Run maket install gemini --apply to add the maket server entry. The entry starts npx -y @ng-galien/maket in bridge mode, matching the other supported agent setups.",
 		"After install, start Gemini with MCP enabled and ask it to call maket_learn action=overview.",
 	],
 };
@@ -93,12 +105,13 @@ const HUMAN_CONTENT: Record<LearnTopic, string[]> = {
 	collections: [
 		"Collections store structured data that can drive repeated document variants, such as names, dates, places, or product details.",
 	],
+	state: [
+		"Living documents keep their own structured data and an immutable history of complete revisions, independently from mail-merge collections.",
+	],
 	review: [
 		"Leave comments on the document. The assistant reads them from Maket, applies corrections, and marks them done.",
 	],
-	install: [
-		"The CLI can install Maket as an MCP server for Claude, Codex, or Gemini.",
-	],
+	install: ["The CLI can install Maket as an MCP server for supported agents."],
 	gemini: [
 		"Gemini users can run maket install gemini --apply, then use Maket tools from the Gemini CLI.",
 	],

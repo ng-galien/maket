@@ -7,7 +7,7 @@
  *
  *  1. **stdio MCP bridge** — when invoked with no args (the way an MCP client
  *     spawns us), proxy stdio JSON-RPC to a local Maket HTTP server, spawning
- *     one if needed. This is the historical contract used by Claude Desktop,
+ *     one if needed. This is the historical contract used by desktop MCP hosts,
  *     Codex, and friends.
  *  2. **CLI** — when invoked with a known subcommand (start, stop, status,
  *     install, …), dispatch and exit. Lets users manage the server and wire

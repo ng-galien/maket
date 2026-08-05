@@ -4,7 +4,7 @@
  * Probes the Maket HTTP server on MAKET_PORT; spawns one if absent, then
  * shuttles JSON-RPC frames between the parent process's stdin/stdout and the
  * server's /mcp endpoint. This is the default command when the binary is
- * invoked with no arguments (Claude Desktop / Codex / any stdio MCP client).
+ * invoked with no arguments (desktop, CLI, or any stdio MCP client).
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";

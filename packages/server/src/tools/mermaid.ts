@@ -153,7 +153,11 @@ async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 	if (typeof rendered !== "string") return rendered;
 	const result = insertMermaidSvg(page.html, args, rendered);
 	page.html = stripActiveHtml(result.html);
-	deps.documents.persist(doc.name);
+	try {
+		deps.documents.persist(doc.name);
+	} catch (error) {
+		return text(error instanceof Error ? error.message : String(error), true);
+	}
 	deps.bus.emit("element:updated", { docName: doc.name, id: "html" });
 	return text(
 		`Mermaid diagram injected as "${result.dataId}"\npage data-ids (${result.addressableIds.length}): ${result.addressableIds.join(", ")}`,

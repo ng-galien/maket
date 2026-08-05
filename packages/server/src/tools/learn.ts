@@ -22,9 +22,9 @@ const MaketLearnSchema = z.object({
 });
 
 const DESCRIPTION = [
-	"When to use: first call for Claude, Codex, or Gemini agents entering Maket; source of operational guidance for using Maket MCP tools correctly.",
+	"When to use: first call for any agent entering Maket; source of operational guidance for using Maket MCP tools correctly.",
 	"",
-	"This is not the user-facing Help document. It teaches agents how to operate Maket: workflow, HTML composition, chartes, collections, review loop, and client installation.",
+	"This is not the user-facing Help document. It teaches agents how to operate Maket: workflow, HTML composition, chartes, collections, living document state, review loop, and client installation.",
 	"",
 	"Actions:",
 	"  overview — short operating model.",
@@ -70,7 +70,10 @@ function runTopics() {
 		(topic) => `- ${topic}: ${learnTopicTitle(topic)}`,
 	);
 	return text(`Available Maket learning topics:\n${lines.join("\n")}`, {
-		next: ["maket_learn action=topic topic=html"],
+		next: [
+			"maket_learn action=topic topic=html",
+			"maket_learn action=topic topic=state",
+		],
 	});
 }
 

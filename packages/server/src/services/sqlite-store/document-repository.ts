@@ -4,11 +4,12 @@ import type { Document, Page } from "../../types.js";
 import { createDocument } from "../../types.js";
 
 const DOC_UPSERT_SQL = `
-  INSERT INTO documents (name, id, category, canvas, meta, active_page, next_id, created_at, updated_at)
-  VALUES ($name, $id, $category, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
+  INSERT INTO documents (name, id, category, data_model, canvas, meta, active_page, next_id, created_at, updated_at)
+  VALUES ($name, $id, $category, $data_model, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
   ON CONFLICT(name) DO UPDATE SET
     id          = coalesce(excluded.id, documents.id),
     category    = excluded.category,
+    data_model  = excluded.data_model,
     canvas      = excluded.canvas,
     meta        = excluded.meta,
     active_page = excluded.active_page,
@@ -47,6 +48,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 			name: d.name,
 			id: d.id,
 			category: d.category || "general",
+			data_model: d.dataModel,
 			canvas: JSON.stringify(d.canvas),
 			meta: JSON.stringify(d.meta || {}),
 			active_page: d.activePage,
@@ -168,6 +170,7 @@ function rowToDoc(row: any, pageSelectByDoc: StatementSync): Document {
 		id: row.id || crypto.randomUUID(),
 		name: row.name,
 		category: row.category || "general",
+		dataModel: row.data_model || "static",
 		canvas: JSON.parse(row.canvas),
 		meta: JSON.parse(row.meta) || {},
 		pages,
