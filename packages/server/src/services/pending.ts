@@ -14,7 +14,7 @@
  *    such as library-wide nudges like "classify new images".
  *
  * The service is stateless across process restarts — the client re-syncs
- * on WebSocket reconnect (see CLAUDE.md "Pending messages resync gap").
+ * on WebSocket reconnect (see the pending-message resync architecture note).
  */
 
 import type { PendingMessage } from "../types.js";

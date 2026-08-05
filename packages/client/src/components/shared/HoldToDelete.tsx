@@ -10,7 +10,7 @@ interface Props {
 /**
  * Destructive confirmation that forces a ~650ms press-and-hold before firing.
  * Used in place of window.confirm throughout the app — see
- * CLAUDE.md "No window.prompt / window.confirm".
+ * Follows the "No window.prompt / window.confirm" interaction invariant.
  */
 export function HoldToDelete({ label, onConfirm, onCancel }: Props) {
 	const HOLD_MS = 650;

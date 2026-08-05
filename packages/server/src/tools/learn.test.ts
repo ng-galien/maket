@@ -30,4 +30,29 @@ describe("maket_learn", () => {
 		expect(htmlBody).toContain("data-id");
 		expect(htmlBody).toContain("data-collection-marker");
 	});
+
+	it("teaches an executable and recoverable living-document workflow", async () => {
+		const result = await createMaketLearnTool().handler(
+			{ action: "topic", topic: "state" },
+			{} as never,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+
+		expect(body).toContain("maket_state action=init");
+		expect(body).toContain("does not use expected_revision");
+		expect(body).toContain("{{#state.items}}");
+		expect(body).toContain('data-id="title"');
+		expect(body).toContain('data-maket-bind="state.status"');
+		expect(body).toContain('type="button"');
+		expect(body).toContain("no multiple");
+		expect(body).toContain("data-maket-path");
+		expect(body).toContain("$ref");
+		expect(body).toContain("call maket_state action=get");
+		expect(body).toContain("Model/Template mode");
+		expect(body).toContain("PDF");
+		expect(body).toContain(
+			".maket bundle export does not yet support state-backed documents",
+		);
+	});
 });

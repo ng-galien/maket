@@ -145,7 +145,7 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 	zoom: number;
 	autoFocusFit: boolean;
 
-	// Pending messages (user → Claude)
+	// Pending messages (user → agent)
 	pending: PendingMessage[];
 
 	// Actions

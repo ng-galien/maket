@@ -26,23 +26,51 @@ const JsonPatchSchema = z.discriminatedUnion("op", [
 ]);
 
 const StateSchema = z.object({
-	action: z.enum([
-		"init",
-		"get",
-		"update",
-		"patch",
-		"validate_schema",
-		"change_schema",
-		"history",
-		"revision",
-		"restore",
-	]),
-	doc: z.string(),
-	schema: z.record(z.string(), z.unknown()).optional(),
-	data: z.record(z.string(), z.unknown()).optional(),
-	patch: z.array(JsonPatchSchema).min(1).optional(),
-	expected_revision: z.number().int().positive().optional(),
-	revision: z.number().int().positive().optional(),
+	action: z
+		.enum([
+			"init",
+			"get",
+			"update",
+			"patch",
+			"validate_schema",
+			"change_schema",
+			"history",
+			"revision",
+			"restore",
+		])
+		.describe("Document-state operation to perform."),
+	doc: z.string().describe("Target document name."),
+	schema: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe(
+			"JSON Schema required by init, validate_schema, and change_schema.",
+		),
+	data: z
+		.record(z.string(), z.unknown())
+		.optional()
+		.describe(
+			"Complete state object required by init/update; optional compatible data for schema validation/change.",
+		),
+	patch: z
+		.array(JsonPatchSchema)
+		.min(1)
+		.optional()
+		.describe("RFC 6902 operations required by action=patch."),
+	expected_revision: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe(
+			"Current revision required by update, patch, change_schema, and restore; not used by init.",
+		),
+	revision: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("Historical revision required by revision and restore."),
 });
 
 const DESCRIPTION = [
@@ -50,15 +78,15 @@ const DESCRIPTION = [
 	"",
 	"Document state is separate from collections and mail merge. A state-backed document renders Mustache variables, sections, inverted sections, and loops from its latest revision. Every mutation stores a complete validated schema + data snapshot.",
 	'The target interface is document-owned standard HTML/CSS: Mustache interpolation is display-only. Editable terminal values must be declared explicitly with data-maket-bind on <input type="checkbox"> (boolean), <input type="text"> (string), <select> (string enum), or <button type="button"> (single-value editor). Use state.foo at the root and relative foo inside {{#state.items}} sections. Maket resolves transient JSON Pointers and synchronizes the store; it does not generate or style controls.',
-	"  init     — attach a schema and initial data to a static document (revision 1).",
+	"  init     — attach a schema and initial data to a static document (revision 1; no expected_revision).",
 	"  get      — read the schema and current revision.",
 	"  update   — append a complete state snapshot; expected_revision is required.",
 	"  patch    — apply RFC 6902 JSON Patch operations; expected_revision is required.",
 	"  validate_schema — validate a proposed schema against current or supplied data without saving.",
-	"  change_schema — atomically replace the schema and append compatible data as one revision.",
+	"  change_schema — atomically replace the schema and append compatible data; expected_revision is required.",
 	"  history  — list immutable revisions newest first.",
 	"  revision — read one revision.",
-	"  restore  — append a new revision containing an older schema + data snapshot.",
+	"  restore  — append a new revision containing an older schema + data snapshot; expected_revision is required.",
 ].join("\n");
 
 type Args = z.infer<typeof StateSchema>;

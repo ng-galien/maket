@@ -328,7 +328,7 @@ export interface PatchDocumentStateCommand {
 
 /**
  * A single user-authored hint attached to an element in a document — picked
- * up by Claude through the `list_messages` / `ack_messages` MCP tools. The
+ * up by an agent through the `list_messages` / `ack_messages` MCP tools. The
  * `type` field stays `string` so the UI can evolve its taxonomy (note,
  * delete, drop-image, ...) without dragging the server along.
  */
