@@ -293,7 +293,7 @@ describe("export routes — .maket bundle", () => {
 		const page = doc.pages[0];
 		if (!page) throw new Error("Expected fixture page");
 		page.html =
-			'<div data-id="e0">{{ state.title }} — {{ state.status }}</div>';
+			'<div data-id="e0">{{ state.title }} — {{ state.status }}</div><input type="text" data-maket-bind="state.title"><select data-maket-bind="state.status"><option value="open">Ouvert</option><option value="complete">Terminé</option></select><label><input type="checkbox" data-maket-bind="state.done"> Done</label>';
 		store.saveDoc(doc);
 		documents.loadAll();
 		documentStates.initialize(
@@ -302,15 +302,17 @@ describe("export routes — .maket bundle", () => {
 				type: "object",
 				properties: {
 					title: { type: "string" },
-					status: { type: "string" },
+					status: { type: "string", enum: ["open", "complete"] },
+					done: { type: "boolean" },
 				},
-				required: ["title", "status"],
+				required: ["title", "status", "done"],
 			},
-			{ title: "Site audit", status: "open" },
+			{ title: "Site audit", status: "open", done: false },
 		);
 		documentStates.update("living-checklist", 1, {
 			title: "Site audit",
 			status: "complete",
+			done: true,
 		});
 
 		const res = await fetch(`${baseUrl}/print?name=living-checklist`);
@@ -318,7 +320,19 @@ describe("export routes — .maket bundle", () => {
 		expect(res.status).toBe(200);
 		const html = await res.text();
 		expect(html).toContain("Site audit — complete");
+		expect(html).toContain('data-maket-path="/done"');
+		expect(html).toMatch(/<input[^>]* checked/);
+		expect(html).toMatch(
+			/<input[^>]*type="text"[^>]*data-maket-path="\/title"[^>]*value="Site audit"/,
+		);
+		expect(html).toContain(
+			'<option value="complete" selected>Terminé</option>',
+		);
+		expect(html).not.toContain('<option value="open" selected>Ouvert</option>');
 		expect(html).not.toContain("{{ state.");
+		expect(page.html).toContain('data-maket-bind="state.done"');
+		expect(page.html).not.toContain("data-maket-path");
+		expect(page.html).not.toContain("data-maket-type");
 		expect((html.match(/class="page"/g) ?? []).length).toBe(1);
 	});
 

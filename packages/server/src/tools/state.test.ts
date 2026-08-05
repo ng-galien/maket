@@ -68,23 +68,76 @@ describe("maket_state", () => {
 		);
 		expect(textOf(updated)).toContain("revision 2");
 
-		const diff = await tool.handler(
+		const patched = await tool.handler(
 			{
-				action: "diff",
+				action: "patch",
 				doc: "checklist",
-				from_revision: 1,
-				to_revision: 2,
+				expected_revision: 2,
+				patch: [{ op: "replace", path: "/done", value: false }],
 			},
 			{} as never,
 		);
-		expect(textOf(diff)).toContain('"path": "/done"');
+		expect(textOf(patched)).toContain("revision 3");
+
+		const nextSchema = {
+			type: "object",
+			properties: {
+				done: { type: "boolean" },
+				label: { type: "string" },
+			},
+			required: ["done", "label"],
+		};
+		const validated = await tool.handler(
+			{
+				action: "validate_schema",
+				doc: "checklist",
+				schema: nextSchema,
+				data: { done: false, label: "Open" },
+			},
+			{} as never,
+		);
+		expect(textOf(validated)).toContain("Schema is valid");
+		const schemaChanged = await tool.handler(
+			{
+				action: "change_schema",
+				doc: "checklist",
+				expected_revision: 3,
+				schema: nextSchema,
+				data: { done: false, label: "Open" },
+			},
+			{} as never,
+		);
+		expect(textOf(schemaChanged)).toContain("revision 4");
+		expect(documentStates.revision("checklist", 4)).toMatchObject({
+			schema: nextSchema,
+			data: { done: false, label: "Open" },
+		});
+		const restored = await tool.handler(
+			{
+				action: "restore",
+				doc: "checklist",
+				revision: 3,
+				expected_revision: 4,
+			},
+			{} as never,
+		);
+		expect(textOf(restored)).toContain("revision 5");
+		expect(documentStates.get("checklist")?.current).toMatchObject({
+			revision: 5,
+			schema: {
+				type: "object",
+				properties: { done: { type: "boolean" } },
+				required: ["done"],
+			},
+			data: { done: false },
+		});
 
 		doc.meta.locked = true;
 		const locked = await tool.handler(
 			{
 				action: "update",
 				doc: "checklist",
-				expected_revision: 2,
+				expected_revision: 5,
 				data: { done: false },
 			},
 			{} as never,

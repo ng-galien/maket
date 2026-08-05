@@ -291,7 +291,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					</span>
 					{doc.dataModel === "state" && (
 						<span
-							title={t("state_document_read_only")}
+							title={t("state_document_badge_label")}
 							className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-2xs font-bold text-accent shrink-0"
 						>
 							<History size={10} />

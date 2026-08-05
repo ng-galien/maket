@@ -50,7 +50,7 @@
     },
     {
       "name": "maket_state",
-      "description": "Attach document-owned state, append immutable snapshots, inspect history, restore revisions, and compute diffs."
+      "description": "Attach document-owned state, update it with snapshots or JSON Patch, validate/change its schema, inspect history, and restore revisions."
     },
     {
       "name": "maket_learn",

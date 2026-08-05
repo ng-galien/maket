@@ -40,6 +40,7 @@ import {
 	handleUpdateCanvas,
 	handleUpdateMeta,
 } from "./document-commands.js";
+import { handleStatePatch } from "./state-commands.js";
 import {
 	handleLayoutReport,
 	handleOpenOnboarding,
@@ -54,6 +55,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		assets,
 		bus,
 		documentRenderer,
+		documentStates,
 		documents,
 		pending,
 		store,
@@ -71,6 +73,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		collections,
 		collectionCursors,
 		documentRenderer,
+		documentStates,
 		documents,
 		pending,
 		store,
@@ -163,6 +166,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "text_edit":
 			handleTextEdit(ctx, msg);
+			break;
+		case "state_patch":
+			handleStatePatch(ctx, msg, ws);
 			break;
 		case "check_layout_response":
 			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);

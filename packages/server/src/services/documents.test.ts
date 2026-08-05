@@ -78,6 +78,34 @@ describe("documents service", () => {
 		store.close();
 	});
 
+	it("rejects an invalid state template and restores the cached document", () => {
+		const store = createSQLiteStore(":memory:");
+		const doc = makeDoc("living");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<p data-id="title">{{ state.title }}</p>';
+		store.saveDoc(doc);
+		store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Safe" },
+		);
+		const docs = createDocuments({ store });
+		docs.loadAll();
+		const cached = docs.resolve("living");
+		if (!cached?.pages[0]) throw new Error("Fixture page missing.");
+		cached.pages[0].html = '<p data-id="bad">{{ page.number }}</p>';
+
+		expect(() => docs.persist("living")).toThrow(/state namespace/);
+		expect(docs.resolve("living")?.pages[0]?.html).toContain("state.title");
+		expect(store.loadOne("living")?.pages[0]?.html).toContain("state.title");
+		store.close();
+	});
+
 	it("delete removes from both the store and memory", () => {
 		const store = createSQLiteStore(":memory:");
 		const d = makeDoc("to-delete");

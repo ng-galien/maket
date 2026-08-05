@@ -188,6 +188,8 @@ try {
 // ============================================================
 // BUS LISTENERS — broadcast state & toasts to WS clients
 // ============================================================
+// code-moniker: ignore[smell-feature-envy-local]
+// The server entrypoint is the intentional composition boundary for WS fan-out.
 function broadcastDoc(
 	docName: string,
 	addToWorkspace = false,
@@ -198,6 +200,7 @@ function broadcastDoc(
 	wsRegistry.broadcast({
 		type: "state",
 		doc: documents.lightView(documentRenderer.render(doc), doc.activePage),
+		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),
@@ -218,7 +221,6 @@ const MUTATION_EVENTS = [
 	"element:reordered",
 	"elements:cleared",
 	"meta:updated",
-	"document-state:changed",
 ] as const;
 
 for (const evt of LOAD_EVENTS) {
@@ -227,6 +229,23 @@ for (const evt of LOAD_EVENTS) {
 for (const evt of MUTATION_EVENTS) {
 	bus.on(evt, ({ docName }) => broadcastDoc(docName));
 }
+bus.on("document-state:changed", ({ docName, paths, attached }) => {
+	if (attached) {
+		broadcastDoc(docName);
+		return;
+	}
+	const doc = documents.resolve(docName);
+	if (!doc || doc.dataModel !== "state") return;
+	const documentState = documentRenderer.stateView(doc);
+	if (!documentState) return;
+	wsRegistry.broadcast({
+		type: "state_pages",
+		docName,
+		documentState,
+		pages: documentRenderer.statePages(doc, paths),
+		docList: documents.list(),
+	});
+});
 bus.on("document:focused", ({ docName }) => broadcastDoc(docName, true, true));
 
 bus.on("workspace:fit-view", () => {
@@ -372,6 +391,7 @@ wss.on("connection", (ws) => {
 		doc: documents.lightView(
 			firstDoc ? documentRenderer.render(firstDoc) : null,
 		),
+		documentState: firstDoc ? documentRenderer.stateView(firstDoc) : null,
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),

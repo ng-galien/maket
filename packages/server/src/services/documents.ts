@@ -14,6 +14,7 @@
 import { charteFontImport, charteToCSS } from "../lib/charte-css.js";
 import type { DocSummary, Document } from "../types.js";
 import { normalizeCanvas, normalizeDocumentDataModel } from "../types.js";
+import { validateStateTemplateUpdate } from "./document-states.js";
 import type { Store } from "./store.js";
 
 export interface Documents {
@@ -82,7 +83,15 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			const d = cache.get(name);
 			if (!d) return;
 			normalizeDocumentDataModel(d);
-			store.saveDoc(d);
+			try {
+				for (const page of d.pages) {
+					validateStateTemplateUpdate(d, store, page.html ?? "");
+				}
+				store.saveDoc(d);
+			} catch (error) {
+				restoreCachedDocument(cache, store, name);
+				throw error;
+			}
 		},
 		delete(name) {
 			store.deleteDoc(name);
@@ -158,4 +167,18 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			}
 		},
 	};
+}
+
+function restoreCachedDocument(
+	cache: Map<string, Document>,
+	store: Store,
+	name: string,
+): void {
+	const stored = store.loadOne(name);
+	if (!stored) {
+		cache.delete(name);
+		return;
+	}
+	normalizeCanvas(stored.canvas);
+	cache.set(name, stored);
 }

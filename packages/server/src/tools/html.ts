@@ -21,6 +21,7 @@ import { checkCharteCompliance } from "../lib/charte-check.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateCharteToken } from "../services/assets.js";
+import { validateStateTemplateUpdate } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import type { LayoutResult, LayoutService } from "../services/layout.js";
 import type { Store } from "../services/store.js";
@@ -336,6 +337,7 @@ const DESCRIPTION = [
 	"When to use: read and write page HTML. Pick set for the initial skeleton, patch for iterative edits, get to read, check to measure overflow without writing.",
 	"",
 	"Every visible element MUST have a data-id. Use flex/grid with mm units. When a charte is loaded, prefer var(--charte-*) tokens. The compliance check is narrow: it rejects (1) hardcoded colour literals that duplicate an existing charte token value (e.g. #2563EB when primary=#2563EB), (2) any hardcoded font-family when the charte defines fonts, (3) any hardcoded box-shadow when the charte defines shadows. Fresh colours that don't duplicate a token pass untouched.",
+	'For a state-backed document, Mustache is display-only. The document must author editable controls and all their CSS explicitly: data-maket-bind supports <input type="checkbox"> for booleans, <input type="text"> for strings, <select> for string enums, and <button type="button"> for the single-value editor. Use state.foo at the root and relative foo inside state sections; never persist data-maket-path or other runtime attributes.',
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
@@ -432,7 +434,10 @@ async function runSet(context: HtmlSetContext): Promise<ToolResult> {
 		}
 	}
 
-	page.html = stripActiveHtml(normalizeImageSrc(args.html));
+	const nextHtml = stripActiveHtml(normalizeImageSrc(args.html));
+	const stateTemplateError = stateTemplateValidationError(doc, store, nextHtml);
+	if (stateTemplateError) return text(stateTemplateError, true);
+	page.html = nextHtml;
 	documents.persist(doc.name);
 
 	const count = (page.html.match(/data-id=/g) || []).length;
@@ -456,6 +461,9 @@ async function runSet(context: HtmlSetContext): Promise<ToolResult> {
 	);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// MCP patch orchestration intentionally coordinates DOM, state validation,
+// persistence, and layout at this adapter boundary.
 async function runPatch(
 	args: Args,
 	doc: Document,
@@ -474,7 +482,10 @@ async function runPatch(
 
 	const results = args.ops.map((op) => applyOp(op, root, charte));
 
-	page.html = stripActiveHtml(normalizeImageSrc(root.innerHTML));
+	const nextHtml = stripActiveHtml(normalizeImageSrc(root.innerHTML));
+	const stateTemplateError = stateTemplateValidationError(doc, store, nextHtml);
+	if (stateTemplateError) return text(stateTemplateError, true);
+	page.html = nextHtml;
 	documents.persist(doc.name);
 
 	const layoutResult = await layout.measure(doc, page.html || "", pageIdx);
@@ -492,6 +503,19 @@ async function runPatch(
 		].join("\n"),
 		{ next: layoutNextHints(layoutResult, doc.name, args.page) },
 	);
+}
+
+function stateTemplateValidationError(
+	doc: Document,
+	store: Store,
+	html: string,
+): string | null {
+	try {
+		validateStateTemplateUpdate(doc, store, html);
+		return null;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
 }
 
 function runGet(args: Args, page: Page): ToolResult {

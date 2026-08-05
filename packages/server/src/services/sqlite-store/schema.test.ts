@@ -14,7 +14,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(10);
+		expect(schemaVersion(db)).toBe(11);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -56,7 +56,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(10);
+		expect(schemaVersion(db)).toBe(11);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -78,11 +78,40 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(10);
+		expect(schemaVersion(db)).toBe(11);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
 		expect(stateData(db)).toEqual(dataBefore);
+		expect(
+			(
+				db
+					.prepare(
+						"SELECT schema FROM document_state_revisions WHERE document_id = 'doc-first' AND revision = 1",
+					)
+					.get() as { schema: string }
+			).schema,
+		).toBe('{"done":"boolean"}');
+		db.close();
+	});
+
+	it("adds revision schemas to v10 state data without rewriting snapshots", () => {
+		const db = historicalV10StateDatabase();
+		const dataBefore = stateData(db);
+
+		initializeSQLiteSchema(db);
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(11);
+		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
+		expect(stateData(db)).toEqual(dataBefore);
+		const rows = db
+			.prepare(
+				"SELECT revisions.schema, states.schema AS current_schema FROM document_state_revisions AS revisions JOIN document_states AS states USING (document_id)",
+			)
+			.all() as Array<{ schema: string; current_schema: string }>;
+		expect(rows).toHaveLength(1);
+		expect(rows[0]?.schema).toBe(rows[0]?.current_schema);
 		db.close();
 	});
 
@@ -99,12 +128,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(11);
+		const db = historicalDatabaseWithoutIds(12);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v11 is newer than supported v10/,
+			/schema v12 is newer than supported v11/,
 		);
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -132,7 +161,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(10);
+		expect(schemaVersion(db)).toBe(11);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
 		db.close();
@@ -223,6 +252,14 @@ function poisonedStateDatabase(): DatabaseSync {
 		PRAGMA foreign_keys = ON;
 		PRAGMA user_version = 9;
 	`);
+	return db;
+}
+
+function historicalV10StateDatabase(): DatabaseSync {
+	const db = poisonedStateDatabase();
+	db.exec(
+		"CREATE UNIQUE INDEX documents_id_unique_idx ON documents(id); PRAGMA user_version = 10;",
+	);
 	return db;
 }
 
@@ -337,7 +374,7 @@ function stateData(db: DatabaseSync): Record<string, unknown[]> {
 		states: rows(db, "SELECT * FROM document_states ORDER BY document_id"),
 		revisions: rows(
 			db,
-			"SELECT * FROM document_state_revisions ORDER BY document_id, revision",
+			"SELECT document_id, revision, data, created_at FROM document_state_revisions ORDER BY document_id, revision",
 		),
 	};
 }

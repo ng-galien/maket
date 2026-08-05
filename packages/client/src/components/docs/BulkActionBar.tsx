@@ -297,7 +297,7 @@ function BulkExportButton({
 			type="button"
 			onClick={onClick}
 			disabled={disabled}
-			title={disabled ? t("state_document_read_only") : undefined}
+			title={disabled ? t("state_document_export_unavailable") : undefined}
 			className={`px-2 py-1 rounded-md text-xs font-semibold transition inline-flex items-center gap-1 ${
 				disabled
 					? "text-text-3 cursor-not-allowed"

@@ -97,13 +97,15 @@ export const ACTIVITY_POLICIES = {
 	maket_state: {
 		icon: "history",
 		actions: {
-			init: "bubble_maket_state_init",
+			init: null,
 			get: null,
-			update: "bubble_maket_state_update",
+			update: null,
+			patch: null,
+			validate_schema: null,
+			change_schema: null,
 			history: null,
 			revision: null,
-			restore: "bubble_maket_state_restore",
-			diff: null,
+			restore: null,
 		},
 	},
 	maket_learn: {

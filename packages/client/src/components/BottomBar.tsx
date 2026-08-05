@@ -11,6 +11,7 @@ import {
 	MessageCircle,
 	Moon,
 	Palette,
+	Pencil,
 	Printer,
 	Sun,
 	Table,
@@ -150,17 +151,63 @@ export function BottomBar() {
 
 function StateDocumentIndicator({ doc }: { doc: Document | null }) {
 	const t = useT();
-	if (doc?.dataModel !== "state") return null;
+	const docName = doc?.dataModel === "state" ? doc.name : null;
+	const mode = useStore((s) =>
+		docName ? (s.stateCanvasModes[docName] ?? "live") : "live",
+	);
+	const setMode = useStore((s) => s.setStateCanvasMode);
+	if (!docName) return null;
 	return (
 		<div
-			role="status"
-			aria-label={t("state_document_read_only")}
-			title={t("state_document_read_only")}
-			className="relative w-9 h-9 rounded-full flex items-center justify-center text-accent bg-accent-soft"
+			role="group"
+			aria-label={t("state_document_mode")}
+			className="flex h-9 items-center rounded-full bg-input p-0.5"
 		>
-			<History size={16} />
-			<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-accent ring-2 ring-panel" />
+			<StateModeButton
+				active={mode === "live"}
+				label={t("state_live_mode")}
+				onClick={() => setMode(docName, "live")}
+			>
+				<History size={14} />
+			</StateModeButton>
+			<StateModeButton
+				active={mode === "design"}
+				label={t("state_design_mode")}
+				onClick={() => setMode(docName, "design")}
+			>
+				<Pencil size={13} />
+			</StateModeButton>
 		</div>
+	);
+}
+
+function StateModeButton({
+	active,
+	label,
+	onClick,
+	children,
+}: {
+	active: boolean;
+	label: string;
+	onClick: () => void;
+	children: React.ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			aria-pressed={active}
+			aria-label={label}
+			title={label}
+			onClick={onClick}
+			className={`flex h-8 items-center gap-1 rounded-full px-2 text-[10px] font-bold transition-colors ${
+				active
+					? "bg-panel text-accent shadow-sm"
+					: "text-text-3 hover:text-text-1"
+			}`}
+		>
+			{children}
+			<span className="max-lg:hidden">{label}</span>
+		</button>
 	);
 }
 

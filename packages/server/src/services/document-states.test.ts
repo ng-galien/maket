@@ -45,10 +45,115 @@ function fixture() {
 }
 
 describe("DocumentStates", () => {
-	it("stores immutable snapshots, computes diffs, and restores as a new revision", () => {
+	it("rejects an incompatible binding before attaching or changing state", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<label><input type="checkbox" data-maket-bind="state.title">Title</label>';
+
+		expect(() =>
+			states.initialize("audit", schema, { title: "Audit", done: false }),
+		).toThrow(/requires a boolean/);
+		expect(doc.dataModel).toBe("static");
+		expect(store.loadDocumentState(doc.id)).toBeNull();
+
+		page.html =
+			'<label><input type="checkbox" data-maket-bind="state.done">Done</label>';
+		states.initialize("audit", schema, { title: "Audit", done: false });
+		const incompatibleSchema = {
+			...schema,
+			properties: { ...schema.properties, done: { type: "string" } },
+		};
+		expect(() =>
+			states.changeSchema("audit", 1, incompatibleSchema, {
+				title: "Audit",
+				done: "no",
+			}),
+		).toThrow(/requires a boolean/);
+		expect(states.get("audit")?.current).toMatchObject({
+			revision: 1,
+			data: { done: false },
+		});
+		store.close();
+	});
+
+	it("rejects an invalid binding in an empty Mustache loop before attaching state", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'{{#state.items}}<input type="checkbox" data-maket-bind="title">{{/state.items}}';
+		const listSchema = {
+			type: "object",
+			properties: {
+				items: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: { title: { type: "string" } },
+					},
+				},
+			},
+		};
+
+		expect(() => states.initialize("audit", listSchema, { items: [] })).toThrow(
+			/requires a boolean/,
+		);
+		expect(doc.dataModel).toBe("static");
+		expect(store.loadDocumentState(doc.id)).toBeNull();
+		store.close();
+	});
+
+	it("rejects select option drift during schema changes atomically", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<select data-maket-bind="state.status"><option value="todo">À faire</option><option value="done">Fait</option></select>';
+		const selectSchema = {
+			type: "object",
+			properties: {
+				title: { type: "string" },
+				done: { type: "boolean" },
+				status: { type: "string", enum: ["todo", "done"] },
+			},
+			required: ["title", "done", "status"],
+			additionalProperties: false,
+		};
+		states.initialize("audit", selectSchema, {
+			title: "Audit",
+			done: false,
+			status: "todo",
+		});
+
+		const incompatibleSchema = {
+			...selectSchema,
+			properties: {
+				...selectSchema.properties,
+				status: { type: "string", enum: ["todo"] },
+			},
+		};
+		expect(() =>
+			states.changeSchema("audit", 1, incompatibleSchema, {
+				title: "Audit",
+				done: false,
+				status: "todo",
+			}),
+		).toThrow(/non-enum option value "done"/);
+		expect(states.get("audit")?.current).toMatchObject({
+			revision: 1,
+			data: { status: "todo" },
+		});
+		store.close();
+	});
+
+	it("stores immutable snapshots and restores as a new revision", () => {
 		const { store, bus, doc, states } = fixture();
 		const changed = vi.fn();
+		const toast = vi.fn();
 		bus.on("document-state:changed", changed);
+		bus.on("toast", toast);
 
 		const initial = states.initialize("audit", schema, {
 			title: "Opening audit",
@@ -66,10 +171,6 @@ describe("DocumentStates", () => {
 			done: true,
 		});
 		expect(second.revision).toBe(2);
-		expect(states.diff("audit", 1, 2)).toEqual([
-			{ path: "/done", before: false, after: true },
-		]);
-
 		const restored = states.restore("audit", 1, 2);
 		expect(restored).toMatchObject({
 			revision: 3,
@@ -83,10 +184,137 @@ describe("DocumentStates", () => {
 			done: true,
 		});
 		expect(changed).toHaveBeenCalledTimes(3);
+		expect(toast).not.toHaveBeenCalled();
 		expect(store.loadOne("audit")?.dataModel).toBe("state");
 		expect(() =>
 			states.update("audit", 2, { title: "stale", done: true }),
 		).toThrow(/expected 2, current 3/);
+		store.close();
+	});
+
+	it("versions schema changes and restores schema plus data together", () => {
+		const { store, bus, doc, states } = fixture();
+		const changed = vi.fn();
+		bus.on("document-state:changed", changed);
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<h1>{{ state.title }}</h1><p>{{ state.priority }}</p><button type="button" data-maket-bind="state.done">Edit</button>';
+		states.initialize("audit", schema, { title: "Audit", done: false });
+
+		const patched = states.patch("audit", 1, [
+			{ op: "replace", path: "/done", value: true },
+		]);
+		expect(patched).toMatchObject({ revision: 2, data: { done: true } });
+		expect(changed).toHaveBeenLastCalledWith(
+			expect.objectContaining({ revision: 2, paths: ["/done"] }),
+		);
+
+		const nextSchema = {
+			...schema,
+			properties: {
+				...schema.properties,
+				priority: { type: "number" },
+			},
+			required: [...schema.required, "priority"],
+		};
+		expect(() => states.validateSchema("audit", nextSchema)).toThrow(
+			/priority/,
+		);
+		states.validateSchema("audit", nextSchema, {
+			title: "Audit",
+			done: true,
+			priority: 2,
+		});
+		expect(() => states.changeSchema("audit", 2, nextSchema)).toThrow(
+			/priority/,
+		);
+		const changedSchema = states.changeSchema("audit", 2, nextSchema, {
+			title: "Audit prioritized",
+			done: true,
+			priority: 2,
+		});
+		expect(changedSchema).toMatchObject({
+			revision: 3,
+			schema: nextSchema,
+			data: { title: "Audit prioritized", done: true, priority: 2 },
+		});
+		expect(states.get("audit")?.definition.schema).toEqual(nextSchema);
+		expect(
+			createStateRenderer({ documentStates: states }).render(doc).pages[0]
+				?.html,
+		).toContain('data-maket-path="/done" data-maket-type="boolean"');
+		expect(states.revision("audit", 1)?.schema).toEqual(schema);
+		expect(states.history("audit")).toHaveLength(3);
+		expect(() =>
+			states.changeSchema("audit", 2, schema, {
+				title: "Stale",
+				done: false,
+			}),
+		).toThrow(/expected 2, current 3/);
+
+		const restored = states.restore("audit", 1, 3);
+		expect(restored).toMatchObject({
+			revision: 4,
+			schema,
+			data: { title: "Audit", done: false },
+		});
+		expect(states.get("audit")?.definition.schema).toEqual(schema);
+		expect(
+			createStateRenderer({ documentStates: states }).render(doc).pages[0]
+				?.html,
+		).toContain('data-maket-path="/done" data-maket-type="boolean"');
+		expect(changed).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				revision: 4,
+				paths: [""],
+				schemaChanged: true,
+			}),
+		);
+		store.close();
+	});
+
+	it("projects only pages whose state dependencies intersect a patch", () => {
+		const { store, doc, states } = fixture();
+		doc.pages.push(
+			{
+				id: "done-page",
+				name: "Done",
+				elements: [],
+				html: '<input type="checkbox" data-maket-bind="state.done">',
+			},
+			{ id: "static-page", name: "Static", elements: [], html: "Always" },
+		);
+		states.initialize("audit", schema, { title: "Audit", done: false });
+		const renderer = createStateRenderer({ documentStates: states });
+
+		expect(renderer.renderPages(doc, ["/done"])).toEqual([
+			expect.objectContaining({
+				index: 1,
+				html: expect.stringContaining('data-maket-path="/done"'),
+			}),
+		]);
+		expect(renderer.renderPages(doc, ["/title"])).toEqual([
+			{ index: 0, html: "<h1>Audit</h1>" },
+		]);
+		store.close();
+	});
+
+	it("falls back to a full page projection when a patch removes a binding", () => {
+		const { store, bus, states } = fixture();
+		const changed = vi.fn();
+		bus.on("document-state:changed", changed);
+		states.initialize(
+			"audit",
+			{ ...schema, required: ["done"] },
+			{ title: "Temporary", done: false },
+		);
+
+		states.patch("audit", 1, [{ op: "remove", path: "/title" }]);
+
+		expect(changed).toHaveBeenLastCalledWith(
+			expect.objectContaining({ revision: 2, paths: [""] }),
+		);
 		store.close();
 	});
 
@@ -105,6 +333,23 @@ describe("DocumentStates", () => {
 		expect(() =>
 			states.initialize("audit", schema, { title: "Audit", done: false }),
 		).toThrow(/collection data model/);
+		store.close();
+	});
+
+	it("rejects an unsafe template before attaching state", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = "{{#state.items}}{{{label}}}{{/state.items}}";
+
+		expect(() =>
+			states.initialize("audit", schema, {
+				title: "Audit",
+				done: false,
+			}),
+		).toThrow(/escaped values/);
+		expect(doc.dataModel).toBe("static");
+		expect(store.loadDocumentState(doc.id)).toBeNull();
 		store.close();
 	});
 

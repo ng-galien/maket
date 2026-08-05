@@ -1,4 +1,5 @@
 import type { ActivityKey } from "./activity.js";
+import type { DocumentStateClientView } from "./document-state.js";
 
 /**
  * WebSocket wire contract between the server and browser clients.
@@ -40,6 +41,24 @@ export interface WorkspaceStateSignal {
 	focus?: boolean;
 	/** Correlation id awaited by `wsBridge.waitForResponse` after an html mutation. */
 	measureId?: string;
+	/** Present for state-backed documents: raw data, schema, revision, templates. */
+	documentState?: DocumentStateClientView | null;
+}
+
+export interface StatePageProjectionSignal {
+	type: "state_pages";
+	docName: string;
+	documentState: DocumentStateClientView;
+	pages: Array<{ index: number; html?: string }>;
+	docList: unknown[];
+}
+
+export interface StatePatchResultSignal {
+	type: "state_patch_result";
+	requestId: string;
+	ok: boolean;
+	revision?: number;
+	error?: string;
 }
 
 export interface ToastSignal {
@@ -295,6 +314,18 @@ export interface EditTextCommand {
 	pageIndex?: number;
 }
 
+export interface PatchDocumentStateCommand {
+	type: "state_patch";
+	requestId: string;
+	docName: string;
+	expectedRevision: number;
+	operation: {
+		op: "replace";
+		path: string;
+		value: null | string | number | boolean;
+	};
+}
+
 /**
  * A single user-authored hint attached to an element in a document — picked
  * up by Claude through the `list_messages` / `ack_messages` MCP tools. The
@@ -366,6 +397,8 @@ export interface LayoutCheckResult {
 
 export type WorkspaceSignal =
 	| WorkspaceStateSignal
+	| StatePageProjectionSignal
+	| StatePatchResultSignal
 	| ToastSignal
 	| CharteUpdatedSignal
 	| CharteRemovedSignal
@@ -401,6 +434,7 @@ export type WorkspaceCommand =
 	| ShowPageCommand
 	| ClearCanvasCommand
 	| EditTextCommand
+	| PatchDocumentStateCommand
 	| SyncPendingMessagesCommand
 	| UpdateWorkspaceCommand
 	| LayoutReportCommand

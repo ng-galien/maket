@@ -15,6 +15,18 @@ describe("activity contract", () => {
 		expect(resolveActivity("maket_learn", { action: "overview" })).toBeNull();
 	});
 
+	it("keeps document-state mutations silent", () => {
+		for (const action of [
+			"init",
+			"update",
+			"patch",
+			"change_schema",
+			"restore",
+		]) {
+			expect(resolveActivity("maket_state", { action })).toBeNull();
+		}
+	});
+
 	it("keeps cursor reads silent and reports only cursor mutations", () => {
 		expect(
 			resolveActivity("maket_collection", {

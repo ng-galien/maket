@@ -321,6 +321,161 @@ describe("state message", () => {
 	});
 });
 
+describe("living document state signals", () => {
+	it("stores the state view and applies targeted page projections", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ workspaceDocNames: ["checklist"] });
+		initWs();
+		MockWebSocket.last().open();
+		const living = {
+			...doc("checklist"),
+			dataModel: "state" as const,
+			pages: [
+				{ id: "checklist-page-1", name: "p1", elements: [], html: "Before" },
+				{ id: "checklist-page-2", name: "p2", elements: [], html: "Stable" },
+			],
+		};
+		const firstView = {
+			schema: { type: "object" },
+			data: { title: "Before" },
+			revision: 1,
+			createdAt: "2026-08-04T12:00:00.000Z",
+			templates: { "checklist-page-1": "{{ state.title }}" },
+		};
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: living,
+			docList: [summary("checklist")],
+			charteCss: "",
+			documentState: firstView,
+		});
+		expect(useStore.getState().documentStates.checklist).toEqual(firstView);
+
+		const nextView = { ...firstView, data: { title: "After" }, revision: 2 };
+		MockWebSocket.last().emit({
+			type: "state_pages",
+			docName: "checklist",
+			documentState: nextView,
+			pages: [{ index: 0, html: "After" }],
+			docList: [summary("checklist")],
+		});
+		const next = useStore.getState();
+		expect(next.docs.get("checklist")?.pages.map((page) => page.html)).toEqual([
+			"After",
+			"Stable",
+		]);
+		expect(next.documentStates.checklist.revision).toBe(2);
+	});
+
+	it("sends a terminal replace and clears its pending marker on acknowledgement", async () => {
+		const { initWs, sendStateValuePatch, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().sent.length = 0;
+
+		const requestId = sendStateValuePatch("checklist", "/done", 3, true);
+		if (!requestId) throw new Error("State patch was not sent.");
+		const command = MockWebSocket.last().lastSent();
+		expect(command).toEqual({
+			type: "state_patch",
+			requestId,
+			docName: "checklist",
+			expectedRevision: 3,
+			operation: { op: "replace", path: "/done", value: true },
+		});
+		expect(Object.values(useStore.getState().statePatchPending)).toContain(
+			requestId,
+		);
+
+		MockWebSocket.last().emit({
+			type: "state_patch_result",
+			requestId,
+			ok: true,
+			revision: 4,
+		});
+		expect(useStore.getState().statePatchPending).toEqual({});
+	});
+
+	it("serializes terminal patches across different paths of one document", async () => {
+		const { initWs, sendStateValuePatch } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().sent.length = 0;
+
+		const first = sendStateValuePatch("checklist", "/title", 3, "Opening");
+		const second = sendStateValuePatch("checklist", "/status", 3, "done");
+
+		expect(first).not.toBeNull();
+		expect(second).toBeNull();
+		expect(MockWebSocket.last().sentPayloads()).toHaveLength(1);
+		expect(MockWebSocket.last().lastSent()).toMatchObject({
+			type: "state_patch",
+			operation: { path: "/title" },
+		});
+	});
+
+	it("clears a timeout error when the correlated success arrives late", async () => {
+		const { initWs, sendStateValuePatch, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		const requestId = sendStateValuePatch("checklist", "/done", 3, true);
+		if (!requestId) throw new Error("State patch was not sent.");
+
+		vi.advanceTimersByTime(10_000);
+		expect(useStore.getState().statePatchPending).toEqual({});
+		expect(Object.values(useStore.getState().statePatchErrors)).toEqual([
+			"State update timed out.",
+		]);
+
+		MockWebSocket.last().emit({
+			type: "state_patch_result",
+			requestId,
+			ok: true,
+			revision: 4,
+		});
+		expect(useStore.getState().statePatchErrors).toEqual({});
+		expect(useStore.getState().statePatchRequests).toEqual({});
+	});
+
+	it("does not mark an unsent state patch and clears pending patches on close", async () => {
+		const { initWs, sendStateValuePatch, useStore } = await freshWsModule();
+		initWs();
+
+		expect(sendStateValuePatch("checklist", "/done", 3, true)).toBeNull();
+		expect(useStore.getState().statePatchPending).toEqual({});
+		expect(Object.values(useStore.getState().statePatchErrors)).toEqual([
+			"State update could not be sent.",
+		]);
+
+		MockWebSocket.last().open();
+		const requestId = sendStateValuePatch("checklist", "/done", 3, true);
+		expect(requestId).not.toBeNull();
+		expect(useStore.getState().statePatchPending).not.toEqual({});
+		MockWebSocket.last().close();
+		expect(useStore.getState().statePatchPending).toEqual({});
+	});
+
+	it("keeps a failed state patch visible after pending settles", async () => {
+		const { initWs, sendStateValuePatch, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		const requestId = sendStateValuePatch("checklist", "/done", 3, true);
+		if (!requestId) throw new Error("State patch was not sent.");
+
+		MockWebSocket.last().emit({
+			type: "state_patch_result",
+			requestId,
+			ok: false,
+			error: "Revision conflict",
+		});
+
+		expect(useStore.getState().statePatchPending).toEqual({});
+		expect(Object.values(useStore.getState().statePatchErrors)).toEqual([
+			"Revision conflict",
+		]);
+	});
+});
+
 describe("charte_updated", () => {
 	it("propagates the new CSS to every doc referencing that charte", async () => {
 		const { initWs, useStore } = await freshWsModule();

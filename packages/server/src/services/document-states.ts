@@ -1,9 +1,16 @@
 import {
+	applyJsonPatch,
 	type DocumentStateData,
 	type DocumentStateRevision,
 	type DocumentStateSchema,
+	isTerminalJsonValue,
+	type JsonPatchOperation,
+	readJsonPointer,
+	renderDocumentStateText,
 	validateDocumentState,
+	validateDocumentStateTemplate,
 } from "@maket/shared";
+import type { Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 import type {
@@ -14,12 +21,6 @@ import type {
 export interface DocumentStateView {
 	definition: StoredDocumentState;
 	current: DocumentStateRevision;
-}
-
-export interface DocumentStateDifference {
-	path: string;
-	before?: unknown;
-	after?: unknown;
 }
 
 export interface DocumentStates {
@@ -34,6 +35,27 @@ export interface DocumentStates {
 		expectedRevision: number,
 		data: DocumentStateData,
 	): DocumentStateRevision;
+	patch(
+		docName: string,
+		expectedRevision: number,
+		operations: JsonPatchOperation[],
+	): DocumentStateRevision;
+	patchTerminal(
+		docName: string,
+		expectedRevision: number,
+		operation: Extract<JsonPatchOperation, { op: "replace" }>,
+	): DocumentStateRevision;
+	changeSchema(
+		docName: string,
+		expectedRevision: number,
+		schema: DocumentStateSchema,
+		data?: DocumentStateData,
+	): DocumentStateRevision;
+	validateSchema(
+		docName: string,
+		schema: DocumentStateSchema,
+		data?: DocumentStateData,
+	): void;
 	history(docName: string): DocumentStateRevision[];
 	revision(docName: string, revision: number): DocumentStateRevision | null;
 	restore(
@@ -41,17 +63,28 @@ export interface DocumentStates {
 		revision: number,
 		expectedRevision: number,
 	): DocumentStateRevision;
-	diff(
-		docName: string,
-		fromRevision: number,
-		toRevision: number,
-	): DocumentStateDifference[];
 }
 
 export interface DocumentStatesDeps {
 	bus: Bus;
 	documents: Documents;
 	store: DocumentStateRepository;
+}
+
+/** Validate one prospective page before any state-template HTML is persisted. */
+export function validateStateTemplateUpdate(
+	doc: Document,
+	store: DocumentStateRepository,
+	html: string,
+): void {
+	if (doc.dataModel !== "state") return;
+	const definition = store.loadDocumentState(doc.id);
+	const current = store.loadCurrentDocumentState(doc.id);
+	if (!definition || !current) {
+		throw new Error(`Document "${doc.name}" has no state.`);
+	}
+	validateDocumentStateTemplate(html);
+	renderDocumentStateText(html, current.data, { schema: current.schema });
 }
 
 export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
@@ -63,10 +96,12 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 					`Document "${doc.name}" uses the ${doc.dataModel} data model.`,
 				);
 			}
+			assertValidStateTemplates(doc);
 			assertValidState(schema, data);
+			assertRenderableStateTemplates(doc, schema, data);
 			const current = deps.store.initializeDocumentState(doc.id, schema, data);
 			doc.dataModel = "state";
-			emitStateChanged(deps.bus, doc.name, current.revision);
+			emitStateChanged(deps.bus, doc.name, current.revision, [""], true, true);
 			const definition = deps.store.loadDocumentState(doc.id);
 			if (!definition) throw new Error("Document state was not persisted.");
 			return { definition, current };
@@ -80,15 +115,60 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			return { definition, current };
 		},
 		update(docName, expectedRevision, data) {
-			const { doc, definition } = requiredState(deps, docName);
-			assertValidState(definition.schema, data);
+			const { doc, current } = requiredState(deps, docName);
+			assertValidState(current.schema, data);
+			assertRenderableStateTemplates(doc, current.schema, data);
 			const revision = deps.store.appendDocumentStateRevision(
 				doc.id,
 				expectedRevision,
 				data,
 			);
-			emitStateChanged(deps.bus, doc.name, revision.revision);
+			emitStateChanged(deps.bus, doc.name, revision.revision, [""]);
 			return revision;
+		},
+		patch(docName, expectedRevision, operations) {
+			return patchState(deps, docName, expectedRevision, operations);
+		},
+		patchTerminal(docName, expectedRevision, operation) {
+			if (operation.path === "") {
+				throw new Error("The document-state root is not an editable terminal.");
+			}
+			const { doc, current } = requiredState(deps, docName);
+			const previous = readJsonPointer(current.data, operation.path);
+			if (
+				!isTerminalJsonValue(previous) ||
+				!isTerminalJsonValue(operation.value)
+			) {
+				throw new Error(
+					"Live document interactions can replace terminal JSON values only.",
+				);
+			}
+			if (!activeBindingPaths(doc, current).has(operation.path)) {
+				throw new Error(
+					`Document state path "${operation.path}" is not exposed by an active document binding.`,
+				);
+			}
+			return patchState(deps, docName, expectedRevision, [operation]);
+		},
+		changeSchema(docName, expectedRevision, schema, data) {
+			const { doc, current } = requiredState(deps, docName);
+			const nextData = data ?? current.data;
+			assertValidState(schema, nextData);
+			assertRenderableStateTemplates(doc, schema, nextData);
+			const revision = deps.store.replaceDocumentStateSchema(
+				doc.id,
+				expectedRevision,
+				schema,
+				nextData,
+			);
+			emitStateChanged(deps.bus, doc.name, revision.revision, [""], true);
+			return revision;
+		},
+		validateSchema(docName, schema, data) {
+			const { doc, current } = requiredState(deps, docName);
+			const nextData = data ?? current.data;
+			assertValidState(schema, nextData);
+			assertRenderableStateTemplates(doc, schema, nextData);
 		},
 		history(docName) {
 			const { doc } = requiredState(deps, docName);
@@ -106,26 +186,46 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 					`Document state revision ${revision} not found for "${doc.name}".`,
 				);
 			}
-			const restored = deps.store.appendDocumentStateRevision(
+			assertValidState(source.schema, source.data);
+			assertRenderableStateTemplates(doc, source.schema, source.data);
+			const restored = deps.store.replaceDocumentStateSchema(
 				doc.id,
 				expectedRevision,
+				source.schema,
 				source.data,
 			);
-			emitStateChanged(deps.bus, doc.name, restored.revision);
+			emitStateChanged(deps.bus, doc.name, restored.revision, [""], true);
 			return restored;
 		},
-		diff(docName, fromRevision, toRevision) {
-			const { doc } = requiredState(deps, docName);
-			const from = deps.store.loadDocumentStateRevision(doc.id, fromRevision);
-			const to = deps.store.loadDocumentStateRevision(doc.id, toRevision);
-			if (!from || !to) {
-				throw new Error(
-					`Document state revisions ${fromRevision} and ${toRevision} must both exist for "${doc.name}".`,
-				);
-			}
-			return diffDocumentState(from.data, to.data);
-		},
 	};
+}
+
+function patchState(
+	deps: DocumentStatesDeps,
+	docName: string,
+	expectedRevision: number,
+	operations: JsonPatchOperation[],
+): DocumentStateRevision {
+	if (operations.length === 0) {
+		throw new Error("At least one JSON Patch operation is required.");
+	}
+	const { doc, current } = requiredState(deps, docName);
+	const data = applyJsonPatch(current.data, operations);
+	assertStateObject(data);
+	assertValidState(current.schema, data);
+	assertRenderableStateTemplates(doc, current.schema, data);
+	const revision = deps.store.appendDocumentStateRevision(
+		doc.id,
+		expectedRevision,
+		data,
+	);
+	emitStateChanged(
+		deps.bus,
+		doc.name,
+		revision.revision,
+		changedPointers(operations),
+	);
+	return revision;
 }
 
 function requiredDocument(documents: Documents, docName: string) {
@@ -141,7 +241,10 @@ function requiredState(deps: DocumentStatesDeps, docName: string) {
 	}
 	const definition = deps.store.loadDocumentState(doc.id);
 	if (!definition) throw new Error(`Document "${doc.name}" has no state.`);
-	return { doc, definition };
+	const current = deps.store.loadCurrentDocumentState(doc.id);
+	if (!current)
+		throw new Error(`Document "${doc.name}" has no state revision.`);
+	return { doc, definition, current };
 }
 
 function assertValidState(
@@ -152,52 +255,75 @@ function assertValidState(
 	if (issues.length > 0) throw new Error(issues.join("\n"));
 }
 
-function emitStateChanged(bus: Bus, docName: string, revision: number): void {
-	bus.emit("document-state:changed", { docName, revision });
-	bus.emit("toast", {
-		text: `Document state updated to revision ${revision}`,
-		level: "success",
-	});
-}
-
-export function diffDocumentState(
-	before: DocumentStateData,
-	after: DocumentStateData,
-): DocumentStateDifference[] {
-	const differences: DocumentStateDifference[] = [];
-	diffValue(before, after, "", differences);
-	return differences;
-}
-
-function diffValue(
-	before: unknown,
-	after: unknown,
-	path: string,
-	differences: DocumentStateDifference[],
-): void {
-	if (Object.is(before, after)) return;
-	if (isRecord(before) && isRecord(after)) {
-		const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
-		for (const key of [...keys].sort()) {
-			const childPath = `${path}/${escapePointerToken(key)}`;
-			if (!(key in before)) {
-				differences.push({ path: childPath, after: after[key] });
-			} else if (!(key in after)) {
-				differences.push({ path: childPath, before: before[key] });
-			} else {
-				diffValue(before[key], after[key], childPath, differences);
-			}
-		}
-		return;
+function assertValidStateTemplates(doc: Document): void {
+	for (const page of doc.pages) {
+		if (page.html) validateDocumentStateTemplate(page.html);
 	}
-	if (JSON.stringify(before) === JSON.stringify(after)) return;
-	differences.push({ path: path || "/", before, after });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function assertRenderableStateTemplates(
+	doc: Document,
+	schema: DocumentStateSchema,
+	data: DocumentStateData,
+): void {
+	for (const page of doc.pages) {
+		if (page.html) renderDocumentStateText(page.html, data, { schema });
+	}
 }
 
-function escapePointerToken(value: string): string {
-	return value.replaceAll("~", "~0").replaceAll("/", "~1");
+function activeBindingPaths(
+	doc: Document,
+	state: DocumentStateRevision,
+): Set<string> {
+	return new Set(
+		doc.pages.flatMap((page) =>
+			page.html
+				? renderDocumentStateText(page.html, state.data, {
+						schema: state.schema,
+					}).bindingPaths
+				: [],
+		),
+	);
+}
+
+function assertStateObject(data: unknown): asserts data is DocumentStateData {
+	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+		throw new Error("Document state must remain a JSON object.");
+	}
+}
+
+function changedPointers(operations: JsonPatchOperation[]): string[] {
+	if (
+		operations.some(
+			(operation) => operation.op === "remove" || operation.op === "move",
+		)
+	) {
+		return [""];
+	}
+	return [
+		...new Set(
+			operations.flatMap((operation) =>
+				"from" in operation
+					? [operation.path, operation.from]
+					: [operation.path],
+			),
+		),
+	];
+}
+
+function emitStateChanged(
+	bus: Bus,
+	docName: string,
+	revision: number,
+	paths: string[],
+	schemaChanged = false,
+	attached = false,
+): void {
+	bus.emit("document-state:changed", {
+		docName,
+		revision,
+		paths,
+		schemaChanged,
+		attached,
+	});
 }

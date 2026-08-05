@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -75,6 +75,7 @@ const SCHEMA_SQL = `
   CREATE TABLE document_state_revisions (
     document_id TEXT NOT NULL REFERENCES document_states(document_id) ON DELETE CASCADE,
     revision    INTEGER NOT NULL CHECK (revision > 0),
+		schema      TEXT NOT NULL CHECK (json_valid(schema)),
     data        TEXT NOT NULL CHECK (json_valid(data)),
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (document_id, revision)
@@ -90,6 +91,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 8, up: migrateToV8 },
 	{ version: 9, up: migrateToV9 },
 	{ version: 10, up: migrateToV10 },
+	{ version: 11, up: migrateToV11 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -137,6 +139,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV8(db);
 	migrateToV9(db);
 	migrateToV10(db);
+	migrateToV11(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -157,6 +160,20 @@ function migrateToV10(db: DatabaseSync): void {
 	migrateToV9(db);
 	ensureDocumentStateSchema(db);
 	ensureDocumentDataModel(db);
+}
+
+function migrateToV11(db: DatabaseSync): void {
+	migrateToV10(db);
+	addColumnIfMissing(db, "document_state_revisions", "schema", "TEXT");
+	db.exec(`
+		UPDATE document_state_revisions
+		SET schema = (
+			SELECT document_states.schema
+			FROM document_states
+			WHERE document_states.document_id = document_state_revisions.document_id
+		)
+		WHERE schema IS NULL OR schema = '';
+	`);
 }
 
 function ensureDocumentStateSchema(db: DatabaseSync): void {
@@ -251,7 +268,27 @@ function assertCurrentSchema(db: DatabaseSync): void {
 	if (!hasUniqueIndexForColumn(db, "documents", "id")) {
 		throw new Error("SQLite migration failed: documents.id is not UNIQUE");
 	}
+	assertRevisionSchemas(db);
 	assertIntegrity(db);
+}
+
+function assertRevisionSchemas(db: DatabaseSync): void {
+	if (!hasTable(db, "document_state_revisions")) return;
+	if (!hasColumn(db, "document_state_revisions", "schema")) {
+		throw new Error(
+			"SQLite migration failed: document_state_revisions.schema is missing",
+		);
+	}
+	const row = db
+		.prepare(
+			"SELECT count(*) AS count FROM document_state_revisions WHERE schema IS NULL OR schema = '' OR NOT json_valid(schema)",
+		)
+		.get() as { count: number };
+	if (row.count > 0) {
+		throw new Error(
+			`SQLite migration failed: document_state_revisions.schema has ${row.count} invalid value(s)`,
+		);
+	}
 }
 
 function assertDocumentIdsUnique(db: DatabaseSync): void {

@@ -107,6 +107,41 @@ describe("maket_page — action=add", () => {
 		expect(added?.html).toMatch(/src="\/assets\/logo\.png"/);
 		store.close();
 	});
+
+	it("rejects an invalid state template and restores memory and DB", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("living");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<p data-id="title">{{ state.title }}</p>';
+		store.saveDoc(doc);
+		store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Safe" },
+		);
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const result = await tool.handler(
+			{
+				action: "add",
+				doc: "living",
+				name: "Unsafe",
+				html: '<p data-id="bad">{{ page.number }}</p>',
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(documents.resolve("living")?.pages).toHaveLength(1);
+		expect(store.loadOne("living")?.pages).toHaveLength(1);
+		store.close();
+	});
 });
 
 describe("maket_page — action=remove", () => {

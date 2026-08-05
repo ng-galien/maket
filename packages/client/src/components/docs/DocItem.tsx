@@ -302,7 +302,7 @@ export function DocCardMetadata({ doc }: { doc: DocSummary }) {
 			<span>{doc.pageCount ?? 1}p</span>
 			{doc.dataModel === "state" && (
 				<span
-					title={t("state_document_read_only")}
+					title={t("state_document_badge_label")}
 					className="inline-flex items-center gap-0.5 font-bold text-accent"
 				>
 					<History size={9} />
@@ -406,7 +406,7 @@ export function DocRowMetadata({ doc }: { doc: DocSummary }) {
 			<span>{doc.pageCount ?? 1}p</span>
 			{doc.dataModel === "state" && (
 				<span
-					title={t("state_document_read_only")}
+					title={t("state_document_badge_label")}
 					className="inline-flex items-center gap-0.5 font-bold text-accent"
 				>
 					<History size={9} />

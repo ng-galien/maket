@@ -1,4 +1,8 @@
-import type { DocumentStateData, DocumentStateSchema } from "@maket/shared";
+import type {
+	DocumentStateData,
+	DocumentStateSchema,
+	JsonPatchOperation,
+} from "@maket/shared";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
@@ -12,36 +16,49 @@ export interface StateToolDeps {
 	documents: Documents;
 }
 
+const JsonPatchSchema = z.discriminatedUnion("op", [
+	z.object({ op: z.literal("add"), path: z.string(), value: z.unknown() }),
+	z.object({ op: z.literal("remove"), path: z.string() }),
+	z.object({ op: z.literal("replace"), path: z.string(), value: z.unknown() }),
+	z.object({ op: z.literal("move"), from: z.string(), path: z.string() }),
+	z.object({ op: z.literal("copy"), from: z.string(), path: z.string() }),
+	z.object({ op: z.literal("test"), path: z.string(), value: z.unknown() }),
+]);
+
 const StateSchema = z.object({
 	action: z.enum([
 		"init",
 		"get",
 		"update",
+		"patch",
+		"validate_schema",
+		"change_schema",
 		"history",
 		"revision",
 		"restore",
-		"diff",
 	]),
 	doc: z.string(),
 	schema: z.record(z.string(), z.unknown()).optional(),
 	data: z.record(z.string(), z.unknown()).optional(),
+	patch: z.array(JsonPatchSchema).min(1).optional(),
 	expected_revision: z.number().int().positive().optional(),
 	revision: z.number().int().positive().optional(),
-	from_revision: z.number().int().positive().optional(),
-	to_revision: z.number().int().positive().optional(),
 });
 
 const DESCRIPTION = [
 	"When to use: attach durable data and immutable snapshot history to one living document.",
 	"",
-	"Document state is separate from collections and mail merge. A state-backed document renders {{ state.field }} placeholders from its latest revision. Each update stores a complete validated snapshot; diffs are computed on demand and never persisted.",
+	"Document state is separate from collections and mail merge. A state-backed document renders Mustache variables, sections, inverted sections, and loops from its latest revision. Every mutation stores a complete validated schema + data snapshot.",
+	'The target interface is document-owned standard HTML/CSS: Mustache interpolation is display-only. Editable terminal values must be declared explicitly with data-maket-bind on <input type="checkbox"> (boolean), <input type="text"> (string), <select> (string enum), or <button type="button"> (single-value editor). Use state.foo at the root and relative foo inside {{#state.items}} sections. Maket resolves transient JSON Pointers and synchronizes the store; it does not generate or style controls.',
 	"  init     — attach a schema and initial data to a static document (revision 1).",
 	"  get      — read the schema and current revision.",
 	"  update   — append a complete state snapshot; expected_revision is required.",
+	"  patch    — apply RFC 6902 JSON Patch operations; expected_revision is required.",
+	"  validate_schema — validate a proposed schema against current or supplied data without saving.",
+	"  change_schema — atomically replace the schema and append compatible data as one revision.",
 	"  history  — list immutable revisions newest first.",
 	"  revision — read one revision.",
-	"  restore  — append a new revision containing an older snapshot.",
-	"  diff     — compute JSON-pointer differences between two revisions.",
+	"  restore  — append a new revision containing an older schema + data snapshot.",
 ].join("\n");
 
 type Args = z.infer<typeof StateSchema>;
@@ -92,7 +109,13 @@ function handleStateTool(
 }
 
 function isMutation(action: Args["action"]): boolean {
-	return action === "init" || action === "update" || action === "restore";
+	return (
+		action === "init" ||
+		action === "update" ||
+		action === "patch" ||
+		action === "change_schema" ||
+		action === "restore"
+	);
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -138,6 +161,31 @@ function runStateAction(args: Args, states: DocumentStates) {
 				`State of "${args.doc}" updated to revision ${revision.revision}.`,
 			);
 		}
+		case "patch": {
+			const revision = states.patch(
+				args.doc,
+				requiredExpectedRevision(args),
+				requiredPatch(args),
+			);
+			return text(
+				`State of "${args.doc}" patched to revision ${revision.revision}.`,
+			);
+		}
+		case "validate_schema": {
+			states.validateSchema(args.doc, requiredSchema(args), args.data);
+			return text(`Schema is valid for "${args.doc}".`);
+		}
+		case "change_schema": {
+			const revision = states.changeSchema(
+				args.doc,
+				requiredExpectedRevision(args),
+				requiredSchema(args),
+				args.data,
+			);
+			return text(
+				`Schema of "${args.doc}" changed at revision ${revision.revision}.`,
+			);
+		}
 		case "history": {
 			const revisions = states.history(args.doc);
 			return text(
@@ -167,25 +215,23 @@ function runStateAction(args: Args, states: DocumentStates) {
 				`State of "${args.doc}" restored as revision ${revision.revision}.`,
 			);
 		}
-		case "diff": {
-			const differences = states.diff(
-				args.doc,
-				requiredPositive(args.from_revision, "from_revision"),
-				requiredPositive(args.to_revision, "to_revision"),
-			);
-			return text(JSON.stringify(differences, null, 2));
-		}
 	}
 }
 
 function requiredSchema(args: Args): DocumentStateSchema {
-	if (!args.schema) throw new Error("schema is required for action=init");
+	if (!args.schema)
+		throw new Error(`schema is required for action=${args.action}`);
 	return args.schema;
 }
 
 function requiredData(args: Args): DocumentStateData {
 	if (!args.data) throw new Error(`data is required for action=${args.action}`);
 	return args.data;
+}
+
+function requiredPatch(args: Args): JsonPatchOperation[] {
+	if (!args.patch) throw new Error("patch is required for action=patch");
+	return args.patch;
 }
 
 function requiredExpectedRevision(args: Args): number {

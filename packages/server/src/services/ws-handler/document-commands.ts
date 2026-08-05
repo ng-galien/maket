@@ -25,6 +25,7 @@ export function handleLoadDocument(
 	const state: WorkspaceStateSignal = {
 		type: "state",
 		doc: ctx.documents.lightView(ctx.documentRenderer.render(requested)),
+		documentState: ctx.documentRenderer.stateView(requested),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),

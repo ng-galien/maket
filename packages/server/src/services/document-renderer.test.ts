@@ -19,7 +19,11 @@ function doc(dataModel: "static" | "collection" | "state") {
 describe("DocumentRenderer", () => {
 	it("keeps collection and state rendering as separate strategies", () => {
 		const collectionRenderer = { render: vi.fn((value) => value) };
-		const stateRenderer = { render: vi.fn((value) => value) };
+		const stateRenderer = {
+			render: vi.fn((value) => value),
+			renderPages: vi.fn(() => []),
+			clientView: vi.fn(),
+		};
 		const renderer = createDocumentRenderer({
 			collectionRenderer,
 			stateRenderer,
@@ -45,7 +49,17 @@ describe("DocumentRenderer", () => {
 		const collectionRenderer = { render: vi.fn((value) => value) };
 		const renderer = createDocumentRenderer({
 			collectionRenderer,
-			stateRenderer: { render: (value) => value },
+			stateRenderer: {
+				render: (value) => value,
+				renderPages: () => [],
+				clientView: () => ({
+					schema: {},
+					data: {},
+					revision: 1,
+					createdAt: "",
+					templates: {},
+				}),
+			},
 		});
 
 		expect(renderer.render(collection)).toBe(collection);

@@ -2,6 +2,7 @@ import {
 	type Collection,
 	type CollectionCursorMode,
 	collectionCursorKey,
+	type DocumentStateClientView,
 	type PageCollectionCursor,
 } from "@maket/shared";
 import { create } from "zustand";
@@ -10,6 +11,19 @@ import type { DocSummary, Document } from "./types";
 import { wsSend } from "./ws";
 
 export type CollectionPreviewMode = CollectionCursorMode;
+export type StateCanvasMode = "live" | "design";
+
+export function statePatchKey(docName: string, pointer: string): string {
+	return `${docName}\u0000${pointer}`;
+}
+
+export function hasPendingStatePatchForDocument(
+	statePatchPending: Record<string, string>,
+	docName: string,
+): boolean {
+	const prefix = `${docName}\u0000`;
+	return Object.keys(statePatchPending).some((key) => key.startsWith(prefix));
+}
 
 export interface DraftCursorOverride {
 	docName: string;
@@ -70,7 +84,34 @@ interface CollectionSlice {
 	moveCursorMember: (docName: string, pageIndex: number, delta: number) => void;
 }
 
-interface AppState extends CollectionSlice {
+interface DocumentStateSlice {
+	documentStates: Record<string, DocumentStateClientView>;
+	stateCanvasModes: Record<string, StateCanvasMode>;
+	statePatchPending: Record<string, string>;
+	statePatchRequests: Record<string, string>;
+	statePatchErrors: Record<string, string>;
+	setDocumentState: (
+		docName: string,
+		view: DocumentStateClientView | null,
+	) => void;
+	applyStatePages: (
+		docName: string,
+		pages: Array<{ index: number; html?: string }>,
+		view: DocumentStateClientView,
+		docList: DocSummary[],
+	) => void;
+	setStateCanvasMode: (docName: string, mode: StateCanvasMode) => void;
+	beginStatePatch: (
+		docName: string,
+		pointer: string,
+		requestId: string,
+	) => void;
+	timeoutStatePatch: (requestId: string, error: string) => void;
+	settleStatePatch: (requestId: string, error?: string) => void;
+	clearStatePatches: () => void;
+}
+
+interface AppState extends CollectionSlice, DocumentStateSlice {
 	// Connection
 	connected: boolean;
 
@@ -357,6 +398,11 @@ export const useStore = create<AppState>((set, get) => ({
 	draftCursorOverrides: {},
 	collectionDrafts: {},
 	docList: [],
+	documentStates: {},
+	stateCanvasModes: {},
+	statePatchPending: {},
+	statePatchRequests: {},
+	statePatchErrors: {},
 	chartesCss: new Map(),
 	chartesVersion: 0,
 	collections: [],
@@ -376,6 +422,119 @@ export const useStore = create<AppState>((set, get) => ({
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
 	setConnected: (connected) => set({ connected }),
+	setDocumentState: (docName, view) =>
+		set((s) => {
+			if (view) {
+				return {
+					documentStates: { ...s.documentStates, [docName]: view },
+					stateCanvasModes: {
+						...s.stateCanvasModes,
+						[docName]: s.stateCanvasModes[docName] ?? "live",
+					},
+				};
+			}
+			const { [docName]: _state, ...documentStates } = s.documentStates;
+			const { [docName]: _mode, ...stateCanvasModes } = s.stateCanvasModes;
+			const prefix = `${docName}\u0000`;
+			const statePatchPending = Object.fromEntries(
+				Object.entries(s.statePatchPending).filter(
+					([key]) => !key.startsWith(prefix),
+				),
+			);
+			const statePatchErrors = Object.fromEntries(
+				Object.entries(s.statePatchErrors).filter(
+					([key]) => !key.startsWith(prefix),
+				),
+			);
+			const statePatchRequests = Object.fromEntries(
+				Object.entries(s.statePatchRequests).filter(
+					([, key]) => !key.startsWith(prefix),
+				),
+			);
+			return {
+				documentStates,
+				stateCanvasModes,
+				statePatchPending,
+				statePatchRequests,
+				statePatchErrors,
+			};
+		}),
+	applyStatePages: (docName, pages, view, docList) =>
+		set((s) => {
+			const current = s.docs.get(docName);
+			if (!current) {
+				return {
+					documentStates: { ...s.documentStates, [docName]: view },
+					docList,
+				};
+			}
+			const nextPages = [...current.pages];
+			for (const projection of pages) {
+				const page = nextPages[projection.index];
+				if (!page) continue;
+				nextPages[projection.index] = { ...page, html: projection.html };
+			}
+			const docs = new Map(s.docs);
+			docs.set(docName, { ...current, pages: nextPages });
+			return {
+				docs,
+				docList,
+				documentStates: { ...s.documentStates, [docName]: view },
+			};
+		}),
+	setStateCanvasMode: (docName, mode) =>
+		set((s) => ({
+			stateCanvasModes: { ...s.stateCanvasModes, [docName]: mode },
+			selectedIds: [],
+			editingElementId: null,
+		})),
+	beginStatePatch: (docName, pointer, requestId) =>
+		set((s) => {
+			const key = statePatchKey(docName, pointer);
+			const { [key]: _previousError, ...statePatchErrors } = s.statePatchErrors;
+			return {
+				statePatchPending: { ...s.statePatchPending, [key]: requestId },
+				statePatchRequests: { ...s.statePatchRequests, [requestId]: key },
+				statePatchErrors,
+			};
+		}),
+	timeoutStatePatch: (requestId, error) =>
+		set((s) => {
+			const key = s.statePatchRequests[requestId];
+			if (!key || s.statePatchPending[key] !== requestId) return {};
+			const { [key]: _pending, ...statePatchPending } = s.statePatchPending;
+			return {
+				statePatchPending,
+				statePatchErrors: { ...s.statePatchErrors, [key]: error },
+			};
+		}),
+	settleStatePatch: (requestId, error) =>
+		set((s) => {
+			const key = s.statePatchRequests[requestId];
+			if (!key) return {};
+			const { [requestId]: _request, ...statePatchRequests } =
+				s.statePatchRequests;
+			const newerRequest = s.statePatchPending[key];
+			if (newerRequest && newerRequest !== requestId) {
+				return { statePatchRequests };
+			}
+			const { [key]: _pending, ...statePatchPending } = s.statePatchPending;
+			if (error) {
+				return {
+					statePatchPending,
+					statePatchRequests,
+					statePatchErrors: { ...s.statePatchErrors, [key]: error },
+				};
+			}
+			const { [key]: _previousError, ...statePatchErrors } = s.statePatchErrors;
+			return { statePatchPending, statePatchRequests, statePatchErrors };
+		}),
+	clearStatePatches: () =>
+		set({
+			statePatchPending: {},
+			statePatchRequests: {},
+			statePatchErrors: {},
+		}),
 	setCollections: (collections) => {
 		const s = get();
 		const collectionDrafts = reconcileCollectionDrafts(

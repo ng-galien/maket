@@ -64,8 +64,10 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 	],
 	state: [
 		"Document state is a separate data model from collections. It belongs to one document, has one current snapshot, and records immutable full revisions.",
-		"Initialize and update it through maket_state. Stateful templates resolve namespaced placeholders such as {{ state.title }} without expanding pages as mail merge does.",
-		"Every update requires expected_revision, stores a complete schema-validated snapshot, and leaves prior revisions unchanged. Diffs are calculated on demand and are not persisted.",
+		"Initialize and update it through maket_state. Stateful Mustache templates resolve namespaced placeholders such as {{ state.title }}, sections, inverted sections, and loops without expanding pages as mail merge does.",
+		"Mustache interpolation is display-only. For human interaction, author standard HTML and CSS in the document: data-maket-bind supports input[type=checkbox] for booleans, input[type=text] for strings, select for string enums, and button[type=button] for the single-value editor. Maket resolves transient data-maket-path attributes but never chooses or styles the representation.",
+		"Use action=patch with RFC 6902 operations for precise or structural agent changes. Human canvas interactions only replace terminal JSON values. Use validate_schema before change_schema; schema and compatible data are committed together as one restorable revision.",
+		"Every mutation requires expected_revision, stores a complete schema-validated snapshot, and leaves prior revisions unchanged. A restore appends a new revision instead of rewriting history.",
 	],
 	review: [
 		"Review is visual and structural. Use maket_preview snapshot or maket_html check, inspect user notes, and fix the smallest coherent design issue.",
