@@ -1,5 +1,12 @@
 import type { Collection } from "@maket/shared";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Document } from "../store/types";
 import { statePatchKey, useStore } from "../store/useStore";
@@ -204,6 +211,172 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
 	});
 
+	it("opens a screen-sized enum listbox and patches without mutating the select", () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-select-popover");
+		const doc = makeDoc(
+			'<label>État<select aria-label="État" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select></label>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: {
+						type: "object",
+						properties: {
+							status: { type: "string", enum: ["todo", "done"] },
+						},
+					},
+					data: { status: "todo" },
+					revision: 6,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		const select = document.querySelector("select") as HTMLSelectElement;
+
+		fireEvent.pointerDown(select, { button: 0 });
+		const listbox = screen.getByRole("listbox", { name: "État" });
+		expect(listbox.parentElement).toBe(document.body);
+		const currentSelect = screen.getByRole("combobox", { name: "État" });
+		expect(currentSelect).toHaveAttribute("aria-expanded", "true");
+		expect(currentSelect).toHaveAttribute("aria-controls", listbox.id);
+		expect(
+			within(listbox).getByRole("option", { name: "À faire" }),
+		).toHaveAttribute("aria-selected", "true");
+		fireEvent.click(within(listbox).getByRole("option", { name: "Fait" }));
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/status", 6, "done");
+		expect(screen.getByRole("combobox", { name: "État" })).toHaveValue("todo");
+		expect(screen.getByRole("combobox", { name: "État" })).toHaveFocus();
+		expect(screen.queryByRole("listbox", { name: "État" })).toBeNull();
+	});
+
+	it("supports keyboard enum navigation and restores focus on close or submit", () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-keyboard-enum");
+		const doc = makeDoc(
+			'<select aria-label="État" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="partial">Partiel</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { status: "todo" },
+					revision: 2,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		fireEvent.keyDown(screen.getByRole("combobox", { name: "État" }), {
+			key: "ArrowDown",
+		});
+		const listbox = screen.getByRole("listbox", { name: "État" });
+		fireEvent.keyDown(listbox, { key: "End" });
+		expect(within(listbox).getByRole("option", { name: "Fait" })).toHaveFocus();
+		fireEvent.keyDown(listbox, { key: "Escape" });
+		expect(screen.getByRole("combobox", { name: "État" })).toHaveFocus();
+		expect(screen.queryByRole("listbox", { name: "État" })).toBeNull();
+
+		fireEvent.keyDown(screen.getByRole("combobox", { name: "État" }), {
+			key: "ArrowDown",
+		});
+		const reopened = screen.getByRole("listbox", { name: "État" });
+		fireEvent.keyDown(reopened, { key: "End" });
+		fireEvent.keyDown(reopened, { key: "Enter" });
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/status", 2, "done");
+		expect(screen.getByRole("combobox", { name: "État" })).toHaveFocus();
+		expect(screen.queryByRole("listbox", { name: "État" })).toBeNull();
+	});
+
+	it("closes on Tab without cancelling native focus traversal", () => {
+		const doc = makeDoc(
+			'<select aria-label="État" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select><button type="button">Après</button>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { status: "todo" },
+					revision: 2,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		const select = screen.getByRole("combobox", { name: "État" });
+
+		fireEvent.keyDown(select, { key: "ArrowDown" });
+		const listbox = screen.getByRole("listbox", { name: "État" });
+		const wasNotCancelled = fireEvent.keyDown(listbox, { key: "Tab" });
+
+		expect(wasNotCancelled).toBe(true);
+		expect(screen.getByRole("combobox", { name: "État" })).toHaveFocus();
+		expect(screen.queryByRole("listbox", { name: "État" })).toBeNull();
+	});
+
+	it("anchors repeated enum bindings to the occurrence that was activated", () => {
+		const doc = makeDoc(
+			'<select aria-label="Premier état" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select><select aria-label="Second état" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { status: "todo" },
+					revision: 2,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.pointerDown(
+			screen.getByRole("combobox", { name: "Second état" }),
+			{ button: 0 },
+		);
+		const listbox = screen.getByRole("listbox", { name: "Second état" });
+		fireEvent.keyDown(listbox, { key: "Escape" });
+
+		expect(screen.getByRole("combobox", { name: "Second état" })).toHaveFocus();
+	});
+
+	it("blocks the enum popover while read-only", () => {
+		const doc = makeDoc(
+			'<select aria-label="État" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			readOnly: true,
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { status: "todo" },
+					revision: 2,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		const select = document.querySelector("select") as HTMLSelectElement;
+
+		fireEvent.pointerDown(select, { button: 0 });
+		expect(screen.queryByRole("listbox")).toBeNull();
+		expect(select).toHaveValue("todo");
+	});
+
 	it("keeps native state controls locally interactive in the read-only viewer", () => {
 		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
 		const doc = makeDoc(
@@ -367,9 +540,11 @@ describe("PageCanvas toolbar interactions", () => {
 			useStore.getState().beginStatePatch(doc.name, "/title", "r-title"),
 		);
 		const select = container.querySelector("select") as HTMLSelectElement;
+		fireEvent.pointerDown(select, { button: 0 });
 		fireEvent.change(select, { target: { value: "done" } });
 
 		expect(sendPatch).not.toHaveBeenCalled();
+		expect(screen.queryByRole("listbox")).toBeNull();
 		expect(select.value).toBe("todo");
 		expect(container.querySelector(".page-canvas")).toHaveAttribute("inert");
 		expect(container.querySelector(".page-canvas")).toHaveAttribute(
@@ -442,7 +617,7 @@ describe("PageCanvas toolbar interactions", () => {
 	it("keeps a locked living document passive in both modes", async () => {
 		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
 		const doc = makeDoc(
-			'<label data-id="a"><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean"></label>',
+			'<label data-id="a"><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean"><select aria-label="État" data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo" selected>À faire</option><option value="done">Fait</option></select></label>',
 		);
 		doc.dataModel = "state";
 		doc.meta = { locked: true };
@@ -450,7 +625,7 @@ describe("PageCanvas toolbar interactions", () => {
 			documentStates: {
 				[doc.name]: {
 					schema: { type: "object" },
-					data: { done: false },
+					data: { done: false, status: "todo" },
 					revision: 1,
 					createdAt: "2026-08-04T12:00:00.000Z",
 					templates: {
@@ -468,7 +643,12 @@ describe("PageCanvas toolbar interactions", () => {
 				target: { checked: true },
 			}),
 		);
+		fireEvent.pointerDown(
+			document.querySelector("select") as HTMLSelectElement,
+			{ button: 0 },
+		);
 		expect(sendPatch).not.toHaveBeenCalled();
+		expect(screen.queryByRole("listbox")).toBeNull();
 
 		useStore.getState().setStateCanvasMode(doc.name, "design");
 		rerender(

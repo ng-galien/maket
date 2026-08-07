@@ -6,7 +6,7 @@ import {
 } from "@maket/shared";
 import { MessageCircle, Pencil } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import {
@@ -15,6 +15,11 @@ import {
 	useStore,
 } from "../store/useStore";
 import { sendStateValuePatch, sendTextEdit } from "../store/ws";
+import {
+	findStateEnumAnchor,
+	StateEnumSelect,
+	type StateEnumSelectState,
+} from "./StateEnumSelect";
 
 export function parseCSSVars(css: string): Record<string, string> {
 	const vars: Record<string, string> = {};
@@ -238,6 +243,9 @@ export const PageCanvas = memo(function PageCanvas({
 	const [stateEditor, setStateEditor] = useState<StateValueEditorState | null>(
 		null,
 	);
+	const [enumEditor, setEnumEditor] = useState<StateEnumSelectState | null>(
+		null,
+	);
 
 	const dismissToolbar = useCallback(() => setToolbar(null), []);
 
@@ -408,6 +416,107 @@ export const PageCanvas = memo(function PageCanvas({
 		[doc.meta?.locked, readOnly, stateDocumentPending, stateView],
 	);
 
+	const authoritativeStateValue = useCallback(
+		(pointer: string): unknown => {
+			try {
+				return readJsonPointer(stateView?.data ?? {}, pointer);
+			} catch {
+				return undefined;
+			}
+		},
+		[stateView?.data],
+	);
+
+	const commitStateStringValue = useCallback(
+		(pointer: string, value: string): "sent" | "unchanged" | "restored" => {
+			if (!stateView) return "restored";
+			if (readOnly) return "unchanged";
+			const authoritative = authoritativeStateValue(pointer);
+			if (
+				doc.meta?.locked === true ||
+				stateDocumentPending ||
+				typeof authoritative !== "string"
+			)
+				return "restored";
+			if (value === authoritative) return "unchanged";
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			const requestId = sendStateValuePatch(
+				doc.name,
+				pointer,
+				stateView.revision,
+				value,
+			);
+			if (!requestId) return "restored";
+			setStateEditor(null);
+			return "sent";
+		},
+		[
+			authoritativeStateValue,
+			doc.meta?.locked,
+			doc.name,
+			pageIndex,
+			readOnly,
+			stateDocumentPending,
+			stateView,
+		],
+	);
+
+	const activateStateEnum = useCallback(
+		(select: HTMLSelectElement) => {
+			if (
+				!stateView ||
+				readOnly ||
+				doc.meta?.locked === true ||
+				stateDocumentPending
+			)
+				return;
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			const pointer = select.dataset.maketPath;
+			if (!pointer || select.dataset.maketType !== "string") return;
+			const authoritative = authoritativeStateValue(pointer);
+			if (typeof authoritative !== "string") return;
+			const options = Array.from(select.options)
+				.filter((option) => !option.disabled)
+				.map((option) => ({
+					value: option.value,
+					label: option.label || option.textContent || option.value,
+				}));
+			if (options.length === 0) return;
+			const anchorIndex = Array.from(
+				pageRef.current?.querySelectorAll<HTMLSelectElement>(
+					"select[data-maket-bind][data-maket-path]",
+				) ?? [],
+			)
+				.filter((candidate) => candidate.dataset.maketPath === pointer)
+				.indexOf(select);
+			if (anchorIndex < 0) return;
+			const anchorRect = select.getBoundingClientRect();
+			setEnumEditor({
+				pointer,
+				anchorIndex,
+				anchorRect: {
+					top: anchorRect.top,
+					bottom: anchorRect.bottom,
+					left: anchorRect.left,
+					width: anchorRect.width,
+				},
+				options,
+				selectedValue: authoritative,
+				label: stateSelectLabel(select, t("state_value")),
+			});
+		},
+		[
+			authoritativeStateValue,
+			doc.meta?.locked,
+			doc.name,
+			pageIndex,
+			readOnly,
+			stateDocumentPending,
+			stateView,
+			t,
+		],
+	);
+
 	useEffect(() => {
 		const canvas = pageRef.current;
 		if (!canvas || !liveState) return;
@@ -418,18 +527,11 @@ export const PageCanvas = memo(function PageCanvas({
 	useEffect(() => {
 		if (!pageRef.current || !liveState) return;
 		const el = pageRef.current;
-		const authoritativeValue = (pointer: string): unknown => {
-			try {
-				return readJsonPointer(stateView?.data ?? {}, pointer);
-			} catch {
-				return undefined;
-			}
-		};
 		const restoreControl = (
 			binding: HTMLInputElement | HTMLSelectElement,
 			pointer: string,
 		) => {
-			const authoritative = authoritativeValue(pointer);
+			const authoritative = authoritativeStateValue(pointer);
 			if (binding instanceof HTMLSelectElement) {
 				if (typeof authoritative === "string") binding.value = authoritative;
 				return;
@@ -447,33 +549,26 @@ export const PageCanvas = memo(function PageCanvas({
 		const commitStringControl = (
 			binding: HTMLInputElement | HTMLSelectElement,
 		): "sent" | "unchanged" | "restored" => {
-			if (!stateView) return "restored";
 			const pointer = binding.dataset.maketPath;
 			if (!pointer) return "restored";
-			if (readOnly) return "unchanged";
-			const authoritative = authoritativeValue(pointer);
-			if (
-				doc.meta?.locked === true ||
-				stateDocumentPending ||
-				typeof authoritative !== "string"
-			) {
+			const result = commitStateStringValue(pointer, binding.value);
+			if (result === "restored") {
 				restoreControl(binding, pointer);
-				return "restored";
 			}
-			if (binding.value === authoritative) return "unchanged";
-			useStore.getState().setFocusedPage(doc.name, pageIndex);
-			const requestId = sendStateValuePatch(
-				doc.name,
-				pointer,
-				stateView.revision,
-				binding.value,
-			);
-			if (!requestId) {
-				restoreControl(binding, pointer);
-				return "restored";
-			}
-			setStateEditor(null);
-			return "sent";
+			return result;
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (event.button !== 0) return;
+			const target = event.target;
+			if (!(target instanceof HTMLElement)) return;
+			const select = target.closest(
+				"select[data-maket-bind][data-maket-path]",
+			) as HTMLSelectElement | null;
+			if (!select) return;
+			event.preventDefault();
+			event.stopPropagation();
+			select.focus({ preventScroll: true });
+			activateStateEnum(select);
 		};
 		const onClick = (event: MouseEvent) => {
 			const binding = (event.target as HTMLElement).closest(
@@ -538,42 +633,30 @@ export const PageCanvas = memo(function PageCanvas({
 				textCommitRef.current.delete(target);
 			}
 		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			const target = event.target;
-			if (
-				!(target instanceof HTMLInputElement) ||
-				target.type !== "text" ||
-				!target.matches("[data-maket-bind][data-maket-path]")
-			)
-				return;
-			event.stopPropagation();
-			const pointer = target.dataset.maketPath;
-			if (!pointer) return;
-			if (event.key === "Escape") {
-				event.preventDefault();
-				textCommitRef.current.delete(target);
-				restoreControl(target, pointer);
-				return;
-			}
-			if (event.key !== "Enter") return;
-			event.preventDefault();
-			const result = commitStringControl(target);
-			if (result !== "restored") {
-				textCommitRef.current.set(target, target.value);
-			}
-		};
+		const onKeyDown = (event: KeyboardEvent) =>
+			handleLiveControlKeyDown(event, {
+				activateEnum: activateStateEnum,
+				commitString: commitStringControl,
+				restore: restoreControl,
+				textCommits: textCommitRef.current,
+			});
+		el.addEventListener("pointerdown", onPointerDown);
 		el.addEventListener("click", onClick);
 		el.addEventListener("change", onChange);
 		el.addEventListener("input", onInput);
 		el.addEventListener("keydown", onKeyDown);
 		return () => {
+			el.removeEventListener("pointerdown", onPointerDown);
 			el.removeEventListener("click", onClick);
 			el.removeEventListener("change", onChange);
 			el.removeEventListener("input", onInput);
 			el.removeEventListener("keydown", onKeyDown);
 		};
 	}, [
+		activateStateEnum,
 		activateStateButton,
+		authoritativeStateValue,
+		commitStateStringValue,
 		doc.meta?.locked,
 		doc.name,
 		liveState,
@@ -595,6 +678,16 @@ export const PageCanvas = memo(function PageCanvas({
 				const error = key ? statePatchErrors[key] : undefined;
 				binding.toggleAttribute("data-maket-pending", isPending);
 				binding.setAttribute("aria-busy", String(isPending));
+				if (binding instanceof HTMLSelectElement) {
+					binding.setAttribute("aria-haspopup", "listbox");
+					binding.setAttribute("aria-expanded", "false");
+					binding.setAttribute(
+						"aria-disabled",
+						String(
+							readOnly || doc.meta?.locked === true || stateDocumentPending,
+						),
+					);
+				}
 				if (error) binding.setAttribute("data-maket-error", error);
 				else binding.removeAttribute("data-maket-error");
 				if (error && pointer) {
@@ -623,16 +716,34 @@ export const PageCanvas = memo(function PageCanvas({
 			});
 	}, [
 		doc.name,
+		doc.meta?.locked,
 		liveState,
+		readOnly,
 		renderHtml,
 		statePatchErrors,
 		statePatchPending,
+		stateDocumentPending,
 		stateView?.data,
 	]);
 
 	useEffect(() => {
 		setStateEditor(null);
+		setEnumEditor(null);
 	}, [stateMode, stateView?.revision]);
+
+	const dismissEnumEditor = useCallback(
+		(restoreFocus: boolean) => {
+			if (!enumEditor) return;
+			const { pointer, anchorIndex } = enumEditor;
+			flushSync(() => setEnumEditor(null));
+			if (restoreFocus && pageRef.current)
+				findStateEnumAnchor(pageRef.current, {
+					pointer,
+					anchorIndex,
+				})?.focus({ preventScroll: true });
+		},
+		[enumEditor],
+	);
 
 	useEffect(() => {
 		if (!pageRef.current || !focused || !canInteract) return;
@@ -831,9 +942,100 @@ export const PageCanvas = memo(function PageCanvas({
 					/>,
 					document.body,
 				)}
+			{enumEditor &&
+				pageRef.current &&
+				createPortal(
+					<StateEnumSelect
+						state={enumEditor}
+						root={pageRef.current}
+						onCancel={dismissEnumEditor}
+						onSubmit={(value) => {
+							const result = commitStateStringValue(enumEditor.pointer, value);
+							if (result !== "restored") dismissEnumEditor(true);
+						}}
+					/>,
+					document.body,
+				)}
 		</>
 	);
 });
+
+interface LiveControlKeyContext {
+	activateEnum: (select: HTMLSelectElement) => void;
+	commitString: (
+		binding: HTMLInputElement | HTMLSelectElement,
+	) => "sent" | "unchanged" | "restored";
+	restore: (
+		binding: HTMLInputElement | HTMLSelectElement,
+		pointer: string,
+	) => void;
+	textCommits: WeakMap<HTMLInputElement, string>;
+}
+
+function handleLiveControlKeyDown(
+	event: KeyboardEvent,
+	context: LiveControlKeyContext,
+): void {
+	if (handleEnumControlKeyDown(event, context.activateEnum)) return;
+	handleTextControlKeyDown(event, context);
+}
+
+function handleEnumControlKeyDown(
+	event: KeyboardEvent,
+	activate: (select: HTMLSelectElement) => void,
+): boolean {
+	const target = event.target;
+	if (
+		!(target instanceof HTMLSelectElement) ||
+		!target.matches("[data-maket-bind][data-maket-path]") ||
+		(event.key !== "Enter" && event.key !== " " && event.key !== "ArrowDown")
+	)
+		return false;
+	event.preventDefault();
+	event.stopPropagation();
+	activate(target);
+	return true;
+}
+
+function handleTextControlKeyDown(
+	event: KeyboardEvent,
+	context: LiveControlKeyContext,
+): void {
+	const target = event.target;
+	if (
+		!(target instanceof HTMLInputElement) ||
+		target.type !== "text" ||
+		!target.matches("[data-maket-bind][data-maket-path]")
+	)
+		return;
+	event.stopPropagation();
+	const pointer = target.dataset.maketPath;
+	if (!pointer) return;
+	if (event.key === "Escape") {
+		event.preventDefault();
+		context.textCommits.delete(target);
+		context.restore(target, pointer);
+		return;
+	}
+	if (event.key !== "Enter") return;
+	event.preventDefault();
+	const result = context.commitString(target);
+	if (result !== "restored") context.textCommits.set(target, target.value);
+}
+
+function stateSelectLabel(select: HTMLSelectElement, fallback: string): string {
+	if (select.getAttribute("aria-label"))
+		return select.getAttribute("aria-label") ?? "";
+	const label = select.labels?.[0];
+	if (label) {
+		const copy = label.cloneNode(true) as HTMLLabelElement;
+		copy.querySelectorAll("select").forEach((element) => {
+			element.remove();
+		});
+		if (copy.textContent?.trim()) return copy.textContent.trim();
+	}
+	return fallback;
+}
 
 function StateValueEditor({
 	state,
