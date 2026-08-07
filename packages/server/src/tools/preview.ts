@@ -156,7 +156,7 @@ async function runSnapshot(
 			width: Math.ceil(w * scale),
 			height: Math.ceil(h * scale),
 		});
-		await p.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await p.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(p);
 		const png = (await p.screenshot({
 			type: "png",

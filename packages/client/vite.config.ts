@@ -11,25 +11,25 @@ export default defineConfig(({ mode }) => {
 	const pagesBuild = mode === "pages";
 	const input: Record<string, string> = pagesBuild
 		? {
-				viewer: path.resolve(__dirname, "viewer.html"),
-				demo: path.resolve(__dirname, "demo.html"),
+				viewer: path.resolve(import.meta.dirname, "viewer.html"),
+				demo: path.resolve(import.meta.dirname, "demo.html"),
 			}
 		: {
-				main: path.resolve(__dirname, "index.html"),
-				viewer: path.resolve(__dirname, "viewer.html"),
-				demo: path.resolve(__dirname, "demo.html"),
+				main: path.resolve(import.meta.dirname, "index.html"),
+				viewer: path.resolve(import.meta.dirname, "viewer.html"),
+				demo: path.resolve(import.meta.dirname, "demo.html"),
 			};
 	return {
 		base: pagesBuild ? "./" : undefined,
 		plugins: [react(), tailwindcss()],
 		resolve: {
 			alias: {
-				"@": path.resolve(__dirname, "./src"),
+				"@": path.resolve(import.meta.dirname, "./src"),
 			},
 		},
 		build: {
 			outDir: path.resolve(
-				__dirname,
+				import.meta.dirname,
 				pagesBuild ? "../../docs/app" : "../../public",
 			),
 			emptyOutDir: pagesBuild,

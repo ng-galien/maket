@@ -987,7 +987,8 @@ describe("ws-handler — text editing", () => {
 		);
 
 		expect(updates).toHaveBeenCalledTimes(1);
-		const css = (updates.mock.calls[0]?.[0] as { css: string }).css;
+		const css = (updates.mock.calls[0]?.[0] as { css: string } | undefined)
+			?.css;
 		// Font import emitted so client's ensureCharteFonts() picks up new Google Fonts.
 		expect(css).toMatch(/@import\s+url\(['"]https:\/\/fonts\.googleapis\.com/);
 		expect(css).toContain("family=Fraunces");
@@ -1006,22 +1007,25 @@ describe("ws-handler — text editing", () => {
 		],
 		["voice as array", { voice: ["nope" as unknown] }],
 		["rules as number", { rules: 7 as unknown }],
-	])("charte_save rejects malformed payload (%s) without persisting", (_, extra) => {
-		const { store, bus, handler, dispose } = fixture();
-		const toast = vi.fn();
-		const updates = vi.fn();
-		bus.on("toast", toast);
-		bus.on("charte:updated", updates);
+	])(
+		"charte_save rejects malformed payload (%s) without persisting",
+		(_, extra) => {
+			const { store, bus, handler, dispose } = fixture();
+			const toast = vi.fn();
+			const updates = vi.fn();
+			bus.on("toast", toast);
+			bus.on("charte:updated", updates);
 
-		handler({ type: "charte_save", name: "brand", ...extra } as any, STUB_WS);
+			handler({ type: "charte_save", name: "brand", ...extra } as any, STUB_WS);
 
-		expect(store.loadAllChartes()).toHaveLength(0);
-		expect(updates).not.toHaveBeenCalled();
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ level: "error" }),
-		);
-		dispose();
-	});
+			expect(store.loadAllChartes()).toHaveLength(0);
+			expect(updates).not.toHaveBeenCalled();
+			expect(toast).toHaveBeenCalledWith(
+				expect.objectContaining({ level: "error" }),
+			);
+			dispose();
+		},
+	);
 
 	it("update_charte_meta merges fields into an existing charte without wiping omitted ones", () => {
 		const { store, bus, handler, dispose } = fixture();
@@ -1225,32 +1229,35 @@ describe("ws-handler — text editing", () => {
 		["tags as string", { tags: "oops" as unknown }],
 		["tags non-string element", { tags: [1, 2] as unknown }],
 		["credit as object", { credit: { x: 1 } as unknown }],
-	])("update_asset_meta rejects malformed payload (%s) without persisting", (_, extra) => {
-		const { store, bus, assetsDir, handler, dispose } = fixture();
-		writeFileSync(join(assetsDir, "hero.png"), "px");
-		store.saveAsset({ filename: "hero.png", title: "kept" });
-		const toast = vi.fn();
-		const changed = vi.fn();
-		bus.on("toast", toast);
-		bus.on("assets:changed", changed);
+	])(
+		"update_asset_meta rejects malformed payload (%s) without persisting",
+		(_, extra) => {
+			const { store, bus, assetsDir, handler, dispose } = fixture();
+			writeFileSync(join(assetsDir, "hero.png"), "px");
+			store.saveAsset({ filename: "hero.png", title: "kept" });
+			const toast = vi.fn();
+			const changed = vi.fn();
+			bus.on("toast", toast);
+			bus.on("assets:changed", changed);
 
-		handler(
-			{
-				type: "update_asset_meta",
-				filename: "hero.png",
-				...extra,
-			} as any,
-			STUB_WS,
-		);
+			handler(
+				{
+					type: "update_asset_meta",
+					filename: "hero.png",
+					...extra,
+				} as any,
+				STUB_WS,
+			);
 
-		// Existing row left intact.
-		expect(store.loadAsset("hero.png")?.title).toBe("kept");
-		expect(changed).not.toHaveBeenCalled();
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ level: "error" }),
-		);
-		dispose();
-	});
+			// Existing row left intact.
+			expect(store.loadAsset("hero.png")?.title).toBe("kept");
+			expect(changed).not.toHaveBeenCalled();
+			expect(toast).toHaveBeenCalledWith(
+				expect.objectContaining({ level: "error" }),
+			);
+			dispose();
+		},
+	);
 
 	it("update_asset_meta toasts when the file is missing (no row creation)", () => {
 		const { store, bus, handler, dispose } = fixture();

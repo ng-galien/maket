@@ -7,22 +7,22 @@
 	"private": true,
 	"dependencies": {
 		"@maket/shared": "*",
-		"@modelcontextprotocol/sdk": "^1.12.1",
+		"@modelcontextprotocol/sdk": "^1.30.0",
 		"@resvg/resvg-js": "^2.6.2",
-		"awilix": "^13.0.3",
+		"awilix": "^13.0.5",
 		"beautiful-mermaid": "^1.1.3",
-		"express": "^4.21.0",
-		"googleapis": "^171.4.0",
-		"jimp": "^1.6.0",
+		"express": "^5.2.1",
+		"googleapis": "^174.0.1",
+		"jimp": "^1.6.1",
 		"jszip": "^3.10.1",
-		"linkedom": "^0.18.12",
-		"puppeteer": "^24.39.1",
-		"ws": "^8.18.0",
-		"zod": "^4.3.6"
+		"linkedom": "^0.18.13",
+		"puppeteer": "^25.5.0",
+		"ws": "^8.21.2",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@types/express": "^5.0.6",
-		"@types/node": "^25.5.0",
+		"@types/node": "^26.1.2",
 		"@types/ws": "^8.18.1"
 	}
 }

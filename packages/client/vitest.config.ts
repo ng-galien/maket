@@ -6,7 +6,7 @@ export default defineConfig({
 	plugins: [react()],
 	test: {
 		name: "client",
-		root: __dirname,
+		root: import.meta.dirname,
 		include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
 		exclude: ["**/node_modules/**", "**/dist/**"],
 		environment: "jsdom",

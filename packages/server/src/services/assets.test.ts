@@ -82,21 +82,19 @@ describe("createAssetsService", () => {
 
 	// Thumbs live under <source-filename>.thumb.jpg so assets that differ
 	// only by extension (logo.png + logo.jpg) each get their own thumb.
-	it.each([
-		"pic.png",
-		"pic.jpg",
-		"pic.webp",
-		"pic.gif",
-	])("readBase64 serves the .thumb.jpg for %s", (source) => {
-		const thumbBytes = Buffer.from("thumb-bytes");
-		writeFileSync(join(dir, source), TINY_PNG);
-		mkdirSync(join(dir, "thumbs"));
-		writeFileSync(join(dir, "thumbs", `${source}.thumb.jpg`), thumbBytes);
-		const assets = createAssetsService({ assetsDir: dir });
-		const r = assets.readBase64(source);
-		expect(r?.mime).toBe("image/jpeg");
-		expect(r?.data).toBe(thumbBytes.toString("base64"));
-	});
+	it.each(["pic.png", "pic.jpg", "pic.webp", "pic.gif"])(
+		"readBase64 serves the .thumb.jpg for %s",
+		(source) => {
+			const thumbBytes = Buffer.from("thumb-bytes");
+			writeFileSync(join(dir, source), TINY_PNG);
+			mkdirSync(join(dir, "thumbs"));
+			writeFileSync(join(dir, "thumbs", `${source}.thumb.jpg`), thumbBytes);
+			const assets = createAssetsService({ assetsDir: dir });
+			const r = assets.readBase64(source);
+			expect(r?.mime).toBe("image/jpeg");
+			expect(r?.data).toBe(thumbBytes.toString("base64"));
+		},
+	);
 
 	it("readBase64 does not collide between same-basename different-ext assets", () => {
 		const pngThumb = Buffer.from("png-thumb");

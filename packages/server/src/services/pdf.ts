@@ -137,7 +137,7 @@ async function renderPdfDocument(
 	const page = await b.newPage();
 	try {
 		await installNetworkGuard(page, "offline");
-		await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await page.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(page);
 		const pdfBuffer = await page.pdf({
 			width: `${w}mm`,

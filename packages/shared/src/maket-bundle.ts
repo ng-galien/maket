@@ -204,7 +204,7 @@ function validateBundleDocumentState(
 	}
 	context.seen.add(value.documentId);
 	const indexedDocument = context.docsById.get(value.documentId);
-	if (!indexedDocument || indexedDocument.document.dataModel !== "state") {
+	if (indexedDocument?.document.dataModel !== "state") {
 		throw new Error(
 			`Invalid .maket file: documentStates[${index}] does not reference a state-backed document`,
 		);

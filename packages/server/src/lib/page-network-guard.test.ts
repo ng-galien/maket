@@ -39,15 +39,15 @@ function makePage() {
 }
 
 describe("installNetworkGuard", () => {
-	it.each([
-		"offline",
-		"localhost-only",
-	] satisfies NetworkGuardMode[])("installs request interception (not setOfflineMode) in %s mode", async (mode) => {
-		const page = makePage();
-		await installNetworkGuard(page as any, mode);
-		expect(page.setRequestInterception).toHaveBeenCalledWith(true);
-		expect(page.setOfflineMode).not.toHaveBeenCalled();
-	});
+	it.each(["offline", "localhost-only"] satisfies NetworkGuardMode[])(
+		"installs request interception (not setOfflineMode) in %s mode",
+		async (mode) => {
+			const page = makePage();
+			await installNetworkGuard(page as any, mode);
+			expect(page.setRequestInterception).toHaveBeenCalledWith(true);
+			expect(page.setOfflineMode).not.toHaveBeenCalled();
+		},
+	);
 
 	it.each([
 		["data:text/plain,ok", true],
@@ -68,21 +68,21 @@ describe("installNetworkGuard", () => {
 		["https://192.168.1.1/admin", false],
 		["https://fontsXgstatic.com/font.woff2", false],
 		["not a url", false],
-	] satisfies [
-		string,
-		boolean,
-	][])("offline mode %s -> %s", async (url, allowed) => {
-		const page = makePage();
-		await installNetworkGuard(page as any, "offline");
-		const req = page.trigger(url);
-		if (allowed) {
-			expect(req.continue).toHaveBeenCalled();
-			expect(req.abort).not.toHaveBeenCalled();
-		} else {
-			expect(req.abort).toHaveBeenCalledWith("blockedbyclient");
-			expect(req.continue).not.toHaveBeenCalled();
-		}
-	});
+	] satisfies [string, boolean][])(
+		"offline mode %s -> %s",
+		async (url, allowed) => {
+			const page = makePage();
+			await installNetworkGuard(page as any, "offline");
+			const req = page.trigger(url);
+			if (allowed) {
+				expect(req.continue).toHaveBeenCalled();
+				expect(req.abort).not.toHaveBeenCalled();
+			} else {
+				expect(req.abort).toHaveBeenCalledWith("blockedbyclient");
+				expect(req.continue).not.toHaveBeenCalled();
+			}
+		},
+	);
 
 	it.each([
 		["data:text/plain,ok", true],
@@ -97,22 +97,22 @@ describe("installNetworkGuard", () => {
 		["https://192.168.1.1/admin", false],
 		["https://fonts.googleapis.com.evil.example/", false],
 		["not a url", false],
-	] satisfies [
-		string,
-		boolean,
-	][])("localhost-only mode %s -> %s", async (url, allowed) => {
-		const page = makePage();
-		await installNetworkGuard(
-			page as any,
-			"localhost-only" satisfies NetworkGuardMode,
-		);
-		const req = page.trigger(url);
-		if (allowed) {
-			expect(req.continue).toHaveBeenCalled();
-			expect(req.abort).not.toHaveBeenCalled();
-		} else {
-			expect(req.abort).toHaveBeenCalledWith("blockedbyclient");
-			expect(req.continue).not.toHaveBeenCalled();
-		}
-	});
+	] satisfies [string, boolean][])(
+		"localhost-only mode %s -> %s",
+		async (url, allowed) => {
+			const page = makePage();
+			await installNetworkGuard(
+				page as any,
+				"localhost-only" satisfies NetworkGuardMode,
+			);
+			const req = page.trigger(url);
+			if (allowed) {
+				expect(req.continue).toHaveBeenCalled();
+				expect(req.abort).not.toHaveBeenCalled();
+			} else {
+				expect(req.abort).toHaveBeenCalledWith("blockedbyclient");
+				expect(req.continue).not.toHaveBeenCalled();
+			}
+		},
+	);
 });

@@ -135,6 +135,7 @@ describe("PdfService.render", () => {
 			setRequestInterception: vi.fn(async () => {}),
 			on: vi.fn(),
 			setContent,
+			waitForNetworkIdle: vi.fn(async () => {}),
 			evaluate: vi.fn(async () => {}),
 			pdf: vi.fn(async () => new Uint8Array([1, 2, 3])),
 			close: vi.fn(async () => {}),
@@ -200,7 +201,7 @@ describe("PdfService.render", () => {
 		);
 		expect(setContent).toHaveBeenCalledWith(
 			expect.any(String),
-			expect.objectContaining({ waitUntil: "networkidle0" }),
+			expect.objectContaining({ waitUntil: "load" }),
 		);
 		store.close();
 		rmSync(tmp, { recursive: true, force: true });

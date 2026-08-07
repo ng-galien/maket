@@ -14,6 +14,7 @@
     "url": "https://github.com/ng-galien/maket/issues"
   },
   "private": true,
+  "type": "module",
   "workspaces": [
     "packages/*"
   ],
@@ -48,12 +49,12 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.7",
-    "@vitest/coverage-v8": "^4.1.4",
-    "esbuild": "^0.25.0",
-    "lefthook": "^2.1.4",
-    "tsx": "^4.19.0",
-    "typescript": "^5.9.3",
-    "vitest": "^4.1.4"
+    "@biomejs/biome": "^2.5.7",
+    "@vitest/coverage-v8": "^4.1.10",
+    "esbuild": "^0.28.1",
+    "lefthook": "^2.1.10",
+    "tsx": "^4.23.10",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }

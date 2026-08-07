@@ -128,7 +128,7 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 			width: Math.ceil(w * PX_PER_MM),
 			height: Math.ceil(h * PX_PER_MM),
 		});
-		await page.setContent(fullHtml, { waitUntil: "networkidle0" });
+		await page.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(page);
 		const m = doc.canvas.margins;
 		const marginsPx = m

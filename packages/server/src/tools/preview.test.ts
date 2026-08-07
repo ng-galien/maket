@@ -13,6 +13,7 @@ const previewMocks = vi.hoisted(() => {
 	const page = {
 		setViewport: vi.fn(async () => {}),
 		setContent: vi.fn(async () => {}),
+		waitForNetworkIdle: vi.fn(async () => {}),
 		evaluate: vi.fn(async () => undefined),
 		screenshot: vi.fn(async () => Buffer.from("png")),
 	};
@@ -83,6 +84,7 @@ beforeEach(() => {
 	previewMocks.installNetworkGuard.mockClear();
 	previewMocks.page.setViewport.mockClear();
 	previewMocks.page.setContent.mockClear();
+	previewMocks.page.waitForNetworkIdle.mockClear();
 	previewMocks.page.evaluate.mockClear();
 	previewMocks.page.screenshot.mockClear();
 	previewMocks.browser.newPage.mockClear();

@@ -85,7 +85,7 @@ async function defaultSnapshot(
 	try {
 		await installNetworkGuard(page, "offline");
 		await page.setViewport(viewport);
-		await page.setContent(html, { waitUntil: "networkidle0" });
+		await page.setContent(html, { waitUntil: "load" });
 		await waitForPageStable(page);
 		const png = await page.screenshot({
 			type: "png",

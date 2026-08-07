@@ -55,7 +55,7 @@ export interface ScrubbableRoot {
 
 /** Scrub every `on*` handler, forbidden URL scheme and `srcdoc` on a node. */
 export function scrubActiveAttributes(el: ScrubbableElement): void {
-	if (!el || !el.attributes) return;
+	if (!el?.attributes) return;
 	for (const a of Array.from(el.attributes)) {
 		const name = a.name.toLowerCase();
 		if (name.startsWith("on")) {

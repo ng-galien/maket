@@ -12,7 +12,7 @@
 		"@maket/server": "*"
 	},
 	"devDependencies": {
-		"@types/node": "^25.5.0",
-		"cac": "^6.7.14"
+		"@types/node": "^26.1.2",
+		"cac": "^7.0.0"
 	}
 }

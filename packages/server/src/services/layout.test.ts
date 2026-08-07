@@ -245,6 +245,7 @@ describe("LayoutService — measure", () => {
 			on: vi.fn(),
 			setViewport: vi.fn(async () => {}),
 			setContent: vi.fn(async () => {}),
+			waitForNetworkIdle: vi.fn(async () => {}),
 			evaluate: vi
 				.fn()
 				.mockResolvedValueOnce(undefined)
@@ -279,7 +280,7 @@ describe("LayoutService — measure", () => {
 		expect(browserLaunch).toHaveBeenCalledOnce();
 		expect(page.setContent).toHaveBeenCalledWith(
 			expect.stringContaining("http://test/assets/hero.png"),
-			{ waitUntil: "networkidle0" },
+			{ waitUntil: "load" },
 		);
 		expect(page.close).toHaveBeenCalledOnce();
 		store.close();
@@ -295,6 +296,7 @@ describe("LayoutService — measure", () => {
 			on: vi.fn(),
 			setViewport: vi.fn(async () => {}),
 			setContent: vi.fn(async () => {}),
+			waitForNetworkIdle: vi.fn(async () => {}),
 			evaluate: vi
 				.fn()
 				.mockResolvedValueOnce(undefined)

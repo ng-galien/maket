@@ -235,7 +235,7 @@ bus.on("document-state:changed", ({ docName, paths, attached }) => {
 		return;
 	}
 	const doc = documents.resolve(docName);
-	if (!doc || doc.dataModel !== "state") return;
+	if (doc?.dataModel !== "state") return;
 	const documentState = documentRenderer.stateView(doc);
 	if (!documentState) return;
 	wsRegistry.broadcast({

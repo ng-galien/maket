@@ -60,8 +60,11 @@ export function createAssetsRouter({
 	const router = createRouter();
 	const { ASSETS_DIR } = config;
 
-	router.get("/assets/:variant(thumb|preview)/:file", (req, res) =>
-		handleAssetVariant(req, res, ASSETS_DIR),
+	router.get("/assets/thumb/:file", (req, res) =>
+		handleAssetVariant(req, res, ASSETS_DIR, "thumb"),
+	);
+	router.get("/assets/preview/:file", (req, res) =>
+		handleAssetVariant(req, res, ASSETS_DIR, "preview"),
 	);
 
 	router.use("/assets", express.static(ASSETS_DIR, { maxAge: 0, etag: true }));
@@ -76,8 +79,9 @@ async function handleAssetVariant(
 	req: Request,
 	res: Response,
 	assetsDir: string,
+	variant: "thumb" | "preview",
 ): Promise<void> {
-	const { variant, file } = req.params as { variant: string; file: string };
+	const { file } = req.params as { file: string };
 	const original = resolve(join(assetsDir, file));
 	if (!original.startsWith(resolve(assetsDir) + sep)) {
 		res.status(400).end();
