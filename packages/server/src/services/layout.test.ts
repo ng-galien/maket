@@ -16,8 +16,12 @@ function fixture() {
 	const browserLaunch = vi.fn(async () => {
 		throw new Error("no browser in tests");
 	});
+	const browserPool = {
+		get: browserLaunch,
+		dispose: vi.fn(async () => {}),
+	};
 	const service = createLayoutService(
-		{ bus, documents },
+		{ bus, documents, browserPool },
 		{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 	);
 	return {
@@ -76,6 +80,18 @@ describe("serverLayoutCheck (pure)", () => {
 		expect(result.overflowIds).toEqual(["big"]);
 		expect(result.overlapIds).toEqual([]);
 	});
+
+	it("ignores only an explicitly marked block during static checks", () => {
+		const html = [
+			`<div data-id="decoration" data-maket-layout="ignore" style="width:400mm;height:400mm"></div>`,
+			`<div data-id="content" style="width:300mm;height:50mm"></div>`,
+		].join("");
+		const result = serverLayoutCheck(html, A4);
+
+		expect(result.status).toBe("overflow");
+		expect(result.text).not.toContain("decoration");
+		expect(result.overflowIds).toEqual(["content"]);
+	});
 });
 
 describe("formatLayoutReport (pure)", () => {
@@ -113,6 +129,42 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.text).not.toContain("ⓘ");
 		expect(result.text).not.toMatch(/non-blocking/);
 		expect(result.overflowIds).toContain("footer");
+	});
+
+	it("flags clipped internal content as non-shippable and surfaces the id", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: false,
+				containerHeight: 1123,
+				contentHeight: 600,
+				clipped: ["body"],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Clipped content: body/);
+		expect(result.overflowIds).toEqual(["body"]);
+	});
+
+	it("reports visible content overflow without calling it clipped", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: true,
+				containerHeight: 1123,
+				contentHeight: 1123,
+				containerWidth: 794,
+				contentWidth: 960,
+				overflowByW: 166,
+				overflowing: ["code"],
+				clipped: [],
+			},
+			A4,
+		);
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Horizontal: content 960px > container 794px/);
+		expect(result.text).toMatch(/Overflowing: code/);
+		expect(result.text).not.toMatch(/Clipped content/);
+		expect(result.overflowIds).toEqual(["code"]);
 	});
 
 	it("flags 'tight' per-side when blocks cross declared margin bands", () => {
@@ -223,15 +275,14 @@ describe("LayoutService — measure", () => {
 		cleanup();
 	});
 
-	it("returns OK on a conforming layout but flags headless-unavailable", async () => {
+	it("returns unchecked when static checks pass but headless is unavailable", async () => {
 		const { service, cleanup } = fixture();
 		const html = `<div data-id="ok" style="width:100mm;height:100mm"></div>`;
 		const result = await service.measure(doc(html), html, 0);
-		// fixture's browserLaunch throws → headless unavailable → server-OK
-		// is wrapped with an explicit caveat so the agent doesn't treat ✓ as
-		// full validation (no overlap / content-overflow check ran).
-		expect(result.status).toBe("ok");
-		expect(result.text).toMatch(/Layout OK \(headless unavailable/);
+		expect(result.status).toBe("unchecked");
+		expect(result.text).toMatch(/Layout check unavailable/);
+		expect(result.text).toMatch(/no browser in tests/);
+		expect(result.text).toMatch(/not shippable/);
 		cleanup();
 	});
 
@@ -264,8 +315,12 @@ describe("LayoutService — measure", () => {
 			newPage: vi.fn(async () => page),
 		};
 		const browserLaunch = vi.fn(async () => browser as any);
+		const browserPool = {
+			get: browserLaunch,
+			dispose: vi.fn(async () => {}),
+		};
 		const service = createLayoutService(
-			{ bus, documents },
+			{ bus, documents, browserPool },
 			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 		);
 		const html = `<div data-id="root"><img data-id="img" src="/assets/hero.png"></div>`;
@@ -314,8 +369,12 @@ describe("LayoutService — measure", () => {
 			newPage: vi.fn(async () => page),
 		};
 		const browserLaunch = vi.fn(async () => browser as any);
+		const browserPool = {
+			get: browserLaunch,
+			dispose: vi.fn(async () => {}),
+		};
 		const service = createLayoutService(
-			{ bus, documents },
+			{ bus, documents, browserPool },
 			{ browserLaunch, getAssetBaseUrl: () => "http://test" },
 		);
 		const html = `<div data-id="root" style="width:210mm;height:297mm"></div>`;
@@ -325,6 +384,80 @@ describe("LayoutService — measure", () => {
 		expect(result.status).toBe("tight");
 		expect(result.text).toMatch(/Layout tight/);
 		expect(result.text).toMatch(/bottom: footer/);
+		store.close();
+	});
+
+	it("returns unchecked on time even when closing a timed-out page also hangs", async () => {
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const bus = createBus();
+		const page = {
+			setOfflineMode: vi.fn(async () => {}),
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent: vi.fn(() => new Promise<void>(() => {})),
+			close: vi.fn(() => new Promise<void>(() => {})),
+		};
+		const browser = {
+			connected: true,
+			newPage: vi.fn(async () => page),
+		};
+		const browserPool = {
+			get: vi.fn(async () => browser as any),
+			dispose: vi.fn(async () => {}),
+		};
+		const service = createLayoutService(
+			{ bus, documents, browserPool },
+			{ getAssetBaseUrl: () => "http://test", headlessTimeoutMs: 5 },
+		);
+		const html = `<div data-id="root" style="width:100mm;height:100mm"></div>`;
+
+		const startedAt = Date.now();
+		const result = await service.check(doc(html), html, 0);
+
+		expect(result.status).toBe("unchecked");
+		expect(result.text).toMatch(/timed out after 5ms/);
+		expect(page.close).toHaveBeenCalledOnce();
+		expect(Date.now() - startedAt).toBeLessThan(100);
+		store.close();
+	});
+
+	it("returns unchecked when headless fails and closing the page also hangs", async () => {
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const bus = createBus();
+		const page = {
+			setOfflineMode: vi.fn(async () => {}),
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent: vi.fn(async () => {
+				throw new Error("render failed");
+			}),
+			close: vi.fn(() => new Promise<void>(() => {})),
+		};
+		const browser = {
+			connected: true,
+			newPage: vi.fn(async () => page),
+		};
+		const browserPool = {
+			get: vi.fn(async () => browser as any),
+			dispose: vi.fn(async () => {}),
+		};
+		const service = createLayoutService(
+			{ bus, documents, browserPool },
+			{ getAssetBaseUrl: () => "http://test", headlessTimeoutMs: 1_000 },
+		);
+		const html = `<div data-id="root" style="width:100mm;height:100mm"></div>`;
+
+		const startedAt = Date.now();
+		const result = await service.check(doc(html), html, 0);
+
+		expect(result.status).toBe("unchecked");
+		expect(result.text).toMatch(/render failed/);
+		expect(page.close).toHaveBeenCalledOnce();
+		expect(Date.now() - startedAt).toBeLessThan(100);
 		store.close();
 	});
 

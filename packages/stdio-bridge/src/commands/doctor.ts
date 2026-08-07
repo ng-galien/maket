@@ -81,12 +81,12 @@ function checkDataDir(dataDir: string): Check {
 	}
 }
 
-function checkChromium(): Check {
+async function checkChromium(): Promise<Check> {
 	try {
 		const require = createRequire(fileURLToPath(import.meta.url));
 		const puppeteer = require("puppeteer") as {
-			executablePath?: () => string;
-			default?: { executablePath?: () => string };
+			executablePath?: () => string | Promise<string>;
+			default?: { executablePath?: () => string | Promise<string> };
 		};
 		const fn = puppeteer.executablePath ?? puppeteer.default?.executablePath;
 		if (!fn) {
@@ -95,7 +95,7 @@ function checkChromium(): Check {
 				line: "Chromium — puppeteer resolved but no executablePath() export",
 			};
 		}
-		const path = fn();
+		const path = await fn();
 		if (!existsSync(path)) {
 			return {
 				level: "warn",
@@ -189,8 +189,9 @@ export async function runDoctor(
 ): Promise<void> {
 	const env = readEnv(overrides);
 
-	const [portCheck, npmCheck] = await Promise.all([
+	const [portCheck, chromiumCheck, npmCheck] = await Promise.all([
 		checkPort(env.port, env.host),
+		checkChromium(),
 		checkNpmLatest(),
 	]);
 
@@ -199,7 +200,7 @@ export async function runDoctor(
 		portCheck,
 		checkDataDir(env.dataDir),
 		checkServerEntry(),
-		checkChromium(),
+		chromiumCheck,
 		checkGmail(env.dataDir),
 		checkClaudeCli(),
 		npmCheck,

@@ -58,6 +58,104 @@ function camelToKebab(s: string): string {
 	return s.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
 }
 
+const LAYOUT_CONTROL_ATTRIBUTE = "data-maket-layout";
+const LAYOUT_IGNORE_VALUE = "ignore";
+const LAYOUT_IGNORE_PATCH_GUIDANCE =
+	'Add data-maket-layout="ignore" only with maket_html action=patch using attr on an existing data-id.';
+const LAYOUT_INTERACTIVE_TAGS = new Set([
+	"a",
+	"audio",
+	"button",
+	"details",
+	"iframe",
+	"input",
+	"label",
+	"option",
+	"select",
+	"summary",
+	"textarea",
+	"video",
+]);
+const LAYOUT_INTERACTIVE_ATTRIBUTES = new Set([
+	"contenteditable",
+	"data-maket-bind",
+	"href",
+	"role",
+	"tabindex",
+]);
+
+function containsLayoutControlAttribute(html: string): boolean {
+	const { document } = parseHTML(`<html><body>${html}</body></html>`);
+	return document.body.querySelector(`[${LAYOUT_CONTROL_ATTRIBUTE}]`) !== null;
+}
+
+function hasLayoutControlAttr(op: PatchOp): boolean {
+	return Object.keys(op.attr ?? {}).some(
+		(name) => name.toLowerCase() === LAYOUT_CONTROL_ATTRIBUTE,
+	);
+}
+
+function isInteractiveLayoutTarget(el: DomEl): boolean {
+	const tag = String(el.tagName || "").toLowerCase();
+	if (LAYOUT_INTERACTIVE_TAGS.has(tag)) return true;
+	return [...LAYOUT_INTERACTIVE_ATTRIBUTES].some((name) =>
+		el.hasAttribute(name),
+	);
+}
+
+function layoutControlOpError(op: PatchOp, el: DomEl | null): string | null {
+	for (const html of [op.insert, op.replace, op.content]) {
+		if (html && containsLayoutControlAttribute(html)) {
+			return `${LAYOUT_CONTROL_ATTRIBUTE} is not allowed inside patch HTML. ${LAYOUT_IGNORE_PATCH_GUIDANCE}`;
+		}
+	}
+	const attrEntries = Object.entries(op.attr ?? {});
+	const layoutEntry = attrEntries.find(
+		([name]) => name.toLowerCase() === LAYOUT_CONTROL_ATTRIBUTE,
+	);
+	if (layoutEntry) {
+		const [name, value] = layoutEntry;
+		if (name !== LAYOUT_CONTROL_ATTRIBUTE || value !== LAYOUT_IGNORE_VALUE) {
+			return `${LAYOUT_CONTROL_ATTRIBUTE} only accepts the value "${LAYOUT_IGNORE_VALUE}".`;
+		}
+		const operationKeys = Object.keys(op).filter(
+			(key) => key !== "id" && key !== "attr",
+		);
+		if (attrEntries.length !== 1 || operationKeys.length !== 0) {
+			return `${LAYOUT_IGNORE_PATCH_GUIDANCE} The enabling op must contain only id and that single attr.`;
+		}
+		if (
+			el &&
+			(el.children?.length > 0 ||
+				Boolean(el.textContent?.trim()) ||
+				isInteractiveLayoutTarget(el))
+		) {
+			return `${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" is allowed only on a non-interactive leaf decoration with no child elements or text content.`;
+		}
+	}
+	if (el?.getAttribute(LAYOUT_CONTROL_ATTRIBUTE) === LAYOUT_IGNORE_VALUE) {
+		if (op.content !== undefined) {
+			return `Content cannot be changed while ${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" is active.`;
+		}
+		if (
+			op.insert &&
+			(!op.position ||
+				op.position === "afterbegin" ||
+				op.position === "beforeend")
+		) {
+			return `Content cannot be inserted inside a block while ${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" is active.`;
+		}
+		if (
+			Object.keys(op.attr ?? {}).some((name) =>
+				LAYOUT_INTERACTIVE_ATTRIBUTES.has(name.toLowerCase()),
+			)
+		) {
+			return `Interactive attributes cannot be added while ${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" is active.`;
+		}
+	}
+	return null;
+}
+
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `mergeStyles`: edge adapter over services/store/bus, not domain ownership.
 function mergeStyles(existing: string, newStyles: string): string {
@@ -134,6 +232,7 @@ function layoutNextHints(
 	page: number,
 ): string[] | undefined {
 	if (result.status === "ok") return undefined;
+	if (result.status === "unchecked") return undefined;
 	const targets = [
 		...new Set([
 			...result.overflowIds,
@@ -218,6 +317,8 @@ function charteCheckHtml(
 // MCP tool action `applyOp`: edge adapter over services/store/bus, not domain ownership.
 function applyOp(op: PatchOp, root: DomEl, charte: Charte | null): string {
 	const el = root.querySelector(`[data-id="${cssEscape(op.id)}"]`);
+	const layoutControlError = layoutControlOpError(op, el);
+	if (layoutControlError) return `⛔ ${op.id} rejected: ${layoutControlError}`;
 
 	if (op.remove) {
 		if (!el) return `${op.id} not found`;
@@ -237,6 +338,12 @@ function applyOp(op: PatchOp, root: DomEl, charte: Charte | null): string {
 	if (op.clone) {
 		if (!el) return `${op.id} not found`;
 		const clone = el.cloneNode(true);
+		clone.removeAttribute(LAYOUT_CONTROL_ATTRIBUTE);
+		for (const child of clone.querySelectorAll(
+			`[${LAYOUT_CONTROL_ATTRIBUTE}]`,
+		)) {
+			child.removeAttribute(LAYOUT_CONTROL_ATTRIBUTE);
+		}
 		clone.setAttribute("data-id", op.clone);
 		for (const child of clone.querySelectorAll("[data-id]")) {
 			const childId = child.getAttribute("data-id");
@@ -317,7 +424,7 @@ const MaketHtmlSchema = z.object({
 		.array(PatchOpSchema)
 		.optional()
 		.describe(
-			"For patch: list of surgical ops by data-id. Each op has `id` plus one of: style (object), content (string), attr (object), insert (html) + optional position, replace (outerHTML), remove (true), clone (newId), moveTo (targetId) + optional position.",
+			'For patch: list of surgical ops by data-id. Each op has `id` plus one of: style (object), content (string), attr (object), insert (html) + optional position, replace (outerHTML), remove (true), clone (newId), moveTo (targetId) + optional position. To exclude one intentional non-interactive leaf decoration with no child elements or text from layout validation, patch that existing element with attr: {"data-maket-layout":"ignore"}; controls, links, data-maket-bind and focusable/ARIA elements are ineligible. This override is rejected in set/insert/replace/content HTML, and its enabling op must be the only op in the patch request.',
 		),
 	format: z
 		.enum(["html", "text"])
@@ -337,11 +444,12 @@ const DESCRIPTION = [
 	"When to use: read and write page HTML. Pick set for the initial skeleton, patch for iterative edits, get to read, check to measure overflow without writing.",
 	"",
 	"Every visible element MUST have a data-id. Use flex/grid with mm units. When a charte is loaded, prefer var(--charte-*) tokens. The compliance check is narrow: it rejects (1) hardcoded colour literals that duplicate an existing charte token value (e.g. #2563EB when primary=#2563EB), (2) any hardcoded font-family when the charte defines fonts, (3) any hardcoded box-shadow when the charte defines shadows. Fresh colours that don't duplicate a token pass untouched.",
+	'Layout override: data-maket-layout="ignore" excludes exactly one marked non-interactive leaf block from overflow, overlap, clipping, and margin checks. The block must have no child elements or text; controls, links, data-maket-bind and focusable/ARIA elements are ineligible. Reserve it for intentional non-content decoration after visual review. Add it only with maket_html action=patch using attr on an existing data-id; the enabling op must be the only op in that patch request. Set, insert, replace, and content HTML cannot introduce it.',
 	'For a state-backed document, Mustache is display-only. The document must author editable controls and all their CSS explicitly: data-maket-bind supports <input type="checkbox"> for booleans, <input type="text"> for strings, <select> for string enums, and <button type="button"> for the single-value editor. Use state.foo at the root and relative foo inside state sections; never persist data-maket-path or other runtime attributes.',
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
-	"  check — measure layout against the canvas + declared `canvas.margins`; no side effects. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status). On tight/overflow, the `next:` block points to a snapshot + targeted patch.",
+	"  check — measure layout against the canvas + declared `canvas.margins`; no side effects. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
 ].join("\n");
 
 export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
@@ -417,6 +525,12 @@ async function runSet(context: HtmlSetContext): Promise<ToolResult> {
 	const { args, doc, page, pageIdx, documents, store, layout, assets } =
 		context;
 	if (args.html == null) return text("html is required for action=set", true);
+	if (containsLayoutControlAttribute(args.html)) {
+		return text(
+			`${LAYOUT_CONTROL_ATTRIBUTE} is not allowed in action=set. ${LAYOUT_IGNORE_PATCH_GUIDANCE}`,
+			true,
+		);
+	}
 
 	if (doc.meta?.charte) {
 		const charte = store.loadCharte(doc.meta.charte);
@@ -475,6 +589,12 @@ async function runPatch(
 ): Promise<ToolResult> {
 	if (!args.ops) return text("ops is required for action=patch", true);
 	if (!page.html) page.html = "";
+	if (args.ops.some(hasLayoutControlAttr) && args.ops.length !== 1) {
+		return text(
+			`${LAYOUT_IGNORE_PATCH_GUIDANCE} The enabling op must be the only op in the patch request.`,
+			true,
+		);
+	}
 
 	const { document: dom } = parseHTML(`<html><body>${page.html}</body></html>`);
 	const root = dom.body as unknown as DomEl;

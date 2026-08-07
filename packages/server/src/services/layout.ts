@@ -21,12 +21,8 @@
  */
 
 import { parseHTML } from "linkedom";
-import puppeteer, { type Browser } from "puppeteer";
+import type { Browser, Page } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
-import {
-	CHROMIUM_HEADLESS,
-	shouldDisableSandbox,
-} from "../lib/chromium-sandbox.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import {
@@ -34,14 +30,37 @@ import {
 	waitForPageStable,
 } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
+import type { BrowserPool } from "./browser-pool.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 
 /** px per mm at 96 DPI — matches the viewport puppeteer renders into. */
 const PX_PER_MM = 96 / 25.4;
+const DEFAULT_HEADLESS_TIMEOUT_MS = 15_000;
+const LAYOUT_INTERACTIVE_TAGS = new Set([
+	"a",
+	"audio",
+	"button",
+	"details",
+	"iframe",
+	"input",
+	"label",
+	"option",
+	"select",
+	"summary",
+	"textarea",
+	"video",
+]);
+const LAYOUT_INTERACTIVE_ATTRIBUTES = [
+	"contenteditable",
+	"data-maket-bind",
+	"href",
+	"role",
+	"tabindex",
+] as const;
 
 export interface LayoutResult {
-	status: "ok" | "tight" | "overflow";
+	status: "ok" | "tight" | "overflow" | "unchecked";
 	/** Newline-prefixed for direct concatenation; check runner trims. */
 	text: string;
 	/** Block ids that escape the canvas. */
@@ -69,13 +88,25 @@ export interface LayoutService {
 export interface LayoutServiceDeps {
 	bus: Bus;
 	documents: Documents;
+	browserPool: BrowserPool;
 }
 
 export interface LayoutServiceOptions {
-	/** Override for the puppeteer launcher (defaults to `puppeteer.launch`). */
+	/** Override the shared browser pool in focused tests. */
 	browserLaunch?: () => Promise<Browser>;
 	/** Override for the base URL used to rewrite relative `/assets/…` paths. */
 	getAssetBaseUrl?: () => string;
+	/** Max time spent in headless validation before returning unchecked. */
+	headlessTimeoutMs?: number;
+}
+
+type HeadlessCheckResult =
+	| { ok: true; report: LayoutReport }
+	| { ok: false; error: string };
+
+function errorMessage(error: unknown): string {
+	if (error instanceof Error && error.message) return error.message;
+	return String(error || "Unknown headless layout error");
 }
 
 /**
@@ -93,25 +124,47 @@ async function runHeadlessLayoutCheck(ctx: {
 	documents: Documents;
 	getBrowser: () => Promise<Browser>;
 	getAssetBaseUrl: () => string;
-}): Promise<LayoutReport | null> {
-	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl } = ctx;
-	let b: Browser;
+	timeoutMs: number;
+}): Promise<HeadlessCheckResult> {
+	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl, timeoutMs } =
+		ctx;
+	let page: Page | undefined;
+	let expired = false;
+	let succeeded = false;
+	let closePromise: Promise<void> | undefined;
+	const closePage = () => {
+		if (!page) return Promise.resolve();
+		closePromise ??= page.close().catch(() => {});
+		return closePromise;
+	};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			expired = true;
+			void closePage();
+			reject(new Error(`Headless layout timed out after ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+
 	try {
-		b = await getBrowser();
-	} catch {
-		return null;
-	}
-	const page = await b.newPage();
-	try {
-		const { w, h, bg } = doc.canvas;
-		const charteCss = documents.charteCss(doc);
-		const html = pageHtml.replaceAll(
-			"/assets/",
-			`${getAssetBaseUrl()}/assets/`,
-		);
-		const safeBg = escapeCssValue(bg || "#ffffff");
-		const safeCharteCss = stripStyleClose(charteCss);
-		const fullHtml = `<!DOCTYPE html>
+		const report = await Promise.race([
+			(async () => {
+				const browser = await getBrowser();
+				if (expired) throw new Error("Headless layout timed out");
+				page = await browser.newPage();
+				if (expired) {
+					await closePage();
+					throw new Error("Headless layout timed out");
+				}
+				const { w, h, bg } = doc.canvas;
+				const charteCss = documents.charteCss(doc);
+				const html = pageHtml.replaceAll(
+					"/assets/",
+					`${getAssetBaseUrl()}/assets/`,
+				);
+				const safeBg = escapeCssValue(bg || "#ffffff");
+				const safeCharteCss = stripStyleClose(charteCss);
+				const fullHtml = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
@@ -123,31 +176,39 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 </head>
 <body>${html}</body>
 </html>`;
-		await installNetworkGuard(page, "localhost-only");
-		await page.setViewport({
-			width: Math.ceil(w * PX_PER_MM),
-			height: Math.ceil(h * PX_PER_MM),
-		});
-		await page.setContent(fullHtml, { waitUntil: "load" });
-		await waitForPageStable(page);
-		const m = doc.canvas.margins;
-		const marginsPx = m
-			? {
-					top: m.top * PX_PER_MM,
-					right: m.right * PX_PER_MM,
-					bottom: m.bottom * PX_PER_MM,
-					left: m.left * PX_PER_MM,
-				}
-			: null;
-		return (await page.evaluate(
-			measureInBrowser,
-			PAGE_BLOCK_SELECTOR,
-			marginsPx,
-		)) as LayoutReport | null;
-	} catch {
-		return null;
+				await installNetworkGuard(page, "localhost-only");
+				await page.setViewport({
+					width: Math.ceil(w * PX_PER_MM),
+					height: Math.ceil(h * PX_PER_MM),
+				});
+				await page.setContent(fullHtml, { waitUntil: "load" });
+				await waitForPageStable(page);
+				const m = doc.canvas.margins;
+				const marginsPx = m
+					? {
+							top: m.top * PX_PER_MM,
+							right: m.right * PX_PER_MM,
+							bottom: m.bottom * PX_PER_MM,
+							left: m.left * PX_PER_MM,
+						}
+					: null;
+				return (await page.evaluate(
+					measureInBrowser,
+					PAGE_BLOCK_SELECTOR,
+					marginsPx,
+				)) as LayoutReport | null;
+			})(),
+			timeout,
+		]);
+		if (!report) return { ok: false, error: "No page root found" };
+		succeeded = true;
+		return { ok: true, report };
+	} catch (error) {
+		return { ok: false, error: errorMessage(error) };
 	} finally {
-		await page.close();
+		if (timer) clearTimeout(timer);
+		if (expired || !succeeded) void closePage();
+		else await closePage();
 	}
 }
 
@@ -155,38 +216,25 @@ export function createLayoutService(
 	deps: LayoutServiceDeps,
 	opts: LayoutServiceOptions = {},
 ): LayoutService {
-	const { bus, documents } = deps;
-	const browserLaunch =
-		opts.browserLaunch ??
-		(() =>
-			puppeteer.launch({
-				headless: CHROMIUM_HEADLESS,
-				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
-			}));
+	const { bus, documents, browserPool } = deps;
 	const getAssetBaseUrl =
 		opts.getAssetBaseUrl ??
 		(() => `http://localhost:${process.env.MAKET_PORT || "3333"}`);
-
-	let browser: Browser | null = null;
-	async function getBrowser(): Promise<Browser> {
-		if (browser?.connected) return browser;
-		browser = await browserLaunch();
-		browser.on("disconnected", () => {
-			browser = null;
-		});
-		return browser;
-	}
+	const getBrowser = opts.browserLaunch ?? (() => browserPool.get());
+	const headlessTimeoutMs =
+		opts.headlessTimeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS;
 
 	async function headlessCheck(
 		doc: Document,
 		pageHtml: string,
-	): Promise<LayoutReport | null> {
+	): Promise<HeadlessCheckResult> {
 		return runHeadlessLayoutCheck({
 			doc,
 			pageHtml,
 			documents,
 			getBrowser,
 			getAssetBaseUrl,
+			timeoutMs: headlessTimeoutMs,
 		});
 	}
 
@@ -197,16 +245,19 @@ export function createLayoutService(
 		const serverResult = serverLayoutCheck(pageHtml, doc.canvas);
 		if (serverResult.status === "overflow") return serverResult;
 		const headless = await headlessCheck(doc, pageHtml);
-		if (headless) return formatLayoutReport(headless, doc.canvas);
+		if (headless.ok) return formatLayoutReport(headless.report, doc.canvas);
 		if (serverResult.status === "ok") {
 			return {
-				status: "ok",
-				text: "\n✓ Layout OK (headless unavailable — content overflow + overlap unchecked)",
+				status: "unchecked",
+				text: `\n⛔ Layout check unavailable — not shippable until headless validation runs.\n  ${headless.error}`,
 				overflowIds: [],
 				overlapIds: [],
 			};
 		}
-		return serverResult;
+		return {
+			...serverResult,
+			text: `${serverResult.text}\n⛔ Full layout check unavailable: ${headless.error}`,
+		};
 	}
 
 	return {
@@ -233,6 +284,8 @@ export interface LayoutReport {
 	contentWidth?: number;
 	overflowByW?: number;
 	overflowing?: string[];
+	/** Block ids whose text exceeds a constrained visible box. */
+	clipped?: string[];
 	/**
 	 * Pairs of [data-id] block ids whose AABBs intersect. Skips ancestor /
 	 * descendant relations (a block "overlapping" its own contents is by
@@ -253,6 +306,7 @@ export interface LayoutReport {
 		id?: string;
 		name?: string;
 		overflow?: boolean;
+		clipped?: boolean;
 	}[];
 }
 
@@ -279,8 +333,20 @@ export function serverLayoutCheck(
 	for (const el of dom.body.querySelectorAll("[data-id]")) {
 		const node = el as unknown as {
 			getAttribute(name: string): string | null;
+			hasAttribute(name: string): boolean;
 			children?: { getAttribute?: (name: string) => string | null }[];
+			tagName?: string;
+			textContent?: string | null;
 		};
+		const interactive =
+			LAYOUT_INTERACTIVE_TAGS.has(String(node.tagName || "").toLowerCase()) ||
+			LAYOUT_INTERACTIVE_ATTRIBUTES.some((name) => node.hasAttribute(name));
+		const layoutIgnored =
+			node.getAttribute("data-maket-layout") === "ignore" &&
+			(node.children?.length ?? 0) === 0 &&
+			!node.textContent?.trim() &&
+			!interactive;
+		if (layoutIgnored) continue;
 		const style = node.getAttribute("style") || "";
 		const id = node.getAttribute("data-id");
 		const props = parseStyle(style);
@@ -394,6 +460,17 @@ export function formatLayoutReport(
 	const hasElementOverflow =
 		(resp.overflowing?.length ?? 0) > 0 ||
 		(resp.elements?.some((el) => el.overflow) ?? false);
+	const clipped = [
+		...new Set(
+			[
+				...(resp.clipped || []),
+				...(resp.elements || [])
+					.filter((el) => el.clipped)
+					.map((el) => el.id || el.name || ""),
+			].filter(Boolean),
+		),
+	];
+	const hasClipped = clipped.length > 0;
 	const overlapPairs = resp.overlaps ?? [];
 	const overlapIdSet = new Set<string>();
 	const overlapText: string[] = [];
@@ -405,7 +482,11 @@ export function formatLayoutReport(
 	const overlapIds = [...overlapIdSet];
 	const hasOverlap = overlapPairs.length > 0;
 	const hasOverflow =
-		resp.overflow === true || vOverflow || hOverflow || hasElementOverflow;
+		resp.overflow === true ||
+		vOverflow ||
+		hOverflow ||
+		hasElementOverflow ||
+		hasClipped;
 	if (hasOverflow || hasOverlap) {
 		const overflowing = [
 			...new Set(
@@ -431,6 +512,9 @@ export function formatLayoutReport(
 		if (overflowing.length > 0) {
 			details.push(`  Overflowing: ${overflowing.join(", ")}`);
 		}
+		if (clipped.length > 0) {
+			details.push(`  Clipped content: ${clipped.join(", ")}`);
+		}
 		if (hasOverlap) {
 			details.push(`  Overlapping: ${overlapText.join(", ")}`);
 		}
@@ -448,7 +532,7 @@ export function formatLayoutReport(
 		return {
 			status: "overflow",
 			text: `\n⛔ ${headline}:\n${details.join("\n")}`,
-			overflowIds: overflowing,
+			overflowIds: [...new Set([...overflowing, ...clipped])],
 			overlapIds,
 		};
 	}
@@ -489,6 +573,8 @@ export function formatLayoutReport(
 // legacy / non-canonical content.
 // code-moniker: ignore[smell-feature-envy-local]
 // Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
+// code-moniker: ignore[smell-long-callable]
+// Puppeteer serializes this function alone, so browser helpers must stay inside its body.
 function measureInBrowser(
 	pageSelector: string,
 	marginsPx: {
@@ -505,6 +591,61 @@ function measureInBrowser(
 	const rootRect = root.getBoundingClientRect();
 	const containerHeight = Math.round(rootRect.height);
 	const containerWidth = Math.round(rootRect.width);
+	const isVisuallyHidden = (rect: DOMRect, style: CSSStyleDeclaration) =>
+		style.position === "absolute" &&
+		rect.width <= TOLERANCE_PX &&
+		rect.height <= TOLERANCE_PX &&
+		(style.opacity === "0" ||
+			style.overflow === "hidden" ||
+			style.clip !== "auto" ||
+			style.clipPath !== "none");
+	const interactiveTags = new Set([
+		"a",
+		"audio",
+		"button",
+		"details",
+		"iframe",
+		"input",
+		"label",
+		"option",
+		"select",
+		"summary",
+		"textarea",
+		"video",
+	]);
+	const interactiveAttributes = [
+		"contenteditable",
+		"data-maket-bind",
+		"href",
+		"role",
+		"tabindex",
+	];
+	const hasClippedText = (
+		el: HTMLElement,
+		rect: DOMRect,
+		overflowX: string,
+		overflowY: string,
+	) => {
+		if (overflowX === "visible" && overflowY === "visible") return false;
+		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+		for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+			if (!node.textContent?.trim()) continue;
+			const range = document.createRange();
+			range.selectNodeContents(node);
+			for (const textRect of range.getClientRects()) {
+				const clippedX =
+					overflowX !== "visible" &&
+					(textRect.left < rect.left - TOLERANCE_PX ||
+						textRect.right > rect.right + TOLERANCE_PX);
+				const clippedY =
+					overflowY !== "visible" &&
+					(textRect.top < rect.top - TOLERANCE_PX ||
+						textRect.bottom > rect.bottom + TOLERANCE_PX);
+				if (clippedX || clippedY) return true;
+			}
+		}
+		return false;
+	};
 	const blocks = [...root.querySelectorAll("[data-id]")].map((node) => {
 		const el = node as HTMLElement;
 		const rect = el.getBoundingClientRect();
@@ -512,41 +653,79 @@ function measureInBrowser(
 		const left = Math.round(rect.left - rootRect.left);
 		const bottom = Math.round(rect.bottom - rootRect.top);
 		const right = Math.round(rect.right - rootRect.left);
+		const style = getComputedStyle(el);
+		const visuallyHidden = isVisuallyHidden(rect, style);
+		const interactive =
+			interactiveTags.has(el.tagName.toLowerCase()) ||
+			interactiveAttributes.some((name) => el.hasAttribute(name));
+		const layoutIgnored =
+			el.getAttribute("data-maket-layout") === "ignore" &&
+			el.children.length === 0 &&
+			!el.textContent?.trim() &&
+			!interactive;
+		const visualBottom =
+			style.overflowY === "visible"
+				? Math.max(bottom, top + el.scrollHeight)
+				: bottom;
+		const visualRight =
+			style.overflowX === "visible"
+				? Math.max(right, left + el.scrollWidth)
+				: right;
+		const clipped =
+			!visuallyHidden &&
+			!layoutIgnored &&
+			hasClippedText(el, rect, style.overflowX, style.overflowY);
 		return {
 			el,
+			visuallyHidden,
+			layoutIgnored,
 			id: el.dataset.id || "",
 			name: el.dataset.name || "",
 			top,
 			left,
 			bottom,
 			right,
+			visualBottom,
+			visualRight,
 			overflow:
 				top < -TOLERANCE_PX ||
 				left < -TOLERANCE_PX ||
-				bottom > containerHeight + TOLERANCE_PX ||
-				right > containerWidth + TOLERANCE_PX,
+				visualBottom > containerHeight + TOLERANCE_PX ||
+				visualRight > containerWidth + TOLERANCE_PX,
+			clipped,
 		};
 	});
-	const minTop = blocks.length ? Math.min(0, ...blocks.map((b) => b.top)) : 0;
-	const minLeft = blocks.length ? Math.min(0, ...blocks.map((b) => b.left)) : 0;
-	const maxBottom = blocks.length
-		? Math.max(root.scrollHeight, ...blocks.map((b) => b.bottom))
-		: root.scrollHeight;
-	const maxRight = blocks.length
-		? Math.max(root.scrollWidth, ...blocks.map((b) => b.right))
-		: root.scrollWidth;
+	const measuredBlocks = blocks.filter(
+		(b) => !b.visuallyHidden && !b.layoutIgnored,
+	);
+	const minTop = measuredBlocks.length
+		? Math.min(0, ...measuredBlocks.map((b) => b.top))
+		: 0;
+	const minLeft = measuredBlocks.length
+		? Math.min(0, ...measuredBlocks.map((b) => b.left))
+		: 0;
+	const maxBottom = measuredBlocks.length
+		? Math.max(containerHeight, ...measuredBlocks.map((b) => b.visualBottom))
+		: containerHeight;
+	const maxRight = measuredBlocks.length
+		? Math.max(containerWidth, ...measuredBlocks.map((b) => b.visualRight))
+		: containerWidth;
 	const contentHeight = Math.round(maxBottom - minTop);
 	const contentWidth = Math.round(maxRight - minLeft);
-	const overflowing = blocks
+	const overflowing = measuredBlocks
 		.filter((b) => b.overflow)
 		.map((b) => b.id || b.name || "")
 		.filter(Boolean);
-	const overflowV = contentHeight > containerHeight;
-	const overflowH = contentWidth > containerWidth;
+	const overflowV = contentHeight > containerHeight + TOLERANCE_PX;
+	const overflowH = contentWidth > containerWidth + TOLERANCE_PX;
+	const clipped = measuredBlocks
+		.filter((b) => b.clipped)
+		.map((b) => b.id || b.name || "")
+		.filter(Boolean);
 	const overlaps: [string, string][] = [];
-	for (const [i, a] of blocks.entries()) {
+	for (const [i, a] of measuredBlocks.entries()) {
 		if (!a.id) continue;
-		for (const b of blocks.slice(i + 1)) {
+		for (const b of measuredBlocks.slice(i + 1)) {
 			if (!b.id) continue;
 			if (a.el.contains(b.el) || b.el.contains(a.el)) continue;
 			const intersects =
@@ -564,7 +743,7 @@ function measureInBrowser(
 		left: string[];
 	};
 	if (marginsPx) {
-		for (const b of blocks) {
+		for (const b of measuredBlocks) {
 			if (!b.id || b.overflow) continue;
 			if (b.top < marginsPx.top - TOLERANCE_PX) tight.top.push(b.id);
 			if (b.left < marginsPx.left - TOLERANCE_PX) tight.left.push(b.id);
@@ -575,7 +754,8 @@ function measureInBrowser(
 		}
 	}
 	return {
-		overflow: overflowV || overflowH || overflowing.length > 0,
+		overflow:
+			overflowV || overflowH || overflowing.length > 0 || clipped.length > 0,
 		containerHeight,
 		contentHeight,
 		overflowBy: overflowV ? contentHeight - containerHeight : 0,
@@ -583,12 +763,14 @@ function measureInBrowser(
 		contentWidth,
 		overflowByW: overflowH ? contentWidth - containerWidth : 0,
 		overflowing,
+		clipped,
 		overlaps,
 		tight,
-		elements: blocks.map((b) => ({
+		elements: measuredBlocks.map((b) => ({
 			id: b.id,
 			name: b.name,
 			overflow: b.overflow,
+			clipped: b.clipped,
 		})),
 	};
 }

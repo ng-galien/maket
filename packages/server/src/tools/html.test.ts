@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { createAssetsService } from "../services/assets.js";
 import { createDocuments } from "../services/documents.js";
@@ -90,6 +91,31 @@ describe("maket_html — action=set", () => {
 		const page = documents.resolve("d")?.pages[0];
 		expect(page?.html).toMatch(/src="\/assets\/logo\.png"/);
 		expect(layout.measure).toHaveBeenCalledOnce();
+		store.close();
+	});
+
+	it("rejects layout-ignore overrides in a full set", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: `<div data-id="a" data-maket-layout="ignore">replacement</div>`,
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toContain(
+			`maket_html action=patch using attr`,
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).toContain("original");
+		expect(layout.measure).not.toHaveBeenCalled();
 		store.close();
 	});
 
@@ -400,6 +426,338 @@ describe("maket_html — action=patch", () => {
 		store.close();
 	});
 
+	it("adds layout-ignore surgically through an attr patch", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="scrim"></div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "scrim",
+						attr: { "data-maket-layout": "ignore" },
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBeUndefined();
+		expect(documents.resolve("d")?.pages[0]?.html).toContain(
+			'data-maket-layout="ignore"',
+		);
+		expect(layout.measure).toHaveBeenCalledOnce();
+		store.close();
+	});
+
+	it("rejects layout-ignore embedded in patch HTML", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "a",
+						replace:
+							'<div data-id="a" data-maket-layout="ignore">replacement</div>',
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBeUndefined();
+		expect((res.content[0] as any).text).toContain("rejected");
+		expect((res.content[0] as any).text).toContain("using attr");
+		expect(documents.resolve("d")?.pages[0]?.html).toContain("original");
+		store.close();
+	});
+
+	it.each(["insert", "content"] as const)(
+		"rejects layout-ignore embedded in patch %s HTML",
+		async (field) => {
+			const { store, documents, layout, assets } = fixture();
+			store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));
+			documents.loadAll();
+			const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+			const res = await tool.handler(
+				{
+					action: "patch",
+					doc: "d",
+					page: 1,
+					ops: [
+						{
+							id: "a",
+							[field]:
+								'<span data-id="decoration" data-maket-layout="ignore"></span>',
+						},
+					],
+				},
+				NO_EXTRA,
+			);
+
+			expect((res.content[0] as any).text).toContain("rejected");
+			expect(documents.resolve("d")?.pages[0]?.html).toContain("original");
+			store.close();
+		},
+	);
+
+	it("rejects an enabling op mixed with style or other attributes", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "a",
+						attr: {
+							"data-maket-layout": "ignore",
+							role: "presentation",
+						},
+						style: { position: "absolute" },
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect((res.content[0] as any).text).toContain(
+			"must contain only id and that single attr",
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).not.toContain(
+			"data-maket-layout",
+		);
+		store.close();
+	});
+
+	it.each([
+		{
+			kind: "text",
+			html: `<div data-id="a">visible content</div>`,
+		},
+		{
+			kind: "child element",
+			html: `<div data-id="a"><span data-id="child"></span></div>`,
+		},
+	])("rejects layout-ignore on a block containing $kind", async ({ html }) => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", html));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "a",
+						attr: { "data-maket-layout": "ignore" },
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect((res.content[0] as any).text).toContain(
+			"only on a non-interactive leaf decoration",
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).not.toContain(
+			"data-maket-layout",
+		);
+		expect(layout.measure).toHaveBeenCalledOnce();
+		store.close();
+	});
+
+	it.each([
+		{ kind: "native input", html: `<input data-id="a">` },
+		{
+			kind: "state-bound element",
+			html: `<div data-id="a" data-maket-bind="state.done"></div>`,
+		},
+		{
+			kind: "focusable element",
+			html: `<div data-id="a" tabindex="0"></div>`,
+		},
+	])("rejects layout-ignore on a $kind", async ({ html }) => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", html));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "a",
+						attr: { "data-maket-layout": "ignore" },
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect((res.content[0] as any).text).toContain(
+			"only on a non-interactive leaf decoration",
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).not.toContain(
+			"data-maket-layout",
+		);
+		store.close();
+	});
+
+	it("rejects making an ignored decoration interactive later", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(
+			makeDoc("d", `<div data-id="a" data-maket-layout="ignore"></div>`),
+		);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "a", attr: { tabindex: "0" } }],
+			},
+			NO_EXTRA,
+		);
+
+		expect((res.content[0] as any).text).toContain(
+			"Interactive attributes cannot be added",
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).not.toContain("tabindex");
+		store.close();
+	});
+
+	it("strips layout-ignore from cloned blocks and descendants", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(
+			makeDoc(
+				"d",
+				`<div data-id="a" data-maket-layout="ignore"><span data-id="child" data-maket-layout="ignore"></span></div>`,
+			),
+		);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "a", clone: "copy" }],
+			},
+			NO_EXTRA,
+		);
+
+		const html = documents.resolve("d")?.pages[0]?.html ?? "";
+		const { document } = parseHTML(`<html><body>${html}</body></html>`);
+		const clone = document.body.querySelector('[data-id="copy"]');
+		expect(clone?.hasAttribute("data-maket-layout")).toBe(false);
+		expect(clone?.querySelector("[data-maket-layout]")).toBeNull();
+		store.close();
+	});
+
+	it("rejects content changes inside an already ignored block", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(
+			makeDoc(
+				"d",
+				`<div data-id="a" data-maket-layout="ignore">decoration</div>`,
+			),
+		);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "a", content: "important content" }],
+			},
+			NO_EXTRA,
+		);
+
+		expect((res.content[0] as any).text).toContain("Content cannot be changed");
+		expect(documents.resolve("d")?.pages[0]?.html).toContain("decoration");
+		store.close();
+	});
+
+	it.each([
+		{
+			kind: "insert",
+			first: {
+				id: "a",
+				position: "afterend" as const,
+				insert: '<div data-id="fresh"></div>',
+			},
+		},
+		{
+			kind: "replace",
+			first: { id: "a", replace: '<div data-id="fresh"></div>' },
+		},
+		{
+			kind: "content",
+			first: { id: "a", content: '<span data-id="fresh"></span>' },
+		},
+	])("rejects batch $kind then layout-ignore", async ({ first }) => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					first,
+					{
+						id: "fresh",
+						attr: { "data-maket-layout": "ignore" },
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toContain(
+			"only op in the patch request",
+		);
+		expect(documents.resolve("d")?.pages[0]?.html).toBe(
+			`<div data-id="a">original</div>`,
+		);
+		expect(layout.measure).not.toHaveBeenCalled();
+		store.close();
+	});
+
 	it("removes an element", async () => {
 		const { store, documents, layout, assets } = fixture();
 		store.saveDoc(
@@ -564,6 +922,12 @@ describe("maket_html — layout signal → next: hints", () => {
 		overflowIds: ["footer", "p3-footer-left"],
 		overlapIds: [],
 	};
+	const UNCHECKED: LayoutResult = {
+		status: "unchecked",
+		text: "\n⛔ Layout check unavailable — not shippable until headless validation runs.",
+		overflowIds: [],
+		overlapIds: [],
+	};
 
 	it("keeps the response clean when layout is ok (no next: block)", async () => {
 		const { store, documents, layout, assets } = fixture(OK_RESULT);
@@ -611,6 +975,23 @@ describe("maket_html — layout signal → next: hints", () => {
 		expect(body).toMatch(
 			/maket_html action=patch doc=d page=1.*# target: footer, p3-footer-left/,
 		);
+		store.close();
+	});
+
+	it("keeps unchecked diagnostic-only without a blind retry loop", async () => {
+		const { store, documents, layout, assets } = fixture(UNCHECKED);
+		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		const body = (res.content[0] as any).text as string;
+		expect(body).toMatch(/Layout check unavailable/);
+		expect(body).not.toMatch(/next:/);
+		expect(body).not.toMatch(/maket_preview/);
+		expect(body).not.toMatch(/action=patch/);
 		store.close();
 	});
 
