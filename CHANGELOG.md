@@ -13,6 +13,49 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.5.0] — 2026-08-07
+
+### Added
+- **Living document state.** Documents can own a JSON Schema and validated
+  current data, expose native HTML controls through `data-maket-bind`, and be
+  updated by people or agents through revision-checked patches. Immutable local
+  revisions preserve the audit trail while `maket_state` exposes the workflow
+  to MCP clients.
+- **Portable living documents.** `.maket` bundles now carry the current state
+  schema and snapshot alongside documents, chartes, collections, and assets.
+  Importing a bundle starts a fresh local revision history instead of copying
+  the source history.
+- **Living-document starter and demo.** The project site, interactive demo, and
+  downloadable starter now show a complete state-backed checklist workflow.
+
+### Changed
+- **Read-only viewers keep controls explorable.** Checkboxes and selects remain
+  locally interactive in demos and standalone viewers without persisting or
+  sending state mutations.
+- **Global client configuration is location-safe.** Codex, Claude, and Gemini
+  registrations use the resolved Node runtime and installed Maket entry point,
+  so GUI clients no longer depend on their shell `PATH`.
+- **Installation diagnostics cover the full runtime.** Fresh-package checks now
+  prove the installed CLI, MCP tools, headless Chromium, client configuration,
+  and living-document guidance before publication.
+
+### Fixed
+- **Layout validation catches preserved and clipped content.** Long or
+  constrained `<pre>` blocks, internal clipping, margins, overlaps, and browser
+  failures now produce reliable verdicts. Intentional leaf decorations can be
+  excluded only through the narrowly validated
+  `data-maket-layout="ignore"` marker.
+- **SQLite migrations preserve existing work.** Historical and partially
+  migrated databases are repaired transactionally; unsupported or newer
+  schemas fail safely instead of being rebuilt destructively.
+- **Gmail authentication recovers cleanly.** Expired access tokens are refreshed
+  once after an authorization failure, while diagnostics time out instead of
+  hanging on an unavailable OAuth endpoint.
+
+### Internal
+- Updated Node dependencies and CI actions, moved generated GitHub Pages assets
+  into the deployment workflow, and removed obsolete checked-in site artifacts.
+
 ## [1.4.5] — 2026-08-04
 
 ### Added
