@@ -130,7 +130,8 @@ function pack(): string {
     cwd: DIST,
     encoding: "utf-8",
   });
-  const result = JSON.parse(output) as { filename?: string }[];
+  const parsed = JSON.parse(output) as { filename?: string }[] | Record<string, { filename?: string }>;
+  const result = Array.isArray(parsed) ? parsed : Object.values(parsed);
   const filename = result[0]?.filename;
   if (!filename) throw new Error(`npm pack did not return a filename: ${output}`);
   const tarball = join(ROOT, "dist", filename);
