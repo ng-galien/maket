@@ -27,17 +27,19 @@ export function parseQuery(
 	raw: string,
 	options: ParseQueryOptions = {},
 ): Query {
-	const tokens = raw.split(/\s+/).filter(Boolean);
+	const tokens = tokenizeSearch(raw);
 	let category: string | null = null;
 	let locked: boolean | null = null;
 	let minRating = 0;
 	const text: string[] = [];
-	for (const [index, tok] of tokens.entries()) {
+	for (const [index, token] of tokens.entries()) {
+		const tok = token.value;
 		const deferred =
 			options.deferLastFilterToken === true &&
 			index === tokens.length - 1 &&
 			!/\s$/.test(raw) &&
-			/^[#@:]/.test(tok);
+			/^[#@:]/.test(tok) &&
+			!token.quoted;
 		if (deferred) continue;
 		if (tok.startsWith("@") && tok.length > 1) {
 			category = normalizeCategoryPath(tok.slice(1)).toLowerCase();
@@ -52,15 +54,22 @@ export function parseQuery(
 			text.push(tok);
 		}
 	}
-	return { category, locked, minRating, text: text.join(" ").toLowerCase() };
+	return { category, locked, minRating, text: foldSearchText(text.join(" ")) };
 }
 
 export function matchesQuery(d: DocSummary, q: Query): boolean {
 	if (q.category && !categoryPathContains(d.category, q.category)) return false;
 	if (q.locked !== null && (d.locked === true) !== q.locked) return false;
 	if (q.minRating > 0 && (d.rating ?? 0) < q.minRating) return false;
-	if (q.text && !d.name.toLowerCase().includes(q.text)) return false;
+	if (q.text && !foldSearchText(d.name).includes(q.text)) return false;
 	return true;
+}
+
+function foldSearchText(value: string): string {
+	return value
+		.normalize("NFD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase();
 }
 
 export function buildSearchSuggestions(
@@ -83,7 +92,7 @@ export function buildSearchSuggestions(
 			.slice(0, 8)
 			.map((path) => ({
 				id: `category:${path}`,
-				token: `@${path}`,
+				token: quoteSearchToken(`@${path}`),
 				label: path,
 				kind: "category" as const,
 			}));
@@ -117,17 +126,19 @@ function activeFilterToken(raw: string): string | null {
 
 function categorySuggestionMatches(path: string, query: string): boolean {
 	if (!query) return true;
-	const normalized = path.toLowerCase();
+	const normalized = foldSearchText(path);
+	const foldedQuery = foldSearchText(query);
 	return (
-		normalized.startsWith(query) ||
-		normalized.split("/").some((segment) => segment.startsWith(query))
+		normalized.startsWith(foldedQuery) ||
+		normalized.split("/").some((segment) => segment.startsWith(foldedQuery))
 	);
 }
 
 function categorySuggestionRank(path: string, query: string): number {
-	const normalized = path.toLowerCase();
-	if (!query || normalized.startsWith(query)) return 0;
-	if (normalized.split("/").some((segment) => segment.startsWith(query)))
+	const normalized = foldSearchText(path);
+	const foldedQuery = foldSearchText(query);
+	if (!foldedQuery || normalized.startsWith(foldedQuery)) return 0;
+	if (normalized.split("/").some((segment) => segment.startsWith(foldedQuery)))
 		return 1;
 	return Number.POSITIVE_INFINITY;
 }
@@ -146,11 +157,32 @@ export function stripToken(
 	raw: string,
 	predicate: (tok: string) => boolean,
 ): string {
-	return raw
-		.split(/\s+/)
-		.filter(Boolean)
-		.filter((tok) => !predicate(tok))
+	return tokenizeSearch(raw)
+		.filter((token) => !predicate(token.value))
+		.map((token) => token.raw)
 		.join(" ");
+}
+
+interface SearchToken {
+	raw: string;
+	value: string;
+	quoted: boolean;
+}
+
+function tokenizeSearch(raw: string): SearchToken[] {
+	return (raw.match(/"(?:\\.|[^"\\])*"|[^\s]+/g) ?? []).map((token) => {
+		const quoted = token.startsWith('"') && token.endsWith('"');
+		return {
+			raw: token,
+			quoted,
+			value: quoted ? token.slice(1, -1).replace(/\\(["\\])/g, "$1") : token,
+		};
+	});
+}
+
+function quoteSearchToken(token: string): string {
+	if (!/\s/.test(token)) return token;
+	return `"${token.replace(/["\\]/g, "\\$&")}"`;
 }
 
 export function buildQueryChips(

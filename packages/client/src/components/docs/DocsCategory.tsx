@@ -92,9 +92,18 @@ export function DocsCategory({ model }: { model: DocsCategoryModel }) {
 			{!model.collapsed && (
 				<>
 					<DocsCategoryItems model={model} />
-					{model.children.map((child) => (
-						<DocsCategory key={child.path} model={child} />
-					))}
+					{model.children.length > 0 && (
+						<div className="relative">
+							<div
+								aria-hidden
+								className="absolute top-0 bottom-2 w-px bg-border"
+								style={{ left: `${16 + model.depth * 16}px` }}
+							/>
+							{model.children.map((child) => (
+								<DocsCategory key={child.path} model={child} />
+							))}
+						</div>
+					)}
 				</>
 			)}
 		</div>
@@ -110,31 +119,36 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 			onDragOver={model.dragOver}
 			onDragLeave={model.dragLeave}
 			onDrop={model.drop}
-			className={`w-full min-h-7 flex items-center gap-1.5 pr-2 py-1 rounded-md transition-colors group/cat ${
+			className={`w-full min-h-8 flex items-center gap-1 pr-2 py-0.5 rounded-md transition-colors group/cat ${
 				model.dropActive
 					? "bg-accent/15 ring-2 ring-accent/40"
-					: "hover:bg-black/[0.03]"
+					: "hover:bg-input/70"
 			}`}
-			style={{ paddingLeft: `${8 + model.depth * 12}px` }}
+			style={{ paddingLeft: `${6 + model.depth * 16}px` }}
 			aria-expanded={!model.collapsed}
+			aria-label={t("category_toggle", { category: model.path })}
 			title={model.path}
 		>
-			<ChevronRight
-				size={11}
-				className={`text-text-3 flex-shrink-0 transition-transform duration-150 ${
-					model.collapsed ? "" : "rotate-90"
-				}`}
-			/>
+			<span className="w-6 h-6 flex-shrink-0 grid place-items-center text-text-2 group-hover/cat:text-text-1">
+				<ChevronRight
+					size={14}
+					className={`transition-transform duration-150 ${
+						model.collapsed ? "" : "rotate-90"
+					}`}
+				/>
+			</span>
 			<span
-				className={`text-xs font-semibold flex-1 min-w-0 truncate text-left ${
-					model.dropActive ? "text-accent" : "text-text-3"
+				className={`text-base font-semibold flex-1 min-w-0 truncate text-left ${
+					model.dropActive
+						? "text-accent"
+						: "text-text-2 group-hover/cat:text-text-1"
 				}`}
 			>
 				{model.name}
 			</span>
 			<span
-				className={`text-xs tabular-nums ${
-					model.dropActive ? "text-accent" : "text-text-3"
+				className={`text-sm tabular-nums ${
+					model.dropActive ? "text-accent" : "text-text-2"
 				}`}
 			>
 				{model.dropActive ? t("doc_drop_here") : model.total}
@@ -152,7 +166,7 @@ export function DocsCategoryItems({ model }: { model: DocsCategoryModel }) {
 					? "grid grid-cols-2 gap-2 px-1.5 py-1"
 					: "flex flex-col gap-px"
 			}
-			style={{ marginLeft: `${Math.min(model.depth + 1, 4) * 8}px` }}
+			style={{ marginLeft: `${16 + model.depth * 16}px` }}
 		>
 			{model.docs.map((doc) => {
 				const itemProps = model.itemFor(doc);

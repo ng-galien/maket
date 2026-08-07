@@ -1,5 +1,5 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { History, Lock } from "lucide-react";
+import { History, Lock, Palette } from "lucide-react";
 import { useRef } from "react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
@@ -283,7 +283,6 @@ export function DocCardSummary({
 }) {
 	return (
 		<div className="mt-1 px-1 flex items-center gap-1.5">
-			<CharteDot doc={model.doc} />
 			<div className="flex-1 min-w-0">
 				<div
 					className={`text-xs truncate ${model.onWs ? "font-bold text-accent" : "font-semibold text-text-1"}`}
@@ -308,6 +307,7 @@ export function DocCardMetadata({ doc }: { doc: DocSummary }) {
 		<div className="flex items-center gap-1 text-2xs text-text-3">
 			<span className="font-bold">{doc.format}</span>
 			<span>{doc.pageCount ?? 1}p</span>
+			<CharteIndicator doc={doc} />
 			{doc.dataModel === "state" && (
 				<span
 					title={t("state_document_badge_label")}
@@ -369,7 +369,7 @@ export function DocRowTitle({
 	const t = useT();
 	return (
 		<div
-			className={`text-sm truncate flex items-center gap-1.5 ${
+			className={`text-base truncate flex items-center gap-1.5 ${
 				model.onWs ? "font-bold text-accent" : "font-medium text-text-1"
 			}`}
 		>
@@ -380,29 +380,45 @@ export function DocRowTitle({
 					aria-label={t("doc_locked")}
 				/>
 			)}
-			<CharteDot doc={model.doc} />
 			<span className="truncate">{model.doc.name}</span>
 		</div>
 	);
 }
 
-function CharteDot({ doc }: { doc: DocSummary }) {
+function CharteIndicator({ doc }: { doc: DocSummary }) {
+	const t = useT();
 	if (!doc.charteColor) return null;
 	return (
 		<span
-			className="w-2 h-2 rounded-full flex-shrink-0 ring-1 ring-black/5"
-			style={{ background: doc.charteColor }}
-			title={doc.charte || ""}
-		/>
+			role="img"
+			className="inline-flex flex-shrink-0 items-center gap-0.5 text-text-2"
+			title={t("doc_charte", { name: doc.charte || "—" })}
+			aria-label={t("doc_charte", { name: doc.charte || "—" })}
+		>
+			<Palette size={10} aria-hidden />
+			<span
+				aria-hidden
+				className="w-1.5 h-1.5 rounded-[2px] ring-1 ring-black/10"
+				style={{ background: doc.charteColor }}
+			/>
+		</span>
 	);
 }
 
 export function DocRowMetadata({ doc }: { doc: DocSummary }) {
 	const t = useT();
+	const updated = relativeTime(doc.updatedAt, navigator.language);
+	const details = [doc.format, `${doc.pageCount ?? 1}p`, updated]
+		.filter(Boolean)
+		.join(" · ");
 	return (
-		<div className="flex flex-shrink-0 items-center gap-1.5 text-2xs text-text-3">
+		<div
+			title={details}
+			className="flex flex-shrink-0 items-center gap-1.5 text-2xs text-text-2"
+		>
 			<span className="font-bold">{doc.format}</span>
-			<span>{doc.pageCount ?? 1}p</span>
+			{(doc.pageCount ?? 1) > 1 && <span>{doc.pageCount}p</span>}
+			<CharteIndicator doc={doc} />
 			{doc.dataModel === "state" && (
 				<span
 					title={t("state_document_badge_label")}
@@ -414,7 +430,6 @@ export function DocRowMetadata({ doc }: { doc: DocSummary }) {
 			)}
 			{(doc.rating ?? 0) > 0 && <DocRating rating={doc.rating ?? 0} />}
 			<DocDraftPill doc={doc} />
-			{doc.updatedAt && <DocUpdatedAt doc={doc} />}
 		</div>
 	);
 }
@@ -436,17 +451,6 @@ function DocDraftPill({ doc }: { doc: DocSummary }) {
 	return (
 		<span className="ml-auto">
 			<DraftPill kind={doc.emailDraftRole ?? "body"} url={doc.emailDraftUrl} />
-		</span>
-	);
-}
-
-function DocUpdatedAt({ doc }: { doc: DocSummary }) {
-	return (
-		<span
-			className={`${doc.emailDraftUrl ? "" : "ml-auto"} text-text-3/80 tabular-nums`}
-			title={doc.updatedAt}
-		>
-			{relativeTime(doc.updatedAt, navigator.language)}
 		</span>
 	);
 }

@@ -7,6 +7,7 @@ import {
 } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
+import { applyColorScheme } from "../lib/colorScheme";
 import type { DocSummary, Document } from "./types";
 import { wsSend } from "./ws";
 
@@ -835,13 +836,13 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 	setDarkMode: (darkMode) => {
 		localStorage.setItem("dark-mode", String(darkMode));
-		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+		applyColorScheme(darkMode);
 		set({ darkMode });
 	},
 	toggleDarkMode: () => {
 		const next = !get().darkMode;
 		localStorage.setItem("dark-mode", String(next));
-		document.documentElement.style.colorScheme = next ? "dark" : "light";
+		applyColorScheme(next);
 		set({ darkMode: next });
 	},
 	setLocked: (locked) => set({ locked }),

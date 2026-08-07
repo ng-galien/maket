@@ -401,6 +401,7 @@ describe("UI preferences", () => {
 		useStore.getState().toggleDarkMode();
 		expect(useStore.getState().darkMode).toBe(true);
 		expect(localStorage.getItem("dark-mode")).toBe("true");
+		expect(document.documentElement.dataset.theme).toBe("dark");
 	});
 
 	it("togglePanel toggles active panel off when same", () => {

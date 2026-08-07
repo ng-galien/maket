@@ -8,6 +8,7 @@
 import { ChevronLeft, ChevronRight, Download, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Board } from "../components/Board";
+import { applyColorScheme } from "../lib/colorScheme";
 import { useStore } from "../store/useStore";
 import { requestFit } from "../store/zoomBridge";
 import { hydrateViewerWorkspace } from "../viewer/hydrate";
@@ -111,7 +112,7 @@ function useDemoPlayback() {
 	const isLast = stepIndex === scenario.steps.length - 1;
 
 	useEffect(() => {
-		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+		applyColorScheme(darkMode);
 	}, [darkMode]);
 
 	useEffect(() => {

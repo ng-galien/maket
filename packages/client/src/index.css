@@ -99,6 +99,20 @@
   color-scheme: light dark;
 }
 
+/* Lightning CSS lowers light-dark() to these two switches for compatibility.
+   The application theme is explicit, so it must override the OS media query. */
+:root:root[data-theme="light"] {
+  --lightningcss-light: initial;
+  --lightningcss-dark: ;
+  color-scheme: light;
+}
+
+:root:root[data-theme="dark"] {
+  --lightningcss-light: ;
+  --lightningcss-dark: initial;
+  color-scheme: dark;
+}
+
 body {
   margin: 0;
   font-family: var(--font-sans);

@@ -45,6 +45,15 @@ describe("docsQuery", () => {
 		).toBe(false);
 	});
 
+	it("matches document names without requiring typed accents", () => {
+		expect(
+			matchesQuery(doc({ name: "Étiquette Instant Doré" }), parseQuery("ETI")),
+		).toBe(true);
+		expect(matchesQuery(doc({ name: "Etiquette" }), parseQuery("éti"))).toBe(
+			true,
+		);
+	});
+
 	it("matches a category node and its descendants", () => {
 		const q = parseQuery("@clients/acme");
 		expect(
@@ -99,6 +108,33 @@ describe("docsQuery", () => {
 		expect(applySearchSuggestion("summer @ac", suggestion)).toBe(
 			"summer @clients/acme ",
 		);
+	});
+
+	it("suggests accented categories from an unaccented token", () => {
+		expect(buildSearchSuggestions("@eti", ["Étiquettes"])[0]?.token).toBe(
+			"@Étiquettes",
+		);
+	});
+
+	it("quotes category suggestions containing spaces and filters them as one token", () => {
+		const suggestion = buildSearchSuggestions("@cli", [
+			"Clients grands comptes/Acme",
+		])[0];
+		expect(suggestion?.token).toBe('"@Clients grands comptes/Acme"');
+		if (!suggestion) return;
+		const search = applySearchSuggestion("@cli", suggestion);
+		expect(search).toBe('"@Clients grands comptes/Acme" ');
+		const query = parseQuery(search, { deferLastFilterToken: true });
+		expect(query.category).toBe("clients grands comptes/acme");
+		expect(
+			matchesQuery(
+				doc({
+					name: "Proposition",
+					category: "Clients grands comptes/Acme/Propositions",
+				}),
+				query,
+			),
+		).toBe(true);
 	});
 
 	it("suggests status and rating tokens from their first character", () => {

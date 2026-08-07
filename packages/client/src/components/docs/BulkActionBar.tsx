@@ -1,6 +1,7 @@
 import { normalizeCategoryPath } from "@maket/shared";
 import { Download } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import { categoryPathsForDocs } from "./categoryTree";
@@ -58,7 +59,8 @@ interface BulkCategoryPickerModel {
 	categories: string[];
 	show: boolean;
 	creating: boolean;
-	pickerRef: React.RefObject<HTMLDivElement | null>;
+	anchorRef: React.RefObject<HTMLDivElement | null>;
+	menuRef: React.RefObject<HTMLDivElement | null>;
 	newInputRef: React.RefObject<HTMLInputElement | null>;
 	toggle: () => void;
 	startCreating: () => void;
@@ -82,10 +84,11 @@ function useBulkActionBarModel(
 	const [showCatPicker, setShowCatPicker] = useState(false);
 	const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 	const [creatingCat, setCreatingCat] = useState(false);
-	const pickerRef = useRef<HTMLDivElement>(null);
+	const anchorRef = useRef<HTMLDivElement>(null);
+	const menuRef = useRef<HTMLDivElement>(null);
 	const newCatInputRef = useRef<HTMLInputElement>(null);
 	useFocusNewCategoryInput(creatingCat, newCatInputRef);
-	useCloseCategoryPicker(showCatPicker, pickerRef, () => {
+	useCloseCategoryPicker(showCatPicker, anchorRef, menuRef, () => {
 		setShowCatPicker(false);
 		setCreatingCat(false);
 	});
@@ -101,7 +104,8 @@ function useBulkActionBarModel(
 			setShowCatPicker,
 			creatingCat,
 			setCreatingCat,
-			pickerRef,
+			anchorRef,
+			menuRef,
 			newCatInputRef,
 		}),
 		deleteButton: createBulkDeleteButtonModel({
@@ -125,17 +129,32 @@ function useFocusNewCategoryInput(
 
 function useCloseCategoryPicker(
 	showCatPicker: boolean,
-	pickerRef: React.RefObject<HTMLDivElement | null>,
+	anchorRef: React.RefObject<HTMLDivElement | null>,
+	menuRef: React.RefObject<HTMLDivElement | null>,
 	close: () => void,
 ) {
 	useEffect(() => {
 		if (!showCatPicker) return;
 		const onDocClick = (event: MouseEvent) => {
-			if (!pickerRef.current?.contains(event.target as Node)) close();
+			const target = event.target as Node;
+			if (
+				!anchorRef.current?.contains(target) &&
+				!menuRef.current?.contains(target)
+			)
+				close();
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") close();
 		};
 		document.addEventListener("mousedown", onDocClick);
-		return () => document.removeEventListener("mousedown", onDocClick);
-	}, [close, pickerRef, showCatPicker]);
+		document.addEventListener("keydown", onKey);
+		window.addEventListener("resize", close);
+		return () => {
+			document.removeEventListener("mousedown", onDocClick);
+			document.removeEventListener("keydown", onKey);
+			window.removeEventListener("resize", close);
+		};
+	}, [anchorRef, close, menuRef, showCatPicker]);
 }
 
 interface BulkCategoryPickerFactoryArgs {
@@ -145,7 +164,8 @@ interface BulkCategoryPickerFactoryArgs {
 	setShowCatPicker: React.Dispatch<React.SetStateAction<boolean>>;
 	creatingCat: boolean;
 	setCreatingCat: React.Dispatch<React.SetStateAction<boolean>>;
-	pickerRef: React.RefObject<HTMLDivElement | null>;
+	anchorRef: React.RefObject<HTMLDivElement | null>;
+	menuRef: React.RefObject<HTMLDivElement | null>;
 	newCatInputRef: React.RefObject<HTMLInputElement | null>;
 }
 
@@ -156,7 +176,8 @@ function createBulkCategoryPickerModel(
 		categories: categoryPathsForDocs(args.docList),
 		show: args.showCatPicker,
 		creating: args.creatingCat,
-		pickerRef: args.pickerRef,
+		anchorRef: args.anchorRef,
+		menuRef: args.menuRef,
 		newInputRef: args.newCatInputRef,
 		toggle: () => args.setShowCatPicker((show) => !show),
 		startCreating: () => args.setCreatingCat(true),
@@ -205,7 +226,7 @@ function createBulkDeleteButtonModel(
 function BulkCategoryPicker({ model }: { model: BulkCategoryPickerModel }) {
 	const t = useT();
 	return (
-		<div className="relative">
+		<div ref={model.anchorRef} className="relative">
 			<button
 				type="button"
 				onClick={model.toggle}
@@ -219,10 +240,26 @@ function BulkCategoryPicker({ model }: { model: BulkCategoryPickerModel }) {
 }
 
 function BulkCategoryMenu({ model }: { model: BulkCategoryPickerModel }) {
-	return (
+	const [position, setPosition] = useState<{
+		left: number;
+		bottom: number;
+		maxHeight: number;
+	} | null>(null);
+	useLayoutEffect(() => {
+		const rect = model.anchorRef.current?.getBoundingClientRect();
+		if (!rect) return;
+		setPosition({
+			left: Math.max(8, Math.min(rect.left, window.innerWidth - 232)),
+			bottom: window.innerHeight - rect.top + 4,
+			maxHeight: Math.max(120, rect.top - 12),
+		});
+	}, [model.anchorRef]);
+	if (!position) return null;
+	return createPortal(
 		<div
-			ref={model.pickerRef}
-			className="absolute bottom-[calc(100%+4px)] left-0 z-50 w-56 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
+			ref={model.menuRef}
+			className="fixed z-[var(--z-modal)] w-56 overflow-y-auto bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 py-1"
+			style={position}
 		>
 			{!model.creating &&
 				model.categories.map((cat) => (
@@ -245,7 +282,8 @@ function BulkCategoryMenu({ model }: { model: BulkCategoryPickerModel }) {
 			) : (
 				<NewCategoryButton onClick={model.startCreating} />
 			)}
-		</div>
+		</div>,
+		document.body,
 	);
 }
 

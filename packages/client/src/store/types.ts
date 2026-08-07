@@ -59,14 +59,14 @@ export interface DocSummary {
 	rating?: number;
 	locked?: boolean;
 	orientation?: string;
-	/** Name of the associated charte, when the doc has one. Used as tooltip
-	 * on the colour dot. */
+	/** Name of the associated charte, when the doc has one. Used by the
+	 * compact charte indicator and its tooltip. */
 	charte?: string;
 	/** ISO-ish timestamp ("YYYY-MM-DD HH:mm:ss") from the server, rendered
 	 * relatively ("2h ago") in the UI. */
 	updatedAt?: string;
-	/** Primary colour of the associated charte — renders as a tiny dot in
-	 * the doc row so you can scan the catalog by brand at a glance. */
+	/** Primary colour of the associated charte — rendered inside the compact
+	 * charte indicator so the catalog can be scanned by brand at a glance. */
 	charteColor?: string;
 	/** Gmail deep link to the draft this doc is part of. Surfaced as a
 	 * discreet "Draft ready / In draft" pill in the sidebar when present. */

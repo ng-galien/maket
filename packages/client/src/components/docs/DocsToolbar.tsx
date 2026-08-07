@@ -121,7 +121,7 @@ function DocsSearch({ model }: { model: DocsToolbarModel }) {
 	return (
 		<div className="relative flex-1 min-w-0">
 			<Search
-				size={13}
+				size={12}
 				aria-hidden
 				className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
 			/>
@@ -154,7 +154,7 @@ function DocsSearch({ model }: { model: DocsToolbarModel }) {
 					open ? `docs-search-suggestion-${activeIndex}` : undefined
 				}
 				autoComplete="off"
-				className="w-full min-w-0 pl-8 pr-3 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
+				className="w-full min-w-0 h-7 pl-8 pr-3 bg-input rounded-md text-sm outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 			/>
 			{open && position
 				? createPortal(
@@ -224,16 +224,31 @@ function useSuggestionPosition(
 			setPosition(null);
 			return;
 		}
-		const rect = inputRef.current.getBoundingClientRect();
-		const estimatedHeight = Math.min(240, suggestionCount * 36 + 36);
-		const opensBelow = rect.bottom + estimatedHeight + 12 <= window.innerHeight;
-		setPosition({
-			top: opensBelow
-				? rect.bottom + 4
-				: Math.max(8, rect.top - estimatedHeight - 4),
-			left: rect.left,
-			width: rect.width,
-		});
+		const input = inputRef.current;
+		const update = () => {
+			const rect = input.getBoundingClientRect();
+			const estimatedHeight = Math.min(240, suggestionCount * 36 + 36);
+			const opensBelow =
+				rect.bottom + estimatedHeight + 12 <= window.innerHeight;
+			setPosition({
+				top: opensBelow
+					? rect.bottom + 4
+					: Math.max(8, rect.top - estimatedHeight - 4),
+				left: rect.left,
+				width: rect.width,
+			});
+		};
+		update();
+		const observer =
+			typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+		observer?.observe(input);
+		window.addEventListener("resize", update);
+		window.addEventListener("scroll", update, true);
+		return () => {
+			observer?.disconnect();
+			window.removeEventListener("resize", update);
+			window.removeEventListener("scroll", update, true);
+		};
 	}, [inputRef, open, search, suggestionCount]);
 	return position;
 }
@@ -304,13 +319,13 @@ function ImportButton({ model }: { model: DocsToolbarModel }) {
 			onDrop={model.handleImportDrop}
 			aria-label={t("import_maket")}
 			title={t("import_maket")}
-			className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+			className={`w-7 h-7 rounded-md flex items-center justify-center transition ${
 				model.importDrag
 					? "bg-accent-soft text-accent ring-2 ring-accent/40"
 					: "bg-input text-text-3 hover:text-text-1"
 			}`}
 		>
-			<Upload size={14} />
+			<Upload size={13} />
 		</button>
 	);
 }
@@ -324,18 +339,18 @@ function ViewToggle({
 }) {
 	const t = useT();
 	return (
-		<div className="flex rounded-lg bg-input p-0.5">
+		<div className="flex rounded-md bg-input p-0.5">
 			<ViewToggleButton
 				active={view === "list"}
 				label={t("view_list")}
 				onClick={() => setView("list")}
-				icon={<List size={14} />}
+				icon={<List size={13} />}
 			/>
 			<ViewToggleButton
 				active={view === "grid"}
 				label={t("view_grid")}
 				onClick={() => setView("grid")}
-				icon={<LayoutGrid size={14} />}
+				icon={<LayoutGrid size={13} />}
 			/>
 		</div>
 	);
@@ -358,7 +373,7 @@ function ViewToggleButton({
 			onClick={onClick}
 			aria-label={label}
 			title={label}
-			className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
+			className={`w-7 h-7 rounded-[5px] flex items-center justify-center transition ${
 				active
 					? "bg-panel shadow-sm text-text-1"
 					: "text-text-3 hover:text-text-1"

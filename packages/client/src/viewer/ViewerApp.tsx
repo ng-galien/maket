@@ -9,6 +9,7 @@ import { FileUp, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Board } from "../components/Board";
 import { DataSourceToolbarControl } from "../components/DataSourceToolbarControl";
+import { applyColorScheme } from "../lib/colorScheme";
 import { useStore } from "../store/useStore";
 import { requestFit } from "../store/zoomBridge";
 import { decodeMaketFile } from "./bundle";
@@ -46,7 +47,7 @@ export default function ViewerApp() {
 	const darkMode = useStore((s) => s.darkMode);
 
 	useEffect(() => {
-		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+		applyColorScheme(darkMode);
 	}, [darkMode]);
 
 	const openData = useCallback(async (data: ArrayBuffer, name: string) => {

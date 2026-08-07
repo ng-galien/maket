@@ -9,6 +9,7 @@ import { MessagesPanel } from "./components/MessagesPanel";
 import { PhotosTab } from "./components/PhotosTab";
 import { Popover } from "./components/Popover";
 import { SidePanel } from "./components/SidePanel";
+import { applyColorScheme } from "./lib/colorScheme";
 import { useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
@@ -21,13 +22,11 @@ export default function App() {
 
 	useEffect(() => {
 		initWs();
-		document.documentElement.style.colorScheme = useStore.getState().darkMode
-			? "dark"
-			: "light";
+		applyColorScheme(useStore.getState().darkMode);
 	}, []);
 
 	useEffect(() => {
-		document.documentElement.style.colorScheme = darkMode ? "dark" : "light";
+		applyColorScheme(darkMode);
 	}, [darkMode]);
 
 	return (
@@ -51,7 +50,12 @@ export default function App() {
 				<PhotosTab />
 			</SidePanel>
 
-			<SidePanel open={activePanel === "docs"} onClose={closePanel} side="left">
+			<SidePanel
+				open={activePanel === "docs"}
+				onClose={closePanel}
+				side="left"
+				resizable
+			>
 				<DocsTab />
 			</SidePanel>
 
