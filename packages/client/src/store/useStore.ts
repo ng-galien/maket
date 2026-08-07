@@ -612,12 +612,38 @@ export const useStore = create<AppState>((set, get) => ({
 		);
 		set({ collectionDrafts, draftCursorOverrides: kept });
 	},
-	// Cursor mutations go through the server (single source of truth); the
-	// mirror updates when the `collection_cursors` broadcast comes back.
-	setCursorMode: (docName, pageIndex, mode) =>
-		wsSend({ type: "collection_cursor_set", docName, pageIndex, mode }),
-	setCursorMember: (docName, pageIndex, memberId) =>
-		wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId }),
+	// Editor cursor mutations go through the server. The read-only standalone
+	// viewer has no WebSocket, so its preview-only cursor is updated locally.
+	setCursorMode: (docName, pageIndex, mode) => {
+		const s = get();
+		if (!s.readOnly) {
+			wsSend({ type: "collection_cursor_set", docName, pageIndex, mode });
+			return;
+		}
+		const cursor = cursorForPage(s, docName, pageIndex);
+		if (!cursor) return;
+		set({
+			collectionCursors: {
+				...s.collectionCursors,
+				[collectionCursorKey(docName, pageIndex)]: { ...cursor, mode },
+			},
+		});
+	},
+	setCursorMember: (docName, pageIndex, memberId) => {
+		const s = get();
+		if (!s.readOnly) {
+			wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId });
+			return;
+		}
+		const cursor = cursorForPage(s, docName, pageIndex);
+		if (!cursor) return;
+		set({
+			collectionCursors: {
+				...s.collectionCursors,
+				[collectionCursorKey(docName, pageIndex)]: { ...cursor, memberId },
+			},
+		});
+	},
 	moveCursorMember: (docName, pageIndex, delta) => {
 		const s = get();
 		const cursor = cursorForPage(s, docName, pageIndex);
@@ -636,6 +662,18 @@ export const useStore = create<AppState>((set, get) => ({
 		);
 		const memberId = members[nextIndex]?.id ?? null;
 		if (memberId === cursor.memberId) return;
+		if (s.readOnly) {
+			set({
+				collectionCursors: {
+					...s.collectionCursors,
+					[collectionCursorKey(docName, pageIndex)]: {
+						...cursor,
+						memberId,
+					},
+				},
+			});
+			return;
+		}
 		wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId });
 	},
 

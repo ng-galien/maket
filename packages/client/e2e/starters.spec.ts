@@ -24,6 +24,19 @@ async function openStarter(
 	await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
 }
 
+async function openCollectionControls(
+	page: import("@playwright/test").Page,
+	doc: import("@playwright/test").Locator,
+	collectionName: string,
+) {
+	await doc.locator(".doc-label-name").click();
+	await page
+		.getByRole("button", {
+			name: new RegExp(`${collectionName} · Template`, "i"),
+		})
+		.click();
+}
+
 test.describe("Starter bundles", () => {
 	test("event-poster: charte typography and artwork render", async ({
 		page,
@@ -60,7 +73,8 @@ test.describe("Starter bundles", () => {
 	test("social-series: four announcement cards fan out", async ({ page }) => {
 		await openStarter(page, "social-series.maket", "launch-posts");
 		const doc = page.locator('[data-doc="launch-posts"]');
-		await doc.getByRole("button", { name: "All rows" }).click();
+		await openCollectionControls(page, doc, "announcements");
+		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(4);
 		await expect(
 			doc.locator(".page-canvas").getByText("The Copper Section"),
@@ -72,7 +86,8 @@ test.describe("Starter bundles", () => {
 	}) => {
 		await openStarter(page, "product-catalog.maket", "price-labels");
 		const doc = page.locator('[data-doc="price-labels"]');
-		await doc.getByRole("button", { name: "All rows" }).click();
+		await openCollectionControls(page, doc, "products");
+		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(6);
 		const canvases = doc.locator(".page-canvas");
 		await expect(canvases.getByText("Heritage Tomatoes")).toBeVisible();
@@ -80,5 +95,16 @@ test.describe("Starter bundles", () => {
 		await expect(canvases.getByText("11,90 €")).toBeVisible();
 		// Every label carries the shared logo asset from the bundle.
 		await expect(doc.locator('img[data-name="logo"]')).toHaveCount(6);
+	});
+
+	test("living-checklist: current state renders with native controls", async ({
+		page,
+	}) => {
+		await openStarter(page, "living-checklist.maket", "opening-checklist");
+		const doc = page.locator('[data-doc="opening-checklist"]');
+		await expect(doc.getByText("validated state")).toBeVisible();
+		await expect(doc.locator('input[type="checkbox"]')).toBeChecked();
+		await expect(doc.locator('input[type="text"]')).toHaveValue("Nora");
+		await expect(doc.locator("select")).toHaveValue("ready");
 	});
 });

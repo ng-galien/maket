@@ -2,14 +2,15 @@
  * Demo scenario: an honest, pre-recorded replay of a real Maket session.
  * Each step carries a full workspace snapshot (documents/chartes/collections)
  * — replaying a step just re-hydrates the viewer store, no diffing. Every
- * artifact is a genuine Maket document frozen at that moment, and the final
- * state is downloadable as a real `.maket` bundle.
+ * artifact is a genuine Maket document frozen at that moment. Portable
+ * scenarios expose their final state as a real `.maket` bundle. State-backed
+ * bundles carry their current schema and data snapshot, not revision history.
  *
  * Visual identity mirrors the Maket site: Manrope + DM Mono chrome, Fraunces
  * editorial serif in documents, paper #fbfaf6, ink #101c19, teal #00a99d.
  */
 
-import type { Collection } from "@maket/shared";
+import type { Collection, DocumentStateClientView } from "@maket/shared";
 import type { Document } from "../store/types";
 import type { ViewerCharte } from "../viewer/bundle";
 import { PRODUCE_CRATE, PRODUCT_ICONS, svgUri } from "./illustrations";
@@ -18,6 +19,7 @@ export interface DemoWorkspace {
 	documents: Document[];
 	chartes: ViewerCharte[];
 	collections: Collection[];
+	documentStates?: Record<string, DocumentStateClientView>;
 }
 
 export interface DemoStep {
@@ -53,7 +55,7 @@ export function workspaceAt(
 	return EMPTY_WORKSPACE;
 }
 
-/** Workspace of the last step that carries one — what the download contains. */
+/** Workspace of the last step that carries one — the replay's final state. */
 export const finalWorkspace = (scenario: DemoScenario): DemoWorkspace =>
 	workspaceAt(scenario, scenario.steps.length - 1);
 

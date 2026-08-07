@@ -53,6 +53,7 @@ describe("manifest parse + validate", () => {
 		expect(data.exportedAt).toBe("");
 		expect(data.chartes).toEqual([]);
 		expect(data.collections).toEqual([]);
+		expect(data.documentStates).toEqual([]);
 	});
 
 	it("rejects documents that would crash a reader after hydration", () => {
@@ -107,6 +108,86 @@ describe("manifest parse + validate", () => {
 		});
 		expect(data.documents).toHaveLength(2);
 	});
+
+	it("validates a current snapshot for each state-backed document", () => {
+		const stateDoc = {
+			id: "doc-state",
+			name: "checklist",
+			dataModel: "state",
+			canvas: { w: 10, h: 10 },
+			pages: [
+				{
+					id: "page-1",
+					html: "<h1>{{ state.title }}</h1>",
+				},
+			],
+		};
+		const data = validateBundleManifest({
+			kind: MAKET_BUNDLE_KIND,
+			version: 2,
+			documents: [stateDoc],
+			documentStates: [
+				{
+					documentId: "doc-state",
+					schema: {
+						type: "object",
+						properties: { title: { type: "string" } },
+						required: ["title"],
+					},
+					data: { title: "Ready" },
+				},
+			],
+		});
+		expect(data.documentStates).toEqual([
+			expect.objectContaining({
+				documentId: "doc-state",
+				data: { title: "Ready" },
+			}),
+		]);
+	});
+
+	it("rejects missing, orphaned, and invalid document-state snapshots", () => {
+		const stateDoc = {
+			id: "doc-state",
+			name: "checklist",
+			dataModel: "state",
+			canvas: { w: 10, h: 10 },
+			pages: [{ id: "page-1", html: "{{ state.title }}" }],
+		};
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [stateDoc],
+			}),
+		).toThrow(/has no current state snapshot/);
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [{ ...stateDoc, dataModel: "static" }],
+				documentStates: [{ documentId: "doc-state", schema: {}, data: {} }],
+			}),
+		).toThrow(/does not reference a state-backed document/);
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [stateDoc],
+				documentStates: [
+					{
+						documentId: "doc-state",
+						schema: {
+							type: "object",
+							properties: { title: { type: "string" } },
+							required: ["title"],
+						},
+						data: { title: 42 },
+					},
+				],
+			}),
+		).toThrow(/must be string/);
+	});
 });
 
 describe("manifest building", () => {
@@ -146,5 +227,39 @@ describe("manifest building", () => {
 		expect(data.documents).toHaveLength(1);
 		expect(data.chartes).toHaveLength(1);
 		expect(data.exportedAt).toBe("2026-01-01T00:00:00.000Z");
+	});
+
+	it("builds a portable state snapshot without revision history", () => {
+		const manifest = buildBundleManifest(
+			[
+				{
+					id: "doc-state",
+					name: "checklist",
+					dataModel: "state",
+					canvas: { w: 10, h: 10 },
+					pages: [{ id: "page-1", html: "{{ state.done }}" }],
+				},
+			],
+			[],
+			[],
+			{
+				version: 2,
+				exportedAt: "2026-01-01T00:00:00.000Z",
+				documentStates: [
+					{
+						documentId: "doc-state",
+						schema: {
+							type: "object",
+							properties: { done: { type: "boolean" } },
+							required: ["done"],
+						},
+						data: { done: true },
+					},
+				],
+			},
+		);
+		expect(manifest.documentStates).toEqual([
+			expect.not.objectContaining({ revision: expect.anything() }),
+		]);
 	});
 });

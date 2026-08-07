@@ -509,6 +509,23 @@ describe("collection cursors", () => {
 		);
 	});
 
+	it("updates preview cursors locally in the read-only viewer", () => {
+		seed();
+		useStore.setState({ readOnly: true });
+		vi.mocked(wsSend).mockClear();
+
+		useStore.getState().setCursorMode("alpha", 0, "rendered");
+		useStore.getState().setCursorMember("alpha", 0, "member_2");
+		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual(
+			expect.objectContaining({ mode: "rendered", memberId: "member_2" }),
+		);
+		useStore.getState().moveCursorMember("alpha", 0, -1);
+		expect(cursorForPage(useStore.getState(), "alpha", 0)?.memberId).toBe(
+			"member_1",
+		);
+		expect(wsSend).not.toHaveBeenCalled();
+	});
+
 	it("previews draft-only rows locally and promotes them once saved", () => {
 		seed();
 		const member3 = {

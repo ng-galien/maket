@@ -111,6 +111,35 @@ test.describe("Maket Demo", () => {
 		await expect(canvases.locator('img[data-name="mark"]')).toHaveCount(4);
 	});
 
+	test("living-document replay shows validated state revisions", async ({
+		page,
+	}) => {
+		await page.goto("/demo.html?scenario=living-checklist");
+		await expect(page.getByTestId("demo-caption")).toContainText(
+			"opening checklist",
+		);
+		await goToStep(page, 2);
+		const doc = page.locator('[data-doc="opening-checklist"]');
+		await expect(page.getByTestId("demo-caption")).toContainText("revision 2");
+		await expect(doc.getByText("validated state")).toBeVisible();
+		await expect(doc.locator('input[type="checkbox"]')).toBeChecked();
+		await expect(doc.locator("select")).toHaveValue("ready");
+		await goToStep(page, 3);
+		await expect(doc.locator('input[type="text"]')).toHaveValue("Nora");
+
+		const downloadPromise = page.waitForEvent("download");
+		await page.getByRole("button", { name: ".maket" }).click();
+		const download = await downloadPromise;
+		expect(download.suggestedFilename()).toBe("living-checklist.maket");
+		const file = await download.path();
+		await page.goto("/viewer.html");
+		await page.setInputFiles('input[type="file"]', file);
+		const imported = page.locator('[data-doc="opening-checklist"]');
+		await expect(imported.getByText("validated state")).toBeVisible();
+		await expect(imported.locator('input[type="checkbox"]')).toBeChecked();
+		await expect(imported.locator('input[type="text"]')).toHaveValue("Nora");
+	});
+
 	test("download round-trips into the standalone viewer", async ({ page }) => {
 		await page.goto("/demo.html");
 		await goToStep(page, 8);
@@ -125,7 +154,8 @@ test.describe("Maket Demo", () => {
 		await page.setInputFiles('input[type="file"]', file);
 		const doc = page.locator('[data-doc="price-labels"]');
 		await expect(doc).toBeVisible();
-		await doc.getByRole("button", { name: "All rows" }).click();
+		await page.getByRole("button", { name: /products · Template/i }).click();
+		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(6);
 		await expect(
 			doc.locator(".page-canvas").getByText("Raw Honey"),

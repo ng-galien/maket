@@ -61,6 +61,7 @@ describe("export routes — .maket bundle", () => {
 		app.use(
 			createExportRouter({
 				documents,
+				documentStates,
 				collections,
 				documentRenderer,
 				pdfService: pdfService as unknown as PdfService,
@@ -146,6 +147,51 @@ describe("export routes — .maket bundle", () => {
 		expect(json.chartesSkipped).toEqual(["brand"]);
 	});
 
+	it("round-trips a state-backed document as a fresh current snapshot", async () => {
+		const doc = makeDoc("living-checklist");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html = "<h1>{{ state.title }}</h1>";
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"living-checklist",
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Draft" },
+		);
+		documentStates.update("living-checklist", 1, { title: "Current" });
+
+		const exportRes = await fetch(
+			`${baseUrl}/api/export-maket?name=living-checklist`,
+		);
+		expect(exportRes.status).toBe(200);
+		const importRes = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(await exportRes.arrayBuffer()),
+		});
+		expect(importRes.status).toBe(200);
+		expect(await importRes.json()).toEqual(
+			expect.objectContaining({
+				documents: ["living-checklist (imported)"],
+				statesImported: 1,
+			}),
+		);
+		const imported = documents.resolveOrLoad("living-checklist (imported)");
+		expect(imported?.dataModel).toBe("state");
+		const state = documentStates.get("living-checklist (imported)");
+		expect(state?.current).toEqual(
+			expect.objectContaining({ revision: 1, data: { title: "Current" } }),
+		);
+		expect(documentStates.history("living-checklist (imported)")).toHaveLength(
+			1,
+		);
+	});
+
 	it("POST /api/import-maket rejects garbage payloads", async () => {
 		const res = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
@@ -175,6 +221,11 @@ describe("export routes — .maket bundle", () => {
 		const store2 = createSQLiteStore(":memory:");
 		const documents2 = createDocuments({ store: store2 });
 		const bus2 = createBus();
+		const documentStates2 = createDocumentStates({
+			bus: bus2,
+			documents: documents2,
+			store: store2,
+		});
 		const pdfService2 = {
 			render: async () => ({ buffer: Buffer.alloc(0), pageCount: 0 }),
 		} as unknown as PdfService;
@@ -182,6 +233,7 @@ describe("export routes — .maket bundle", () => {
 		app2.use(
 			createExportRouter({
 				documents: documents2,
+				documentStates: documentStates2,
 				pdfService: pdfService2,
 				store: store2,
 				bus: bus2,

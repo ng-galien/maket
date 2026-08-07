@@ -9,6 +9,7 @@
 
 import {
 	type Collection,
+	type DocumentStateClientView,
 	isGzipMagic,
 	isSafeAssetEntry,
 	isZipMagic,
@@ -29,6 +30,7 @@ export interface ViewerWorkspace {
 	documents: Document[];
 	chartes: ViewerCharte[];
 	collections: Collection[];
+	documentStates: Record<string, DocumentStateClientView>;
 	/** Flat asset filename → object URL */
 	assetUrls: Map<string, string>;
 }
@@ -63,6 +65,10 @@ function toViewerDocument(raw: Record<string, unknown>): Document {
 		id: typeof raw.id === "string" ? raw.id : name,
 		name,
 		category: typeof raw.category === "string" ? raw.category : "general",
+		dataModel:
+			raw.dataModel === "collection" || raw.dataModel === "state"
+				? raw.dataModel
+				: "static",
 		canvas: raw.canvas as Document["canvas"],
 		pages: pages.map((p) => ({ elements: [], ...p })),
 		activePage:
@@ -92,6 +98,30 @@ function finalizeManifest(
 		documents,
 		chartes: data.chartes as ViewerCharte[],
 		collections: data.collections as Collection[],
+		documentStates: Object.fromEntries(
+			data.documentStates.map((snapshot) => {
+				const index = (data.documents as Record<string, unknown>[]).findIndex(
+					(doc) => doc.id === snapshot.documentId,
+				);
+				const document = documents[index];
+				const raw = data.documents[index] as Record<string, unknown>;
+				const pages = raw.pages as Record<string, unknown>[];
+				const view: DocumentStateClientView = {
+					schema: snapshot.schema,
+					data: snapshot.data,
+					revision: 1,
+					createdAt: data.exportedAt,
+					templates: Object.fromEntries(
+						pages.flatMap((page) =>
+							typeof page.id === "string" && typeof page.html === "string"
+								? [[page.id, page.html]]
+								: [],
+						),
+					),
+				};
+				return [document?.name ?? snapshot.documentId, view];
+			}),
+		),
 		assetUrls,
 	};
 }

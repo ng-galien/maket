@@ -106,6 +106,34 @@ describe("maket-format v2 (ZIP with assets)", () => {
 		expect(decoded.assets).toEqual([]);
 	});
 
+	it("round-trips the current state snapshot without revision history", async () => {
+		const doc = makeDoc("living");
+		doc.dataModel = "state";
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html = "<h1>{{ state.title }}</h1>";
+		const buf = await encodeBundleV2([doc], [], [], [], {
+			documentStates: [
+				{
+					documentId: doc.id,
+					schema: {
+						type: "object",
+						properties: { title: { type: "string" } },
+						required: ["title"],
+					},
+					data: { title: "Current" },
+				},
+			],
+		});
+		const decoded = await decodeBundle(buf);
+		expect(decoded.documentStates).toEqual([
+			expect.objectContaining({
+				documentId: doc.id,
+				data: { title: "Current" },
+			}),
+		]);
+	});
+
 	it("is reproducible when generation metadata is fixed", async () => {
 		const options = {
 			exportedAt: "2000-01-01T00:00:00.000Z",

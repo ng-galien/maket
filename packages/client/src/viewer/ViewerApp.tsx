@@ -8,6 +8,7 @@
 import { FileUp, Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Board } from "../components/Board";
+import { DataSourceToolbarControl } from "../components/DataSourceToolbarControl";
 import { useStore } from "../store/useStore";
 import { requestFit } from "../store/zoomBridge";
 import { decodeMaketFile } from "./bundle";
@@ -182,13 +183,17 @@ function ViewerBar({
 	const inputRef = useRef<HTMLInputElement>(null);
 
 	return (
-		<div className="fixed right-2 bottom-2 left-2 z-50 flex items-center justify-center gap-3 rounded-full border border-border bg-panel px-4 py-2 shadow-lg sm:right-auto sm:bottom-4 sm:left-1/2 sm:w-auto sm:-translate-x-1/2">
+		<div
+			data-toolbar-shell
+			className="fixed right-2 bottom-2 left-2 z-50 flex items-center justify-center gap-3 rounded-full border border-border bg-panel px-4 py-2 shadow-lg sm:right-auto sm:bottom-4 sm:left-1/2 sm:w-auto sm:-translate-x-1/2"
+		>
 			<span className="text-sm font-bold text-text-1">Maket Viewer</span>
 			{fileName && (
 				<span className="max-w-48 truncate text-xs text-text-3">
 					{fileName} · {docCount} doc{docCount > 1 ? "s" : ""}
 				</span>
 			)}
+			<DataSourceToolbarControl />
 			<button
 				type="button"
 				title="Open another file"

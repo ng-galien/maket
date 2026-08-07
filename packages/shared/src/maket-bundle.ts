@@ -9,6 +9,13 @@
  * URLs. Everything here is pure JSON/bytes logic.
  */
 
+import {
+	type DocumentStateData,
+	type DocumentStateSchema,
+	renderDocumentStateText,
+	validateDocumentState,
+} from "./document-state.js";
+
 export const MAKET_BUNDLE_KIND = "maket-bundle";
 export const MAKET_BUNDLE_EXT = ".maket";
 
@@ -52,6 +59,15 @@ export interface BundleManifestData {
 	documents: unknown[];
 	chartes: unknown[];
 	collections: unknown[];
+	documentStates: BundleDocumentStateSnapshot[];
+}
+
+/** Current portable snapshot for one state-backed document. Revision history
+ * stays local; an import initializes this snapshot as revision 1. */
+export interface BundleDocumentStateSnapshot {
+	documentId: string;
+	schema: DocumentStateSchema;
+	data: DocumentStateData;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -144,6 +160,104 @@ function validateBundleCollection(value: unknown, index: number): void {
 	}
 }
 
+interface BundleDocumentStateValidationContext {
+	docsById: Map<string, { document: Record<string, unknown>; index: number }>;
+	seen: Set<string>;
+}
+
+function indexBundleDocuments(
+	documents: unknown[],
+): BundleDocumentStateValidationContext["docsById"] {
+	const docsById: BundleDocumentStateValidationContext["docsById"] = new Map();
+	for (const [index, document] of documents.entries()) {
+		if (!isPlainRecord(document) || typeof document.id !== "string") continue;
+		if (docsById.has(document.id)) {
+			throw new Error(
+				`Invalid .maket file: duplicate document id "${document.id}"`,
+			);
+		}
+		docsById.set(document.id, { document, index });
+	}
+	return docsById;
+}
+
+function validateBundleDocumentState(
+	value: unknown,
+	index: number,
+	context: BundleDocumentStateValidationContext,
+): BundleDocumentStateSnapshot {
+	if (
+		!isPlainRecord(value) ||
+		typeof value.documentId !== "string" ||
+		value.documentId.length === 0 ||
+		!isPlainRecord(value.schema) ||
+		!isPlainRecord(value.data)
+	) {
+		throw new Error(
+			`Invalid .maket file: documentStates[${index}] is malformed`,
+		);
+	}
+	if (context.seen.has(value.documentId)) {
+		throw new Error(
+			`Invalid .maket file: duplicate state for document "${value.documentId}"`,
+		);
+	}
+	context.seen.add(value.documentId);
+	const indexedDocument = context.docsById.get(value.documentId);
+	if (!indexedDocument || indexedDocument.document.dataModel !== "state") {
+		throw new Error(
+			`Invalid .maket file: documentStates[${index}] does not reference a state-backed document`,
+		);
+	}
+	const schema = value.schema as DocumentStateSchema;
+	const data = value.data as DocumentStateData;
+	const issues = validateDocumentState(schema, data);
+	if (issues.length > 0) {
+		throw new Error(
+			`Invalid .maket file: documentStates[${index}] ${issues.join("; ")}`,
+		);
+	}
+	for (const [pageIndex, page] of (
+		indexedDocument.document.pages as unknown[]
+	).entries()) {
+		if (!isPlainRecord(page) || typeof page.html !== "string") continue;
+		try {
+			renderDocumentStateText(page.html, data, { schema });
+		} catch (error) {
+			throw new Error(
+				`Invalid .maket file: state template documents[${indexedDocument.index}].pages[${pageIndex}] ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+	return { documentId: value.documentId, schema, data };
+}
+
+function validateBundleDocumentStates(
+	values: unknown[],
+	documents: unknown[],
+): BundleDocumentStateSnapshot[] {
+	const context: BundleDocumentStateValidationContext = {
+		docsById: indexBundleDocuments(documents),
+		seen: new Set(),
+	};
+	const snapshots: BundleDocumentStateSnapshot[] = [];
+	for (const [index, value] of values.entries()) {
+		snapshots.push(validateBundleDocumentState(value, index, context));
+	}
+	for (const doc of documents) {
+		if (
+			isPlainRecord(doc) &&
+			doc.dataModel === "state" &&
+			(typeof doc.id !== "string" || !context.seen.has(doc.id))
+		) {
+			throw new Error(
+				`Invalid .maket file: state-backed document "${String(doc.name)}" has no current state snapshot`,
+			);
+		}
+	}
+	return snapshots;
+}
+
 export function parseBundleManifest(json: string): Record<string, unknown> {
 	let parsed: unknown;
 	try {
@@ -172,9 +286,16 @@ export function validateBundleManifest(
 		throw new Error("Invalid .maket file: missing documents[]");
 	const chartes = Array.isArray(m.chartes) ? m.chartes : [];
 	const collections = Array.isArray(m.collections) ? m.collections : [];
+	const documentStates = Array.isArray(m.documentStates)
+		? m.documentStates
+		: [];
 	m.documents.forEach(validateBundleDocument);
 	chartes.forEach(validateBundleCharte);
 	collections.forEach(validateBundleCollection);
+	const validatedStates = validateBundleDocumentStates(
+		documentStates,
+		m.documents,
+	);
 
 	return {
 		version,
@@ -182,6 +303,7 @@ export function validateBundleManifest(
 		documents: m.documents,
 		chartes,
 		collections,
+		documentStates: validatedStates,
 	};
 }
 
@@ -232,7 +354,11 @@ export function buildBundleManifest(
 	documents: readonly BundleDocumentLike[],
 	chartes: readonly unknown[],
 	collections: readonly unknown[],
-	opts: { version: number; exportedAt: string },
+	opts: {
+		version: number;
+		exportedAt: string;
+		documentStates?: readonly BundleDocumentStateSnapshot[];
+	},
 ): Record<string, unknown> {
 	return {
 		version: opts.version,
@@ -241,5 +367,6 @@ export function buildBundleManifest(
 		documents: documents.map(snapshotBundleDocument),
 		chartes,
 		collections,
+		documentStates: opts.documentStates ?? [],
 	};
 }

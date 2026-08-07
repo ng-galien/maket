@@ -20,6 +20,7 @@ import {
 import { bistroMenuScenario } from "../packages/client/src/demo/scenario-menu.js";
 import { eventPosterScenario } from "../packages/client/src/demo/scenario-poster.js";
 import { socialSeriesScenario } from "../packages/client/src/demo/scenario-social.js";
+import { livingChecklistScenario } from "../packages/client/src/demo/scenario-state.js";
 import { appWireframeScenario } from "../packages/client/src/demo/scenario-wireframe.js";
 import { type BundleAsset, encodeBundleV2 } from "../packages/server/src/lib/maket-format.js";
 import type { Charte, Document } from "../packages/server/src/types.js";
@@ -64,9 +65,15 @@ async function writeStarter(scenario: DemoScenario): Promise<void> {
   const assets: BundleAsset[] = Object.entries(DATA_URI_ASSETS)
     .filter(([, file]) => used.has(file))
     .map(([uri, file]) => ({ relPath: file, bytes: svgBytes(uri) }));
+  const documentStates = Object.entries(workspace.documentStates ?? {}).map(([docName, state]) => {
+    const doc = docs.find((item) => item.name === docName);
+    if (!doc) throw new Error(`State-backed starter document "${docName}" is missing.`);
+    return { documentId: doc.id, schema: state.schema, data: state.data };
+  });
   const buf = await encodeBundleV2(docs, workspace.chartes as unknown as Charte[], workspace.collections, assets, {
     exportedAt: STARTER_EXPORTED_AT,
     entryDate: STARTER_ENTRY_DATE,
+    documentStates,
   });
   const out = join(OUT_DIR, scenario.downloadName);
   writeFileSync(out, buf);
@@ -81,6 +88,7 @@ async function main(): Promise<void> {
     productCatalogScenario,
     bistroMenuScenario,
     socialSeriesScenario,
+    livingChecklistScenario,
   ]) {
     await writeStarter(scenario);
   }

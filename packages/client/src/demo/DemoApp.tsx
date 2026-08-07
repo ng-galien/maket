@@ -21,6 +21,7 @@ import {
 import { bistroMenuScenario } from "./scenario-menu";
 import { eventPosterScenario } from "./scenario-poster";
 import { socialSeriesScenario } from "./scenario-social";
+import { livingChecklistScenario } from "./scenario-state";
 import { appWireframeScenario } from "./scenario-wireframe";
 
 const SCENARIOS: DemoScenario[] = [
@@ -29,6 +30,7 @@ const SCENARIOS: DemoScenario[] = [
 	appWireframeScenario,
 	bistroMenuScenario,
 	socialSeriesScenario,
+	livingChecklistScenario,
 ];
 
 const STEP_MS = 3800;
@@ -42,6 +44,7 @@ function applyStep(scenario: DemoScenario, stepIndex: number): void {
 		documents: workspace.documents,
 		chartes: workspace.chartes,
 		collections: workspace.collections,
+		documentStates: workspace.documentStates ?? {},
 		assetUrls: new Map(),
 	});
 	const docName = workspace.documents[0]?.name;

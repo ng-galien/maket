@@ -35,6 +35,7 @@ import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
 import type { DocumentRenderer } from "../services/document-renderer.js";
+import type { DocumentStates } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import {
 	boxShadowToDropShadow,
@@ -49,6 +50,7 @@ export interface ExportRouterDeps {
 	documents: Documents;
 	collections?: Pick<Collections, "referencedBy">;
 	documentRenderer?: Pick<DocumentRenderer, "render">;
+	documentStates: Pick<DocumentStates, "initialize">;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	pdfService: PdfService;
 	store: Store;
@@ -56,12 +58,17 @@ export interface ExportRouterDeps {
 	config: Config;
 }
 
+type MaketImportContext = Pick<
+	ExportRouterDeps,
+	"documents" | "documentStates" | "store" | "bus" | "config"
+>;
+
 function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
 }
 
 export function createExportRouter(deps: ExportRouterDeps): Router {
-	const { documents, pdfService, store, bus, config } = deps;
+	const { documents, documentStates, pdfService, store, bus, config } = deps;
 	const collectionService = deps.collections ?? {
 		referencedBy: () => [],
 	};
@@ -83,7 +90,13 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 		handleMaketExport(req, res, documents, collectionService, store, config),
 	);
 	router.post("/api/import-maket", (req, res) =>
-		handleMaketImport(req, res, documents, store, bus, config),
+		handleMaketImport(req, res, {
+			documents,
+			documentStates,
+			store,
+			bus,
+			config,
+		}),
 	);
 
 	return router;
@@ -228,18 +241,14 @@ async function handleMaketExport(
 		}
 		const docs = resolveExportDocs(names, documents, res);
 		if (!docs) return;
-		const stateful = docs.filter((doc) => doc.dataModel === "state");
-		if (stateful.length > 0) {
-			res.status(400).json({
-				error: `State-backed documents cannot be bundled yet: ${stateful.map((doc) => doc.name).join(", ")}.`,
-			});
-			return;
-		}
 		const chartes = loadReferencedChartes(docs, store);
 		const collectionRefs = collections.referencedBy(docs);
+		const documentStates = currentDocumentStateSnapshots(docs, store);
 		const refs = collectAssetFilenames(docs);
 		const { assets } = loadAssetsFromDir(refs, config.ASSETS_DIR);
-		const buf = await encodeBundleV2(docs, chartes, collectionRefs, assets);
+		const buf = await encodeBundleV2(docs, chartes, collectionRefs, assets, {
+			documentStates,
+		});
 		const baseName = docs.length === 1 ? docs[0]?.name : "maket-bundle";
 		res.setHeader("Content-Type", "application/zip");
 		res.setHeader(
@@ -250,6 +259,23 @@ async function handleMaketExport(
 	} catch (e: any) {
 		res.status(500).json({ error: e.message });
 	}
+}
+
+function currentDocumentStateSnapshots(docs: Document[], store: Store) {
+	return docs.flatMap((doc) => {
+		if (doc.dataModel !== "state") return [];
+		const current = store.loadCurrentDocumentState(doc.id);
+		if (!current) {
+			throw new Error(`Document "${doc.name}" has no current state snapshot.`);
+		}
+		return [
+			{
+				documentId: doc.id,
+				schema: current.schema,
+				data: current.data,
+			},
+		];
+	});
 }
 
 function exportNamesFromQuery(req: Request, documents: Documents): string[] {
@@ -300,15 +326,18 @@ function loadReferencedChartes(
 async function handleMaketImport(
 	req: Request,
 	res: Response,
-	documents: Documents,
-	store: Store,
-	bus: Bus,
-	config: Config,
+	context: MaketImportContext,
 ): Promise<void> {
+	const { documents, documentStates, store, bus, config } = context;
 	try {
 		const bundle = await readBundleUpload(req, res);
 		if (!bundle) return;
-		const imported = importBundleDocuments(bundle, documents, bus);
+		const imported = importBundleDocuments(
+			bundle,
+			documents,
+			documentStates,
+			bus,
+		);
 		const chartes = importBundleChartes(bundle.chartes, store, bus);
 		const collectionReport = importBundleCollections(
 			bundle.collections,
@@ -333,6 +362,7 @@ async function handleMaketImport(
 			assetsWritten: assetReport.written,
 			assetsSkipped: assetReport.skipped,
 			assetsRejected: assetReport.rejected.length,
+			statesImported: imported.statesImported,
 			exportedAt: bundle.exportedAt,
 		});
 	} catch (e: any) {
@@ -372,22 +402,27 @@ async function readBundleUpload(
 function importBundleDocuments(
 	bundle: Awaited<ReturnType<typeof decodeBundle>>,
 	documents: Documents,
+	documentStates: Pick<DocumentStates, "initialize">,
 	bus: Bus,
-): { documents: string[]; renamed: { from: string; to: string }[] } {
+): {
+	documents: string[];
+	renamed: { from: string; to: string }[];
+	statesImported: number;
+} {
 	const imported: string[] = [];
 	const renamed: { from: string; to: string }[] = [];
+	let statesImported = 0;
 	const all = documents.all();
+	const stateByDocumentId = new Map(
+		bundle.documentStates.map((state) => [state.documentId, state]),
+	);
 	for (const snap of bundle.documents) {
-		if (snap.dataModel === "state") {
-			throw new Error(
-				`Bundle document "${snap.name}" declares state without bundled revisions.`,
-			);
-		}
+		const bundledState = snap.id ? stateByDocumentId.get(snap.id) : undefined;
 		const finalName = uniqueName(snap.name, (n) => all.has(n));
 		const doc = createDocument({
 			name: finalName,
 			category: snap.category || "general",
-			dataModel: snap.dataModel,
+			dataModel: bundledState ? "static" : snap.dataModel,
 			canvas: snap.canvas,
 			meta: snap.meta || {},
 			pages: sanitiseBundlePages(snap.pages),
@@ -397,11 +432,19 @@ function importBundleDocuments(
 		all.set(finalName, doc);
 		documents.persist(finalName);
 		bus.emit("document:created", { docName: finalName });
+		if (bundledState) {
+			documentStates.initialize(
+				finalName,
+				bundledState.schema,
+				bundledState.data,
+			);
+			statesImported++;
+		}
 		imported.push(finalName);
 		if (finalName !== snap.name)
 			renamed.push({ from: snap.name, to: finalName });
 	}
-	return { documents: imported, renamed };
+	return { documents: imported, renamed, statesImported };
 }
 
 function sanitiseBundlePages(

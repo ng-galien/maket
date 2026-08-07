@@ -1,6 +1,6 @@
 # Maket
 
-**Turn your AI assistant into a visual designer.** Describe what you want — a poster, a flyer, a product label, a social post — and the AI assistant composes it as an HTML/CSS document with precise typography, brand chartes, your image library, and typed data collections for repeatable variants. A live preview updates in real time. Export to PDF or hand it off to Gmail as a draft when you're done.
+**Create visual documents with your AI assistant.** Maket gives Claude, Codex, Gemini, and other MCP clients an HTML/CSS canvas with live preview. Compose a one-off design, bind a template to typed rows for mail merge, or attach validated document-owned state so native HTML controls and agent updates keep a living document current. Export finished output to PDF or hand it off to Gmail as a draft.
 
 [![npm version](https://img.shields.io/npm/v/@ng-galien/maket.svg)](https://www.npmjs.com/package/@ng-galien/maket)
 [![npm downloads](https://img.shields.io/npm/dm/@ng-galien/maket.svg)](https://www.npmjs.com/package/@ng-galien/maket)
@@ -26,7 +26,7 @@
 
 ## Why Maket
 
-Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket gives the AI assistant a **real canvas** (HTML/CSS pages sized in millimeters), a **live preview** that reflects every change, an **asset + brand library** so output stays consistent, and **typed data collections** that turn one page template into a validated series of variants. You stay in the conversation; the AI assistant handles the craft.
+Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket adds a real canvas, reusable visual resources, and two distinct data models: collections produce repeated variants from ordered rows, while document state keeps one document synchronized with its own validated, revisioned data.
 
 ## Features
 
@@ -35,6 +35,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
 - **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
 - **Data-driven collections** — Define typed fields with JSON Schema, paste or edit ordered rows, bind a page to placeholders such as `{{ product_name }}`, preview one row or the full series, and render one output page per row.
+- **Living documents** — Attach a JSON Schema and state snapshot to one document, render `{{ state.* }}` values, edit supported fields through bound checkbox, text, select, and button controls, and retain immutable revisions for history and restore.
 - **PDF export** — Print-ready output via headless Chromium.
 - **Gmail drafts** — Compose an email document and hand it off to Gmail as a draft; you review and send yourself.
 - **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
@@ -69,10 +70,6 @@ Collections turn a page into a reusable template for product labels, event badge
 
 The Collections workspace and `maket_collection` tool both support schema changes, row insertion/update/delete, paste-oriented tabular editing, and validation feedback. Maket validates the schema, every row, and every placeholder before rendering. In the preview you can keep the raw template visible, inspect one selected row, or display the complete generated series; print and PDF output expand the bound page across all rows.
 
-The runtime contract for document-owned persistent state and standard HTML
-controls is documented in
-[Document-state HTML binding contract](docs/document-state-bindings.md).
-
 ```text
 You    — crée une série d'étiquettes produit avec le nom et le prix
 
@@ -93,6 +90,23 @@ You    — exporte toute la série
 AI     — maket_pdf doc="Product labels"
          → One PDF page per collection row.
 ```
+
+## Living documents
+
+Document state is for a single evolving artifact: a checklist, status board, form, or report whose current values belong to that document. `maket_state` initializes a JSON Schema and data snapshot, validates every update, requires the current revision for mutations, and records each accepted change as a complete immutable revision. Updates re-render the existing pages; they do not create mail-merge variants.
+
+Templates use the supported Mustache subset for display and explicit `data-maket-bind` attributes for editing. Live mode supports boolean checkboxes, string text inputs, string-enum selects, and buttons that open a terminal-value editor. The same current values render passively in snapshots, print, and PDF output.
+
+```html
+<h1 data-id="title">{{ state.title }}</h1>
+<label data-id="done-label">
+  <input data-id="done-input" type="checkbox" data-maket-bind="state.done">
+  Done
+</label>
+<input data-id="owner-input" type="text" data-maket-bind="state.owner">
+```
+
+Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema and data snapshot; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state HTML binding contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
 
 ## Install
 
@@ -169,7 +183,7 @@ maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
 ## Tools
 
-Maket exposes 13 compound MCP tools. Each one dispatches multiple actions:
+Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 
 | Tool | What it does |
 |------|--------------|
@@ -181,6 +195,7 @@ Maket exposes 13 compound MCP tools. Each one dispatches multiple actions:
 | `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow / overlap / margin clearance) |
 | `maket_charte` | Brand chartes — list, view, set, delete |
 | `maket_collection` | Typed data collections — list, view, create, validate/change schema, add/update/delete rows, bind/unbind a page |
+| `maket_state` | Document-owned state — initialize, get, update or JSON Patch, validate/change schema, inspect history and revisions, restore |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
 | `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |

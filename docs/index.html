@@ -7,13 +7,13 @@
   <title>Maket · Create documents with Claude, Codex, or Gemini</title>
   <meta
     name="description"
-    content="Create posters, presentations, wireframes, and document series with your AI agent. Review, annotate, revise, and export while keeping your work on your own machine."
+    content="Create visual documents, mail-merge series, and state-backed living documents with your AI agent while keeping your work on your own machine."
   />
 
   <meta property="og:title" content="Maket — Create documents with your AI agent" />
   <meta
     property="og:description"
-    content="Posters, presentations, wireframes, and personalized series: describe, annotate, revise, and export."
+    content="Visual documents, personalized series, and state-backed living documents: describe, bind, revise, and export."
   />
   <meta property="og:url" content="https://ng-galien.github.io/maket/" />
   <meta property="og:site_name" content="Maket" />
@@ -29,7 +29,7 @@
   <meta name="twitter:title" content="Maket — Create documents with your AI agent" />
   <meta
     name="twitter:description"
-    content="Posters, presentations, wireframes, and personalized series: describe, annotate, revise, and export."
+    content="Visual documents, personalized series, and state-backed living documents: describe, bind, revise, and export."
   />
   <meta name="twitter:image" content="https://ng-galien.github.io/maket/social-preview.png" />
   <meta name="twitter:image:alt" content="Maket logo" />
@@ -1159,6 +1159,7 @@
         <a href="#uses">Use cases</a>
         <a href="#workflow">How it works</a>
         <a href="#resources">Resources</a>
+        <a href="#living">Living docs</a>
         <a href="#install">Install</a>
         <a class="nav__github" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
         <a class="nav__lang" href="fr/" aria-label="Version française" title="Version française">FR</a>
@@ -1170,15 +1171,15 @@
     <section class="hero" id="top">
       <div class="shell hero__inner">
         <div class="hero__copy">
-          <p class="eyebrow">Posters · presentations · wireframes</p>
+          <p class="eyebrow">Visual design · mail merge · living documents</p>
           <h1>Create documents with your agent<span class="dot">.</span></h1>
         </div>
 
         <div class="hero__bottom">
           <div class="hero__intro">
             <p>
-              Describe what you need in Claude, Codex, or Gemini. Maket displays
-              the result, collects your annotations, and lets the agent continue.
+              Compose visual pages, generate personalized series from typed data,
+              or keep one state-backed document current with your agent.
             </p>
             <div class="actions">
               <a class="button button--primary" href="#live">Try the live demo</a>
@@ -1225,8 +1226,8 @@
             <span class="section-index">01 — Try it live</span>
             <h2 id="live-title">See the workflow<span class="dot">.</span> Keep the file.</h2>
             <p>
-              Replay five complete design sessions in your browser, then open a real
-              starter or inspect your own <code>.maket</code> file. Nothing is uploaded.
+              Replay six complete sessions in your browser, including a state-backed
+              living document. Portable starters and your own <code>.maket</code> files stay local.
             </p>
             <div class="actions">
               <a class="button button--ink" href="app/demo.html">Open the full demo</a>
@@ -1254,6 +1255,7 @@
             <a href="app/viewer.html?src=../starters/app-wireframe.maket"><span>App wireframe</span><span>Open ↗</span></a>
             <a href="app/viewer.html?src=../starters/bistro-menu.maket"><span>Bistro menu</span><span>Open ↗</span></a>
             <a href="app/viewer.html?src=../starters/social-series.maket"><span>Social series + collection</span><span>Open ↗</span></a>
+            <a href="app/viewer.html?src=../starters/living-checklist.maket"><span>Living checklist + state</span><span>Open ↗</span></a>
           </nav>
         </div>
       </div>
@@ -1362,6 +1364,12 @@
               <p>Connect a template to structured data and generate a controlled version for each person, product, or event.</p>
             </div>
           </article>
+          <article class="resource reveal">
+            <div>
+              <h3>Document state</h3>
+              <p>Keep one document synchronized with validated data, native HTML controls, and an immutable revision history.</p>
+            </div>
+          </article>
         </div>
       </div>
     </section>
@@ -1395,10 +1403,42 @@
       </div>
     </section>
 
+    <section class="section collection" id="living" aria-labelledby="living-title">
+      <div class="shell collection__inner">
+        <div class="collection__copy reveal">
+          <span class="section-index">06 — Living documents</span>
+          <h2 id="living-title">One document that stays current<span class="dot">.</span></h2>
+          <p>
+            Attach a JSON Schema and state snapshot to a checklist, status board,
+            form, or report. Bound checkboxes, text fields, selects, and buttons
+            write validated revisions; agent patches update the same document.
+            A <code>.maket</code> bundle carries its current schema and data;
+            importing it starts a fresh local revision history.
+          </p>
+          <div class="actions">
+            <a class="button button--ink" href="app/demo.html?scenario=living-checklist">Replay the living-document demo</a>
+          </div>
+        </div>
+        <div class="collection__visual reveal" aria-label="A state-backed opening checklist">
+          <div class="template">
+            <span class="template__field">&#123;&#123; state.title &#125;&#125;</span>
+            <h3>Opening checklist<span class="dot">.</span></h3>
+            <p>☑ Venue approved · Owner: Nora</p>
+          </div>
+          <div class="collection__rows">
+            <div class="collection__row"><span>revision</span><span>status</span></div>
+            <div class="collection__row"><span>1</span><span>todo</span></div>
+            <div class="collection__row"><span>2</span><span>ready</span></div>
+            <div class="collection__row"><span>3</span><span>ready</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section class="section install" id="install">
       <div class="shell install__layout">
         <div class="install__copy reveal">
-          <span class="section-index">06 — Installation</span>
+          <span class="section-index">07 — Installation</span>
           <h2>Connect Maket to your agent<span class="dot">.</span></h2>
           <p>Copy the ready-made prompt into Codex, Claude, or Gemini. Your agent will install, start, and verify Maket for you.</p>
           <div class="actions">

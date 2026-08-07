@@ -52,7 +52,7 @@ describe("maket_learn", () => {
 		expect(body).toContain("Model/Template mode");
 		expect(body).toContain("PDF");
 		expect(body).toContain(
-			".maket bundle export does not yet support state-backed documents",
+			"Portable .maket bundles carry the current schema and data snapshot",
 		);
 	});
 });

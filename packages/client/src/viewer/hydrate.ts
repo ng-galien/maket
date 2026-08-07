@@ -5,6 +5,7 @@
  * and collections are swapped in atomically with `readOnly` set.
  */
 
+import { renderDocumentStateText } from "@maket/shared";
 import type { DocSummary, Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import { ensureCharteFonts } from "../store/ws";
@@ -52,10 +53,20 @@ function hydrateDocuments(
 	const docs = new Map<string, Document>();
 	const chartesCss = new Map<string, string>();
 	for (const doc of workspace.documents) {
+		const stateView = workspace.documentStates[doc.name];
 		const pages = doc.pages.map((page) => ({
 			...page,
 			html: page.html
-				? stripActiveHtml(rewriteAssetRefs(page.html, workspace.assetUrls))
+				? stripActiveHtml(
+						rewriteAssetRefs(
+							doc.dataModel === "state" && stateView
+								? renderDocumentStateText(page.html, stateView.data, {
+										schema: stateView.schema,
+									}).html
+								: page.html,
+							workspace.assetUrls,
+						),
+					)
 				: page.html,
 		}));
 		docs.set(doc.name, { ...doc, pages });
@@ -87,6 +98,13 @@ export function hydrateViewerWorkspace(workspace: ViewerWorkspace): void {
 		selectedIds: [],
 		editingElementId: null,
 		pending: [],
+		documentStates: workspace.documentStates,
+		stateCanvasModes: Object.fromEntries(
+			Object.keys(workspace.documentStates).map((name) => [name, "live"]),
+		),
+		statePatchPending: {},
+		statePatchRequests: {},
+		statePatchErrors: {},
 	});
 	state.setCollections(workspace.collections);
 }

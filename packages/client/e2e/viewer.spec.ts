@@ -19,6 +19,14 @@ async function openFixture(page: import("@playwright/test").Page) {
 	await expect(page.locator('[data-doc="poster"]')).toBeVisible();
 }
 
+async function openProductsControls(
+	page: import("@playwright/test").Page,
+	labelsDoc: import("@playwright/test").Locator,
+) {
+	await labelsDoc.locator(".doc-label-name").click();
+	await page.getByRole("button", { name: /products · Template/i }).click();
+}
+
 test.describe("Maket Viewer", () => {
 	test("serves the drop zone with the local-only promise", async ({ page }) => {
 		const response = await page.goto("/viewer.html");
@@ -74,23 +82,23 @@ test.describe("Maket Viewer", () => {
 		const labelsDoc = page.locator('[data-doc="labels"]');
 
 		// Collection controls only show on the focused doc — focus labels first.
-		await labelsDoc.locator(".doc-label-name").click();
+		await openProductsControls(page, labelsDoc);
 
 		// Template mode shows the raw placeholder.
 		const canvas = labelsDoc.locator(".page-canvas");
 		await expect(canvas.getByText("{{ name }}")).toBeVisible();
 
 		// Switch to rendered mode → first member's data appears.
-		await labelsDoc.getByRole("button", { name: "Current row render" }).click();
+		await page.getByRole("button", { name: "Current row render" }).click();
 		await expect(canvas.getByText("Salmon Classic")).toBeVisible();
 		await expect(canvas.getByText("12€")).toBeVisible();
 
 		// Navigate to the next row.
-		await labelsDoc.getByRole("button", { name: "Next row" }).click();
+		await page.getByRole("button", { name: "Next row" }).click();
 		await expect(canvas.getByText("Trout Fillet")).toBeVisible();
 
 		// "All rows" fans out every member.
-		await labelsDoc.getByRole("button", { name: "All rows" }).click();
+		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(canvas.getByText("Salmon Classic")).toBeVisible();
 		await expect(canvas.getByText("Trout Fillet")).toBeVisible();
 		await expect(canvas.getByText("Herring Dill")).toBeVisible();
@@ -109,10 +117,10 @@ test.describe("Maket Viewer", () => {
 	test("read-only: collection data grid is not reachable", async ({ page }) => {
 		await openFixture(page);
 		const labelsDoc = page.locator('[data-doc="labels"]');
-		await labelsDoc.locator(".doc-label-name").click();
+		await openProductsControls(page, labelsDoc);
 		// Mode buttons are there…
 		await expect(
-			labelsDoc.getByRole("button", { name: "Current row render" }),
+			page.getByRole("button", { name: "Current row render" }),
 		).toBeVisible();
 		// …but the editable data grid entry point is not.
 		await expect(
@@ -230,10 +238,8 @@ test.describe("Maket Viewer", () => {
 			if (request.url().startsWith("blob:")) return;
 			requests.push(request.url());
 		});
-		await page
-			.locator('[data-doc="labels"]')
-			.getByRole("button", { name: "Current row render" })
-			.click();
+		await openProductsControls(page, page.locator('[data-doc="labels"]'));
+		await page.getByRole("button", { name: "Current row render" }).click();
 		await expect(
 			page
 				.locator('[data-doc="labels"] .page-canvas')

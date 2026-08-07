@@ -16,7 +16,25 @@ export async function encodeWorkspaceBundle(
 		workspace.documents,
 		workspace.chartes,
 		workspace.collections,
-		{ version: 2, exportedAt: new Date().toISOString() },
+		{
+			version: 2,
+			exportedAt: new Date().toISOString(),
+			documentStates: Object.entries(workspace.documentStates ?? {}).map(
+				([docName, state]) => {
+					const doc = workspace.documents.find((item) => item.name === docName);
+					if (!doc) {
+						throw new Error(
+							`State-backed demo document "${docName}" is missing.`,
+						);
+					}
+					return {
+						documentId: doc.id,
+						schema: state.schema,
+						data: state.data,
+					};
+				},
+			),
+		},
 	);
 	zip.file("manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
 	return zip.generateAsync({
