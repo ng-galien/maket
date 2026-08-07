@@ -30,6 +30,17 @@ describe("shouldDisableSandbox", () => {
 		platform.mockRestore();
 	});
 
+	it("disables the sandbox on an ephemeral Linux CI worker", () => {
+		const platform = vi
+			.spyOn(process, "platform", "get")
+			.mockReturnValue("linux");
+		const getuid = vi.spyOn(process, "getuid").mockReturnValue(1001);
+		expect(shouldDisableSandbox({ GITHUB_ACTIONS: "true" })).toBe(true);
+		expect(shouldDisableSandbox({ CI: "true" })).toBe(true);
+		getuid.mockRestore();
+		platform.mockRestore();
+	});
+
 	it("keeps the sandbox on Linux for non-root users", () => {
 		const platform = vi
 			.spyOn(process, "platform", "get")
