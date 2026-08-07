@@ -5,6 +5,13 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "packages/client/**"
+      - "packages/shared/**"
+      - "scripts/make-starter-bundles.ts"
+      - "scripts/sync-pages.mjs"
+      - "starters/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -20,23 +27,33 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      GIT_CONFIG_COUNT: 1
+      GIT_CONFIG_KEY_0: init.defaultBranch
+      GIT_CONFIG_VALUE_0: main
     steps:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
-      - name: Build with Jekyll
-        uses: actions/jekyll-build-pages@v1
-        with:
-          source: ./docs
-          destination: ./_site
+      - name: Install dependencies
+        run: npm install --no-audit --loglevel=error
+
+      - name: Build Pages artifact
+        run: npm run build:pages
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: ./_site
+          path: ./docs
 
   deploy:
     environment:
@@ -48,3 +65,7 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        env:
+          # deploy-pages v5 still pulls a deprecated built-in through its
+          # current dependency tree. Keep suppression scoped to that action.
+          NODE_OPTIONS: --disable-warning=DEP0040

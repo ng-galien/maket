@@ -1,6 +1,8 @@
 node_modules/
 dist/
 /public/
+/docs/app/
+/docs/starters/
 coverage/
 *.tsbuildinfo
 *.db

@@ -1,7 +1,7 @@
 /**
- * Copy the deterministic starter bundles next to the GitHub Pages app build.
- * GitHub Pages serves docs/ at /maket/, so viewer links can open these through
- * `?src=../starters/<name>.maket` without any server or cross-origin request.
+ * Assemble deterministic starter bundles next to the ephemeral Pages app build.
+ * GitHub Actions publishes docs/ at /maket/, so viewer links can open these
+ * through `?src=../starters/<name>.maket` without a server or cross-origin request.
  */
 
 import { copyFileSync, mkdirSync, readdirSync } from "node:fs";

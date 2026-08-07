@@ -28,6 +28,9 @@ export default defineConfig(({ mode }) => {
 			},
 		},
 		build: {
+			// The shared hydration runtime is ~530 kB minified (~160 kB gzip).
+			// Keep the warning budget aligned with the shipped transfer size.
+			chunkSizeWarningLimit: 600,
 			outDir: path.resolve(
 				import.meta.dirname,
 				pagesBuild ? "../../docs/app" : "../../public",
