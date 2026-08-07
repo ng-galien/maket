@@ -25,6 +25,8 @@
     "build:client": "npm run build -w @maket/client",
     "starters:build": "tsx scripts/make-starter-bundles.ts",
     "build:pages": "npm run starters:build && npm run build:pages -w @maket/client && node scripts/sync-pages.mjs",
+    "pack:npm": "node scripts/pack-npm.ts --pack",
+    "test:package": "npm run pack:npm && node scripts/test-npm-package.mjs",
     "start": "npx tsx packages/server/index.ts",
     "dev": "node scripts/dev.mjs dev",
     "dev:watch": "node scripts/dev.mjs dev:watch",
@@ -56,5 +58,12 @@
     "tsx": "^4.23.10",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "lefthook@2.1.10": true,
+    "puppeteer@25.5.0": true,
+    "fsevents@2.3.3": true,
+    "fsevents@2.3.2": true
   }
 }

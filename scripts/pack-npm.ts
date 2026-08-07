@@ -5,17 +5,17 @@
 //
 // Usage:
 //   node scripts/pack-npm.ts              # stage only, no publish
+//   node scripts/pack-npm.ts --pack       # stage + produce installable tarball
 //   node scripts/pack-npm.ts --publish    # stage + npm publish --access public
 //   node scripts/pack-npm.ts --dry-run    # stage + npm publish --dry-run
 //
 // Output: dist/npm/ (ready-to-publish package directory).
 //
 // Installation contract for users:
-//   npx -y @ng-galien/maket           # one-shot, stdio-bridge speaks MCP
 //   npm install -g @ng-galien/maket   # global binary: `maket`
 // ============================================================
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,14 +29,13 @@ function log(msg: string) {
 }
 
 // Externals kept out of the server bundle — users install these from the
-// staged package's own `dependencies` on first `npm install`/`npx`.
+// staged package's own `dependencies` on first `npm install`.
 const EXTERNALS = [
   "@modelcontextprotocol/sdk",
   "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",
-  "googleapis",
   "jimp",
   "linkedom",
   "puppeteer",
@@ -124,8 +123,28 @@ function publish(dryRun: boolean): void {
   });
 }
 
+function pack(): string {
+  log("Creating installable npm tarball...");
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const output = execFileSync(npm, ["pack", "--json", "--pack-destination", join(ROOT, "dist")], {
+    cwd: DIST,
+    encoding: "utf-8",
+  });
+  const result = JSON.parse(output) as { filename?: string }[];
+  const filename = result[0]?.filename;
+  if (!filename) throw new Error(`npm pack did not return a filename: ${output}`);
+  const tarball = join(ROOT, "dist", filename);
+  log(`tarball → ${tarball}`);
+  log(`install locally with: npm install -g --allow-scripts=puppeteer "${tarball}"`);
+  return tarball;
+}
+
 // ---- Main ----
 stage();
+
+if (process.argv.includes("--pack")) {
+  pack();
+}
 
 if (process.argv.includes("--publish")) {
   publish(false);

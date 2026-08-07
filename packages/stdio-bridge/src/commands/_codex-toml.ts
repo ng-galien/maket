@@ -4,15 +4,16 @@
  * stripping rules.
  */
 
+import { resolveMaketRuntime } from "./_runtime-command.ts";
+
 export const PKG = "@ng-galien/maket";
-const CMD = "npx";
-const ARGS = ["-y", PKG];
 
 export function codexTomlSnippet(): string {
+	const runtime = resolveMaketRuntime();
 	return [
 		"[mcp_servers.maket]",
-		`command = "${CMD}"`,
-		`args = [${ARGS.map((a) => `"${a}"`).join(", ")}]`,
+		`command = ${JSON.stringify(runtime.command)}`,
+		`args = [${runtime.args.map((arg) => JSON.stringify(arg)).join(", ")}]`,
 	].join("\n");
 }
 

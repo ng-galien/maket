@@ -113,17 +113,26 @@ Use `maket_state action=init` to attach the initial schema and data, then `get`,
 ### Option A — npm (recommended)
 
 ```bash
-# Wire Maket into your AI client (one-shot — drop --apply for a dry run)
-npx -y @ng-galien/maket install claude --apply
-npx -y @ng-galien/maket install codex  --apply
-npx -y @ng-galien/maket install gemini --apply
+# Install Maket and its compatible headless Chromium
+npm install -g --allow-scripts=puppeteer @ng-galien/maket
+
+# Wire Maket into your AI client (drop --apply for a dry run)
+maket install claude --apply
+maket install codex  --apply
+maket install gemini --apply
 
 # Start the local server and open the preview
-npx -y @ng-galien/maket start
-npx -y @ng-galien/maket open
+maket start
+maket open
 ```
 
-The CLI registers an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed), a `[mcp_servers.maket]` section in `~/.codex/config.toml`, or an `mcpServers.maket` entry in `~/.gemini/settings.json`. Without arguments, the binary runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, Gemini, and other MCP clients invoke automatically.
+The explicit `--allow-scripts=puppeteer` is required by npm 11+'s dependency
+script policy. It lets Puppeteer download the exact headless Chromium build
+declared by the installed Maket release; no browser version is hard-coded by
+Maket itself. Run `maket doctor` after installation to prove that Chromium can
+actually launch, the data directory is writable, and the MCP server responds.
+
+The CLI registers the absolute local Node runtime and installed Maket entry in an `mcpServers.maket` entry in `~/.claude.json` (or runs `claude mcp add` if the Claude Code CLI is installed), a `[mcp_servers.maket]` section in `~/.codex/config.toml`, or an `mcpServers.maket` entry in `~/.gemini/settings.json`. This standard command-plus-arguments form does not depend on the GUI application's shell `PATH`. Re-run `maket install <client> --apply` after moving the Node or Maket installation. Without arguments, the Maket entry runs as a stdio MCP bridge — that's the form Claude Desktop, Codex, Gemini, and other MCP clients invoke automatically.
 
 Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex|gemini> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
 

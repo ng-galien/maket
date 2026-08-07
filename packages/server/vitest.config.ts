@@ -17,8 +17,8 @@ export default defineConfig({
 			exclude: [
 				"**/*.test.ts",
 				"**/types.ts",
-				// gmail-client wraps googleapis (network I/O) — integration-tested
-				// at the plugin level (phase 3), not unit-tested.
+				// OAuth/Gmail edge adapter is tested through injected fetch contracts;
+				// exclude it from domain-service coverage thresholds.
 				"src/services/gmail-client.ts",
 			],
 			// Quality gate L3 — enforce coverage on the refactored layers.

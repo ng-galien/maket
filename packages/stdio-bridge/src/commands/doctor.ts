@@ -4,7 +4,13 @@
  * don't fail the exit code.
  */
 
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -22,7 +28,20 @@ interface Check {
 	line: string;
 }
 
+interface HeadlessBrowser {
+	version(): Promise<string>;
+	close(): Promise<void>;
+}
+
+interface PuppeteerLauncher {
+	launch(options: {
+		headless: "shell";
+		args: string[];
+	}): Promise<HeadlessBrowser>;
+}
+
 const ICONS: Record<Level, string> = { ok: "✓", warn: "⚠", fail: "✗" };
+const GMAIL_PROBE_TIMEOUT_MS = 5_000;
 
 function checkNode(): Check {
 	const major = Number.parseInt(process.versions.node.split(".")[0] ?? "0", 10);
@@ -81,57 +100,130 @@ function checkDataDir(dataDir: string): Check {
 	}
 }
 
-async function checkChromium(): Promise<Check> {
+function chromiumArgs(env = process.env): string[] {
+	if (env.MAKET_FORCE_NO_SANDBOX === "1") return ["--no-sandbox"];
+	if (process.platform !== "linux") return [];
+	if (env.GITHUB_ACTIONS === "true" || env.CI === "true" || env.CI === "1") {
+		return ["--no-sandbox"];
+	}
+	if (typeof process.getuid === "function" && process.getuid() === 0) {
+		return ["--no-sandbox"];
+	}
+	return [];
+}
+
+function resolvePuppeteer(): PuppeteerLauncher {
+	const require = createRequire(fileURLToPath(import.meta.url));
+	const module = require("puppeteer") as {
+		launch?: PuppeteerLauncher["launch"];
+		default?: PuppeteerLauncher;
+	};
+	const launch = module.default?.launch ?? module.launch;
+	if (typeof launch !== "function") {
+		throw new Error("puppeteer resolved but has no launch() export");
+	}
+	return { launch };
+}
+
+export async function checkChromium(
+	launcher: PuppeteerLauncher = resolvePuppeteer(),
+): Promise<Check> {
+	let browser: HeadlessBrowser | undefined;
 	try {
-		const require = createRequire(fileURLToPath(import.meta.url));
-		const puppeteer = require("puppeteer") as {
-			executablePath?: () => string | Promise<string>;
-			default?: { executablePath?: () => string | Promise<string> };
-		};
-		const fn = puppeteer.executablePath ?? puppeteer.default?.executablePath;
-		if (!fn) {
-			return {
-				level: "warn",
-				line: "Chromium — puppeteer resolved but no executablePath() export",
-			};
-		}
-		const path = await fn();
-		if (!existsSync(path)) {
-			return {
-				level: "warn",
-				line: `Chromium — puppeteer expects ${path} but it's missing. Run: npx puppeteer browsers install chrome`,
-			};
-		}
-		return { level: "ok", line: `Chromium — ${path}` };
-	} catch (e) {
+		browser = await launcher.launch({
+			headless: "shell",
+			args: chromiumArgs(),
+		});
 		return {
-			level: "warn",
-			line: `Chromium — puppeteer not resolvable (${(e as Error).message})`,
+			level: "ok",
+			line: `Chromium headless — ${await browser.version()}`,
 		};
+	} catch (e) {
+		const detail = (e as Error).message.split("\n")[0];
+		return {
+			level: "fail",
+			line:
+				`Chromium headless — unavailable (${detail}). ` +
+				"Reinstall with: npm install -g --allow-scripts=puppeteer @ng-galien/maket",
+		};
+	} finally {
+		await browser?.close().catch(() => {});
 	}
 }
 
-function checkGmail(dataDir: string): Check {
+export async function checkGmail(
+	dataDir: string,
+	env: Record<string, string | undefined> = process.env,
+	fetchImpl: typeof fetch = fetch,
+): Promise<Check> {
 	const state = readGmailState(dataDir);
-	if (!state.hasCredentials && !state.hasToken) {
+	const hasEnvCredentials = Boolean(
+		env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET,
+	);
+	const hasCredentials = state.hasCredentials || hasEnvCredentials;
+	if (!hasCredentials && !state.hasToken) {
 		return { level: "warn", line: "Gmail — not configured (optional)" };
 	}
-	if (state.hasCredentials && !state.hasToken) {
+	if (hasCredentials && !state.hasToken) {
 		return {
 			level: "warn",
 			line: "Gmail — credentials present but no refresh token. Run: maket_gmail action=connect",
 		};
 	}
-	if (!state.hasCredentials && state.hasToken) {
+	if (!hasCredentials && state.hasToken) {
 		return {
 			level: "fail",
 			line: `Gmail — refresh token but no credentials at ${state.credentialsPath}`,
 		};
 	}
-	return {
-		level: "ok",
-		line: `Gmail — configured (read scope: ${state.withRead ? "yes" : "no"})`,
-	};
+	try {
+		const credentials = hasEnvCredentials
+			? {
+					client_id: env.GOOGLE_CLIENT_ID as string,
+					client_secret: env.GOOGLE_CLIENT_SECRET as string,
+				}
+			: (() => {
+					const file = JSON.parse(readFileSync(state.credentialsPath, "utf-8"));
+					return file.installed || file.web;
+				})();
+		const token = JSON.parse(readFileSync(state.tokenPath, "utf-8"));
+		const response = await fetchImpl("https://oauth2.googleapis.com/token", {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			signal: AbortSignal.timeout(GMAIL_PROBE_TIMEOUT_MS),
+			body: new URLSearchParams({
+				client_id: credentials.client_id,
+				client_secret: credentials.client_secret,
+				refresh_token: token.refresh_token,
+				grant_type: "refresh_token",
+			}),
+		});
+		const result = (await response.json()) as {
+			access_token?: unknown;
+			error?: unknown;
+		};
+		if (response.ok && typeof result.access_token === "string") {
+			return {
+				level: "ok",
+				line: `Gmail — connected (read scope: ${state.withRead ? "yes" : "no"})`,
+			};
+		}
+		if (result.error === "invalid_grant") {
+			return {
+				level: "fail",
+				line: "Gmail — refresh token expired or revoked. Reconnect with: maket_gmail action=connect",
+			};
+		}
+		return {
+			level: "fail",
+			line: `Gmail — OAuth validation failed (HTTP ${response.status})`,
+		};
+	} catch (error) {
+		return {
+			level: "warn",
+			line: `Gmail — configured but validation unavailable (${(error as Error).message})`,
+		};
+	}
 }
 
 function checkServerEntry(): Check {
@@ -189,9 +281,10 @@ export async function runDoctor(
 ): Promise<void> {
 	const env = readEnv(overrides);
 
-	const [portCheck, chromiumCheck, npmCheck] = await Promise.all([
+	const [portCheck, chromiumCheck, gmailCheck, npmCheck] = await Promise.all([
 		checkPort(env.port, env.host),
 		checkChromium(),
+		checkGmail(env.dataDir),
 		checkNpmLatest(),
 	]);
 
@@ -201,7 +294,7 @@ export async function runDoctor(
 		checkDataDir(env.dataDir),
 		checkServerEntry(),
 		chromiumCheck,
-		checkGmail(env.dataDir),
+		gmailCheck,
 		checkClaudeCli(),
 		npmCheck,
 	];

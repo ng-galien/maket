@@ -44,7 +44,6 @@ const EXTERNALS = [
   "awilix",
   "beautiful-mermaid",
   "express",
-  "googleapis",
   "jimp",
   "linkedom",
   "puppeteer",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compareVersions } from "./update.ts";
+import { compareVersions, updateInstallArgs } from "./update.ts";
 
 describe("compareVersions", () => {
 	it("orders by major/minor/patch", () => {
@@ -23,5 +23,16 @@ describe("compareVersions", () => {
 		expect(compareVersions("1.0", "1.0.0")).toBe(0);
 		expect(compareVersions("1", "1.0.0")).toBe(0);
 		expect(compareVersions("1.0.0", "1.0")).toBe(0);
+	});
+});
+
+describe("updateInstallArgs", () => {
+	it("allows Puppeteer's browser installer on npm 11+", () => {
+		expect(updateInstallArgs("1.4.6")).toEqual([
+			"install",
+			"-g",
+			"--allow-scripts=puppeteer",
+			"@ng-galien/maket@1.4.6",
+		]);
 	});
 });

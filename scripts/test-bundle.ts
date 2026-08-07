@@ -32,7 +32,6 @@ const EXTERNALS = [
   "awilix",
   "beautiful-mermaid",
   "express",
-  "googleapis",
   "jimp",
   "linkedom",
   "puppeteer",
@@ -176,7 +175,7 @@ async function main(): Promise<void> {
 
   rmSync(dataDir, { recursive: true, force: true });
 
-  if (!response || !response.includes('"result"')) {
+  if (!response?.includes('"result"')) {
     process.exit(1);
   }
 }

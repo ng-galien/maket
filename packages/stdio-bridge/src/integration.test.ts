@@ -117,7 +117,7 @@ describe.skipIf(process.env.MAKET_RUN_NETWORK_TESTS !== "1")(
 			expect(result.serverInfo.name).toBe("maket");
 		}, 20_000);
 
-		it("lists the 12 maket tools via tools/list", async () => {
+		it("lists every Maket tool, including living-document state and Learn", async () => {
 			const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
 				jsonrpc: "2.0",
 				id: 2,
@@ -134,6 +134,8 @@ describe.skipIf(process.env.MAKET_RUN_NETWORK_TESTS !== "1")(
 				"maket_workspace",
 				"maket_charte",
 				"maket_collection",
+				"maket_state",
+				"maket_learn",
 				"maket_image",
 				"maket_preview",
 				"maket_mermaid",
@@ -142,6 +144,22 @@ describe.skipIf(process.env.MAKET_RUN_NETWORK_TESTS !== "1")(
 			]) {
 				expect(names.has(expected)).toBe(true);
 			}
+		}, 20_000);
+
+		it("serves the living-document state guidance through maket_learn", async () => {
+			const res = await sendOne(`http://127.0.0.1:${port}/mcp`, {
+				jsonrpc: "2.0",
+				id: 3,
+				method: "tools/call",
+				params: {
+					name: "maket_learn",
+					arguments: { action: "topic", topic: "state", audience: "agent" },
+				},
+			});
+			const result = res.result as { content: { text?: string }[] };
+			const text = result.content.map((item) => item.text ?? "").join("\n");
+			expect(text).toContain("maket_state action=init");
+			expect(text).toContain("expected_revision");
 		}, 20_000);
 	},
 );

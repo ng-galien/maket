@@ -79,11 +79,15 @@ async function runCheck(): Promise<void> {
 	}
 }
 
+export function updateInstallArgs(target: string): string[] {
+	return ["install", "-g", "--allow-scripts=puppeteer", `${PKG}@${target}`];
+}
+
 function runInstall(target: string): void {
-	const spec = `${PKG}@${target}`;
 	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-	process.stdout.write(`maket: running \`npm install -g ${spec}\`\n`);
-	const r = spawnSync(npm, ["install", "-g", spec], { stdio: "inherit" });
+	const args = updateInstallArgs(target);
+	process.stdout.write(`maket: running \`npm ${args.join(" ")}\`\n`);
+	const r = spawnSync(npm, args, { stdio: "inherit" });
 	if (r.status !== 0) {
 		process.exitCode = r.status ?? 1;
 	}

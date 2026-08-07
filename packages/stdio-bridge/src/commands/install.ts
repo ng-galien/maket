@@ -12,11 +12,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { hasBin } from "./_bin.ts";
-import { codexTomlSnippet, PKG, stripMaketSection } from "./_codex-toml.ts";
+import { codexTomlSnippet, stripMaketSection } from "./_codex-toml.ts";
 import { backup, refuseSymlink } from "./_fs-safety.ts";
-
-const CMD = "npx";
-const ARGS = ["-y", PKG];
+import { resolveMaketRuntime } from "./_runtime-command.ts";
 
 export type ClaudeScope = "user" | "project";
 export type InstallClient = "claude" | "codex" | "gemini";
@@ -27,7 +25,12 @@ export interface InstallOpts {
 	scope: ClaudeScope;
 }
 
+export function formatCommandPreview(args: string[]): string {
+	return args.map((arg) => JSON.stringify(arg)).join(" ");
+}
+
 function installClaude(opts: InstallOpts): void {
+	const runtime = resolveMaketRuntime();
 	const cliCmd = [
 		"claude",
 		"mcp",
@@ -36,10 +39,10 @@ function installClaude(opts: InstallOpts): void {
 		"--scope",
 		opts.scope,
 		"--",
-		CMD,
-		...ARGS,
+		runtime.command,
+		...runtime.args,
 	];
-	const cliLine = cliCmd.join(" ");
+	const cliLine = formatCommandPreview(cliCmd);
 
 	if (!opts.apply) {
 		process.stdout.write(
@@ -47,7 +50,7 @@ function installClaude(opts: InstallOpts): void {
 				`  ${cliLine}\n\n` +
 				"Or, if the `claude` CLI is not installed, add this entry manually to\n" +
 				`  ${opts.scope === "user" ? "~/.claude.json" : "<your-project>/.mcp.json"}:\n\n` +
-				`${claudeJsonSnippet()}\n` +
+				`${jsonSnippet()}\n` +
 				"Re-run with --apply to write the config.\n",
 		);
 		return;
@@ -73,9 +76,14 @@ function installClaude(opts: InstallOpts): void {
 	writeClaudeConfig(target, opts.scope);
 }
 
-function claudeJsonSnippet(): string {
+function jsonSnippet(): string {
+	const runtime = resolveMaketRuntime();
 	return JSON.stringify(
-		{ mcpServers: { maket: { command: CMD, args: ARGS } } },
+		{
+			mcpServers: {
+				maket: { command: runtime.command, args: runtime.args },
+			},
+		},
 		null,
 		2,
 	);
@@ -101,7 +109,8 @@ function writeClaudeConfig(path: string, scope: ClaudeScope): void {
 
 	const servers = ((json.mcpServers as Record<string, unknown>) ??
 		{}) as Record<string, unknown>;
-	servers.maket = { command: CMD, args: ARGS };
+	const runtime = resolveMaketRuntime();
+	servers.maket = { command: runtime.command, args: runtime.args };
 	json.mcpServers = servers;
 	writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`, {
 		encoding: "utf-8",
@@ -147,21 +156,13 @@ function installGemini(opts: InstallOpts): void {
 		process.stdout.write(
 			"maket: Gemini CLI MCP install (preview)\n\n" +
 				`Add the following mcpServers entry to ${target}:\n\n` +
-				`${geminiJsonSnippet()}\n\n` +
+				`${jsonSnippet()}\n\n` +
 				"Re-run with --apply to write the config.\n",
 		);
 		return;
 	}
 
 	writeGeminiConfig(target);
-}
-
-function geminiJsonSnippet(): string {
-	return JSON.stringify(
-		{ mcpServers: { maket: { command: CMD, args: ARGS } } },
-		null,
-		2,
-	);
 }
 
 function writeGeminiConfig(path: string): void {
@@ -184,7 +185,8 @@ function writeGeminiConfig(path: string): void {
 
 	const servers = ((json.mcpServers as Record<string, unknown>) ??
 		{}) as Record<string, unknown>;
-	servers.maket = { command: CMD, args: ARGS };
+	const runtime = resolveMaketRuntime();
+	servers.maket = { command: runtime.command, args: runtime.args };
 	json.mcpServers = servers;
 	writeFileSync(path, `${JSON.stringify(json, null, 2)}\n`, {
 		encoding: "utf-8",

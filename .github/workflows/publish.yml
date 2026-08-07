@@ -28,7 +28,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
@@ -50,14 +50,14 @@ jobs:
           fi
           npm run version:check
 
-      # Trusted publishing requires npm CLI >= 11.5.1. Node 22's bundled npm
-      # is 10.9.x — upgrade in place. `--force` avoids the self-modification
+      # Trusted publishing requires npm CLI >= 11.5.1. Pin the current npm
+      # release so publication and install-script policy stay reproducible.
+      # `--force` avoids the self-modification
       # corruption (`Cannot find module 'promise-retry'`) that bites
-      # `npm install -g npm@latest` on stock runners; pin to a specific
-      # version so the next runner-image refresh can't break us silently.
+      # `npm install -g npm@latest` on stock runners.
       - name: Ensure npm >= 11.5.1
         run: |
-          npm install -g --force npm@11.5.1
+          npm install -g --force npm@12.0.2
           npm --version
 
       - name: Check npm publication
@@ -79,9 +79,14 @@ jobs:
         if: steps.npm.outputs.publish == 'true'
         run: npm install --no-audit
 
-      - name: Stage & publish
+      - name: Stage & verify installable package
         if: steps.npm.outputs.publish == 'true'
-        run: node scripts/pack-npm.ts --publish
+        run: npm run test:package
+
+      - name: Publish
+        if: steps.npm.outputs.publish == 'true'
+        working-directory: dist/npm
+        run: npm publish --access public
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
