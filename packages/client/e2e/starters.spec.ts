@@ -106,5 +106,10 @@ test.describe("Starter bundles", () => {
 		await expect(doc.locator('input[type="checkbox"]')).toBeChecked();
 		await expect(doc.locator('input[type="text"]')).toHaveValue("Nora");
 		await expect(doc.locator("select")).toHaveValue("ready");
+
+		await doc.locator('input[type="checkbox"]').uncheck();
+		await doc.locator("select").selectOption("todo");
+		await expect(doc.locator('input[type="checkbox"]')).not.toBeChecked();
+		await expect(doc.locator("select")).toHaveValue("todo");
 	});
 });

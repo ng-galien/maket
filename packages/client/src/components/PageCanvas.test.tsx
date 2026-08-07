@@ -21,6 +21,7 @@ afterEach(() => {
 	vi.runOnlyPendingTimers();
 	vi.useRealTimers();
 	useStore.setState({
+		readOnly: false,
 		pending: [],
 		editingElementId: null,
 		selectedIds: [],
@@ -201,6 +202,38 @@ describe("PageCanvas toolbar interactions", () => {
 
 		expect(sendPatch).toHaveBeenCalledWith("alpha", "/status", 6, "done");
 		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
+	});
+
+	it("keeps native state controls locally interactive in the read-only viewer", () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean" checked><select data-maket-bind="state.status" data-maket-path="/status" data-maket-type="string"><option value="todo">À faire</option><option value="ready" selected>Prêt</option></select>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			readOnly: true,
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: true, status: "ready" },
+					revision: 1,
+					createdAt: "2026-08-07T00:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		const checkbox = document.querySelector(
+			'input[type="checkbox"]',
+		) as HTMLInputElement;
+		const select = document.querySelector("select") as HTMLSelectElement;
+		fireEvent.change(checkbox, { target: { checked: false } });
+		fireEvent.change(select, { target: { value: "todo" } });
+
+		expect(checkbox).not.toBeChecked();
+		expect(select).toHaveValue("todo");
+		expect(sendPatch).not.toHaveBeenCalled();
 	});
 
 	it("edits one bound string through the small value editor", async () => {

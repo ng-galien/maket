@@ -7,13 +7,13 @@
   <title>Maket · Créez des documents avec Claude, Codex ou Gemini</title>
   <meta
     name="description"
-    content="Créez des documents visuels, des séries en publipostage et des documents vivants adossés à un état avec votre agent IA, tout en gardant vos ressources sur votre machine."
+    content="Créez, corrigez, déclinez et partagez des documents visuels avec votre agent IA, tout en gardant vos fichiers sur votre machine."
   />
 
   <meta property="og:title" content="Maket — Créez des documents avec votre agent IA" />
   <meta
     property="og:description"
-    content="Documents visuels, séries personnalisées et documents vivants : décrivez, reliez, corrigez et exportez."
+    content="Documents visuels, séries personnalisées et documents qui restent à jour : créez, corrigez, exportez et partagez."
   />
   <meta property="og:url" content="https://ng-galien.github.io/maket/fr/" />
   <meta property="og:site_name" content="Maket" />
@@ -29,7 +29,7 @@
   <meta name="twitter:title" content="Maket — Créez des documents avec votre agent IA" />
   <meta
     name="twitter:description"
-    content="Documents visuels, séries personnalisées et documents vivants : décrivez, reliez, corrigez et exportez."
+    content="Documents visuels, séries personnalisées et documents qui restent à jour : créez, corrigez, exportez et partagez."
   />
   <meta name="twitter:image" content="https://ng-galien.github.io/maket/social-preview.png" />
   <meta name="twitter:image:alt" content="Logo Maket" />
@@ -417,10 +417,10 @@
       border-color: var(--line);
     }
 
-    .button--ink {
+    .button.button--ink {
       color: var(--paper-light);
       background: var(--ink);
-      border-color: var(--ink) !important;
+      border-color: var(--ink);
     }
 
     .button--ink:hover,
@@ -510,20 +510,20 @@
       padding: clamp(6rem, 10vw, 10rem) 0;
     }
 
-    .ownership {
+    .overview {
       padding: clamp(5rem, 8vw, 8rem) 0;
       background: var(--paper-light);
       border-bottom: 1px solid var(--line);
     }
 
-    .ownership__inner {
+    .overview__head {
       display: grid;
       grid-template-columns: minmax(12rem, 0.55fr) minmax(20rem, 1.45fr);
       gap: 2rem;
       align-items: start;
     }
 
-    .ownership h2 {
+    .overview h2 {
       max-width: 16ch;
       margin: 0;
       font-size: var(--type-h2);
@@ -532,11 +532,57 @@
       line-height: 1;
     }
 
-    .ownership p {
+    .overview__intro {
       max-width: 44rem;
       margin: 1.75rem 0 0;
       color: var(--muted);
       font-size: var(--type-body);
+    }
+
+    .feature-index {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: clamp(3.5rem, 6vw, 6rem);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .feature {
+      display: grid;
+      grid-template-columns: 2.5rem minmax(0, 1fr);
+      gap: 1rem;
+      padding: 1.75rem 2rem 1.9rem 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .feature:nth-child(-n + 2) {
+      border-top: 0;
+    }
+
+    .feature:nth-child(even) {
+      padding-right: 0;
+      padding-left: 2rem;
+      border-left: 1px solid var(--line);
+    }
+
+    .feature__number {
+      color: var(--accent);
+      font-family: "DM Mono", monospace;
+      font-size: var(--type-label);
+    }
+
+    .feature h3 {
+      margin: 0 0 0.55rem;
+      font-size: clamp(1.15rem, 1.55vw, 1.42rem);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .feature p {
+      max-width: 31rem;
+      margin: 0;
+      color: var(--muted);
     }
 
     .story-layout {
@@ -760,6 +806,12 @@
       transform: rotate(1.5deg);
     }
 
+    .collection__visual--single {
+      grid-template-columns: minmax(0, 28rem);
+      justify-content: center;
+      transform: rotate(1deg);
+    }
+
     .template {
       aspect-ratio: 0.72;
       padding: clamp(1.4rem, 3vw, 2.6rem);
@@ -774,9 +826,9 @@
     }
 
     .template h3 {
-      max-width: 7ch;
+      max-width: 10ch;
       margin: 35% 0 1rem;
-      font-size: var(--type-h2);
+      font-size: clamp(2rem, 3.6vw, 3.4rem);
       font-weight: 500;
       letter-spacing: var(--tracking-heading);
       line-height: 0.98;
@@ -785,6 +837,48 @@
     .template p {
       margin: 0;
       color: rgba(251, 250, 246, 0.6);
+    }
+
+    .template--checklist h3 {
+      margin-top: clamp(2.5rem, 6vw, 5rem);
+    }
+
+    .template-checklist {
+      display: grid;
+      margin: 0 0 1.4rem;
+      padding: 0;
+      list-style: none;
+    }
+
+    .template-checklist li {
+      display: grid;
+      grid-template-columns: 1.1rem minmax(0, 1fr);
+      gap: 0.7rem;
+      align-items: center;
+      padding: 0.65rem 0;
+      border-top: 1px solid rgba(251, 250, 246, 0.16);
+      color: rgba(251, 250, 246, 0.78);
+      font-size: clamp(0.82rem, 1.1vw, 0.98rem);
+    }
+
+    .template-checklist li:last-child {
+      border-bottom: 1px solid rgba(251, 250, 246, 0.16);
+    }
+
+    .template-checklist__box {
+      display: grid;
+      width: 1.05rem;
+      height: 1.05rem;
+      place-items: center;
+      border: 1px solid rgba(251, 250, 246, 0.5);
+      color: var(--ink);
+      font-size: 0.7rem;
+      line-height: 1;
+    }
+
+    .template-checklist__box--checked {
+      background: var(--accent-light);
+      border-color: var(--accent-light);
     }
 
     .collection__rows {
@@ -807,6 +901,11 @@
       background: var(--paper);
       border-top: 0;
       text-transform: uppercase;
+    }
+
+    .collection__row--active {
+      background: rgba(0, 169, 157, 0.12);
+      box-shadow: inset 0.22rem 0 0 var(--accent);
     }
 
     .install {
@@ -959,7 +1058,7 @@
       }
 
       .hero__bottom,
-      .ownership__inner,
+      .overview__head,
       .live__grid,
       .live__starters,
       .section-head,
@@ -1067,6 +1166,21 @@
         margin-bottom: 3.5rem;
       }
 
+      .feature-index {
+        grid-template-columns: 1fr;
+      }
+
+      .feature,
+      .feature:nth-child(even) {
+        padding: 1.5rem 0;
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+
+      .feature:first-child {
+        border-top: 0;
+      }
+
       .live__stage {
         width: calc(100% + 1rem);
         margin-left: -0.5rem;
@@ -1156,11 +1270,11 @@
     <div class="shell nav__inner">
       <a class="nav__brand" href="#top" aria-label="Maket, accueil">Maket<span class="dot">.</span></a>
       <nav class="nav__links" aria-label="Navigation principale">
+        <a href="#fonctionnalites">Fonctionnalités</a>
         <a href="#live">Démo</a>
         <a href="#usages">Usages</a>
         <a href="#fonctionnement">Fonctionnement</a>
-        <a href="#ressources">Ressources</a>
-        <a href="#documents-vivants">Documents vivants</a>
+        <a href="#documents-vivants">Documents à jour</a>
         <a href="#installer">Installer</a>
         <a class="nav__github" href="https://github.com/ng-galien/maket" target="_blank" rel="noopener">GitHub ↗</a>
         <a class="nav__lang" href="../" aria-label="English version" title="English version">EN</a>
@@ -1172,15 +1286,15 @@
     <section class="hero" id="top">
       <div class="shell hero__inner">
         <div class="hero__copy">
-          <p class="eyebrow">Création visuelle · publipostage · documents vivants</p>
+          <p class="eyebrow">Création visuelle · séries personnalisées · documents à jour</p>
           <h1>Des documents faits avec votre agent<span class="dot">.</span></h1>
         </div>
 
         <div class="hero__bottom">
           <div class="hero__intro">
             <p>
-              Composez des pages visuelles, générez des séries personnalisées à
-              partir de données typées ou gardez un document à jour avec votre agent.
+              Créez une affiche, un rapport ou une série personnalisée, puis corrigez,
+              exportez et partagez le résultat sans quitter votre agent.
             </p>
             <div class="actions">
               <a class="button button--primary" href="#live">Essayer la démo</a>
@@ -1206,16 +1320,52 @@
       </div>
     </section>
 
-    <section class="ownership" aria-labelledby="ownership-title">
-      <div class="shell ownership__inner reveal">
-        <span class="section-index">Vos documents restent à vous</span>
-        <div>
-          <h2 id="ownership-title">Changez d’agent<span class="dot">.</span> Gardez tout votre travail.</h2>
-          <p>
-            Passez d’un agent à l’autre sans exporter ni reconstruire votre bibliothèque.
-            Vos documents et leurs ressources restent sur votre machine, indépendamment
-            d’une plateforme ou d’un abonnement.
-          </p>
+    <section class="overview" id="fonctionnalites" aria-labelledby="overview-title">
+      <div class="shell">
+        <div class="overview__head reveal">
+          <span class="section-index">Tout Maket en un coup d’œil</span>
+          <div>
+            <h2 id="overview-title">Tout ce que vous pouvez faire avec Maket<span class="dot">.</span></h2>
+            <p class="overview__intro">
+              De la première consigne au partage final, Maket garde vos documents,
+              vos images et vos repères visuels au même endroit — sur votre machine.
+            </p>
+          </div>
+        </div>
+
+        <div class="feature-index reveal">
+          <article class="feature">
+            <span class="feature__number">01</span>
+            <div><h3>Créer avec votre agent</h3><p>Claude, Codex ou Gemini compose affiches, présentations, rapports, wireframes et documents multipages.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">02</span>
+            <div><h3>Voir et corriger en direct</h3><p>Suivez la mise en page dans le navigateur, annotez une zone ou modifiez le texte sur place.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">03</span>
+            <div><h3>Respecter votre identité visuelle</h3><p>Réutilisez vos couleurs, vos polices, vos règles de marque et votre galerie d’images.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">04</span>
+            <div><h3>Décliner un modèle</h3><p>À partir d’un tableau de données, produisez une version contrôlée pour chaque personne, produit ou événement.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">05</span>
+            <div><h3>Garder un document à jour</h3><p>Checklists, suivis, formulaires et rapports évoluent avec vos actions et les changements confiés à l’agent.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">06</span>
+            <div><h3>Exporter et partager</h3><p>Téléchargez un PDF pour l’écran ou l’impression, ou préparez un brouillon Gmail à relire avant de l’envoyer vous-même.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">07</span>
+            <div><h3>Repartir d’un exemple</h3><p>Ouvrez des documents prêts à explorer, adaptez-les à votre besoin et conservez le résultat.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">08</span>
+            <div><h3>Garder vos fichiers</h3><p>Changez d’agent ou de plateforme sans reconstruire votre bibliothèque ni perdre vos ressources.</p></div>
+          </article>
         </div>
       </div>
     </section>
@@ -1227,13 +1377,12 @@
             <span class="section-index">01 — Essayer en direct</span>
             <h2 id="live-title">Voyez le parcours<span class="dot">.</span> Gardez le fichier.</h2>
             <p>
-              Rejouez six sessions complètes dans votre navigateur, dont un document
-              vivant adossé à un état. Les starters portables et vos fichiers
-              <code>.maket</code> restent locaux.
+              Explorez six projets complets dans votre navigateur. Chaque exemple
+              s’ouvre, se modifie et reste disponible sur votre machine.
             </p>
             <div class="actions">
               <a class="button button--ink" href="../app/demo.html">Ouvrir la démo complète</a>
-              <a class="button button--outline" href="../app/viewer.html">Ouvrir un fichier .maket</a>
+              <a class="button button--outline" href="../app/viewer.html">Ouvrir un document Maket</a>
             </div>
           </div>
 
@@ -1248,16 +1397,16 @@
 
         <div class="live__starters reveal">
           <div>
-            <h3>Commencez avec un vrai document</h3>
-            <p class="mono">Bundles .maket v2 portables</p>
+            <h3>Six exemples prêts à explorer</h3>
+            <p class="mono">À ouvrir, adapter et conserver</p>
           </div>
           <nav class="starter-list" aria-label="Documents de démarrage Maket">
-            <a href="../app/viewer.html?src=../starters/product-catalog.maket"><span>Étiquettes produit + collection</span><span>Ouvrir ↗</span></a>
-            <a href="../app/viewer.html?src=../starters/event-poster.maket"><span>Affiche événementielle</span><span>Ouvrir ↗</span></a>
-            <a href="../app/viewer.html?src=../starters/app-wireframe.maket"><span>Wireframe d’application</span><span>Ouvrir ↗</span></a>
-            <a href="../app/viewer.html?src=../starters/bistro-menu.maket"><span>Menu de bistrot</span><span>Ouvrir ↗</span></a>
-            <a href="../app/viewer.html?src=../starters/social-series.maket"><span>Série sociale + collection</span><span>Ouvrir ↗</span></a>
-            <a href="../app/viewer.html?src=../starters/living-checklist.maket"><span>Checklist vivante + état</span><span>Ouvrir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/product-catalog.maket"><span>Étiquettes produit en série</span><span>Voir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/event-poster.maket"><span>Affiche d’événement</span><span>Voir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/app-wireframe.maket"><span>Prototype d’application</span><span>Voir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/bistro-menu.maket"><span>Menu de bistrot</span><span>Voir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/social-series.maket"><span>Série pour les réseaux sociaux</span><span>Voir ↗</span></a>
+            <a href="../app/viewer.html?src=../starters/living-checklist.maket"><span>Checklist qui reste à jour</span><span>Voir ↗</span></a>
           </nav>
         </div>
       </div>
@@ -1363,14 +1512,14 @@
           </article>
           <article class="resource reveal">
             <div>
-              <h3>Collections de données</h3>
+              <h3>Versions personnalisées</h3>
               <p>Reliez un modèle à des données structurées et générez une version contrôlée pour chaque personne, produit ou événement.</p>
             </div>
           </article>
           <article class="resource reveal">
             <div>
-              <h3>État du document</h3>
-              <p>Synchronisez un document avec des données validées, des contrôles HTML natifs et un historique de révisions immuable.</p>
+              <h3>Documents évolutifs</h3>
+              <p>Cochez, saisissez et mettez à jour les informations directement dans une checklist, un formulaire ou un rapport.</p>
             </div>
           </article>
         </div>
@@ -1380,7 +1529,7 @@
     <section class="section collection" aria-labelledby="collection-title">
       <div class="shell collection__inner">
         <div class="collection__copy reveal">
-          <span class="section-index">05 — Collections</span>
+          <span class="section-index">05 — Versions personnalisées</span>
           <h2 id="collection-title">Un modèle, autant de versions qu’il vous faut<span class="dot">.</span></h2>
           <p>
             Préparez une invitation, une étiquette ou une fiche. Ajoutez vos données,
@@ -1389,15 +1538,15 @@
           </p>
         </div>
 
-        <div class="collection__visual reveal" aria-label="Exemple d’un modèle relié à une collection de données">
+        <div class="collection__visual reveal" role="img" aria-label="Exemple d’un modèle décliné à partir d’un tableau de données">
           <div class="template">
-            <span class="template__field">&#123;&#123; prénom &#125;&#125;</span>
-            <h3>Vous êtes invité<span class="dot">.</span></h3>
-            <p>&#123;&#123; date &#125;&#125; · &#123;&#123; lieu &#125;&#125;</p>
+            <span class="template__field">Pour Agathe</span>
+            <h3>Invitation<span class="dot">.</span></h3>
+            <p>12 septembre · Le Perchoir</p>
           </div>
           <div class="collection__rows">
             <div class="collection__row"><span>prénom</span><span>date</span></div>
-            <div class="collection__row"><span>Agathe</span><span>12.09</span></div>
+            <div class="collection__row collection__row--active"><span>Agathe</span><span>12.09</span></div>
             <div class="collection__row"><span>Noé</span><span>12.09</span></div>
             <div class="collection__row"><span>Fatou</span><span>12.09</span></div>
             <div class="collection__row"><span>Lucas</span><span>12.09</span></div>
@@ -1409,30 +1558,28 @@
     <section class="section collection" id="documents-vivants" aria-labelledby="living-title">
       <div class="shell collection__inner">
         <div class="collection__copy reveal">
-          <span class="section-index">06 — Documents vivants</span>
+          <span class="section-index">06 — Documents à jour</span>
           <h2 id="living-title">Un document qui reste à jour<span class="dot">.</span></h2>
           <p>
-            Attachez un schéma JSON et un état à une checklist, un suivi, un formulaire
-            ou un rapport. Cases à cocher, champs texte, listes et boutons liés écrivent
-            des révisions validées ; les patchs de l’agent actualisent le même document.
-            Un bundle <code>.maket</code> transporte le schéma et les données
-            courantes ; son import démarre un nouvel historique local.
+            Transformez une checklist, un suivi, un formulaire ou un rapport en document
+            que chacun peut mettre à jour. Les actions faites dans la page et les changements
+            demandés à l’agent se retrouvent au même endroit. Partagez ou reprenez
+            le document sans repartir de zéro.
           </p>
           <div class="actions">
-            <a class="button button--ink" href="../app/demo.html?scenario=living-checklist">Rejouer la démo du document vivant</a>
+            <a class="button button--ink" href="../app/demo.html?scenario=living-checklist">Voir la checklist en action</a>
           </div>
         </div>
-        <div class="collection__visual reveal" aria-label="Checklist d’ouverture adossée à un état">
-          <div class="template">
-            <span class="template__field">&#123;&#123; state.title &#125;&#125;</span>
-            <h3>Checklist d’ouverture<span class="dot">.</span></h3>
-            <p>☑ Lieu approuvé · Responsable : Nora</p>
-          </div>
-          <div class="collection__rows">
-            <div class="collection__row"><span>révision</span><span>statut</span></div>
-            <div class="collection__row"><span>1</span><span>à faire</span></div>
-            <div class="collection__row"><span>2</span><span>prêt</span></div>
-            <div class="collection__row"><span>3</span><span>prêt</span></div>
+        <div class="collection__visual collection__visual--single reveal" role="img" aria-label="Checklist interactive d’ouverture du lieu">
+          <div class="template template--checklist">
+            <span class="template__field">Ouverture du lieu</span>
+            <h3>Checklist<span class="dot">.</span></h3>
+            <ul class="template-checklist" aria-label="Tâches avant l’ouverture">
+              <li><span class="template-checklist__box template-checklist__box--checked" aria-hidden="true">✓</span><span>Lieu approuvé</span></li>
+              <li><span class="template-checklist__box template-checklist__box--checked" aria-hidden="true">✓</span><span>Équipe briefée</span></li>
+              <li><span class="template-checklist__box" aria-hidden="true"></span><span>Signalétique posée</span></li>
+            </ul>
+            <p>Responsable : Nora · 2 sur 3</p>
           </div>
         </div>
       </div>
@@ -1475,7 +1622,7 @@ Ne te contente pas d’expliquer les commandes : réalise l’installation et le
         </div>
 
         <div class="reveal">
-          <div class="terminal" role="region" aria-label="Commandes d’installation">
+          <section class="terminal" aria-label="Commandes d’installation">
             <div class="terminal__group">
               <p class="terminal__comment comment"># Connecter Maket à votre agent</p>
               <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install claude --apply</span></code>
@@ -1487,7 +1634,7 @@ Ne te contente pas d’expliquer les commandes : réalise l’installation et le
               <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket start</span></code>
               <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket open</span></code>
             </div>
-          </div>
+          </section>
         </div>
       </div>
     </section>

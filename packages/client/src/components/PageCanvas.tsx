@@ -450,9 +450,9 @@ export const PageCanvas = memo(function PageCanvas({
 			if (!stateView) return "restored";
 			const pointer = binding.dataset.maketPath;
 			if (!pointer) return "restored";
+			if (readOnly) return "unchanged";
 			const authoritative = authoritativeValue(pointer);
 			if (
-				readOnly ||
 				doc.meta?.locked === true ||
 				stateDocumentPending ||
 				typeof authoritative !== "string"
@@ -509,7 +509,8 @@ export const PageCanvas = memo(function PageCanvas({
 				commitStringControl(binding);
 				return;
 			}
-			if (readOnly || doc.meta?.locked === true) {
+			if (readOnly) return;
+			if (doc.meta?.locked === true) {
 				restoreControl(binding, pointer);
 				return;
 			}
