@@ -631,13 +631,13 @@ describe("ws-handler — document and canvas flows", () => {
 				teamNotes: "team",
 				rating: 9,
 				charte: "brand",
-				category: "social",
+				category: " clients / / social ",
 			},
 			STUB_WS,
 		);
 
 		expect(documents.resolve("meta")).toMatchObject({
-			category: "social",
+			category: "clients/social",
 			meta: {
 				designNotes: "design",
 				teamNotes: "team",

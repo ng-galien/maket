@@ -1,7 +1,9 @@
+import { normalizeCategoryPath } from "@maket/shared";
 import { Download } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
+import { categoryPathsForDocs } from "./categoryTree";
 import type {
 	BulkActionBarActions,
 	BulkActionBarModel,
@@ -151,9 +153,7 @@ function createBulkCategoryPickerModel(
 	args: BulkCategoryPickerFactoryArgs,
 ): BulkCategoryPickerModel {
 	return {
-		categories: [
-			...new Set(args.docList.map((doc) => doc.category || "general")),
-		].sort(),
+		categories: categoryPathsForDocs(args.docList),
 		show: args.showCatPicker,
 		creating: args.creatingCat,
 		pickerRef: args.pickerRef,
@@ -164,16 +164,16 @@ function createBulkCategoryPickerModel(
 		commit: (cat) => commitNewCategory(cat, args),
 		recategorize: (cat) => {
 			args.setShowCatPicker(false);
-			args.actions.recategorize(cat);
+			args.actions.recategorize(normalizeCategoryPath(cat));
 		},
 	};
 }
 
 function commitNewCategory(cat: string, args: BulkCategoryPickerFactoryArgs) {
-	const value = cat.trim();
+	const raw = cat.trim();
 	args.setCreatingCat(false);
 	args.setShowCatPicker(false);
-	if (value) args.actions.recategorize(value);
+	if (raw) args.actions.recategorize(normalizeCategoryPath(raw));
 }
 
 interface BulkDeleteFactoryArgs {
@@ -230,9 +230,13 @@ function BulkCategoryMenu({ model }: { model: BulkCategoryPickerModel }) {
 						key={cat}
 						type="button"
 						onClick={() => model.recategorize(cat)}
-						className="w-full text-left px-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+						className="w-full text-left pr-3 py-1.5 text-sm hover:bg-black/[0.05] transition"
+						style={{
+							paddingLeft: `${12 + (cat.split("/").length - 1) * 12}px`,
+						}}
+						title={cat}
 					>
-						{cat}
+						<span className="font-mono text-xs">{cat.split("/").at(-1)}</span>
 					</button>
 				))}
 			{!model.creating && <div className="h-px bg-black/[0.06] my-1" />}

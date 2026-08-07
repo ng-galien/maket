@@ -12,6 +12,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import { normalizeCategoryPath } from "@maket/shared";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
@@ -108,7 +109,7 @@ const MaketDocSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"For new/meta: category tag used for grouping in list (default general).",
+			"For new/meta: category path separated by / (for example clients/acme). Flat values remain valid roots; default general.",
 		),
 	charte: z
 		.string()
@@ -172,7 +173,7 @@ const DESCRIPTION = [
 	"",
 	"Manage design documents (the workspace unit: canvas + pages + meta).",
 	"  new       — create a blank document at `doc`; sets it active. Previous unsaved work is lost.",
-	"  list      — enumerate saved documents grouped by category.",
+	"  list      — enumerate saved documents as a hierarchy of category paths.",
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
@@ -299,24 +300,71 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 function runList(documents: Documents) {
 	const list = documents.list();
 	if (!list.length) return text("No documents.");
-	const groups = new Map<string, typeof list>();
-	for (const d of list) {
-		const cat = d.category || "general";
-		if (!groups.has(cat)) groups.set(cat, []);
-		groups.get(cat)?.push(d);
-	}
-	const lines: string[] = [];
-	for (const [cat, docs] of groups) {
-		lines.push(`${cat} (${docs.length})`);
-		for (const d of docs) {
-			const stars = d.rating ? ` ${"★".repeat(d.rating)}` : "";
-			const charte = d.charte ? ` [${d.charte}]` : "";
-			lines.push(
-				`  - ${d.name} (${d.format} ${d.orientation}, ${d.count} el.)${stars}${charte}`,
-			);
+	const lines = renderDocumentCategoryTree(buildDocumentCategoryTree(list));
+	return text(lines.join("\n"));
+}
+
+type ListedDocument = ReturnType<Documents["list"]>[number];
+
+interface DocumentCategoryNode {
+	segment: string;
+	path: string;
+	documents: ListedDocument[];
+	children: Map<string, DocumentCategoryNode>;
+}
+
+function buildDocumentCategoryTree(list: ListedDocument[]) {
+	const roots = new Map<string, DocumentCategoryNode>();
+	for (const document of list) {
+		const segments = normalizeCategoryPath(document.category).split("/");
+		let siblings = roots;
+		let path = "";
+		for (const segment of segments) {
+			path = path ? `${path}/${segment}` : segment;
+			let node = siblings.get(segment);
+			if (!node) {
+				node = { segment, path, documents: [], children: new Map() };
+				siblings.set(segment, node);
+			}
+			siblings = node.children;
+			if (path === normalizeCategoryPath(document.category)) {
+				node.documents.push(document);
+			}
 		}
 	}
-	return text(lines.join("\n"));
+	return roots;
+}
+
+function renderDocumentCategoryTree(
+	nodes: Map<string, DocumentCategoryNode>,
+	depth = 0,
+): string[] {
+	const lines: string[] = [];
+	for (const node of [...nodes.values()].sort((a, b) =>
+		a.segment.localeCompare(b.segment),
+	)) {
+		const indent = "  ".repeat(depth);
+		lines.push(`${indent}${node.segment} (${documentCategoryCount(node)})`);
+		for (const document of [...node.documents].sort((a, b) =>
+			a.name.localeCompare(b.name),
+		)) {
+			const stars = document.rating ? ` ${"★".repeat(document.rating)}` : "";
+			const charte = document.charte ? ` [${document.charte}]` : "";
+			lines.push(
+				`${indent}  - ${document.name} (${document.format} ${document.orientation}, ${document.count} el.)${stars}${charte}`,
+			);
+		}
+		lines.push(...renderDocumentCategoryTree(node.children, depth + 1));
+	}
+	return lines;
+}
+
+function documentCategoryCount(node: DocumentCategoryNode): number {
+	let count = node.documents.length;
+	for (const child of node.children.values()) {
+		count += documentCategoryCount(child);
+	}
+	return count;
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -396,7 +444,7 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (args.teamNotes != null) d.meta.teamNotes = args.teamNotes;
 	if (args.rating != null)
 		d.meta.rating = Math.max(0, Math.min(5, Number(args.rating) || 0));
-	if (args.category != null) d.category = args.category || "general";
+	if (args.category != null) d.category = normalizeCategoryPath(args.category);
 	if (args.charte != null) d.meta.charte = args.charte || undefined;
 	bus.emit("meta:updated", { docName: d.name });
 	return text(

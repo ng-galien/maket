@@ -1,5 +1,17 @@
+import { categoryPathContains, normalizeCategoryPath } from "@maket/shared";
 import type { DocSummary } from "../../store/types";
 import type { Query, QueryChip } from "./types";
+
+export interface SearchSuggestion {
+	id: string;
+	token: string;
+	label: string;
+	kind: "category" | "status" | "rating";
+}
+
+interface ParseQueryOptions {
+	deferLastFilterToken?: boolean;
+}
 
 /**
  * Multi-criteria search parser.
@@ -11,21 +23,31 @@ import type { Query, QueryChip } from "./types";
  * Tokens accumulate (AND), so `@flyer #locked :4 summer` means
  * "flyer AND locked AND rating≥4 AND name contains summer".
  */
-export function parseQuery(raw: string): Query {
+export function parseQuery(
+	raw: string,
+	options: ParseQueryOptions = {},
+): Query {
 	const tokens = raw.split(/\s+/).filter(Boolean);
 	let category: string | null = null;
 	let locked: boolean | null = null;
 	let minRating = 0;
 	const text: string[] = [];
-	for (const tok of tokens) {
+	for (const [index, tok] of tokens.entries()) {
+		const deferred =
+			options.deferLastFilterToken === true &&
+			index === tokens.length - 1 &&
+			!/\s$/.test(raw) &&
+			/^[#@:]/.test(tok);
+		if (deferred) continue;
 		if (tok.startsWith("@") && tok.length > 1) {
-			category = tok.slice(1).toLowerCase();
+			category = normalizeCategoryPath(tok.slice(1)).toLowerCase();
 		} else if (tok === "#locked") {
 			locked = true;
 		} else if (tok === "#unlocked") {
 			locked = false;
-		} else if (/^:\d$/.test(tok)) {
+		} else if (/^:[1-5]$/.test(tok)) {
 			minRating = Math.max(minRating, Number(tok.slice(1)));
+		} else if (/^[#@:]/.test(tok)) {
 		} else {
 			text.push(tok);
 		}
@@ -34,12 +56,90 @@ export function parseQuery(raw: string): Query {
 }
 
 export function matchesQuery(d: DocSummary, q: Query): boolean {
-	if (q.category && (d.category || "general").toLowerCase() !== q.category)
-		return false;
+	if (q.category && !categoryPathContains(d.category, q.category)) return false;
 	if (q.locked !== null && (d.locked === true) !== q.locked) return false;
 	if (q.minRating > 0 && (d.rating ?? 0) < q.minRating) return false;
 	if (q.text && !d.name.toLowerCase().includes(q.text)) return false;
 	return true;
+}
+
+export function buildSearchSuggestions(
+	raw: string,
+	categories: string[],
+): SearchSuggestion[] {
+	const active = activeFilterToken(raw);
+	if (!active) return [];
+	if (active.startsWith("@")) {
+		const query = active.slice(1).toLowerCase();
+		return categories
+			.map(normalizeCategoryPath)
+			.filter((path, index, all) => all.indexOf(path) === index)
+			.filter((path) => categorySuggestionMatches(path, query))
+			.sort(
+				(a, b) =>
+					categorySuggestionRank(a, query) - categorySuggestionRank(b, query) ||
+					a.localeCompare(b),
+			)
+			.slice(0, 8)
+			.map((path) => ({
+				id: `category:${path}`,
+				token: `@${path}`,
+				label: path,
+				kind: "category" as const,
+			}));
+	}
+	if (active.startsWith("#")) {
+		return ["#locked", "#unlocked"]
+			.filter((token) => token.startsWith(active.toLowerCase()))
+			.map((token) => ({
+				id: `status:${token}`,
+				token,
+				label: token,
+				kind: "status" as const,
+			}));
+	}
+	return [1, 2, 3, 4, 5]
+		.map((rating) => `:${rating}`)
+		.filter((token) => token.startsWith(active))
+		.map((token) => ({
+			id: `rating:${token}`,
+			token,
+			label: `${token}  ${"★".repeat(Number(token.slice(1)))}`,
+			kind: "rating" as const,
+		}));
+}
+
+function activeFilterToken(raw: string): string | null {
+	if (/\s$/.test(raw)) return null;
+	const active = raw.match(/(?:^|\s)(\S+)$/)?.[1] ?? null;
+	return active && /^[#@:]/.test(active) ? active : null;
+}
+
+function categorySuggestionMatches(path: string, query: string): boolean {
+	if (!query) return true;
+	const normalized = path.toLowerCase();
+	return (
+		normalized.startsWith(query) ||
+		normalized.split("/").some((segment) => segment.startsWith(query))
+	);
+}
+
+function categorySuggestionRank(path: string, query: string): number {
+	const normalized = path.toLowerCase();
+	if (!query || normalized.startsWith(query)) return 0;
+	if (normalized.split("/").some((segment) => segment.startsWith(query)))
+		return 1;
+	return Number.POSITIVE_INFINITY;
+}
+
+export function applySearchSuggestion(
+	raw: string,
+	suggestion: SearchSuggestion,
+): string {
+	const match = raw.match(/(?:^|\s)(\S+)$/);
+	if (!match || match.index === undefined) return `${raw}${suggestion.token} `;
+	const tokenStart = match.index + match[0].length - (match[1]?.length ?? 0);
+	return `${raw.slice(0, tokenStart)}${suggestion.token} `;
 }
 
 export function stripToken(
@@ -85,7 +185,7 @@ export function buildQueryChips(
 			key: "rating",
 			label: `≥ ${"★".repeat(query.minRating)}`,
 			onRemove: () =>
-				setSearch(stripToken(search, (token) => /^:\d$/.test(token))),
+				setSearch(stripToken(search, (token) => /^:[1-5]$/.test(token))),
 		});
 	}
 	return chips;

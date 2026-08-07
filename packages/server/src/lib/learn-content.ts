@@ -36,6 +36,7 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 	workflow: [
 		"Preferred loop: learn the workspace, inspect or create a doc, set canvas and metadata, apply a charte, write one complete page, check layout, review pending user messages, then patch precisely.",
 		"Before large edits, call maket_workspace state. After HTML writes, call maket_html check. When the human leaves notes, use maket_workspace list_messages and acknowledge only after the change is genuinely handled.",
+		"Document categories may be hierarchical paths such as clients/acme/proposals. Persist the complete path in category with / separators; flat categories remain valid roots, and maket_doc list renders the derived hierarchy. There are no persistent folders or empty folder records.",
 		"Keep names domain-oriented. A document is a document, a page is a page, a collection member is the business row driving rendered variants.",
 	],
 	html: [

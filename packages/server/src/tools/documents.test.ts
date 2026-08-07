@@ -172,6 +172,32 @@ describe("maket_doc — action=list", () => {
 		store.close();
 	});
 
+	it("renders slash-separated categories as a hierarchy", async () => {
+		const { store, bus, documents, config, pending, collections } = fixture();
+		const brief = makeDoc("brief");
+		brief.category = "clients/acme";
+		const proposal = makeDoc("proposal");
+		proposal.category = "clients/acme/proposals";
+		store.saveDoc(brief);
+		store.saveDoc(proposal);
+		documents.loadAll();
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			pending,
+			collections,
+		});
+		const result = await tool.handler({ action: "list" }, NO_EXTRA);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(body).toContain("clients (2)");
+		expect(body).toContain("  acme (2)");
+		expect(body).toContain("    proposals (1)");
+		store.close();
+	});
+
 	it("returns placeholder when no documents", async () => {
 		const { store, bus, documents, config, pending, collections } = fixture();
 		const tool = createMaketDocTool({

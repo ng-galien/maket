@@ -2,27 +2,13 @@ import { ChevronRight } from "lucide-react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import { wsSend } from "../../store/ws";
+import type { CategoryNode } from "./categoryTree";
 import { DocCard, DocRow } from "./DocItem";
 import type { DocItemProps, DocsCategoryModel, View } from "./types";
 import { DRAG_MIME } from "./types";
 
-export function catColor(cat: string): string {
-	const COLORS = [
-		"#60a5fa",
-		"#a78bfa",
-		"#f59e0b",
-		"#10b981",
-		"#f472b6",
-		"#34d399",
-		"#fb923c",
-	];
-	let h = 0;
-	for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
-	return COLORS[Math.abs(h) % COLORS.length];
-}
-
 export interface CategoryFactoryArgs {
-	grouped: Map<string, DocSummary[]>;
+	nodes: CategoryNode[];
 	searching: boolean;
 	collapsed: Set<string>;
 	toggleCategory: (cat: string) => void;
@@ -37,16 +23,28 @@ export interface CategoryFactoryArgs {
 export function buildCategoryModels(
 	args: CategoryFactoryArgs,
 ): DocsCategoryModel[] {
-	return [...args.grouped.entries()].map(([cat, docs]) => ({
-		name: cat,
-		docs,
-		collapsed: !args.searching && args.collapsed.has(cat),
-		dropActive: args.dragOverCat === cat,
+	return buildNodeModels(args.nodes, args, 0);
+}
+
+function buildNodeModels(
+	nodes: CategoryNode[],
+	args: CategoryFactoryArgs,
+	depth: number,
+): DocsCategoryModel[] {
+	return nodes.map((node) => ({
+		name: node.name,
+		path: node.path,
+		depth,
+		total: node.total,
+		docs: node.docs,
+		children: buildNodeModels(node.children, args, depth + 1),
+		collapsed: !args.searching && args.collapsed.has(node.path),
+		dropActive: args.dragOverCat === node.path,
 		view: args.view,
-		toggle: () => args.toggleCategory(cat),
-		dragOver: (event) => handleCategoryDragOver(event, cat, args),
-		dragLeave: (event) => handleCategoryDragLeave(event, cat, args),
-		drop: (event) => handleCategoryDrop(event, cat, args),
+		toggle: () => args.toggleCategory(node.path),
+		dragOver: (event) => handleCategoryDragOver(event, node.path, args),
+		dragLeave: (event) => handleCategoryDragLeave(event, node.path, args),
+		drop: (event) => handleCategoryDrop(event, node.path, args),
 		itemFor: args.itemFor,
 	}));
 }
@@ -89,9 +87,16 @@ function handleCategoryDrop(
 
 export function DocsCategory({ model }: { model: DocsCategoryModel }) {
 	return (
-		<div>
+		<div className="min-w-0">
 			<DocsCategoryHeader model={model} />
-			{!model.collapsed && <DocsCategoryItems model={model} />}
+			{!model.collapsed && (
+				<>
+					<DocsCategoryItems model={model} />
+					{model.children.map((child) => (
+						<DocsCategory key={child.path} model={child} />
+					))}
+				</>
+			)}
 		</div>
 	);
 }
@@ -105,12 +110,14 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 			onDragOver={model.dragOver}
 			onDragLeave={model.dragLeave}
 			onDrop={model.drop}
-			className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md transition group/cat ${
+			className={`w-full min-h-7 flex items-center gap-1.5 pr-2 py-1 rounded-md transition-colors group/cat ${
 				model.dropActive
 					? "bg-accent/15 ring-2 ring-accent/40"
 					: "hover:bg-black/[0.03]"
 			}`}
+			style={{ paddingLeft: `${8 + model.depth * 12}px` }}
 			aria-expanded={!model.collapsed}
+			title={model.path}
 		>
 			<ChevronRight
 				size={11}
@@ -118,9 +125,8 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 					model.collapsed ? "" : "rotate-90"
 				}`}
 			/>
-			<CategoryDot name={model.name} />
 			<span
-				className={`text-xs font-bold uppercase tracking-wider flex-1 text-left ${
+				className={`text-xs font-semibold flex-1 min-w-0 truncate text-left ${
 					model.dropActive ? "text-accent" : "text-text-3"
 				}`}
 			>
@@ -131,34 +137,22 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 					model.dropActive ? "text-accent" : "text-text-3"
 				}`}
 			>
-				{model.dropActive ? t("doc_drop_here") : model.docs.length}
+				{model.dropActive ? t("doc_drop_here") : model.total}
 			</span>
 		</button>
 	);
 }
 
-function CategoryDot({ name }: { name: string }) {
-	return (
-		<div
-			style={{
-				width: 8,
-				height: 8,
-				borderRadius: "50%",
-				background: catColor(name),
-				flexShrink: 0,
-			}}
-		/>
-	);
-}
-
 export function DocsCategoryItems({ model }: { model: DocsCategoryModel }) {
+	if (model.docs.length === 0) return null;
 	return (
 		<div
 			className={
 				model.view === "grid"
-					? "grid grid-cols-2 gap-2 mt-1"
-					: "flex flex-col gap-0.5 mt-0.5"
+					? "grid grid-cols-2 gap-2 px-1.5 py-1"
+					: "flex flex-col gap-px"
 			}
+			style={{ marginLeft: `${Math.min(model.depth + 1, 4) * 8}px` }}
 		>
 			{model.docs.map((doc) => {
 				const itemProps = model.itemFor(doc);

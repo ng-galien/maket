@@ -1,11 +1,12 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { FileText, History, Lock } from "lucide-react";
+import { History, Lock } from "lucide-react";
 import { useRef } from "react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import { DraftPill } from "../shared/DraftPill";
 import {
 	DocDeleteHold,
+	DocInlineCategoryEditor,
 	DocInlineNameEditor,
 	DocItemMenu,
 	DocMenuButton,
@@ -140,7 +141,10 @@ export function DocRow({ model, actions }: DocItemProps) {
 function useDocItemMeta(model: DocItemModel): DocItemMeta {
 	return {
 		locked: model.doc.locked === true,
-		editing: model.mode.kind === "rename" || model.mode.kind === "duplicate",
+		editing:
+			model.mode.kind === "rename" ||
+			model.mode.kind === "duplicate" ||
+			model.mode.kind === "move-category",
 		confirming: model.mode.kind === "confirm-delete",
 		dragEnabled: model.mode.kind === "idle",
 	};
@@ -248,7 +252,11 @@ export function DocCardFooter({
 	if (meta.editing) {
 		return (
 			<div className="mt-1">
-				<DocInlineNameEditor model={model} actions={actions} />
+				{model.mode.kind === "move-category" ? (
+					<DocInlineCategoryEditor model={model} actions={actions} />
+				) : (
+					<DocInlineNameEditor model={model} actions={actions} />
+				)}
 			</div>
 		);
 	}
@@ -318,6 +326,8 @@ export function DocCardMetadata({ doc }: { doc: DocSummary }) {
 }
 
 export function DocRowMain({ model, meta, actions }: DocItemRenderProps) {
+	if (model.mode.kind === "move-category")
+		return <DocInlineCategoryEditor model={model} actions={actions} />;
 	if (meta.editing)
 		return <DocInlineNameEditor model={model} actions={actions} />;
 	if (meta.confirming) return <DocDeleteHold model={model} actions={actions} />;
@@ -329,15 +339,16 @@ export function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
 		<button
 			type="button"
 			onClick={actions.click}
-			className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left transition-all ${rowBackgroundClass(model)}`}
+			className={`w-full min-h-8 flex items-center gap-2 px-2 py-1.5 pr-10 rounded-md text-left transition-colors ${rowBackgroundClass(model)}`}
 		>
-			<DocRowIcon onWs={model.onWs} />
-			<div className="flex-1 min-w-0">
-				<DocRowTitle model={model} meta={meta} />
+			<div className="flex-1 min-w-0 flex items-center gap-2">
+				<div className="flex-1 min-w-0">
+					<DocRowTitle model={model} meta={meta} />
+				</div>
 				<DocRowMetadata doc={model.doc} />
 			</div>
 			{model.onWs && !model.menuOpen && !meta.confirming && (
-				<span className="text-2xs font-bold text-accent mr-6">✓</span>
+				<span className="text-2xs font-bold text-accent">✓</span>
 			)}
 		</button>
 	);
@@ -346,18 +357,6 @@ export function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
 function rowBackgroundClass(model: DocItemModel): string {
 	if (model.selected) return "bg-accent/10 ring-2 ring-accent/30";
 	return model.onWs ? "bg-accent/5" : "hover:bg-black/[0.03]";
-}
-
-export function DocRowIcon({ onWs }: { onWs: boolean }) {
-	return (
-		<div
-			className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${
-				onWs ? "bg-accent/10" : "bg-input"
-			}`}
-		>
-			<FileText size={14} className={onWs ? "text-accent" : "text-text-3"} />
-		</div>
-	);
 }
 
 export function DocRowTitle({
@@ -370,7 +369,7 @@ export function DocRowTitle({
 	const t = useT();
 	return (
 		<div
-			className={`text-base truncate flex items-center gap-1.5 ${
+			className={`text-sm truncate flex items-center gap-1.5 ${
 				model.onWs ? "font-bold text-accent" : "font-medium text-text-1"
 			}`}
 		>
@@ -401,7 +400,7 @@ function CharteDot({ doc }: { doc: DocSummary }) {
 export function DocRowMetadata({ doc }: { doc: DocSummary }) {
 	const t = useT();
 	return (
-		<div className="flex items-center gap-1.5 mt-0.5 text-2xs text-text-3">
+		<div className="flex flex-shrink-0 items-center gap-1.5 text-2xs text-text-3">
 			<span className="font-bold">{doc.format}</span>
 			<span>{doc.pageCount ?? 1}p</span>
 			{doc.dataModel === "state" && (

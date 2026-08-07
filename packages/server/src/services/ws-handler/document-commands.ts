@@ -2,7 +2,11 @@
  * Document workspace command handlers.
  */
 
-import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
+import {
+	normalizeCategoryPath,
+	type WorkspaceCommand,
+	type WorkspaceStateSignal,
+} from "@maket/shared";
 import type WebSocket from "ws";
 import { computeCanvasDims, createDocument } from "../../types.js";
 import type { WsHandlerContext } from "./context.js";
@@ -89,7 +93,8 @@ export function handleUpdateMeta(
 	if (msg.rating !== undefined)
 		d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
 	if (msg.charte !== undefined) d.meta.charte = msg.charte;
-	if (msg.category !== undefined) d.category = msg.category || "general";
+	if (msg.category !== undefined)
+		d.category = normalizeCategoryPath(msg.category);
 	ctx.documents.persist(d.name);
 	ctx.bus.emit("meta:updated", { docName: d.name });
 }

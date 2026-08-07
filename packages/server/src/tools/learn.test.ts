@@ -37,6 +37,18 @@ describe("maket_learn", () => {
 		expect(htmlBody).toContain("data-maket-bind elements");
 	});
 
+	it("documents hierarchical category paths without inventing folders", async () => {
+		const result = await createMaketLearnTool().handler(
+			{ action: "topic", topic: "workflow" },
+			{} as never,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(body).toContain("clients/acme/proposals");
+		expect(body).toContain("maket_doc list renders the derived hierarchy");
+		expect(body).toContain("no persistent folders");
+	});
+
 	it("teaches an executable and recoverable living-document workflow", async () => {
 		const result = await createMaketLearnTool().handler(
 			{ action: "topic", topic: "state" },

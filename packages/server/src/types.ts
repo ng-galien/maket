@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 
-import type { CollectionReference } from "@maket/shared";
+import { type CollectionReference, normalizeCategoryPath } from "@maket/shared";
 
 export {
 	type Collection,
@@ -146,7 +146,7 @@ export function createDocument(init: DocumentInit): Document {
 	return {
 		id: init.id || crypto.randomUUID(),
 		name: init.name,
-		category: init.category || "general",
+		category: normalizeCategoryPath(init.category),
 		dataModel:
 			init.dataModel ??
 			(pages.some((page) => page.collection) ? "collection" : "static"),

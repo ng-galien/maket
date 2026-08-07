@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary } from "../../store/types";
 import {
+	applySearchSuggestion,
 	buildQueryChips,
+	buildSearchSuggestions,
 	matchesQuery,
 	parseQuery,
 	relativeTime,
@@ -41,6 +43,70 @@ describe("docsQuery", () => {
 		expect(
 			matchesQuery(doc({ name: "Summer promo", category: "poster" }), q),
 		).toBe(false);
+	});
+
+	it("matches a category node and its descendants", () => {
+		const q = parseQuery("@clients/acme");
+		expect(
+			matchesQuery(
+				doc({ name: "Proposal", category: "clients/acme/proposals" }),
+				q,
+			),
+		).toBe(true);
+		expect(
+			matchesQuery(doc({ name: "Other", category: "clients/other" }), q),
+		).toBe(false);
+	});
+
+	it("defers an incomplete trailing filter token without blocking results", () => {
+		expect(parseQuery("summer @cli", { deferLastFilterToken: true })).toEqual({
+			category: null,
+			locked: null,
+			minRating: 0,
+			text: "summer",
+		});
+		expect(
+			parseQuery("summer @clients ", { deferLastFilterToken: true }),
+		).toEqual({
+			category: "clients",
+			locked: null,
+			minRating: 0,
+			text: "summer",
+		});
+	});
+
+	it("ignores invalid filter-like tokens instead of turning them into text", () => {
+		expect(parseQuery("@ #unknown :9 proposal")).toEqual({
+			category: null,
+			locked: null,
+			minRating: 0,
+			text: "proposal",
+		});
+	});
+
+	it("suggests category paths and commits the active token", () => {
+		const suggestions = buildSearchSuggestions("summer @ac", [
+			"clients",
+			"clients/acme",
+			"products",
+		]);
+		expect(suggestions.map((suggestion) => suggestion.token)).toEqual([
+			"@clients/acme",
+		]);
+		const suggestion = suggestions[0];
+		expect(suggestion).toBeDefined();
+		if (!suggestion) return;
+		expect(applySearchSuggestion("summer @ac", suggestion)).toBe(
+			"summer @clients/acme ",
+		);
+	});
+
+	it("suggests status and rating tokens from their first character", () => {
+		expect(buildSearchSuggestions("#", []).map((item) => item.token)).toEqual([
+			"#locked",
+			"#unlocked",
+		]);
+		expect(buildSearchSuggestions(":4", [])[0]?.token).toBe(":4");
 	});
 
 	it("strips tokens and builds removable chips", () => {

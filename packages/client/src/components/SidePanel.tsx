@@ -40,7 +40,7 @@ export function SidePanel({ open, onClose, side = "left", children }: Props) {
 				style={panelStyle}
 				className={`fixed w-[90vw] sm:w-[50vw] md:w-[33vw] bg-panel border border-border shadow-[0_20px_60px_rgba(0,0,0,0.15)] z-[201] flex flex-col overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] rounded-xl ${sideClass}`}
 			>
-				<div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border">
+				<div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-border">
 					{children}
 				</div>
 			</aside>

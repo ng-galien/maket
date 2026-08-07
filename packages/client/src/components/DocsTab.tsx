@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
-import type { DocSummary } from "../store/types";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
 import { BulkActionBar } from "./docs/BulkActionBar";
+import {
+	buildCategoryTree,
+	categoryPathsForDocs,
+	visibleDocOrder,
+} from "./docs/categoryTree";
 import { createDocItemProps } from "./docs/DocItem";
 import { buildCategoryModels, DocsCategory } from "./docs/DocsCategory";
 import { createToolbarModel, DocsToolbar } from "./docs/DocsToolbar";
@@ -63,10 +67,10 @@ function useDocsTabModel(): DocsTabModel {
 	useClearSelectionOnEscape(selected.size, () => setSelected(new Set()));
 
 	const searching = search.trim().length > 0;
-	const query = parseQuery(search);
+	const query = parseQuery(search, { deferLastFilterToken: true });
 	const filtered = docList.filter((doc) => matchesQuery(doc, query));
-	const grouped = groupDocs(filtered);
-	const flatOrder = visibleDocOrder(grouped, searching, collapsed);
+	const categoryTree = buildCategoryTree(filtered);
+	const flatOrder = visibleDocOrder(categoryTree, searching, collapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) =>
@@ -90,13 +94,14 @@ function useDocsTabModel(): DocsTabModel {
 		toolbar: createToolbarModel({
 			search,
 			setSearch,
+			categories: categoryPathsForDocs(docList),
 			query,
 			view,
 			setView,
 			importState,
 		}),
 		categories: buildCategoryModels({
-			grouped,
+			nodes: categoryTree,
 			searching,
 			collapsed,
 			toggleCategory: (cat) => toggleCollapsedCategory(cat, setCollapsed),
@@ -178,26 +183,6 @@ function useMaketImport(t: ReturnType<typeof useT>) {
 	};
 }
 
-function groupDocs(docs: DocSummary[]): Map<string, DocSummary[]> {
-	const grouped = new Map<string, DocSummary[]>();
-	for (const doc of docs) {
-		const cat = doc.category || "general";
-		if (!grouped.has(cat)) grouped.set(cat, []);
-		grouped.get(cat)?.push(doc);
-	}
-	return grouped;
-}
-
-function visibleDocOrder(
-	grouped: Map<string, DocSummary[]>,
-	searching: boolean,
-	collapsed: Set<string>,
-): string[] {
-	return [...grouped.entries()]
-		.filter(([cat]) => searching || !collapsed.has(cat))
-		.flatMap(([, docs]) => docs.map((doc) => doc.name));
-}
-
 function toggleCollapsedCategory(
 	cat: string,
 	setCollapsed: React.Dispatch<React.SetStateAction<Set<string>>>,
@@ -213,22 +198,36 @@ function toggleCollapsedCategory(
 
 function DocsTabView({ model }: { model: DocsTabModel }) {
 	const t = useT();
-	return (
+	const toolbar = (
 		<div
-			className={`flex ${
-				model.barPosition === "bottom" ? "flex-col-reverse" : "flex-col"
-			} gap-2 p-3`}
+			className={`shrink-0 bg-panel px-2.5 py-2 ${
+				model.barPosition === "bottom"
+					? "border-t border-border"
+					: "border-b border-border"
+			}`}
 		>
 			<DocsToolbar model={model.toolbar} />
-			{model.categories.map((category) => (
-				<DocsCategory key={category.name} model={category} />
-			))}
-			{model.empty && (
-				<div className="px-4 py-6 text-center text-base text-text-3">
-					{t("no_document")}
+		</div>
+	);
+	return (
+		<div className="h-[calc(100vh-76px)] max-h-full min-h-0 flex flex-col overflow-hidden">
+			{model.barPosition === "top" && toolbar}
+			<div className="flex-1 min-h-0 overflow-y-auto p-2.5">
+				{model.categories.map((category) => (
+					<DocsCategory key={category.path} model={category} />
+				))}
+				{model.empty && (
+					<div className="px-4 py-6 text-center text-base text-text-3">
+						{t("no_document")}
+					</div>
+				)}
+			</div>
+			{model.selected.size > 0 && (
+				<div className="shrink-0 px-2">
+					<BulkActionBar {...model.bulk} />
 				</div>
 			)}
-			{model.selected.size > 0 && <BulkActionBar {...model.bulk} />}
+			{model.barPosition === "bottom" && toolbar}
 		</div>
 	);
 }

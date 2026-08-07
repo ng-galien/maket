@@ -6,6 +6,7 @@ export type RowMode =
 	| { kind: "idle" }
 	| { kind: "rename" }
 	| { kind: "duplicate" }
+	| { kind: "move-category" }
 	| { kind: "confirm-delete" };
 
 export interface Query {
@@ -33,6 +34,7 @@ export interface DocsTabModel {
 export interface DocsToolbarModel {
 	search: string;
 	setSearch: (value: string) => void;
+	categories: string[];
 	chips: QueryChip[];
 	importInputRef: React.RefObject<HTMLInputElement | null>;
 	importError: string | null;
@@ -49,7 +51,11 @@ export interface DocsToolbarModel {
 
 export interface DocsCategoryModel {
 	name: string;
+	path: string;
+	depth: number;
+	total: number;
 	docs: DocSummary[];
+	children: DocsCategoryModel[];
 	collapsed: boolean;
 	dropActive: boolean;
 	view: View;
@@ -144,6 +150,7 @@ export interface DocMenuActions {
 	close: () => void;
 	rename: () => void;
 	duplicate: () => void;
+	moveCategory: () => void;
 	requestDelete: () => void;
 }
 
@@ -181,4 +188,4 @@ export interface MenuItemProps {
 
 export const DRAG_MIME = "application/x-maket-doc";
 export const VIEW_KEY = "maket-docs-view";
-export const COLLAPSED_KEY = "maket-categories-collapsed";
+export const COLLAPSED_KEY = "maket-categories-collapsed-v2";
