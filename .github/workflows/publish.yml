@@ -1,4 +1,4 @@
-name: Publish npm and GitHub Release
+name: Publish npm, MCP Registry, and GitHub Release
 
 # Uses npm Trusted Publishing (OIDC) — no NPM_TOKEN secret required.
 # One-time setup on npmjs.com: Settings → Trusted Publishers → add a pending
@@ -10,6 +10,10 @@ on:
     tags:
       - "v*" # e.g. v1.0.1, v1.1.0, v2.0.0
   workflow_dispatch:
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -32,10 +36,15 @@ jobs:
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Require a release tag
+      - name: Validate trigger
         run: |
-          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
-            echo "::error::Run this workflow from an existing v* tag."
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Manual registry catch-up must run from main."
+              exit 1
+            fi
+          elif [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+            echo "::error::Release publication must run from an existing v* tag."
             exit 1
           fi
 
@@ -44,7 +53,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          if [[ "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package version ${VERSION}"
             exit 1
           fi
@@ -69,6 +78,10 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"
             echo "@ng-galien/maket@${VERSION} is already published; skipping npm publish."
           elif grep -q "E404" "$ERROR_FILE"; then
+            if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+              echo "::error::Manual registry catch-up requires @ng-galien/maket@${VERSION} to exist on npm."
+              exit 1
+            fi
             echo "publish=true" >> "$GITHUB_OUTPUT"
           else
             cat "$ERROR_FILE" >&2
@@ -87,6 +100,93 @@ jobs:
         if: steps.npm.outputs.publish == 'true'
         working-directory: dist/npm
         run: npm publish --access public
+
+      - name: Verify published MCP package identity
+        id: mcp_package
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MCP_NAME="$(node -p "require('./server.json').name")"
+          PACKAGE_NAME="$(node -p "require('./server.json').packages.find(({ registryType }) => registryType === 'npm')?.identifier ?? ''")"
+          if [[ -z "$PACKAGE_NAME" ]]; then
+            echo "::error::server.json does not declare an npm package."
+            exit 1
+          fi
+
+          PUBLISHED_VERSION="$(npm view "${PACKAGE_NAME}@${VERSION}" version)"
+          PUBLISHED_MCP_NAME="$(npm view "${PACKAGE_NAME}@${VERSION}" mcpName)"
+          if [[ "$PUBLISHED_VERSION" != "$VERSION" ]]; then
+            echo "::error::Published npm version ${PUBLISHED_VERSION} does not match ${VERSION}."
+            exit 1
+          fi
+          if [[ "$PUBLISHED_MCP_NAME" != "$MCP_NAME" ]]; then
+            echo "::error::Published npm mcpName ${PUBLISHED_MCP_NAME} does not match ${MCP_NAME}."
+            exit 1
+          fi
+
+          ENCODED_MCP_NAME="$(node -p "encodeURIComponent(process.argv[1])" "$MCP_NAME")"
+          echo "name=${MCP_NAME}" >> "$GITHUB_OUTPUT"
+          echo "encoded_name=${ENCODED_MCP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Check MCP Registry publication
+        id: mcp
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ENCODED_MCP_NAME: ${{ steps.mcp_package.outputs.encoded_name }}
+        run: |
+          RESPONSE_FILE="$(mktemp)"
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/${ENCODED_MCP_NAME}/versions/${VERSION}"
+          STATUS="$(curl --silent --show-error --output "$RESPONSE_FILE" --write-out "%{http_code}" "$REGISTRY_URL")"
+          if [[ "$STATUS" == "200" ]]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "MCP Registry version ${VERSION} already exists; skipping publication."
+          elif [[ "$STATUS" == "404" ]]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            cat "$RESPONSE_FILE" >&2
+            echo "::error::MCP Registry lookup failed with HTTP ${STATUS}."
+            exit 1
+          fi
+
+      - name: Install mcp-publisher v1.8.1
+        if: steps.mcp.outputs.publish == 'true'
+        run: |
+          curl --fail --location --silent --show-error \
+            --output mcp-publisher.tar.gz \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_linux_amd64.tar.gz
+          echo "a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc  mcp-publisher.tar.gz" | sha256sum --check
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+          ./mcp-publisher --help >/dev/null
+
+      - name: Validate MCP Registry metadata
+        if: steps.mcp.outputs.publish == 'true'
+        run: ./mcp-publisher validate
+
+      - name: Authenticate to MCP Registry
+        if: steps.mcp.outputs.publish == 'true'
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        if: steps.mcp.outputs.publish == 'true'
+        run: ./mcp-publisher publish
+
+      - name: Verify MCP Registry publication
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          MCP_NAME: ${{ steps.mcp_package.outputs.name }}
+          ENCODED_MCP_NAME: ${{ steps.mcp_package.outputs.encoded_name }}
+        run: |
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/${ENCODED_MCP_NAME}/versions/${VERSION}"
+          curl --fail --silent --show-error "$REGISTRY_URL" | node -e '
+            let input = "";
+            process.stdin.on("data", (chunk) => { input += chunk; });
+            process.stdin.on("end", () => {
+              const published = JSON.parse(input).server;
+              if (published?.name !== process.env.MCP_NAME || published?.version !== process.env.VERSION) {
+                console.error(`Registry returned ${published?.name}@${published?.version}; expected ${process.env.MCP_NAME}@${process.env.VERSION}.`);
+                process.exit(1);
+              }
+            });
+          '
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
