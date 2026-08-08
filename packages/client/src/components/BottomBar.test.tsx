@@ -48,6 +48,7 @@ beforeEach(() => {
 		collectionCursors: {},
 		activePanel: null,
 		barPosition: "bottom",
+		workspaceView: "canvas",
 		darkMode: false,
 		readOnly: false,
 		documentStates: {},
@@ -62,6 +63,37 @@ afterEach(() => {
 });
 
 describe("BottomBar", () => {
+	it("switches to reading mode, closes the panel, and navigates logical pages", async () => {
+		const user = userEvent.setup();
+		const doc = makeDoc("long-report");
+		doc.pages.push({ id: "long-report-page-2", name: "p2", elements: [] });
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedCollectionName: "clients",
+			activePanel: "docs",
+		});
+
+		render(<BottomBar />);
+		const activity = document.createElement("div");
+		activity.dataset.maketActivity = "";
+		document.body.appendChild(activity);
+		const viewToggle = screen.getByRole("button", { name: "Reading view" });
+		expect(viewToggle).toHaveAttribute("aria-pressed", "false");
+		await user.click(viewToggle);
+
+		expect(useStore.getState().workspaceView).toBe("reading");
+		expect(useStore.getState().activePanel).toBeNull();
+		expect(useStore.getState().focusedCollectionName).toBeNull();
+		expect(document.querySelector("[data-maket-activity]")).toBeNull();
+		expect(viewToggle).toHaveAttribute("aria-pressed", "true");
+		expect(screen.getByText("1/2")).toBeInTheDocument();
+
+		await user.click(screen.getByRole("button", { name: "Next page" }));
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+	});
+
 	it("shows 'no document' placeholder when nothing is focused", () => {
 		render(<BottomBar />);
 		expect(screen.queryByRole("link")).not.toBeInTheDocument();

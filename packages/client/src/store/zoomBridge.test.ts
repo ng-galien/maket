@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	consumePendingFit,
 	type FitTarget,
 	fitToView,
-	registerFitToDoc,
 	registerFitToView,
 	registerRequestFit,
 	registerZoomTo,
@@ -14,6 +14,8 @@ import {
 // so we observe exactly the calls made in that test.
 describe("zoomBridge", () => {
 	beforeEach(() => {
+		consumePendingFit();
+		registerRequestFit(null);
 		registerZoomTo(() => {});
 		registerFitToView(() => {});
 	});
@@ -61,15 +63,17 @@ describe("requestFit", () => {
 		expect(calls).toEqual([undefined, { docName: "doc", pageIndex: 2 }]);
 	});
 
-	it("falls back to immediate fits when no Board is registered", () => {
+	it("queues the latest fit until a Board registers its deferred handler", () => {
 		registerRequestFit(null);
-		const fits: string[] = [];
-		registerFitToView(() => fits.push("view"));
-		registerFitToDoc((name, page) => fits.push(`doc:${name}:${page}`));
 		requestFit();
 		requestFit({ docName: "d", pageIndex: 1 });
-		expect(fits).toEqual(["view", "doc:d:1"]);
-		registerFitToView(() => {});
-		registerFitToDoc(() => {});
+		expect(consumePendingFit()).toEqual({
+			target: { docName: "d", pageIndex: 1 },
+		});
+	});
+
+	it("reports when no pending fit is available", () => {
+		registerRequestFit(null);
+		expect(consumePendingFit()).toBeNull();
 	});
 });

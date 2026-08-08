@@ -126,6 +126,42 @@ describe("upsertDoc", () => {
 		expect(useStore.getState().focusedPageIndex).toBe(2);
 	});
 
+	it("keeps the reader on its current document during server-focused work", () => {
+		const alpha = makeDoc("alpha", "report", 3, 1);
+		const beta = makeDoc("beta", "report", 2, 1);
+		useStore.getState().upsertDoc(alpha, [summary("alpha")], "");
+		useStore.setState({ workspaceView: "reading", focusedPageIndex: 1 });
+
+		useStore
+			.getState()
+			.upsertDoc(beta, [summary("alpha"), summary("beta")], "", true, true);
+
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		expect(useStore.getState().docs.has("beta")).toBe(true);
+	});
+
+	it("accepts an explicit user focus while reading", () => {
+		const alpha = makeDoc("alpha", "report", 3, 1);
+		const beta = makeDoc("beta", "report", 3, 2);
+		useStore.getState().upsertDoc(alpha, [summary("alpha")], "");
+		useStore.setState({ workspaceView: "reading", focusedPageIndex: 1 });
+
+		useStore
+			.getState()
+			.upsertDoc(
+				beta,
+				[summary("alpha"), summary("beta")],
+				"",
+				true,
+				true,
+				true,
+			);
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
 	it("preserves the locally selected page on background state updates", () => {
 		const doc = makeDoc("alpha", "flyer", 3);
 		useStore.getState().upsertDoc(doc, [summary("alpha")], "");
@@ -394,6 +430,12 @@ describe("UI preferences", () => {
 		useStore.getState().setBarPosition("top");
 		expect(useStore.getState().barPosition).toBe("top");
 		expect(localStorage.getItem("bar-position")).toBe("top");
+	});
+
+	it("setWorkspaceView persists the reading layout preference", () => {
+		useStore.getState().setWorkspaceView("reading");
+		expect(useStore.getState().workspaceView).toBe("reading");
+		expect(localStorage.getItem("maket-workspace-view")).toBe("reading");
 	});
 
 	it("toggleDarkMode flips and persists", () => {

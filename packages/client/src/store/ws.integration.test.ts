@@ -107,12 +107,11 @@ async function freshWsModule() {
 
 async function freshWsModuleWithZoomSpies() {
 	vi.resetModules();
-	const fitToDoc = vi.fn();
-	const fitToView = vi.fn();
-	vi.doMock("./zoomBridge", () => ({ fitToDoc, fitToView }));
+	const requestFit = vi.fn();
+	vi.doMock("./zoomBridge", () => ({ requestFit }));
 	const store = await import("./useStore");
 	const ws = await import("./ws");
-	return { ...ws, useStore: store.useStore, fitToDoc, fitToView };
+	return { ...ws, useStore: store.useStore, requestFit };
 }
 
 beforeEach(() => {
@@ -256,6 +255,56 @@ describe("state message", () => {
 		expect(s.docs.has("beta")).toBe(true);
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
 		expect(s.focusedDocName).toBe("alpha");
+	});
+
+	it("accepts a user-requested document focus while reading", async () => {
+		const { initWs, sendLoadDoc, useStore } = await freshWsModule();
+		useStore.setState({ workspaceDocNames: ["alpha"] });
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+		useStore.setState({ workspaceView: "reading" });
+
+		sendLoadDoc("beta");
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			addToWorkspace: true,
+			focus: true,
+			charteCss: "",
+		});
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+	});
+
+	it("does not treat workspace restoration as an explicit user focus", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ workspaceDocNames: ["alpha", "beta"] });
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			addToWorkspace: true,
+			focus: true,
+			charteCss: "",
+		});
+
+		expect(useStore.getState().focusedDocName).toBe("alpha");
 	});
 
 	it("null doc payload updates docList only", async () => {
@@ -635,6 +684,22 @@ describe("activity", () => {
 		document.body.innerHTML = "";
 	});
 
+	it("keeps agent activity bubbles out of the reading surface", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ workspaceView: "reading" });
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "activity",
+			key: "bubble_maket_html_patch",
+			params: {},
+			icon: "file-pen",
+		});
+
+		expect(document.querySelector("[data-maket-activity]")).toBeNull();
+	});
+
 	it("renders server-authored toasts through their dedicated UI path", async () => {
 		const { initWs } = await freshWsModule();
 		initWs();
@@ -655,19 +720,25 @@ describe("activity", () => {
 });
 
 describe("fit_view", () => {
-	it("delegates to fitToView on the next animation frame", async () => {
-		const raf = vi.fn((cb: FrameRequestCallback) => {
-			cb(0);
-			return 1;
-		});
-		vi.stubGlobal("requestAnimationFrame", raf);
-		const { initWs, fitToView } = await freshWsModuleWithZoomSpies();
+	it("delegates to the deferred fit while the canvas is visible", async () => {
+		const { initWs, requestFit, useStore } = await freshWsModuleWithZoomSpies();
+		useStore.setState({ workspaceView: "canvas" });
 		initWs();
 		MockWebSocket.last().open();
 
 		MockWebSocket.last().emit({ type: "fit_view" });
 
-		expect(raf).toHaveBeenCalled();
-		expect(fitToView).toHaveBeenCalledOnce();
+		expect(requestFit).toHaveBeenCalledExactlyOnceWith();
+	});
+
+	it("does not queue a background fit while reading", async () => {
+		const { initWs, requestFit, useStore } = await freshWsModuleWithZoomSpies();
+		useStore.setState({ workspaceView: "reading" });
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({ type: "fit_view" });
+
+		expect(requestFit).not.toHaveBeenCalled();
 	});
 });

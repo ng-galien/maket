@@ -9,11 +9,18 @@ export interface FitTarget {
 }
 
 let _requestFit: ((target?: FitTarget) => void) | null = null;
+let _pendingFit: { target?: FitTarget } | null = null;
 
 export function registerRequestFit(
 	fn: ((target?: FitTarget) => void) | null,
 ): void {
 	_requestFit = fn;
+}
+
+export function consumePendingFit(): { target?: FitTarget } | null {
+	const pending = _pendingFit;
+	_pendingFit = null;
+	return pending;
 }
 
 export function registerZoomTo(fn: (pct: number) => void): void {
@@ -46,14 +53,13 @@ export function fitToDoc(docName: string, pageIndex?: number): void {
  * Fit once the board content has actually laid out — Board owns the timing
  * (double rAF after commit plus a 300ms settle, see createDeferredFit; a new
  * request replaces any pending one), so callers never schedule their own
- * timers. Falls back to an immediate fit when no Board is mounted.
+ * timers. A request made while Board is unmounted is consumed after the next
+ * Board has measurable content.
  */
 export function requestFit(target?: FitTarget): void {
 	if (_requestFit) {
 		_requestFit(target);
-	} else if (target) {
-		fitToDoc(target.docName, target.pageIndex);
 	} else {
-		fitToView();
+		_pendingFit = { target };
 	}
 }

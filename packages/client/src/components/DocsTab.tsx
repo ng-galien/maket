@@ -47,6 +47,9 @@ function useDocsTabModel(): DocsTabModel {
 	const t = useT();
 	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
+	const workspaceView = useStore((state) => state.workspaceView);
+	const focusedDocName = useStore((state) => state.focusedDocName);
+	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
 	const barPosition = useStore((state) => state.barPosition);
 	const removeDoc = useStore((state) => state.removeDocFromWorkspace);
 	const [search, setSearch] = useState("");
@@ -73,8 +76,18 @@ function useDocsTabModel(): DocsTabModel {
 	const flatOrder = visibleDocOrder(categoryTree, searching, collapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
-	const openDoc = (name: string) =>
-		isOnWorkspace(name) ? removeDoc(name) : sendLoadDoc(name);
+	const openDoc = (name: string) => {
+		if (
+			workspaceView === "reading" &&
+			isOnWorkspace(name) &&
+			name !== focusedDocName
+		) {
+			setFocusedDoc(name);
+			return;
+		}
+		if (isOnWorkspace(name)) removeDoc(name);
+		else sendLoadDoc(name);
+	};
 
 	const selection = {
 		selected,

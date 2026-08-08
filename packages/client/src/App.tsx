@@ -8,6 +8,7 @@ import { DocsTab } from "./components/DocsTab";
 import { MessagesPanel } from "./components/MessagesPanel";
 import { PhotosTab } from "./components/PhotosTab";
 import { Popover } from "./components/Popover";
+import { ReadingWorkspace } from "./components/ReadingWorkspace";
 import { SidePanel } from "./components/SidePanel";
 import { applyColorScheme } from "./lib/colorScheme";
 import { useStore } from "./store/useStore";
@@ -16,6 +17,10 @@ import { initWs } from "./store/ws";
 export default function App() {
 	const activePanel = useStore((s) => s.activePanel);
 	const locked = useStore((s) => s.locked);
+	const workspaceView = useStore((s) => s.workspaceView);
+	const hasFocusedDoc = useStore((s) =>
+		s.focusedDocName ? s.docs.has(s.focusedDocName) : false,
+	);
 	const closePanel = () => useStore.getState().setActivePanel(null);
 
 	const darkMode = useStore((s) => s.darkMode);
@@ -31,7 +36,11 @@ export default function App() {
 
 	return (
 		<div className="relative h-full w-full">
-			<Board locked={locked} />
+			{workspaceView === "reading" && hasFocusedDoc ? (
+				<ReadingWorkspace />
+			) : (
+				<Board locked={locked} />
+			)}
 			<BottomBar />
 
 			<SidePanel
