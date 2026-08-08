@@ -13,6 +13,29 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-08-08
+
+### Added
+- **Continuous reading mode.** The focused document can now be read as a
+  centered vertical sequence of pages with responsive width, native scrolling,
+  compact page navigation, keyboard shortcuts, and a locally persisted view
+  preference. The existing page renderer remains live and editable in both
+  light and dark themes.
+
+### Changed
+- **Reading stays focused and unobtrusive.** Entering reading mode closes
+  workspace panels, clears activity bubbles, suppresses new background
+  activity overlays, and reserves space for the movable toolbar. Explicit
+  document selections still navigate immediately, including documents already
+  open in the workspace.
+
+### Fixed
+- **Automatic canvas focus returns to the intended page.** Leaving reading
+  mode, loading or removing documents, changing pages, and resizing the
+  workspace now share a deferred layout-aware recentering path. React
+  StrictMode, background agent focus changes, and interrupted D3 transitions
+  no longer displace the reader or override a user zoom.
+
 ## [1.5.1] — 2026-08-08
 
 ### Added
