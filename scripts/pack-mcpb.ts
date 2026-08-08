@@ -41,6 +41,7 @@ function checkMcpbCli(): void {
 // via `npm install --omit=dev`.
 const EXTERNALS = [
   "@modelcontextprotocol/sdk",
+  "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",

@@ -29,6 +29,7 @@ const STAGING = join(ROOT, "dist/.mcpb-test");
 
 const EXTERNALS = [
   "@modelcontextprotocol/sdk",
+  "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",
