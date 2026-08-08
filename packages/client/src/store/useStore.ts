@@ -13,6 +13,7 @@ import { wsSend } from "./ws";
 
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
+export type WorkspaceView = "canvas" | "reading";
 
 export function statePatchKey(docName: string, pointer: string): string {
 	return `${docName}\u0000${pointer}`;
@@ -141,6 +142,7 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 		| "exchange"
 		| null;
 	barPosition: "top" | "bottom";
+	workspaceView: WorkspaceView;
 	darkMode: boolean;
 	locked: boolean;
 	zoom: number;
@@ -157,6 +159,7 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 		charteCss?: string,
 		addToWorkspace?: boolean,
 		focus?: boolean,
+		explicitFocus?: boolean,
 	) => void;
 	addDocToWorkspace: (docName: string) => void;
 	removeDocFromWorkspace: (docName: string) => void;
@@ -171,6 +174,7 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 		panel: "chartes" | "photos" | "docs" | "collections" | "exchange",
 	) => void;
 	setBarPosition: (v: "top" | "bottom") => void;
+	setWorkspaceView: (view: WorkspaceView) => void;
 	setDarkMode: (v: boolean) => void;
 	toggleDarkMode: () => void;
 	setLocked: (v: boolean) => void;
@@ -415,6 +419,10 @@ export const useStore = create<AppState>((set, get) => ({
 	activePanel: null,
 	barPosition:
 		(localStorage.getItem("bar-position") as "top" | "bottom") || "bottom",
+	workspaceView:
+		localStorage.getItem("maket-workspace-view") === "reading"
+			? "reading"
+			: "canvas",
 	darkMode:
 		localStorage.getItem("dark-mode") === "true" ||
 		window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -678,7 +686,14 @@ export const useStore = create<AppState>((set, get) => ({
 		wsSend({ type: "collection_cursor_set", docName, pageIndex, memberId });
 	},
 
-	upsertDoc: (doc, docList, charteCss, addToWorkspace = true, focus = false) =>
+	upsertDoc: (
+		doc,
+		docList,
+		charteCss,
+		addToWorkspace = true,
+		focus = false,
+		explicitFocus = false,
+	) =>
 		set((s) => {
 			const previousFocusedDoc = s.docs.get(s.focusedDocName ?? "");
 			const docs = new Map(s.docs);
@@ -707,10 +722,15 @@ export const useStore = create<AppState>((set, get) => ({
 					...s.workspaceDocNames.slice(pos),
 				];
 			}
-			// Explicit focus (server-initiated) always wins. Otherwise auto-focus
-			// only on the first doc added when nothing was focused yet.
+			// Reading is deliberately user-steady: server work may update or open
+			// documents in the background, but must not replace the document being
+			// read. Manual UI focus still goes through setFocusedDoc/setFocusedPage.
+			const acceptServerFocus =
+				focus && (s.workspaceView !== "reading" || explicitFocus);
+			// Explicit focus normally wins. Otherwise auto-focus only on the first
+			// document added when nothing was focused yet.
 			let focusedDocName: string | null;
-			if (focus) {
+			if (acceptServerFocus) {
 				focusedDocName = doc.name;
 			} else if (!inWorkspace && addToWorkspace && !s.focusedDocName) {
 				focusedDocName = doc.name;
@@ -720,7 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
 			}
 			const focusedPageIndex =
 				focusedDocName === doc.name &&
-				(focus || focusedDocName !== s.focusedDocName)
+				(acceptServerFocus || focusedDocName !== s.focusedDocName)
 					? clampPageIndex(doc, doc.activePage)
 					: preservePageIndex(
 							previousFocusedDoc,
@@ -833,6 +853,10 @@ export const useStore = create<AppState>((set, get) => ({
 	setBarPosition: (barPosition) => {
 		localStorage.setItem("bar-position", barPosition);
 		set({ barPosition });
+	},
+	setWorkspaceView: (workspaceView) => {
+		localStorage.setItem("maket-workspace-view", workspaceView);
+		set({ workspaceView });
 	},
 	setDarkMode: (darkMode) => {
 		localStorage.setItem("dark-mode", String(darkMode));

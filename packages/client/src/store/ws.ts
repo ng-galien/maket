@@ -12,7 +12,7 @@ import fr from "../i18n/fr.json";
 import { getLang } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import { hasPendingStatePatchForDocument, useStore } from "./useStore";
-import { fitToDoc, fitToView } from "./zoomBridge";
+import { requestFit } from "./zoomBridge";
 
 const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
 
@@ -31,6 +31,7 @@ export function translateBubble(
 }
 
 let ws: WebSocket | null = null;
+const backgroundLoadDocs = new Set<string>();
 
 export function sendTextEdit(
 	docName: string,
@@ -207,7 +208,9 @@ const LUCIDE: Record<string, string> = {
 
 function spawnBubble(text: string, icon?: string) {
 	if (!text.trim()) return;
-	const barPos = useStore.getState().barPosition;
+	const state = useStore.getState();
+	if (state.workspaceView === "reading") return;
+	const barPos = state.barPosition;
 	const isTop = barPos === "top";
 	const bubble = document.createElement("div");
 	bubble.dataset.maketActivity = "";
@@ -448,7 +451,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			useStore.getState().setCollectionCursors(msg.cursors ?? []);
 			break;
 		case "fit_view":
-			requestAnimationFrame(() => fitToView());
+			if (useStore.getState().workspaceView === "canvas") requestFit();
 			break;
 		case "activity":
 			spawnBubble(translateBubble(msg.key, msg.params), msg.icon);
@@ -496,6 +499,8 @@ function applyStateMessage(
 	if (!initialStateReceived)
 		applyInitialState(doc, docList, msg.charteCss || "");
 	else {
+		const explicitFocus = pendingLoadDoc === doc.name;
+		const backgroundLoad = backgroundLoadDocs.delete(doc.name);
 		useStore
 			.getState()
 			.upsertDoc(
@@ -503,11 +508,12 @@ function applyStateMessage(
 				docList,
 				msg.charteCss || "",
 				msg.addToWorkspace ?? true,
-				msg.focus ?? false,
+				backgroundLoad && !explicitFocus ? false : (msg.focus ?? false),
+				explicitFocus,
 			);
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
-	schedulePostStateLayout(doc, msg.measureId, msg.focus === true);
+	schedulePostStateLayout(doc, msg.measureId);
 }
 
 function applyInitialState(
@@ -518,23 +524,25 @@ function applyInitialState(
 	initialStateReceived = true;
 	useStore.getState().upsertDoc(doc, docList, charteCss, false, false);
 	for (const name of useStore.getState().workspaceDocNames) {
-		if (name !== doc.name) sendLoadDoc(name);
+		if (name !== doc.name) sendBackgroundLoadDoc(name);
 		else useStore.getState().upsertDoc(doc, docList, charteCss, true, true);
 	}
+}
+
+function sendBackgroundLoadDoc(name: string): void {
+	backgroundLoadDocs.add(name);
+	wsSend({ type: "load_document", name });
 }
 
 function schedulePostStateLayout(
 	doc: Document,
 	measureId: string | undefined,
-	focused: boolean,
 ): void {
 	const docName = doc.name;
 	const pageIndex = doc.activePage ?? 0;
-	const shouldFit = focused && useStore.getState().autoFocusFit;
 	requestAnimationFrame(() =>
 		requestAnimationFrame(() => {
 			reportLayout(measureId, docName, pageIndex);
-			if (shouldFit) fitToDoc(docName, pageIndex);
 		}),
 	);
 }
@@ -595,8 +603,15 @@ export function wsSend(msg: WorkspaceCommand): boolean {
 }
 
 export function sendLoadDoc(name: string): void {
+	backgroundLoadDocs.delete(name);
 	pendingLoadDoc = name;
 	wsSend({ type: "load_document", name });
+}
+
+export function clearActivityBubbles(): void {
+	for (const bubble of document.querySelectorAll("[data-maket-activity]")) {
+		bubble.remove();
+	}
 }
 
 export function sendDeleteDoc(name: string): void {

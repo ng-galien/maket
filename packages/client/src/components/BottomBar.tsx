@@ -1,10 +1,14 @@
 import {
+	BookOpen,
 	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
 	ChevronUp,
 	FileText,
 	HelpCircle,
 	History,
 	Image,
+	LayoutGrid,
 	Lock,
 	LockOpen,
 	Maximize,
@@ -19,29 +23,16 @@ import {
 import { getLang, toggleLang, useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
-import { wsSend } from "../store/ws";
+import { clearActivityBubbles, wsSend } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 import { DataSourceToolbarControl } from "./DataSourceToolbarControl";
+import { returnToCanvas, scrollToReadingPage } from "./ReadingWorkspace";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
 
-// code-moniker: ignore[smell-feature-envy-local]
-// BottomBar is the client shell adapter: it intentionally composes store selectors, i18n, and command controls without owning their state.
 export function BottomBar() {
-	const t = useT();
-	const connected = useStore((s) => s.connected);
-	const focusedDoc = useFocusedDoc();
-	const pendingCount = useStore((s) => s.pending.length);
-	const dataViewOpen = useStore((s) => s.focusedCollectionName !== null);
-	const activePanel = useStore((s) => s.activePanel);
-	const togglePanel = useStore((s) => s.togglePanel);
 	const position = useStore((s) => s.barPosition);
 	const setBarPosition = useStore((s) => s.setBarPosition);
-	const darkMode = useStore((s) => s.darkMode);
-	const autoFocusFit = useStore((s) => s.autoFocusFit);
-	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
-	const printHref = focusedDoc ? printHrefForDoc(focusedDoc) : "";
-
 	const togglePosition = () =>
 		setBarPosition(position === "bottom" ? "top" : "bottom");
 
@@ -53,9 +44,150 @@ export function BottomBar() {
 				<PositionToggle direction="bottom" onToggle={togglePosition} />
 			)}
 
+			<BottomBarControls />
+
+			{position === "bottom" && (
+				<PositionToggle direction="top" onToggle={togglePosition} />
+			)}
+		</div>
+	);
+}
+
+// code-moniker: ignore[smell-feature-envy-local]
+// BottomBarControls is the client shell adapter: it intentionally composes store selectors, i18n, and command controls without owning their state.
+function BottomBarControls() {
+	const t = useT();
+	const connected = useStore((s) => s.connected);
+	const focusedDoc = useFocusedDoc();
+	const pendingCount = useStore((s) => s.pending.length);
+	const activePanel = useStore((s) => s.activePanel);
+	const togglePanel = useStore((s) => s.togglePanel);
+	const darkMode = useStore((s) => s.darkMode);
+	const autoFocusFit = useStore((s) => s.autoFocusFit);
+	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
+	const workspaceView = useStore((s) => s.workspaceView);
+	const setWorkspaceView = useStore((s) => s.setWorkspaceView);
+	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
+	const setFocusedPage = useStore((s) => s.setFocusedPage);
+	const toggleWorkspaceView = () => {
+		if (!focusedDoc) return;
+		if (workspaceView === "reading") {
+			returnToCanvas(focusedDoc.name, focusedPageIndex, setWorkspaceView);
+			return;
+		}
+		useStore.getState().setActivePanel(null);
+		useStore.getState().setFocusedCollection(null);
+		clearActivityBubbles();
+		setWorkspaceView("reading");
+	};
+	const showLogicalPage = (pageIndex: number) => {
+		if (!focusedDoc) return;
+		setFocusedPage(focusedDoc.name, pageIndex);
+		requestAnimationFrame(() =>
+			scrollToReadingPage(focusedDoc.name, pageIndex, "smooth"),
+		);
+	};
+
+	return (
+		<div
+			data-toolbar-shell
+			className="flex max-w-[calc(100vw-0.5rem)] items-center gap-1 overflow-x-auto rounded-full bg-panel px-1.5 h-11 shadow-lg select-none"
+		>
+			<PanelLaunchers compact={workspaceView === "reading"} />
+			{focusedDoc && (
+				<WorkspaceViewToggle
+					reading={workspaceView === "reading"}
+					canvasLabel={t("canvas_view")}
+					readingLabel={t("reading_view")}
+					onToggle={toggleWorkspaceView}
+				/>
+			)}
+			<FitControls
+				reading={workspaceView === "reading"}
+				autoFocusFit={autoFocusFit}
+				onToggleAutoFocusFit={toggleAutoFocusFit}
+				onFit={
+					workspaceView === "reading" && focusedDoc
+						? () => showLogicalPage(focusedPageIndex)
+						: fitToView
+				}
+				fitLabel={
+					workspaceView === "reading" ? t("fit_reading_page") : t("fit")
+				}
+				autoOnLabel={t("auto_focus_fit_on")}
+				autoOffLabel={t("auto_focus_fit_off")}
+			/>
+			{workspaceView === "reading" && focusedDoc && (
+				<ReadingPageControls
+					pageIndex={focusedPageIndex}
+					pageTotal={focusedDoc.pages.length}
+					previousLabel={t("previous_page")}
+					nextLabel={t("next_page")}
+					onChange={showLogicalPage}
+				/>
+			)}
+			<div className="flex items-center gap-1.5 px-2 max-md:hidden">
+				<div
+					className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
+				/>
+				<span className="text-base font-semibold text-text-1 max-w-[200px] truncate">
+					{focusedDoc?.name ?? t("no_document")}
+				</span>
+			</div>
 			<div
-				data-toolbar-shell
-				className="flex items-center h-11 bg-panel rounded-full shadow-lg px-1.5 select-none gap-1"
+				className={`items-center gap-1 ${workspaceView === "reading" ? "hidden md:flex" : "flex"}`}
+			>
+				<DataSourceToolbarControl />
+				<StateDocumentIndicator doc={focusedDoc} />
+			</div>
+			<PanelButton
+				panel="exchange"
+				icon={<MessageCircle size={16} />}
+				title={t("exchanges")}
+				badge={pendingCount}
+				activePanel={activePanel}
+				onToggle={togglePanel}
+			/>
+			<div
+				className={`items-center gap-1 ${workspaceView === "reading" ? "hidden sm:flex" : "flex"}`}
+			>
+				<HelpButton label={t("help")} />
+				{focusedDoc && (
+					<PrintLink href={printHrefForDoc(focusedDoc)} label={t("print")} />
+				)}
+				<button
+					type="button"
+					onClick={toggleLang}
+					title={
+						getLang() === "fr" ? "Switch to English" : "Passer en français"
+					}
+					aria-label="Language"
+					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors text-[10px] font-bold tracking-wide uppercase"
+				>
+					{getLang() === "fr" ? "FR" : "EN"}
+				</button>
+				<button
+					type="button"
+					onClick={() => useStore.getState().toggleDarkMode()}
+					title={darkMode ? "Light mode" : "Dark mode"}
+					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
+				>
+					{darkMode ? <Sun size={16} /> : <Moon size={16} />}
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function PanelLaunchers({ compact }: { compact: boolean }) {
+	const t = useT();
+	const activePanel = useStore((s) => s.activePanel);
+	const togglePanel = useStore((s) => s.togglePanel);
+	const dataViewOpen = useStore((s) => s.focusedCollectionName !== null);
+	return (
+		<>
+			<div
+				className={`items-center gap-1 ${compact ? "hidden sm:flex" : "flex"}`}
 			>
 				<PanelButton
 					panel="chartes"
@@ -71,13 +203,15 @@ export function BottomBar() {
 					activePanel={activePanel}
 					onToggle={togglePanel}
 				/>
-				<PanelButton
-					panel="docs"
-					icon={<FileText size={16} />}
-					title={t("documents")}
-					activePanel={activePanel}
-					onToggle={togglePanel}
-				/>
+			</div>
+			<PanelButton
+				panel="docs"
+				icon={<FileText size={16} />}
+				title={t("documents")}
+				activePanel={activePanel}
+				onToggle={togglePanel}
+			/>
+			<div className={compact ? "hidden sm:block" : "block"}>
 				<PanelButton
 					panel="collections"
 					icon={<Table size={16} />}
@@ -86,65 +220,82 @@ export function BottomBar() {
 					onToggle={togglePanel}
 					dot={dataViewOpen}
 				/>
-
-				<FitControls
-					autoFocusFit={autoFocusFit}
-					onToggleAutoFocusFit={toggleAutoFocusFit}
-					fitLabel={t("fit")}
-					autoOnLabel={t("auto_focus_fit_on")}
-					autoOffLabel={t("auto_focus_fit_off")}
-				/>
-
-				<div className="flex items-center gap-1.5 px-2 max-md:hidden">
-					<div
-						className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
-					/>
-					<span className="text-base font-semibold text-text-1 max-w-[200px] truncate">
-						{focusedDoc?.name ?? t("no_document")}
-					</span>
-				</div>
-
-				<DataSourceToolbarControl />
-				<StateDocumentIndicator doc={focusedDoc} />
-
-				<PanelButton
-					panel="exchange"
-					icon={<MessageCircle size={16} />}
-					title={t("exchanges")}
-					badge={pendingCount}
-					activePanel={activePanel}
-					onToggle={togglePanel}
-				/>
-
-				<HelpButton label={t("help")} />
-
-				{focusedDoc && <PrintLink href={printHref} label={t("print")} />}
-
-				<button
-					type="button"
-					onClick={toggleLang}
-					title={
-						getLang() === "fr" ? "Switch to English" : "Passer en français"
-					}
-					aria-label="Language"
-					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors text-[10px] font-bold tracking-wide uppercase"
-				>
-					{getLang() === "fr" ? "FR" : "EN"}
-				</button>
-
-				<button
-					type="button"
-					onClick={() => useStore.getState().toggleDarkMode()}
-					title={darkMode ? "Light mode" : "Dark mode"}
-					className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
-				>
-					{darkMode ? <Sun size={16} /> : <Moon size={16} />}
-				</button>
 			</div>
+		</>
+	);
+}
 
-			{position === "bottom" && (
-				<PositionToggle direction="top" onToggle={togglePosition} />
-			)}
+function WorkspaceViewToggle({
+	reading,
+	canvasLabel,
+	readingLabel,
+	onToggle,
+}: {
+	reading: boolean;
+	canvasLabel: string;
+	readingLabel: string;
+	onToggle: () => void;
+}) {
+	const actionLabel = reading ? canvasLabel : readingLabel;
+	return (
+		<button
+			type="button"
+			onClick={onToggle}
+			title={actionLabel}
+			aria-label={readingLabel}
+			aria-pressed={reading}
+			className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+				reading
+					? "bg-accent-soft text-accent"
+					: "text-text-3 hover:text-text-1 hover:bg-input"
+			}`}
+		>
+			{reading ? <LayoutGrid size={16} /> : <BookOpen size={16} />}
+		</button>
+	);
+}
+
+function ReadingPageControls({
+	pageIndex,
+	pageTotal,
+	previousLabel,
+	nextLabel,
+	onChange,
+}: {
+	pageIndex: number;
+	pageTotal: number;
+	previousLabel: string;
+	nextLabel: string;
+	onChange: (pageIndex: number) => void;
+}) {
+	return (
+		<div
+			className="flex h-9 items-center rounded-full bg-input px-0.5"
+			role="group"
+		>
+			<button
+				type="button"
+				disabled={pageIndex <= 0}
+				onClick={() => onChange(pageIndex - 1)}
+				title={previousLabel}
+				aria-label={previousLabel}
+				className="flex h-8 w-7 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-panel hover:text-text-1 disabled:opacity-30"
+			>
+				<ChevronLeft size={15} />
+			</button>
+			<span className="min-w-11 px-1 text-center text-xs font-semibold tabular-nums text-text-2">
+				{pageIndex + 1}/{pageTotal}
+			</span>
+			<button
+				type="button"
+				disabled={pageIndex >= pageTotal - 1}
+				onClick={() => onChange(pageIndex + 1)}
+				title={nextLabel}
+				aria-label={nextLabel}
+				className="flex h-8 w-7 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-panel hover:text-text-1 disabled:opacity-30"
+			>
+				<ChevronRight size={15} />
+			</button>
 		</div>
 	);
 }
@@ -294,14 +445,18 @@ function PanelButton({
 }
 
 function FitControls({
+	reading,
 	autoFocusFit,
 	onToggleAutoFocusFit,
+	onFit,
 	fitLabel,
 	autoOnLabel,
 	autoOffLabel,
 }: {
+	reading: boolean;
 	autoFocusFit: boolean;
 	onToggleAutoFocusFit: () => void;
+	onFit: () => void;
 	fitLabel: string;
 	autoOnLabel: string;
 	autoOffLabel: string;
@@ -311,27 +466,29 @@ function FitControls({
 		<>
 			<button
 				type="button"
-				onClick={fitToView}
+				onClick={onFit}
 				title={fitLabel}
 				aria-label={fitLabel}
 				className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-input transition-colors"
 			>
 				<Maximize size={16} />
 			</button>
-			<button
-				type="button"
-				onClick={onToggleAutoFocusFit}
-				title={autoLabel}
-				aria-label={autoLabel}
-				aria-pressed={!autoFocusFit}
-				className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-					autoFocusFit
-						? "text-text-3 hover:text-text-1 hover:bg-input"
-						: "text-accent hover:bg-input"
-				}`}
-			>
-				{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
-			</button>
+			{!reading && (
+				<button
+					type="button"
+					onClick={onToggleAutoFocusFit}
+					title={autoLabel}
+					aria-label={autoLabel}
+					aria-pressed={!autoFocusFit}
+					className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+						autoFocusFit
+							? "text-text-3 hover:text-text-1 hover:bg-input"
+							: "text-accent hover:bg-input"
+					}`}
+				>
+					{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
+				</button>
+			)}
 		</>
 	);
 }

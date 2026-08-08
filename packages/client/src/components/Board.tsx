@@ -14,11 +14,14 @@ import {
 } from "../store/deferredFit";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import {
+	consumePendingFit,
 	registerFitToDoc,
 	registerFitToView,
 	registerRequestFit,
 	registerZoomTo,
+	requestFit,
 } from "../store/zoomBridge";
+import { boardDocFrame } from "./boardGeometry";
 import { WorkspaceDoc } from "./WorkspaceDoc";
 
 const DOC_GAP = 80;
@@ -71,6 +74,7 @@ export function Board({ locked }: { locked: boolean }) {
 		setBoardVisible,
 		setTransform,
 	});
+	useAutoFocusFit(workspaceDocNames);
 
 	const handleBgClick = useCallback((e: React.MouseEvent) => {
 		if (e.target === wrapRef.current || e.target === boardRef.current) {
@@ -108,6 +112,17 @@ export function Board({ locked }: { locked: boolean }) {
 			</div>
 		</div>
 	);
+}
+
+function useAutoFocusFit(workspaceDocNames: string[]): void {
+	const focusedDocName = useStore((state) => state.focusedDocName);
+	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
+	const autoFocusFit = useStore((state) => state.autoFocusFit);
+	const workspaceKey = workspaceDocNames.join("\u0000");
+	useEffect(() => {
+		if (!autoFocusFit || !focusedDocName) return;
+		requestFit({ docName: focusedDocName, pageIndex: focusedPageIndex });
+	}, [autoFocusFit, focusedDocName, focusedPageIndex, workspaceKey]);
 }
 
 function useSpacePanCursor(wrapRef: React.RefObject<HTMLDivElement | null>) {
@@ -205,6 +220,7 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	const boardRo = observeInitialBoardFit(
 		context.boardRef,
 		fit,
+		deferredFit.request,
 		context.setBoardVisible,
 	);
 	const wrapResize = observeWrapResize(wrap, el, zoomBehavior);
@@ -305,9 +321,11 @@ function createFitToDoc(
 	boardRef: React.RefObject<HTMLDivElement | null>,
 ) {
 	return (docName: string, pageIndex?: number) => {
-		const docEl = findBoardDocElement(boardRef.current, docName, pageIndex);
+		const board = boardRef.current;
+		if (!board) return;
+		const docEl = findBoardDocElement(board, docName, pageIndex);
 		if (!docEl) return;
-		const frame = boardDocFrame(wrap, docEl);
+		const frame = boardDocFrame(docEl);
 		const scale = Math.min(
 			(wrap.clientWidth * 0.85) / frame.width,
 			(wrap.clientHeight * 0.85) / frame.height,
@@ -337,22 +355,13 @@ function findBoardDocElement(
 	return target ?? board.querySelector<HTMLElement>(docSelector);
 }
 
-function boardDocFrame(wrap: HTMLDivElement, docEl: HTMLElement) {
-	const wrapRect = wrap.getBoundingClientRect();
-	const docRect = docEl.getBoundingClientRect();
-	const t = zoomTransform(wrap as unknown as Element);
-	const k = t.k || 1;
-	return {
-		left: (docRect.left - wrapRect.left - t.x) / k,
-		top: (docRect.top - wrapRect.top - t.y) / k,
-		width: docRect.width / k,
-		height: docRect.height / k,
-	};
-}
-
 function observeInitialBoardFit(
 	boardRef: React.RefObject<HTMLDivElement | null>,
 	fit: () => void,
+	deferredRequestFit: (target?: {
+		docName: string;
+		pageIndex?: number;
+	}) => void,
 	setBoardVisible: (visible: boolean) => void,
 ): ResizeObserver {
 	let initialFitDone = false;
@@ -360,7 +369,9 @@ function observeInitialBoardFit(
 		if (initialFitDone || !boardRef.current?.querySelector("[data-doc]"))
 			return;
 		initialFitDone = true;
-		fit();
+		const pending = consumePendingFit();
+		if (pending) deferredRequestFit(pending.target);
+		else fit();
 		setBoardVisible(true);
 	});
 	if (boardRef.current) boardRo.observe(boardRef.current);

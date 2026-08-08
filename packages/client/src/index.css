@@ -7,6 +7,24 @@
 
 @import "tailwindcss";
 
+[data-reading-workspace] {
+	--reading-toolbar-clearance: 5rem;
+}
+
+[data-reading-workspace][data-bar-position="top"] [data-page-view] {
+	scroll-margin-top: var(--reading-toolbar-clearance);
+}
+
+[data-reading-workspace][data-bar-position="bottom"] [data-page-view] {
+	scroll-margin-bottom: var(--reading-toolbar-clearance);
+}
+
+@media (min-width: 640px) {
+	[data-reading-workspace] {
+		--reading-toolbar-clearance: 6rem;
+	}
+}
+
 @theme {
   /* ---------- Fonts ---------- */
   --font-display: "Raleway", -apple-system, BlinkMacSystemFont, sans-serif;
