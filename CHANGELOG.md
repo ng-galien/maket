@@ -13,7 +13,7 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
-## [1.6.0] — 2026-08-08
+## [1.6.0] — 2026-08-09
 
 ### Added
 - **Continuous reading mode.** The focused document can now be read as a
