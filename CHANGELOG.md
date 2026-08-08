@@ -13,6 +13,28 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.5.1] — 2026-08-08
+
+### Added
+- **Hierarchical document categories and assisted search.** Slash-separated
+  category paths now render as a compact tree in both list and grid views,
+  while the document search offers keyboard-accessible suggestions for
+  categories, lock state, and ratings without hiding results for an incomplete
+  token. Existing flat categories remain compatible without a database
+  migration.
+
+### Changed
+- **The Documents panel is leaner and resizable.** Category rows browse and
+  collapse the tree instead of applying an implicit filter, list metadata and
+  bottom controls use less space, and single or bulk moves accept hierarchical
+  category paths.
+
+### Fixed
+- **Living-document enum menus stay readable while the canvas is zoomed.**
+  State-bound selects open an accessible screen-sized listbox constrained to
+  the viewport, preserve server-authoritative pending behavior, follow their
+  anchor while the canvas moves, and restore predictable keyboard focus.
+
 ## [1.5.0] — 2026-08-07
 
 ### Added
