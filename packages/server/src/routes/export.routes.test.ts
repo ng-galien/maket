@@ -1,8 +1,29 @@
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startTestApp } from "../../tests/helpers.js";
-import { encodeBundleV1 } from "../lib/maket-format.js";
+import {
+	decodeBundle,
+	encodeBundleV1,
+	encodeBundleV2,
+} from "../lib/maket-format.js";
+import {
+	type BundleExportService,
+	createBundleExportService,
+} from "../services/bundle-export.js";
+import {
+	type BundleImportService,
+	createBundleImportService,
+} from "../services/bundle-import.js";
 import { createBus } from "../services/bus.js";
 import {
 	type CollectionRenderer,
@@ -12,6 +33,7 @@ import {
 	type Collections,
 	createCollections,
 } from "../services/collections.js";
+import type { Config } from "../services/config.js";
 import {
 	createDocumentRenderer,
 	type DocumentRenderer,
@@ -22,10 +44,21 @@ import {
 } from "../services/document-states.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
+import { createPending } from "../services/pending.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
+import { createMaketDocTool } from "../tools/documents.js";
 import { createDocument } from "../types.js";
 import { createExportRouter } from "./export.routes.js";
+
+const NO_EXTRA = {} as any;
+const HISTORICAL_V1_BUNDLE = Buffer.from(
+	readFileSync(
+		new URL("./fixtures/historical-v1.maket.b64", import.meta.url),
+		"utf8",
+	).trim(),
+	"base64",
+);
 
 describe("export routes — .maket bundle", () => {
 	let store: Store;
@@ -34,12 +67,27 @@ describe("export routes — .maket bundle", () => {
 	let collectionRenderer: CollectionRenderer;
 	let documentRenderer: DocumentRenderer;
 	let documentStates: DocumentStates;
+	let bundleExportService: BundleExportService;
+	let bundleImportService: BundleImportService;
+	let config: Config;
+	let testDir: string;
 	let baseUrl: string;
 	let close: () => Promise<void>;
 	let bus: ReturnType<typeof createBus>;
 	let pdfService: { render: ReturnType<typeof vi.fn> };
 
 	beforeEach(async () => {
+		testDir = mkdtempSync(join(tmpdir(), "maket-export-routes-"));
+		const assetsDir = join(testDir, "assets");
+		const exportsDir = join(testDir, "exports");
+		mkdirSync(assetsDir);
+		mkdirSync(exportsDir);
+		config = {
+			DATA_DIR: testDir,
+			ASSETS_DIR: assetsDir,
+			EXPORTS_DIR: exportsDir,
+			DOCS_DIR: join(testDir, "documents"),
+		} as Config;
 		store = createSQLiteStore(":memory:");
 		bus = createBus();
 		documents = createDocuments({ store });
@@ -49,6 +97,19 @@ describe("export routes — .maket bundle", () => {
 		documentRenderer = createDocumentRenderer({
 			collectionRenderer,
 			stateRenderer: createStateRenderer({ documentStates }),
+		});
+		bundleExportService = createBundleExportService({
+			documents,
+			collections,
+			store,
+			config,
+		});
+		bundleImportService = createBundleImportService({
+			documents,
+			documentStates,
+			store,
+			bus,
+			config,
 		});
 		pdfService = {
 			render: vi.fn(async () => ({
@@ -61,18 +122,10 @@ describe("export routes — .maket bundle", () => {
 		app.use(
 			createExportRouter({
 				documents,
-				documentStates,
-				collections,
+				bundleExportService,
+				bundleImportService,
 				documentRenderer,
 				pdfService: pdfService as unknown as PdfService,
-				store,
-				bus,
-				config: {
-					DATA_DIR: "/tmp",
-					ASSETS_DIR: "/tmp/maket-test-assets",
-					EXPORTS_DIR: "/tmp/maket-test-exports",
-					DOCS_DIR: "/tmp/maket-test-docs",
-				} as never,
 			}),
 		);
 		({ baseUrl, close } = await startTestApp(app));
@@ -81,6 +134,7 @@ describe("export routes — .maket bundle", () => {
 	afterEach(async () => {
 		await close();
 		store.close();
+		rmSync(testDir, { recursive: true, force: true });
 	});
 
 	function makeDoc(name: string) {
@@ -192,6 +246,153 @@ describe("export routes — .maket bundle", () => {
 		);
 	});
 
+	it("produces the same complete bundle through HTTP and MCP", async () => {
+		const living = makeDoc("living-poster");
+		const livingPage = living.pages[0];
+		if (!livingPage) throw new Error("Expected living document page");
+		livingPage.html = '<img src="/assets/logo.png"><h1>{{ state.title }}</h1>';
+
+		const collectionDocument = makeDoc("client-poster");
+		const collectionPage = collectionDocument.pages[0];
+		if (!collectionPage) throw new Error("Expected collection document page");
+		collectionDocument.dataModel = "collection";
+		collectionPage.collection = { name: "clients" };
+		collectionPage.html = "<h1>{{ client_name }}</h1>";
+
+		const collection = makeCollection();
+		store.saveDoc(living);
+		store.saveDoc(collectionDocument);
+		store.saveCharte({
+			name: "brand",
+			tokens: { color: { primary: "#123456" } },
+		});
+		store.saveCollection(collection);
+		writeFileSync(join(config.ASSETS_DIR, "logo.png"), Buffer.from("logo"));
+		documents.loadAll();
+		documentStates.initialize(
+			"living-poster",
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Current" },
+		);
+
+		const httpResponse = await fetch(
+			`${baseUrl}/api/export-maket?names=living-poster,client-poster`,
+		);
+		expect(httpResponse.status).toBe(200);
+		const httpBundle = await decodeBundle(
+			Buffer.from(await httpResponse.arrayBuffer()),
+		);
+
+		const tool = createMaketDocTool({
+			documents,
+			bus,
+			store,
+			config,
+			pending: createPending({ bus }),
+			bundleExportService,
+			bundleImportService,
+		});
+		const mcpResponse = await tool.handler(
+			{
+				action: "export",
+				docs: ["living-poster", "client-poster"],
+				output: "mcp-parity",
+			},
+			NO_EXTRA,
+		);
+		expect(mcpResponse.isError).toBeUndefined();
+		const mcpText = (mcpResponse.content[0] as { text: string }).text;
+		const mcpPath = mcpText.match(/→ (\S+\.maket)/)?.[1];
+		expect(mcpPath).toBeDefined();
+		const mcpBundle = await decodeBundle(readFileSync(mcpPath as string));
+
+		const { exportedAt: _httpExportedAt, ...httpPortableContent } = httpBundle;
+		const { exportedAt: _mcpExportedAt, ...mcpPortableContent } = mcpBundle;
+		expect(mcpPortableContent).toEqual(httpPortableContent);
+		expect(mcpBundle.documents).toHaveLength(2);
+		expect(mcpBundle.chartes).toHaveLength(1);
+		expect(mcpBundle.collections).toEqual([collection]);
+		expect(mcpBundle.documentStates).toEqual([
+			expect.objectContaining({
+				documentId: living.id,
+				data: { title: "Current" },
+			}),
+		]);
+		expect(mcpBundle.assets).toEqual([
+			{ relPath: "logo.png", bytes: Buffer.from("logo") },
+		]);
+
+		const importResponse = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(readFileSync(mcpPath as string)),
+		});
+		expect(importResponse.status).toBe(200);
+		expect(await importResponse.json()).toEqual(
+			expect.objectContaining({
+				chartesSkipped: ["brand"],
+				collectionsSkipped: ["clients"],
+				assetsWritten: 0,
+				assetsSkipped: 1,
+				statesImported: 1,
+			}),
+		);
+		expect(readFileSync(join(config.ASSETS_DIR, "logo.png"), "utf8")).toBe(
+			"logo",
+		);
+
+		const structureOnlyResponse = await tool.handler(
+			{
+				action: "export",
+				docs: ["living-poster", "client-poster"],
+				output: "mcp-structure-only",
+				include_assets: false,
+			},
+			NO_EXTRA,
+		);
+		const structureOnlyText = (
+			structureOnlyResponse.content[0] as { text: string }
+		).text;
+		const structureOnlyPath = structureOnlyText.match(/→ (\S+\.maket)/)?.[1];
+		expect(structureOnlyPath).toBeDefined();
+		const structureOnlyBundle = await decodeBundle(
+			readFileSync(structureOnlyPath as string),
+		);
+		expect(structureOnlyBundle.assets).toEqual([]);
+	});
+
+	it("maps a missing export document at both public boundaries", async () => {
+		const httpResponse = await fetch(
+			`${baseUrl}/api/export-maket?name=missing`,
+		);
+		expect(httpResponse.status).toBe(404);
+		expect(await httpResponse.json()).toEqual({
+			error: "Documents not found: missing",
+		});
+
+		const tool = createMaketDocTool({
+			documents,
+			bus,
+			store,
+			config,
+			pending: createPending({ bus }),
+			bundleExportService,
+			bundleImportService,
+		});
+		const mcpResponse = await tool.handler(
+			{ action: "export", doc: "missing" },
+			NO_EXTRA,
+		);
+		expect(mcpResponse.isError).toBe(true);
+		expect((mcpResponse.content[0] as { text: string }).text).toBe(
+			"Documents not found: missing",
+		);
+	});
+
 	it("POST /api/import-maket rejects garbage payloads", async () => {
 		const res = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
@@ -200,6 +401,78 @@ describe("export routes — .maket bundle", () => {
 		});
 		expect(res.status).toBe(400);
 		expect((await res.json()) as { error: string }).toHaveProperty("error");
+	});
+
+	it("POST /api/import-maket imports a frozen Maket 1.2 v1 bundle", async () => {
+		const response = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/gzip" },
+			body: new Uint8Array(HISTORICAL_V1_BUNDLE),
+		});
+
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual(
+			expect.objectContaining({
+				version: 1,
+				documents: ["legacy-poster"],
+				chartesAdded: ["legacy-brand"],
+			}),
+		);
+		expect(documents.resolveOrLoad("legacy-poster")).toEqual(
+			expect.objectContaining({ name: "legacy-poster", category: "archive" }),
+		);
+	});
+
+	it("POST /api/import-maket reports charte persistence failures", async () => {
+		const saveCharte = vi
+			.spyOn(store, "saveCharte")
+			.mockImplementationOnce(() => {
+				throw new Error("charte database is read-only");
+			});
+		const bundle = encodeBundleV1(
+			[makeDoc("charte-import")],
+			[{ name: "imported-brand", tokens: {} }],
+		);
+
+		const response = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/gzip" },
+			body: new Uint8Array(bundle),
+		});
+
+		expect(response.status).toBe(500);
+		expect(await response.json()).toEqual({
+			error:
+				'Could not import charte "imported-brand": charte database is read-only',
+		});
+		saveCharte.mockRestore();
+	});
+
+	it("POST /api/import-maket reports collection persistence failures", async () => {
+		const saveCollection = vi
+			.spyOn(store, "saveCollection")
+			.mockImplementationOnce(() => {
+				throw new Error("collection database is read-only");
+			});
+		const bundle = await encodeBundleV2(
+			[makeDoc("collection-import")],
+			[],
+			[makeCollection()],
+			[],
+		);
+
+		const response = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(bundle),
+		});
+
+		expect(response.status).toBe(500);
+		expect(await response.json()).toEqual({
+			error:
+				'Could not import collection "clients": collection database is read-only',
+		});
+		saveCollection.mockRestore();
 	});
 
 	it("GET /api/export-maket with no docs 400s on an empty workspace", async () => {
@@ -226,23 +499,38 @@ describe("export routes — .maket bundle", () => {
 			documents: documents2,
 			store: store2,
 		});
+		const collections2 = createCollections({
+			bus: bus2,
+			documents: documents2,
+			store: store2,
+		});
 		const pdfService2 = {
 			render: async () => ({ buffer: Buffer.alloc(0), pageCount: 0 }),
 		} as unknown as PdfService;
+		const config2 = {
+			DATA_DIR: "/tmp",
+			ASSETS_DIR: "/tmp/maket-test-assets-2",
+			EXPORTS_DIR: "/tmp/maket-test-exports-2",
+			DOCS_DIR: "/tmp/maket-test-docs-2",
+		} as never;
 		const app2 = express();
 		app2.use(
 			createExportRouter({
 				documents: documents2,
-				documentStates: documentStates2,
+				bundleExportService: createBundleExportService({
+					documents: documents2,
+					collections: collections2,
+					store: store2,
+					config: config2,
+				}),
+				bundleImportService: createBundleImportService({
+					documents: documents2,
+					documentStates: documentStates2,
+					store: store2,
+					bus: bus2,
+					config: config2,
+				}),
 				pdfService: pdfService2,
-				store: store2,
-				bus: bus2,
-				config: {
-					DATA_DIR: "/tmp",
-					ASSETS_DIR: "/tmp/maket-test-assets-2",
-					EXPORTS_DIR: "/tmp/maket-test-exports-2",
-					DOCS_DIR: "/tmp/maket-test-docs-2",
-				} as never,
 			}),
 		);
 		const { baseUrl: baseUrl2, close: close2 } = await startTestApp(app2);

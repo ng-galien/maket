@@ -4,14 +4,56 @@ import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { decodeBundle } from "../lib/maket-format.js";
+import { createBundleExportService } from "../services/bundle-export.js";
+import { createBundleImportService } from "../services/bundle-import.js";
 import { createBus } from "../services/bus.js";
-import { createCollections } from "../services/collections.js";
+import { createCollectionRenderer } from "../services/collection-renderer.js";
+import {
+	type Collections,
+	createCollections,
+} from "../services/collections.js";
 import type { Config } from "../services/config.js";
+import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
 import { createPending } from "../services/pending.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
-import { createMaketDocTool, documentsPack } from "./documents.js";
+import {
+	createMaketDocTool as createMaketDocToolFactory,
+	type DocumentsDeps,
+	documentsPack,
+} from "./documents.js";
+
+type TestDocumentsDeps = Omit<
+	DocumentsDeps,
+	"bundleExportService" | "bundleImportService"
+> & {
+	collections: Collections;
+};
+
+function createMaketDocTool(deps: TestDocumentsDeps) {
+	const { collections, ...toolDeps } = deps;
+	return createMaketDocToolFactory({
+		...toolDeps,
+		bundleExportService: createBundleExportService({
+			documents: deps.documents,
+			collections,
+			store: deps.store,
+			config: deps.config,
+		}),
+		bundleImportService: createBundleImportService({
+			documents: deps.documents,
+			documentStates: createDocumentStates({
+				bus: deps.bus,
+				documents: deps.documents,
+				store: deps.store,
+			}),
+			store: deps.store,
+			bus: deps.bus,
+			config: deps.config,
+		}),
+	});
+}
 
 function fixture() {
 	const store = createSQLiteStore(":memory:");
@@ -48,7 +90,12 @@ describe("documentsPack — registration", () => {
 	it("declares id and deps", () => {
 		expect(documentsPack.id).toBe("documents");
 		expect(documentsPack.requires).toEqual(
-			expect.arrayContaining(["documents", "bus", "collections"]),
+			expect.arrayContaining([
+				"documents",
+				"bus",
+				"bundleExportService",
+				"bundleImportService",
+			]),
 		);
 	});
 });
@@ -636,7 +683,7 @@ describe("maket_doc — action=export / import", () => {
 		});
 	});
 
-	it("exports referenced collections in the MCP bundle", async () => {
+	it("round-trips a collection-backed document through MCP and renders it", async () => {
 		await withTmp(async (dir) => {
 			const { store, bus, documents, pending, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
@@ -644,6 +691,8 @@ describe("maket_doc — action=export / import", () => {
 			const page = doc.pages[0];
 			if (!page) throw new Error("Expected document fixture to have a page");
 			page.collection = { name: "clients" };
+			page.html = '<div data-id="e0">{{ client_name }}</div>';
+			doc.dataModel = "collection";
 			store.saveDoc(doc);
 			const collection: Collection = {
 				name: "clients",
@@ -687,6 +736,29 @@ describe("maket_doc — action=export / import", () => {
 			const bundle = await decodeBundle(readFileSync(bundlePath as string));
 			expect(bundle.collections).toEqual([collection]);
 
+			const target = fixture();
+			const importTool = createMaketDocTool({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+				config: cfg,
+				pending: target.pending,
+				collections: target.collections,
+			});
+			const importResult = await importTool.handler(
+				{ action: "import", input: bundlePath },
+				NO_EXTRA,
+			);
+			expect(importResult.isError).toBeUndefined();
+			expect(target.collections.resolve("clients")).toEqual(collection);
+			const imported = target.documents.resolveOrLoad("collection-poster");
+			expect(imported).not.toBeNull();
+			if (!imported) throw new Error("Expected imported collection document");
+			const rendered = createCollectionRenderer({
+				collections: target.collections,
+			}).render(imported);
+			expect(rendered.pages[0]?.html).toContain("Acme");
+
 			const structureOnly = await tool.handler(
 				{
 					action: "export",
@@ -705,6 +777,103 @@ describe("maket_doc — action=export / import", () => {
 			);
 			expect(structureBundle.collections).toEqual([collection]);
 			store.close();
+			target.store.close();
+		});
+	});
+
+	it("round-trips a state-backed document through MCP at revision 1", async () => {
+		await withTmp(async (dir) => {
+			const { store, bus, documents, pending, collections } = fixture();
+			const config = {
+				ASSETS_DIR: dir,
+				EXPORTS_DIR: dir,
+			} as unknown as Config;
+			const document = makeDoc("living-checklist");
+			const page = document.pages[0];
+			if (!page) throw new Error("Expected document fixture to have a page");
+			page.html = "<h1>{{ state.title }}</h1>";
+			store.saveDoc(document);
+			documents.loadAll();
+			const documentStates = createDocumentStates({ bus, documents, store });
+			documentStates.initialize(
+				"living-checklist",
+				{
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+				{ title: "Draft" },
+			);
+			documentStates.update("living-checklist", 1, { title: "Current" });
+
+			const tool = createMaketDocTool({
+				bus,
+				documents,
+				store,
+				config,
+				pending,
+				collections,
+			});
+			const exportResult = await tool.handler(
+				{ action: "export", doc: "living-checklist" },
+				NO_EXTRA,
+			);
+
+			expect(exportResult.isError).toBeUndefined();
+			const output = (exportResult.content[0] as { text: string }).text;
+			const bundlePath = output.match(/→ (\S+\.maket)/)?.[1];
+			expect(bundlePath).toBeDefined();
+			const bundle = await decodeBundle(readFileSync(bundlePath as string));
+			expect(bundle.documents).toEqual([
+				expect.objectContaining({
+					name: "living-checklist",
+					dataModel: "state",
+				}),
+			]);
+			expect(bundle.documentStates).toEqual([
+				{
+					documentId: document.id,
+					schema: {
+						type: "object",
+						properties: { title: { type: "string" } },
+						required: ["title"],
+					},
+					data: { title: "Current" },
+				},
+			]);
+			expect(bundle.documentStates[0]).not.toHaveProperty("revision");
+
+			const target = fixture();
+			const targetStates = createDocumentStates({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+			});
+			const importTool = createMaketDocTool({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+				config,
+				pending: target.pending,
+				collections: target.collections,
+			});
+			const importResult = await importTool.handler(
+				{ action: "import", input: bundlePath },
+				NO_EXTRA,
+			);
+			expect(importResult.isError).toBeUndefined();
+			expect(
+				target.documents.resolveOrLoad("living-checklist")?.dataModel,
+			).toBe("state");
+			expect(targetStates.get("living-checklist")?.current).toEqual(
+				expect.objectContaining({
+					revision: 1,
+					data: { title: "Current" },
+				}),
+			);
+			expect(targetStates.history("living-checklist")).toHaveLength(1);
+			store.close();
+			target.store.close();
 		});
 	});
 
