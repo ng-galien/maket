@@ -7,7 +7,8 @@
 	"private": true,
 	"dependencies": {
 		"@maket/shared": "*",
-		"@modelcontextprotocol/sdk": "^1.30.0",
+		"@modelcontextprotocol/node": "^2.0.0",
+		"@modelcontextprotocol/server": "^2.0.0",
 		"@resvg/resvg-js": "^2.6.2",
 		"awilix": "^13.0.5",
 		"beautiful-mermaid": "^1.1.3",

@@ -2,11 +2,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+	Client,
+	StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { AwilixContainer } from "awilix";
 import express from "express";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppContainer } from "../bootstrap.js";
-import type { ToolResult } from "../core/container.js";
 import { registerToolPacks } from "../core/tool-pack-registry.js";
 import { type Config, createConfig, ensureDirs } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
@@ -28,12 +32,11 @@ interface TestRuntime {
 	container: AwilixContainer;
 	store: Store;
 	documents: Documents;
-	baseUrl: string;
+	client: Client;
 	close(): Promise<void>;
 }
 
 const runtimes: TestRuntime[] = [];
-let rpcId = 0;
 
 describe("bundle export/import through Streamable HTTP MCP", () => {
 	afterEach(async () => {
@@ -166,13 +169,24 @@ async function createRuntime(prefix: string): Promise<TestRuntime> {
 	app.use(express.json());
 	app.use(container.resolve("mcpRouter"));
 	const server = await startNetworkApp(app);
+	const client = new Client(
+		{ name: "maket-bundle-integration", version: "1" },
+		{ versionNegotiation: { mode: "auto" } },
+	);
+	await client.connect(
+		new StreamableHTTPClientTransport(new URL(`${server.baseUrl}/mcp`)),
+	);
 	const runtime = {
 		dir,
 		config,
 		container,
 		store,
 		documents,
-		...server,
+		client,
+		close: async () => {
+			await client.close();
+			await server.close();
+		},
 	};
 	runtimes.push(runtime);
 	return runtime;
@@ -204,50 +218,11 @@ async function callMcp(
 	runtime: TestRuntime,
 	name: string,
 	args: Record<string, unknown>,
-): Promise<ToolResult> {
-	const id = ++rpcId;
-	const response = await fetch(`${runtime.baseUrl}/mcp`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Accept: "application/json, text/event-stream",
-		},
-		body: JSON.stringify({
-			jsonrpc: "2.0",
-			id,
-			method: "tools/call",
-			params: { name, arguments: args },
-		}),
-	});
-	const body = await response.text();
-	expect(
-		response.status,
-		`${JSON.stringify(Object.fromEntries(response.headers.entries()))}\n${body}`,
-	).toBe(200);
-	const payload = parseMcpResponse(body, response.headers.get("content-type"));
-	expect(payload.error).toBeUndefined();
-	expect(payload.id).toBe(id);
-	return payload.result as ToolResult;
+): Promise<CallToolResult> {
+	return runtime.client.callTool({ name, arguments: args });
 }
 
-function parseMcpResponse(
-	body: string,
-	contentType: string | null,
-): Record<string, unknown> {
-	if (!contentType?.includes("text/event-stream")) {
-		return JSON.parse(body) as Record<string, unknown>;
-	}
-	const data = body
-		.split(/\r?\n/)
-		.filter((line) => line.startsWith("data:"))
-		.map((line) => line.slice(5).trim())
-		.filter(Boolean);
-	if (data.length === 0)
-		throw new Error(`MCP response had no SSE data: ${body}`);
-	return JSON.parse(data[data.length - 1] as string) as Record<string, unknown>;
-}
-
-function resultText(result: ToolResult): string {
+function resultText(result: CallToolResult): string {
 	const item = result.content[0];
 	if (item?.type !== "text") throw new Error("Expected MCP text result");
 	return item.text;

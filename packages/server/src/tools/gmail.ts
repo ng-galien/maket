@@ -15,9 +15,10 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { platform } from "node:os";
 import { extname, join, resolve, sep } from "node:path";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import { z } from "zod";
-import type { ToolHandler, ToolResult } from "../core/container.js";
+import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { parseCharteVars } from "../lib/charte-css.js";
 import { type AssetsService, IMAGE_EXTS } from "../services/assets.js";
@@ -206,7 +207,10 @@ function openBrowser(url: string): void {
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runConnect`: edge adapter over services/store/bus, not domain ownership.
-async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
+async function runConnect(
+	args: Args,
+	deps: GmailDeps,
+): Promise<CallToolResult> {
 	const { gmailClient, config } = deps;
 	const withRead = args.with_read === true;
 	try {
@@ -250,7 +254,7 @@ async function runConnect(args: Args, deps: GmailDeps): Promise<ToolResult> {
 	}
 }
 
-function requireRead(deps: GmailDeps): ToolResult | null {
+function requireRead(deps: GmailDeps): CallToolResult | null {
 	if (deps.gmailClient.grants().read) return null;
 	return text(
 		"Gmail is connected in draft-only mode — reading is not authorized. Ask the user whether to enable inbox reading; if yes, call maket_gmail action=connect with_read=true.",
@@ -263,7 +267,7 @@ function requireRead(deps: GmailDeps): ToolResult | null {
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runSearch`: edge adapter over services/store/bus, not domain ownership.
-async function runSearch(args: Args, deps: GmailDeps): Promise<ToolResult> {
+async function runSearch(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { gmailClient } = deps;
 	if (!args.query) return text("query is required for action=search", true);
 	if (!gmailClient.isConnected())
@@ -357,7 +361,7 @@ function collectAttachments(
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runRead`: edge adapter over services/store/bus, not domain ownership.
-async function runRead(args: Args, deps: GmailDeps): Promise<ToolResult> {
+async function runRead(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { gmailClient } = deps;
 	if (!args.id) return text("id is required for action=read", true);
 	if (!gmailClient.isConnected())
@@ -453,7 +457,7 @@ function formatSize(bytes: number): string {
 async function runFetchAttachment(
 	args: Args,
 	deps: GmailDeps,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	const { gmailClient, assets, store, bus, config } = deps;
 	if (!args.id) return text("id is required for action=fetch_attachment", true);
 	if (!args.attachmentId)
@@ -557,7 +561,7 @@ async function importImageAttachment(inputs: {
 	assets: AssetsService;
 	store: Store;
 	bus: Bus;
-}): Promise<ToolResult> {
+}): Promise<CallToolResult> {
 	const {
 		buffer,
 		filename,
@@ -613,7 +617,7 @@ function dropNonImageAttachment(inputs: {
 	mimeType: string;
 	overwrite: boolean;
 	dataDir: string;
-}): ToolResult {
+}): CallToolResult {
 	const { buffer, filename, mimeType, overwrite, dataDir } = inputs;
 	const attDir = join(dataDir, "attachments");
 	const destAbs = resolve(join(attDir, filename));
@@ -728,7 +732,7 @@ function buildMimeMessage(
 
 // code-moniker: ignore[smell-feature-envy-local]
 // Draft creation is a Gmail adapter workflow spanning grants, document rendering, attachment assembly, and metadata mirroring.
-async function runDraft(args: Args, deps: GmailDeps): Promise<ToolResult> {
+async function runDraft(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { documents, store, gmailClient, pdfService, config, assets } = deps;
 	if (!args.doc) return text("doc is required for action=draft", true);
 	if (args.page == null) return text("page is required for action=draft", true);

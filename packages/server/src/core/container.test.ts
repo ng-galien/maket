@@ -17,12 +17,11 @@ function makeTool(name: string): ToolHandler {
 }
 
 /**
- * Minimal McpServer stub — we only care that `.tool(name, desc, shape, cb)`
- * is called correctly. Full SDK instance would require a transport.
+ * Minimal McpServer stub — full SDK behavior is covered at the HTTP boundary.
  */
 function makeServer() {
 	return {
-		tool: vi.fn(),
+		registerTool: vi.fn(),
 	};
 }
 
@@ -39,12 +38,12 @@ describe("mountTools", () => {
 
 		mountTools(server as any, container);
 
-		expect(server.tool).toHaveBeenCalledTimes(2);
-		const calls = server.tool.mock.calls.map((c) => c[0]).sort();
+		expect(server.registerTool).toHaveBeenCalledTimes(2);
+		const calls = server.registerTool.mock.calls.map((c) => c[0]).sort();
 		expect(calls).toEqual(["bar", "foo"]);
 	});
 
-	it("passes name, description, and zod shape to server.tool", () => {
+	it("passes name, description, and zod schema to registerTool", () => {
 		const tool = makeTool("foo");
 		const registry = new Map([["foo", tool]]);
 		const container = createContainer().register({
@@ -54,10 +53,12 @@ describe("mountTools", () => {
 
 		mountTools(server as any, container);
 
-		const [name, desc, shape, cb] = server.tool.mock.calls[0] ?? [];
+		const [name, config, cb] = server.registerTool.mock.calls[0] ?? [];
 		expect(name).toBe("foo");
-		expect(desc).toBe("desc-foo");
-		expect(shape).toBe(tool.metadata.schema.shape);
+		expect(config).toEqual({
+			description: "desc-foo",
+			inputSchema: tool.metadata.schema,
+		});
 		expect(typeof cb).toBe("function");
 	});
 
@@ -70,7 +71,7 @@ describe("mountTools", () => {
 		const server = makeServer();
 
 		mountTools(server as any, container);
-		const cb = server.tool.mock.calls[0]?.[3] as (
+		const cb = server.registerTool.mock.calls[0]?.[2] as (
 			args: Record<string, unknown>,
 			extra: unknown,
 		) => Promise<{ content: { text: string }[] }>;
@@ -89,7 +90,7 @@ describe("mountTools", () => {
 		const onCall = vi.fn();
 
 		mountTools(server as any, container, onCall);
-		const cb = server.tool.mock.calls[0]?.[3] as (
+		const cb = server.registerTool.mock.calls[0]?.[2] as (
 			args: Record<string, unknown>,
 			extra: unknown,
 		) => Promise<unknown>;
@@ -109,7 +110,7 @@ describe("mountTools", () => {
 		mountTools(server as any, container, () => {
 			throw new Error("activity contract drift");
 		});
-		const cb = server.tool.mock.calls[0]?.[3] as (
+		const cb = server.registerTool.mock.calls[0]?.[2] as (
 			args: Record<string, unknown>,
 			extra: unknown,
 		) => Promise<unknown>;
@@ -128,6 +129,6 @@ describe("mountTools", () => {
 		const server = makeServer();
 
 		mountTools(server as any, container);
-		expect(server.tool).not.toHaveBeenCalled(); // empty registry → no mounts
+		expect(server.registerTool).not.toHaveBeenCalled(); // empty registry → no mounts
 	});
 });

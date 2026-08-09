@@ -24,8 +24,7 @@
  */
 
 import { parseArgs } from "node:util";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { decks } from "./decks.mjs";
 
 const { values } = parseArgs({
@@ -54,7 +53,7 @@ if (selected.length === 0) {
 }
 
 const url = new URL(`http://127.0.0.1:${port}/mcp`);
-const client = new Client({ name: "maket-demo-recorder", version: "1.0.0" }, { capabilities: {} });
+const client = new Client({ name: "maket-demo-recorder", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

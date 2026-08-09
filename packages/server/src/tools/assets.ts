@@ -11,9 +11,10 @@
  */
 
 import { basename, extname } from "node:path";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import { z } from "zod";
-import type { ToolHandler, ToolResult } from "../core/container.js";
+import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateAssetToken } from "../services/assets.js";
@@ -120,7 +121,11 @@ type Args = z.infer<typeof MaketImageSchema>;
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runList`: edge adapter over services/store/bus, not domain ownership.
-function runList(args: Args, store: Store, assets: AssetsService): ToolResult {
+function runList(
+	args: Args,
+	store: Store,
+	assets: AssetsService,
+): CallToolResult {
 	const files = assets.listFilenames();
 	if (!files.length) return text("No images");
 	const rows = store.loadAllAssets();
@@ -167,7 +172,7 @@ async function runView(
 	args: Args,
 	store: Store,
 	assets: AssetsService,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	if (!args.filename) return text("filename is required for action=view", true);
 	if (!assets.exists(args.filename))
 		return text(`Asset not found: ${args.filename}`, true);
@@ -230,7 +235,7 @@ function runMeta(
 	store: Store,
 	bus: Bus,
 	assets: AssetsService,
-): ToolResult {
+): CallToolResult {
 	if (!args.filename) return text("filename is required for action=meta", true);
 	if (!assets.exists(args.filename))
 		return text(`Asset not found: ${args.filename}`, true);
@@ -271,7 +276,7 @@ async function runImport(
 	store: Store,
 	bus: Bus,
 	assets: AssetsService,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	const source = args.url || args.path;
 	const registerMode = !source && !!args.filename;
 
@@ -354,7 +359,7 @@ function runDelete(
 	store: Store,
 	bus: Bus,
 	assets: AssetsService,
-): ToolResult {
+): CallToolResult {
 	if (!args.filename)
 		return text("filename is required for action=delete", true);
 	if (!assets.exists(args.filename))

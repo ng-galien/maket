@@ -12,10 +12,11 @@
  * measurement), `assets` (charteToken / validateCharteToken).
  */
 
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import { parseHTML } from "linkedom";
 import { z } from "zod";
-import type { ToolHandler, ToolResult } from "../core/container.js";
+import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { checkCharteCompliance } from "../lib/charte-check.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
@@ -521,7 +522,7 @@ interface HtmlSetContext {
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runSet`: edge adapter over services/store/bus, not domain ownership.
-async function runSet(context: HtmlSetContext): Promise<ToolResult> {
+async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	const { args, doc, page, pageIdx, documents, store, layout, assets } =
 		context;
 	if (args.html == null) return text("html is required for action=set", true);
@@ -586,7 +587,7 @@ async function runPatch(
 	documents: Documents,
 	store: Store,
 	layout: LayoutService,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	if (!args.ops) return text("ops is required for action=patch", true);
 	if (!page.html) page.html = "";
 	if (args.ops.some(hasLayoutControlAttr) && args.ops.length !== 1) {
@@ -638,7 +639,7 @@ function stateTemplateValidationError(
 	}
 }
 
-function runGet(args: Args, page: Page): ToolResult {
+function runGet(args: Args, page: Page): CallToolResult {
 	const html = page.html || "";
 
 	if (args.id) {
@@ -664,7 +665,7 @@ async function runCheck(
 	page: Page,
 	pageIdx: number,
 	layout: LayoutService,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
 	const layoutResult = await layout.check(doc, page.html, pageIdx);
 	return text(layoutResult.text.trim(), {

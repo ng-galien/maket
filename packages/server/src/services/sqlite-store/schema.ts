@@ -109,7 +109,6 @@ export function initializeSQLiteSchema(db: DatabaseSync): void {
 			setSchemaVersion(db, SCHEMA_VERSION);
 			assertCurrentSchema(db);
 		});
-		log(`SQLite: schema v${SCHEMA_VERSION} created`);
 		return;
 	}
 

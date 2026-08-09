@@ -31,7 +31,8 @@ function log(msg: string) {
 // Externals kept out of the server bundle — users install these from the
 // staged package's own `dependencies` on first `npm install`.
 const EXTERNALS = [
-  "@modelcontextprotocol/sdk",
+  "@modelcontextprotocol/node",
+  "@modelcontextprotocol/server",
   "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",

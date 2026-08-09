@@ -79,7 +79,7 @@ const AGENT_CONTENT: Record<LearnTopic, string[]> = {
 		"Do not acknowledge pending messages before the corresponding correction is applied. Do not redesign when the request is a review unless the defect is structural.",
 	],
 	install: [
-		"Supported agents should all launch the same Maket MCP bridge. The install command writes client config; the bridge then proxies stdio JSON-RPC to the local HTTP MCP endpoint.",
+		"Supported agents should all launch the same Maket MCP bridge. The install command writes client config; the bridge serves MCP over the SDK's stdio transport and delegates tools to the local HTTP MCP endpoint.",
 		"Use maket install claude --apply, maket install codex --apply, or maket install gemini --apply.",
 	],
 	gemini: [

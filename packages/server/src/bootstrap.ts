@@ -14,6 +14,7 @@ import { createChartesRouter } from "./routes/chartes.routes.js";
 import { createExportRouter } from "./routes/export.routes.js";
 import { createGmailRouter } from "./routes/gmail.routes.js";
 import { createMcpRouter } from "./routes/mcp.routes.js";
+import { createMcpHttpHandler } from "./routes/mcp-handler.js";
 import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAssetsService } from "./services/assets.js";
@@ -132,6 +133,9 @@ export function createAppContainer(
 
 	container.register({
 		container: asValue(container),
+		mcpHttpHandler: asFunction(createMcpHttpHandler)
+			.singleton()
+			.disposer((handler) => handler.close()),
 		appRouter: asFunction(createAppRouter).singleton(),
 		assetsRouter: asFunction(createAssetsRouter).singleton(),
 		chartesRouter: asFunction(createChartesRouter).singleton(),

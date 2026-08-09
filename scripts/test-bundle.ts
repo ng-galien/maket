@@ -6,9 +6,9 @@
  *   1. (optional) Rebuild bundles + deps into dist/.mcpb-test/
  *   2. Spawn `node dist/.mcpb-test/index.js` with MAKET_SERVER_ENTRY pointing
  *      at server.js, on a random MAKET_PORT and a temp MAKET_DATA_DIR.
- *   3. Pipe an MCP `initialize` NDJSON message on stdin.
- *   4. Read the first NDJSON reply on stdout, with a timeout.
- *   5. Print bridge.log, server-spawn.log, and stdout response. Kill child.
+ *   3. Connect through the SDK v2 stdio client pinned to the modern revision.
+ *   4. List tools through the packaged bridge.
+ *   5. Print bridge.log, server-spawn.log, and the tool-list result.
  *
  * Usage:
  *   npx tsx scripts/test-bundle.ts                 # reuse existing staging
@@ -16,19 +16,23 @@
  *   npx tsx scripts/test-bundle.ts --bridge-only   # rebuild bridge only
  */
 
-import { execSync, spawn } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/client";
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const STAGING = join(ROOT, "dist/.mcpb-test");
 
 const EXTERNALS = [
-  "@modelcontextprotocol/sdk",
+  "@modelcontextprotocol/node",
+  "@modelcontextprotocol/server",
+  "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",
@@ -104,8 +108,8 @@ async function main(): Promise<void> {
   const useElectron = process.argv.includes("--electron");
   const electronBin = "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper";
   const spawnBin = useElectron ? electronBin : process.execPath;
-  const spawnEnv: Record<string, string | undefined> = {
-    ...process.env,
+  const spawnEnv: Record<string, string> = {
+    ...getDefaultEnvironment(),
     MAKET_PORT: String(port),
     MAKET_DATA_DIR: dataDir,
     MAKET_SERVER_ENTRY: join(STAGING, "server.js"),
@@ -113,70 +117,58 @@ async function main(): Promise<void> {
   if (useElectron) spawnEnv.ELECTRON_RUN_AS_NODE = "1";
   console.log(`[harness] spawning with: ${spawnBin}`);
 
-  const child = spawn(spawnBin, [join(STAGING, "index.js")], {
+  const transport = new StdioClientTransport({
+    command: spawnBin,
+    args: [join(STAGING, "index.js")],
     cwd: STAGING,
     env: spawnEnv,
-    stdio: ["pipe", "pipe", "pipe"],
+    stderr: "pipe",
   });
-
-  let stdoutBuf = "";
   let stderrBuf = "";
-  child.stdout.on("data", (c) => {
-    stdoutBuf += c.toString();
-  });
-  child.stderr.on("data", (c) => {
+  transport.stderr?.on("data", (c) => {
     stderrBuf += c.toString();
   });
+  const client = new Client({ name: "bundle-harness", version: "1" }, { versionNegotiation: { mode: "auto" } });
+  try {
+    await client.connect(transport);
+    const listed = await client.listTools();
 
-  const initMsg = {
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: { name: "harness", version: "0" },
-    },
-  };
-  child.stdin.write(`${JSON.stringify(initMsg)}\n`);
+    console.log("\n=========== MCP TOOLS ===========");
+    console.log(
+      JSON.stringify(
+        listed.tools.map((tool) => tool.name),
+        null,
+        2,
+      ),
+    );
+    console.log("\n=========== BRIDGE STDERR ===========");
+    console.log(stderrBuf || "(empty)");
 
-  const TIMEOUT_MS = 20_000;
-  const deadline = Date.now() + TIMEOUT_MS;
-  let response: string | null = null;
-  while (Date.now() < deadline) {
-    const nl = stdoutBuf.indexOf("\n");
-    if (nl !== -1) {
-      response = stdoutBuf.slice(0, nl).trim();
-      if (response) break;
+    for (const name of ["bridge.log", "server-spawn.log", "server.log"]) {
+      const p = join(dataDir, name);
+      console.log(`\n=========== ${name} ===========`);
+      try {
+        console.log(readFileSync(p, "utf-8"));
+      } catch {
+        console.log("(missing)");
+      }
     }
-    await new Promise((r) => setTimeout(r, 100));
-    if (child.exitCode !== null) break;
-  }
 
-  child.stdin.end();
-  child.kill("SIGTERM");
-
-  console.log("\n=========== BRIDGE STDOUT ===========");
-  console.log(response ? response : "(no response within 20s)");
-  console.log("\n=========== BRIDGE STDERR ===========");
-  console.log(stderrBuf || "(empty)");
-
-  for (const name of ["bridge.log", "server-spawn.log", "server.log"]) {
-    const p = join(dataDir, name);
-    console.log(`\n=========== ${name} ===========`);
-    try {
-      console.log(readFileSync(p, "utf-8"));
-    } catch {
-      console.log("(missing)");
+    if (!listed.tools.some((tool) => tool.name === "maket_learn")) {
+      process.exitCode = 1;
     }
-  }
-
-  console.log(`\n[harness] child exitCode=${child.exitCode}`);
-
-  rmSync(dataDir, { recursive: true, force: true });
-
-  if (!response?.includes('"result"')) {
-    process.exit(1);
+  } finally {
+    await client.close().catch(() => {});
+    const stopped = spawnSync(spawnBin, [join(STAGING, "index.js"), "stop"], {
+      cwd: STAGING,
+      env: spawnEnv,
+      stdio: "inherit",
+    });
+    rmSync(dataDir, { recursive: true, force: true });
+    if (stopped.status !== 0) {
+      console.error(`harness server cleanup failed (${stopped.status})`);
+      process.exitCode = 1;
+    }
   }
 }
 

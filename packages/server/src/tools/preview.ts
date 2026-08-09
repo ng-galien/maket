@@ -9,10 +9,11 @@
  */
 
 import { writeFileSync } from "node:fs";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import puppeteer from "puppeteer";
 import { z } from "zod";
-import type { ToolHandler, ToolResult } from "../core/container.js";
+import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import {
 	CHROMIUM_HEADLESS,
@@ -87,7 +88,7 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketPreviewSchema>;
 
-async function runOpen(config: Config): Promise<ToolResult> {
+async function runOpen(config: Config): Promise<CallToolResult> {
 	const previewUrl = `http://localhost:${config.PORT}`;
 	const { execFile } = await import("node:child_process");
 	const { platform } = await import("node:os");
@@ -109,7 +110,7 @@ async function runSnapshot(
 	config: Config,
 	assets: AssetsService,
 	documentRenderer: Pick<DocumentRenderer, "render">,
-): Promise<ToolResult> {
+): Promise<CallToolResult> {
 	if (!args.doc) return text("doc is required for action=snapshot", true);
 	if (args.page == null)
 		return text("page is required for action=snapshot", true);

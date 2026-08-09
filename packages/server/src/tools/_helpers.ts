@@ -6,7 +6,7 @@
  * hint block stay uniform across the tool surface.
  */
 
-import type { ToolResult } from "../core/container.js";
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { Document } from "../types.js";
 
 export interface TextOpts {
@@ -28,14 +28,14 @@ export interface TextOpts {
  *   text("ok", { next: ["maket_charte view"] })
  *   text("boom", { isError: true })
  */
-export function text(t: string, opts?: boolean | TextOpts): ToolResult {
+export function text(t: string, opts?: boolean | TextOpts): CallToolResult {
 	const isError = typeof opts === "boolean" ? opts : opts?.isError;
 	const next =
 		typeof opts === "object" && opts !== null ? opts.next : undefined;
 	const body = next?.length
 		? `${t}\n\nnext:\n${next.map((n) => `  - ${n}`).join("\n")}`
 		: t;
-	const base: ToolResult = { content: [{ type: "text", text: body }] };
+	const base: CallToolResult = { content: [{ type: "text", text: body }] };
 	return isError ? { ...base, isError: true } : base;
 }
 
@@ -44,7 +44,7 @@ export function text(t: string, opts?: boolean | TextOpts): ToolResult {
  * unlock it; otherwise return null. Mutation tools call this right after
  * resolving the doc and short-circuit on a non-null return value.
  */
-export function lockGuard(d: Document): ToolResult | null {
+export function lockGuard(d: Document): CallToolResult | null {
 	if (d.meta?.locked !== true) return null;
 	return text(
 		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_workspace action=lock doc=${d.name} locked=false`,

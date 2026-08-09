@@ -5,10 +5,9 @@
  *
  * Two roles in one binary:
  *
- *  1. **stdio MCP bridge** — when invoked with no args (the way an MCP client
- *     spawns us), proxy stdio JSON-RPC to a local Maket HTTP server, spawning
- *     one if needed. This is the historical contract used by desktop MCP hosts,
- *     Codex, and friends.
+ *  1. **stdio MCP gateway** — when invoked with no args (the way an MCP client
+ *     spawns us), expose the local Maket HTTP server through the MCP SDK's
+ *     stdio transport, spawning the HTTP server if needed.
  *  2. **CLI** — when invoked with a known subcommand (start, stop, status,
  *     install, …), dispatch and exit. Lets users manage the server and wire
  *     it into MCP clients without leaving the terminal.
@@ -114,7 +113,7 @@ function buildCli(): CAC {
 	cli.option("--host <host>", "Bind host (overrides MAKET_HOST)");
 
 	cli
-		.command("bridge", "Run stdio ↔ HTTP MCP proxy (default for MCP clients)")
+		.command("bridge", "Run the MCP v2 stdio gateway (default for MCP clients)")
 		.action(async (opts: GlobalOpts) => {
 			await runBridge(envOverrides(opts));
 		});
