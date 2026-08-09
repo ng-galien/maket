@@ -18,6 +18,8 @@ import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAssetsService } from "./services/assets.js";
 import { createBrowserPool } from "./services/browser-pool.js";
+import { createBundleExportService } from "./services/bundle-export.js";
+import { createBundleImportService } from "./services/bundle-import.js";
 import { createBus } from "./services/bus.js";
 import { createCollectionCursors } from "./services/collection-cursor.js";
 import { createCollectionRenderer } from "./services/collection-renderer.js";
@@ -96,6 +98,10 @@ export function createAppContainer(
 		documentRenderer: asFunction(createDocumentRenderer).singleton(),
 
 		collectionCursors: asFunction(createCollectionCursors).singleton(),
+
+		bundleExportService: asFunction(createBundleExportService).singleton(),
+
+		bundleImportService: asFunction(createBundleImportService).singleton(),
 
 		wsRegistry: asFunction(createWsRegistry).singleton(),
 

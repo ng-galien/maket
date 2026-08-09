@@ -6,11 +6,6 @@
 
 import type { Request, Response } from "express";
 import { Router as createRouter, type Router } from "express";
-import {
-	collectAssetFilenames,
-	loadAssetsFromDir,
-} from "../lib/asset-collector.js";
-import { writeBundleAssets } from "../lib/asset-writer.js";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import {
 	type CollectionRenderMode,
@@ -18,24 +13,16 @@ import {
 	cursorRenderOptions,
 } from "../lib/collection-render.js";
 import { requireBrowserContextLoopback } from "../lib/local-origin.js";
-import {
-	bundleFilename,
-	decodeBundle,
-	encodeBundleV2,
-	uniqueName,
-} from "../lib/maket-format.js";
-import { stripActiveHtml } from "../lib/strip-active-html.js";
+import { decodeBundle } from "../lib/maket-format.js";
 
 // Cap on `.maket` bundle uploads. v2 bundles carry asset binaries, so the
 // bound is looser than v1's. `decodeBundle` is the next layer of defence.
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 
-import type { Bus } from "../services/bus.js";
+import type { BundleExportService } from "../services/bundle-export.js";
+import type { BundleImportService } from "../services/bundle-import.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
-import type { Collections } from "../services/collections.js";
-import type { Config } from "../services/config.js";
 import type { DocumentRenderer } from "../services/document-renderer.js";
-import type { DocumentStates } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import {
 	boxShadowToDropShadow,
@@ -43,35 +30,24 @@ import {
 	buildShadowVarMap,
 	type PdfService,
 } from "../services/pdf.js";
-import type { Store } from "../services/store.js";
-import { type Charte, createDocument, type Document } from "../types.js";
+import type { Document } from "../types.js";
 
 export interface ExportRouterDeps {
 	documents: Documents;
-	collections?: Pick<Collections, "referencedBy">;
+	bundleExportService: BundleExportService;
+	bundleImportService: BundleImportService;
 	documentRenderer?: Pick<DocumentRenderer, "render">;
-	documentStates: Pick<DocumentStates, "initialize">;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	pdfService: PdfService;
-	store: Store;
-	bus: Bus;
-	config: Config;
 }
-
-type MaketImportContext = Pick<
-	ExportRouterDeps,
-	"documents" | "documentStates" | "store" | "bus" | "config"
->;
 
 function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
 }
 
 export function createExportRouter(deps: ExportRouterDeps): Router {
-	const { documents, documentStates, pdfService, store, bus, config } = deps;
-	const collectionService = deps.collections ?? {
-		referencedBy: () => [],
-	};
+	const { documents, bundleExportService, bundleImportService, pdfService } =
+		deps;
 	const documentRenderer = deps.documentRenderer ?? {
 		render: (doc: Document) => doc,
 	};
@@ -87,16 +63,10 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 		handlePdfExport(req, res, documents, pdfService),
 	);
 	router.get("/api/export-maket", (req, res) =>
-		handleMaketExport(req, res, documents, collectionService, store, config),
+		handleMaketExport(req, res, bundleExportService),
 	);
 	router.post("/api/import-maket", (req, res) =>
-		handleMaketImport(req, res, {
-			documents,
-			documentStates,
-			store,
-			bus,
-			config,
-		}),
+		handleMaketImport(req, res, bundleImportService),
 	);
 
 	return router;
@@ -228,57 +198,30 @@ async function handlePdfExport(
 async function handleMaketExport(
 	req: Request,
 	res: Response,
-	documents: Documents,
-	collections: Pick<Collections, "referencedBy">,
-	store: Store,
-	config: Config,
+	bundleExportService: BundleExportService,
 ): Promise<void> {
 	try {
-		const names = exportNamesFromQuery(req, documents);
-		if (names.length === 0) {
-			res.status(400).json({ error: "No documents to export" });
+		const result = await bundleExportService.build({
+			names: exportNamesFromQuery(req),
+		});
+		if (!result.ok) {
+			res
+				.status(result.code === "no-documents" ? 400 : 404)
+				.json({ error: result.message });
 			return;
 		}
-		const docs = resolveExportDocs(names, documents, res);
-		if (!docs) return;
-		const chartes = loadReferencedChartes(docs, store);
-		const collectionRefs = collections.referencedBy(docs);
-		const documentStates = currentDocumentStateSnapshots(docs, store);
-		const refs = collectAssetFilenames(docs);
-		const { assets } = loadAssetsFromDir(refs, config.ASSETS_DIR);
-		const buf = await encodeBundleV2(docs, chartes, collectionRefs, assets, {
-			documentStates,
-		});
-		const baseName = docs.length === 1 ? docs[0]?.name : "maket-bundle";
 		res.setHeader("Content-Type", "application/zip");
 		res.setHeader(
 			"Content-Disposition",
-			`attachment; filename="${bundleFilename(baseName)}"`,
+			`attachment; filename="${result.filename}"`,
 		);
-		res.send(buf);
+		res.send(result.buffer);
 	} catch (e: any) {
 		res.status(500).json({ error: e.message });
 	}
 }
 
-function currentDocumentStateSnapshots(docs: Document[], store: Store) {
-	return docs.flatMap((doc) => {
-		if (doc.dataModel !== "state") return [];
-		const current = store.loadCurrentDocumentState(doc.id);
-		if (!current) {
-			throw new Error(`Document "${doc.name}" has no current state snapshot.`);
-		}
-		return [
-			{
-				documentId: doc.id,
-				schema: current.schema,
-				data: current.data,
-			},
-		];
-	});
-}
-
-function exportNamesFromQuery(req: Request, documents: Documents): string[] {
+function exportNamesFromQuery(req: Request): string[] | undefined {
 	const single = req.query.name as string | undefined;
 	const csv = req.query.names as string | undefined;
 	if (csv)
@@ -287,83 +230,32 @@ function exportNamesFromQuery(req: Request, documents: Documents): string[] {
 			.map((s) => s.trim())
 			.filter(Boolean);
 	if (single) return [single];
-	return [...documents.all().keys()];
-}
-
-function resolveExportDocs(
-	names: string[],
-	documents: Documents,
-	res: Response,
-): Document[] | null {
-	const docs: Document[] = [];
-	for (const n of names) {
-		const d = documents.resolveOrLoad(n);
-		if (!d) {
-			res.status(404).json({ error: `Document "${n}" not found` });
-			return null;
-		}
-		docs.push(d);
-	}
-	return docs;
-}
-
-function loadReferencedChartes(
-	docs: NonNullable<ReturnType<Documents["resolveOrLoad"]>>[],
-	store: Store,
-): Charte[] {
-	const charteNames = new Set<string>();
-	for (const d of docs) if (d.meta?.charte) charteNames.add(d.meta.charte);
-	const chartes: Charte[] = [];
-	for (const name of charteNames) {
-		try {
-			const c = store.loadCharte(name);
-			if (c) chartes.push(c);
-		} catch {}
-	}
-	return chartes;
+	return undefined;
 }
 
 async function handleMaketImport(
 	req: Request,
 	res: Response,
-	context: MaketImportContext,
+	bundleImportService: BundleImportService,
 ): Promise<void> {
-	const { documents, documentStates, store, bus, config } = context;
 	try {
 		const bundle = await readBundleUpload(req, res);
 		if (!bundle) return;
-		const imported = importBundleDocuments(
-			bundle,
-			documents,
-			documentStates,
-			bus,
-		);
-		const chartes = importBundleChartes(bundle.chartes, store, bus);
-		const collectionReport = importBundleCollections(
-			bundle.collections,
-			store,
-			bus,
-		);
-		const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);
-		if (assetReport.written > 0) bus.emit("assets:changed", {});
-		bus.emit("toast", {
-			text: `Imported ${imported.documents.length} document(s)${chartes.added.length ? ` + ${chartes.added.length} charte(s)` : ""}${collectionReport.added.length ? ` + ${collectionReport.added.length} collection(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
-			level: "success",
-		});
+		const imported = bundleImportService.restore(bundle);
 		res.json({
 			ok: true,
-			version: bundle.version,
+			version: imported.version,
 			documents: imported.documents,
 			renamed: imported.renamed,
-			chartesAdded: chartes.added,
-			chartesSkipped: chartes.skipped,
-			collectionsAdded: collectionReport.added,
-			collectionsSkipped: collectionReport.skipped,
-			assetsWritten: assetReport.written,
-			assetsSkipped: assetReport.skipped,
-			assetsRejected: assetReport.rejected.length,
+			chartesAdded: imported.chartesAdded,
+			chartesSkipped: imported.chartesSkipped,
+			collectionsAdded: imported.collectionsAdded,
+			collectionsSkipped: imported.collectionsSkipped,
+			assetsWritten: imported.assetsWritten,
+			assetsSkipped: imported.assetsSkipped,
+			assetsRejected: imported.assetsRejected.length,
 			statesImported: imported.statesImported,
-			exportedAt: bundle.exportedAt,
+			exportedAt: imported.exportedAt,
 		});
 	} catch (e: any) {
 		res.status(500).json({ error: e.message });
@@ -395,107 +287,4 @@ async function readBundleUpload(
 		res.status(400).json({ error: msg });
 		return null;
 	}
-}
-
-// code-moniker: ignore[smell-feature-envy-local]
-// HTTP handler `importBundleDocuments`: request/response adapter over services, not envied domain logic.
-function importBundleDocuments(
-	bundle: Awaited<ReturnType<typeof decodeBundle>>,
-	documents: Documents,
-	documentStates: Pick<DocumentStates, "initialize">,
-	bus: Bus,
-): {
-	documents: string[];
-	renamed: { from: string; to: string }[];
-	statesImported: number;
-} {
-	const imported: string[] = [];
-	const renamed: { from: string; to: string }[] = [];
-	let statesImported = 0;
-	const all = documents.all();
-	const stateByDocumentId = new Map(
-		bundle.documentStates.map((state) => [state.documentId, state]),
-	);
-	for (const snap of bundle.documents) {
-		const bundledState = snap.id ? stateByDocumentId.get(snap.id) : undefined;
-		const finalName = uniqueName(snap.name, (n) => all.has(n));
-		const doc = createDocument({
-			name: finalName,
-			category: snap.category || "general",
-			dataModel: bundledState ? "static" : snap.dataModel,
-			canvas: snap.canvas,
-			meta: snap.meta || {},
-			pages: sanitiseBundlePages(snap.pages),
-			activePage: snap.activePage ?? 0,
-			nextId: snap.nextId ?? 1,
-		});
-		all.set(finalName, doc);
-		documents.persist(finalName);
-		bus.emit("document:created", { docName: finalName });
-		if (bundledState) {
-			documentStates.initialize(
-				finalName,
-				bundledState.schema,
-				bundledState.data,
-			);
-			statesImported++;
-		}
-		imported.push(finalName);
-		if (finalName !== snap.name)
-			renamed.push({ from: snap.name, to: finalName });
-	}
-	return { documents: imported, renamed, statesImported };
-}
-
-function sanitiseBundlePages(
-	pages: Awaited<ReturnType<typeof decodeBundle>>["documents"][number]["pages"],
-) {
-	return pages?.length
-		? pages.map((p) => ({
-				...p,
-				html: p.html ? stripActiveHtml(p.html) : p.html,
-			}))
-		: undefined;
-}
-
-function importBundleChartes(
-	chartes: Awaited<ReturnType<typeof decodeBundle>>["chartes"],
-	store: Store,
-	bus: Bus,
-): { added: string[]; skipped: string[] } {
-	const added: string[] = [];
-	const skipped: string[] = [];
-	for (const c of chartes) {
-		try {
-			if (store.loadCharte(c.name)) {
-				skipped.push(c.name);
-				continue;
-			}
-			store.saveCharte(c);
-			bus.emit("charte:updated", { name: c.name, css: c.css || "" });
-			added.push(c.name);
-		} catch {}
-	}
-	return { added, skipped };
-}
-
-function importBundleCollections(
-	collections: Awaited<ReturnType<typeof decodeBundle>>["collections"],
-	store: Store,
-	bus: Bus,
-): { added: string[]; skipped: string[] } {
-	const added: string[] = [];
-	const skipped: string[] = [];
-	for (const collection of collections) {
-		try {
-			if (store.loadCollection(collection.name)) {
-				skipped.push(collection.name);
-				continue;
-			}
-			store.saveCollection(collection);
-			bus.emit("collection:saved", { name: collection.name });
-			added.push(collection.name);
-		} catch {}
-	}
-	return { added, skipped };
 }

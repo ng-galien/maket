@@ -6,8 +6,8 @@
  * Session-scoped operations (focus, state, lock) live in maket_workspace.
  *
  * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
- * `store` (charte read/write for bundle import/export), `config` (EXPORTS_DIR),
- * `pending` (pending-message cleanup on delete).
+ * `store` (document metadata), `config` (EXPORTS_DIR), `pending`
+ * (pending-message cleanup on delete), and shared bundle import/export services.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -17,32 +17,19 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import {
-	collectAssetFilenames,
-	loadAssetsFromDir,
-} from "../lib/asset-collector.js";
-import { writeBundleAssets } from "../lib/asset-writer.js";
-import {
-	bundleFilename,
-	decodeBundle,
-	encodeBundleV2,
-	MAKET_BUNDLE_EXT,
-	uniqueName,
-} from "../lib/maket-format.js";
+import { decodeBundle, MAKET_BUNDLE_EXT } from "../lib/maket-format.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
+import type { BundleExportService } from "../services/bundle-export.js";
+import type {
+	BundleImportResult,
+	BundleImportService,
+} from "../services/bundle-import.js";
 import type { Bus } from "../services/bus.js";
-import type { Collections } from "../services/collections.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { Pending } from "../services/pending.js";
 import type { Store } from "../services/store.js";
-import {
-	type Charte,
-	computeCanvasDims,
-	createDocument,
-	type Document,
-	type Page,
-} from "../types.js";
+import { computeCanvasDims, createDocument, type Page } from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
 
 export interface DocumentsDeps {
@@ -51,7 +38,8 @@ export interface DocumentsDeps {
 	store: Store;
 	config: Config;
 	pending: Pending;
-	collections: Pick<Collections, "referencedBy">;
+	bundleExportService: BundleExportService;
+	bundleImportService: BundleImportService;
 }
 
 const ActionSchema = z.enum([
@@ -178,8 +166,8 @@ const DESCRIPTION = [
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
-	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes are embedded automatically. Override the filename with `output`.",
-	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes skip names that already exist so your current brand isn't overwritten. Assets in the bundle are restored to ASSETS_DIR with the same collision-renaming rule.",
+	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots are embedded automatically; revision history stays local. Override the filename with `output`.",
+	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes and collections skip names that already exist. Current document-state snapshots initialize revision 1, and assets are restored to ASSETS_DIR with the existing collision rule.",
 ].join("\n");
 
 function totalElementCount(pages: Page[]): number {
@@ -191,7 +179,15 @@ function totalElementCount(pages: Page[]): number {
 }
 
 export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
-	const { documents, bus, store, config, pending, collections } = deps;
+	const {
+		documents,
+		bus,
+		store,
+		config,
+		pending,
+		bundleExportService,
+		bundleImportService,
+	} = deps;
 	return {
 		metadata: {
 			name: "maket_doc",
@@ -205,7 +201,8 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 				store,
 				config,
 				pending,
-				collections,
+				bundleExportService,
+				bundleImportService,
 			}),
 	};
 }
@@ -218,7 +215,8 @@ interface MaketDocToolDeps {
 	store: Store;
 	config: Config;
 	pending: Pending;
-	collections: Pick<Collections, "referencedBy">;
+	bundleExportService: BundleExportService;
+	bundleImportService: BundleImportService;
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -239,15 +237,9 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 		case "meta":
 			return runMeta(args, deps.documents, deps.bus);
 		case "export":
-			return runExport(
-				args,
-				deps.documents,
-				deps.store,
-				deps.config,
-				deps.collections,
-			);
+			return runExport(args, deps.config, deps.bundleExportService);
 		case "import":
-			return runImport(args, deps.documents, deps.store, deps.bus, deps.config);
+			return runImport(args, deps.config, deps.bundleImportService);
 	}
 }
 
@@ -483,106 +475,62 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
-// Export is an MCP workflow coordinator that gathers documents, assets, chartes, and config into the portable bundle boundary.
+// Export is an MCP adapter that writes the bundle produced by BundleExportService.
 async function runExport(
 	args: Args,
-	documents: Documents,
-	store: Store,
 	config: Config,
-	collections: Pick<Collections, "referencedBy">,
+	bundleExportService: BundleExportService,
 ) {
-	const all = documents.all();
-	const names: string[] =
+	const names =
 		args.docs && args.docs.length > 0
 			? args.docs
 			: args.doc
 				? [args.doc]
-				: [...all.keys()];
+				: undefined;
+	const result = await bundleExportService.build({
+		names,
+		includeAssets: args.include_assets !== false,
+	});
+	if (!result.ok) return text(result.message, true);
 
-	if (names.length === 0) return text("No documents to export", true);
-
-	const selected: Document[] = [];
-	const missing: string[] = [];
-	for (const name of names) {
-		const d = documents.resolveOrLoad(name);
-		if (!d) missing.push(name);
-		else selected.push(d);
-	}
-	if (missing.length)
-		return text(`Documents not found: ${missing.join(", ")}`, true);
-	const stateful = selected.filter((doc) => doc.dataModel === "state");
-	if (stateful.length > 0) {
-		return text(
-			`State-backed documents cannot be bundled yet: ${stateful.map((doc) => doc.name).join(", ")}.`,
-			true,
-		);
-	}
-
-	const charteNames = new Set<string>();
-	for (const d of selected) if (d.meta?.charte) charteNames.add(d.meta.charte);
-	const chartes: Charte[] = [];
-	for (const name of charteNames) {
-		try {
-			const c = store.loadCharte(name);
-			if (c) chartes.push(c);
-		} catch {}
-	}
-
-	const includeAssets = args.include_assets !== false;
-	const collectionRefs = collections.referencedBy(selected);
-	let buf: Buffer;
-	let assetReport = "";
-	if (includeAssets) {
-		const refs = collectAssetFilenames(selected);
-		const { assets, missing: missingAssets } = loadAssetsFromDir(
-			refs,
-			config.ASSETS_DIR,
-		);
-		buf = await encodeBundleV2(selected, chartes, collectionRefs, assets);
-		assetReport = assets.length > 0 ? ` + ${assets.length} asset(s)` : "";
-		if (missingAssets.length > 0) {
-			assetReport += ` (${missingAssets.length} missing: ${missingAssets.slice(0, 3).join(", ")}${missingAssets.length > 3 ? "…" : ""})`;
-		}
-	} else {
-		buf = await encodeBundleV2(selected, chartes, collectionRefs, []);
-	}
-
-	const defaultName =
-		selected.length === 1
-			? selected[0]?.name || "maket-bundle"
-			: "maket-bundle";
 	const filename = args.output
 		? args.output.endsWith(MAKET_BUNDLE_EXT)
 			? args.output
 			: `${args.output}${MAKET_BUNDLE_EXT}`
-		: bundleFilename(defaultName);
+		: result.filename;
 	let outPath: string;
 	try {
 		outPath = resolveSafeOutputPath(filename, config.EXPORTS_DIR);
 	} catch (e) {
 		return text((e as Error).message, true);
 	}
-	writeFileSync(outPath, buf);
+	writeFileSync(outPath, result.buffer);
 
 	const docLabel =
-		selected
+		result.documents
 			.slice(0, 3)
 			.map((d) => d.name)
-			.join(", ") + (selected.length > 3 ? `, +${selected.length - 3}` : "");
-	const charteLabel = chartes.length ? ` + ${chartes.length} charte(s)` : "";
+			.join(", ") +
+		(result.documents.length > 3 ? `, +${result.documents.length - 3}` : "");
+	const charteLabel = result.chartes.length
+		? ` + ${result.chartes.length} charte(s)`
+		: "";
+	let assetReport =
+		result.assets.length > 0 ? ` + ${result.assets.length} asset(s)` : "";
+	if (result.missingAssets.length > 0) {
+		assetReport += ` (${result.missingAssets.length} missing: ${result.missingAssets.slice(0, 3).join(", ")}${result.missingAssets.length > 3 ? "…" : ""})`;
+	}
 	return text(
-		`Exported ${selected.length} document(s)${charteLabel}${assetReport} → ${outPath} (${Math.round(buf.length / 1024)} KB)\n  ${docLabel}`,
+		`Exported ${result.documents.length} document(s)${charteLabel}${assetReport} → ${outPath} (${Math.round(result.buffer.length / 1024)} KB)\n  ${docLabel}`,
 	);
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
-// Import is an MCP workflow coordinator that restores bundle data across document, asset, charte, persistence, and event services.
+// Import is an MCP adapter that reads a bundle and reports the shared restoration result.
 async function runImport(
 	args: Args,
-	documents: Documents,
-	store: Store,
-	bus: Bus,
 	config: Config,
+	bundleImportService: BundleImportService,
 ) {
 	if (!args.input) return text("input is required for action=import", true);
 	const resolved = isAbsolute(args.input)
@@ -605,75 +553,51 @@ async function runImport(
 		return text(msg, true);
 	}
 
-	const importedDocs: string[] = [];
-	const renamedDocs: string[] = [];
-	const all = documents.all();
-	for (const snap of bundle.documents) {
-		if (snap.dataModel === "state") {
-			return text(
-				`Bundle document "${snap.name}" declares state without bundled revisions.`,
-				true,
-			);
-		}
-		const finalName = uniqueName(snap.name, (n) => all.has(n));
-		const doc = createDocument({
-			name: finalName,
-			category: snap.category || "general",
-			dataModel: snap.dataModel,
-			canvas: snap.canvas,
-			meta: snap.meta || {},
-			pages: snap.pages?.length ? snap.pages : undefined,
-			activePage: snap.activePage ?? 0,
-			nextId: snap.nextId ?? 1,
-		});
-		all.set(finalName, doc);
-		documents.persist(finalName);
-		bus.emit("document:created", { docName: finalName });
-		importedDocs.push(finalName);
-		if (finalName !== snap.name)
-			renamedDocs.push(`${snap.name} → ${finalName}`);
+	let imported: BundleImportResult;
+	try {
+		imported = bundleImportService.restore(bundle);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		return text(`Could not import bundle: ${msg}`, true);
 	}
-
-	const importedChartes: string[] = [];
-	const skippedChartes: string[] = [];
-	for (const c of bundle.chartes) {
-		try {
-			if (store.loadCharte(c.name)) {
-				skippedChartes.push(c.name);
-				continue;
-			}
-			store.saveCharte(c);
-			bus.emit("charte:updated", { name: c.name, css: c.css || "" });
-			importedChartes.push(c.name);
-		} catch {}
-	}
-
-	const assetReport = writeBundleAssets(bundle.assets, config.ASSETS_DIR);
-	if (assetReport.written > 0) {
-		bus.emit("assets:changed", {});
-	}
-
-	bus.emit("toast", {
-		text: `Imported ${importedDocs.length} document(s)${importedChartes.length ? ` + ${importedChartes.length} charte(s)` : ""}${assetReport.written ? ` + ${assetReport.written} asset(s)` : ""}`,
-		level: "success",
-	});
 
 	const lines: string[] = [];
 	lines.push(
-		`Imported from ${resolved} (bundle v${bundle.version}, exported ${bundle.exportedAt || "unknown"})`,
+		`Imported from ${resolved} (bundle v${imported.version}, exported ${imported.exportedAt || "unknown"})`,
 	);
-	lines.push(`Documents: ${importedDocs.join(", ") || "(none)"}`);
-	if (renamedDocs.length) lines.push(`  renamed: ${renamedDocs.join(", ")}`);
-	if (importedChartes.length)
-		lines.push(`Chartes added: ${importedChartes.join(", ")}`);
-	if (skippedChartes.length)
-		lines.push(`Chartes skipped (already exist): ${skippedChartes.join(", ")}`);
+	lines.push(`Documents: ${imported.documents.join(", ") || "(none)"}`);
+	if (imported.renamed.length) {
+		lines.push(
+			`  renamed: ${imported.renamed.map(({ from, to }) => `${from} → ${to}`).join(", ")}`,
+		);
+	}
+	if (imported.chartesAdded.length) {
+		lines.push(`Chartes added: ${imported.chartesAdded.join(", ")}`);
+	}
+	if (imported.chartesSkipped.length) {
+		lines.push(
+			`Chartes skipped (already exist): ${imported.chartesSkipped.join(", ")}`,
+		);
+	}
+	if (imported.collectionsAdded.length) {
+		lines.push(`Collections added: ${imported.collectionsAdded.join(", ")}`);
+	}
+	if (imported.collectionsSkipped.length) {
+		lines.push(
+			`Collections skipped (already exist): ${imported.collectionsSkipped.join(", ")}`,
+		);
+	}
+	if (imported.statesImported > 0) {
+		lines.push(`Document states: ${imported.statesImported} initialized`);
+	}
 	if (bundle.assets.length > 0) {
-		const parts = [`Assets: ${assetReport.written} written`];
-		if (assetReport.skipped)
-			parts.push(`${assetReport.skipped} skipped (already present)`);
-		if (assetReport.rejected.length)
-			parts.push(`${assetReport.rejected.length} rejected (unsafe path)`);
+		const parts = [`Assets: ${imported.assetsWritten} written`];
+		if (imported.assetsSkipped) {
+			parts.push(`${imported.assetsSkipped} skipped (already present)`);
+		}
+		if (imported.assetsRejected.length) {
+			parts.push(`${imported.assetsRejected.length} rejected (unsafe path)`);
+		}
 		lines.push(parts.join(", "));
 	}
 	return text(lines.join("\n"));
@@ -682,7 +606,15 @@ async function runImport(
 export const documentsPack: ToolPack = {
 	id: "documents",
 	name: "Documents",
-	requires: ["documents", "bus", "store", "config", "pending", "collections"],
+	requires: [
+		"documents",
+		"bus",
+		"store",
+		"config",
+		"pending",
+		"bundleExportService",
+		"bundleImportService",
+	],
 	declaresTools: ["maket_doc"],
 	register(container) {
 		container.register({
