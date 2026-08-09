@@ -5,10 +5,9 @@
  *
  * Two roles in one binary:
  *
- *  1. **stdio MCP bridge** — when invoked with no args (the way an MCP client
- *     spawns us), proxy stdio JSON-RPC to a local Maket HTTP server, spawning
- *     one if needed. This is the historical contract used by desktop MCP hosts,
- *     Codex, and friends.
+ *  1. **stdio MCP gateway** — when invoked with no args (the way an MCP client
+ *     spawns us), expose the local Maket HTTP server through the MCP SDK's
+ *     stdio transport, spawning the HTTP server if needed.
  *  2. **CLI** — when invoked with a known subcommand (start, stop, status,
  *     install, …), dispatch and exit. Lets users manage the server and wire
  *     it into MCP clients without leaving the terminal.
@@ -38,16 +37,28 @@ import { runUpdate } from "./commands/update.ts";
 
 interface GlobalOpts {
 	dataDir?: string;
-	port?: number;
+	port?: Array<number | undefined>;
 	host?: string;
 }
 
 type SupportedClient = "claude" | "codex" | "gemini";
 
+class CliUsageError extends Error {}
+
+function parsePort(value: string | number | undefined): number | undefined {
+	if (value === undefined) return undefined;
+	const port = Number(value);
+	if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+		throw new CliUsageError("--port must be an integer between 1 and 65535");
+	}
+	return port;
+}
+
 function envOverrides(opts: GlobalOpts): MaketEnvOverrides {
 	const out: MaketEnvOverrides = {};
 	if (opts.dataDir) out.dataDir = opts.dataDir;
-	if (typeof opts.port === "number") out.port = opts.port;
+	const port = opts.port?.at(-1);
+	if (port !== undefined) out.port = port;
 	if (opts.host) out.host = opts.host;
 	return out;
 }
@@ -109,12 +120,12 @@ function buildCli(): CAC {
 		"Server data directory (overrides MAKET_DATA_DIR)",
 	);
 	cli.option("--port <number>", "HTTP port (overrides MAKET_PORT)", {
-		type: [Number],
+		type: [parsePort],
 	});
 	cli.option("--host <host>", "Bind host (overrides MAKET_HOST)");
 
 	cli
-		.command("bridge", "Run stdio ↔ HTTP MCP proxy (default for MCP clients)")
+		.command("bridge", "Run the MCP v2 stdio gateway (default for MCP clients)")
 		.action(async (opts: GlobalOpts) => {
 			await runBridge(envOverrides(opts));
 		});
@@ -244,8 +255,11 @@ async function main(argv: string[]): Promise<void> {
 }
 
 main(process.argv.slice(2)).catch((e) => {
-	process.stderr.write(
-		`maket: ${(e as Error).stack ?? (e as Error).message}\n`,
-	);
+	const error = e instanceof Error ? e : new Error(String(e));
+	const detail =
+		error instanceof CliUsageError || error.name === "CACError"
+			? error.message
+			: (error.stack ?? error.message);
+	process.stderr.write(`maket: ${detail}\n`);
 	process.exit(1);
 });

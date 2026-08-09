@@ -5,12 +5,14 @@
  * server boot, tool discovery, and living-document Learn guidance.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
@@ -55,38 +57,7 @@ function pickFreePort() {
   });
 }
 
-function createRpcClient(child) {
-  let buffer = "";
-  const pending = new Map();
-  child.stdout.on("data", (chunk) => {
-    buffer += chunk.toString();
-    let newline = buffer.indexOf("\n");
-    while (newline !== -1) {
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (line) {
-        const message = JSON.parse(line);
-        pending.get(message.id)?.(message);
-      }
-      newline = buffer.indexOf("\n");
-    }
-  });
-  return (message, timeoutMs = 30_000) =>
-    new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        pending.delete(message.id);
-        reject(new Error(`timed out waiting for JSON-RPC id ${message.id}`));
-      }, timeoutMs);
-      pending.set(message.id, (response) => {
-        clearTimeout(timeout);
-        pending.delete(message.id);
-        resolve(response);
-      });
-      child.stdin.write(`${JSON.stringify(message)}\n`);
-    });
-}
-
-let bridge;
+let client;
 let port;
 try {
   process.stdout.write(`[npm-package-test] installing ${tarball}\n`);
@@ -145,45 +116,27 @@ try {
     throw new Error(`Codex install preview is not absolute:\n${installPreview.stdout}`);
   }
 
-  bridge = spawn(bin, ["bridge"], {
+  client = new Client({ name: "npm-package-test", version: "1" }, { versionNegotiation: { mode: "auto" } });
+  const transport = new StdioClientTransport({
+    command: bin,
+    args: ["bridge"],
     env,
-    stdio: ["pipe", "pipe", "pipe"],
+    stderr: "pipe",
   });
-  bridge.stderr.resume();
-  const rpc = createRpcClient(bridge);
-  const initialized = await rpc({
-    jsonrpc: "2.0",
-    id: 1,
-    method: "initialize",
-    params: {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: { name: "npm-package-test", version: "1" },
-    },
-  });
-  if (initialized.error) throw new Error(JSON.stringify(initialized.error));
+  transport.stderr?.resume();
+  await client.connect(transport);
 
-  const listed = await rpc({
-    jsonrpc: "2.0",
-    id: 2,
-    method: "tools/list",
-    params: {},
-  });
-  const names = new Set(listed.result?.tools?.map((tool) => tool.name) ?? []);
+  const listed = await client.listTools();
+  const names = new Set(listed.tools.map((tool) => tool.name));
   for (const name of ["maket_state", "maket_learn"]) {
     if (!names.has(name)) throw new Error(`installed server does not expose ${name}`);
   }
 
-  const learned = await rpc({
-    jsonrpc: "2.0",
-    id: 3,
-    method: "tools/call",
-    params: {
-      name: "maket_learn",
-      arguments: { action: "topic", topic: "state", audience: "agent" },
-    },
+  const learned = await client.callTool({
+    name: "maket_learn",
+    arguments: { action: "topic", topic: "state", audience: "agent" },
   });
-  const learnText = learned.result?.content?.map((item) => item.text ?? "").join("\n") ?? "";
+  const learnText = learned.content.map((item) => (item.type === "text" ? item.text : "")).join("\n");
   if (!learnText.includes("maket_state action=init")) {
     throw new Error(`installed Learn does not contain state guidance: ${learnText}`);
   }
@@ -192,7 +145,7 @@ try {
     `[npm-package-test] ok — ${names.size} tools, headless Chromium, absolute client config, Learn state\n`,
   );
 } finally {
-  bridge?.kill("SIGTERM");
+  await client?.close();
   if (existsSync(bin) && port) {
     spawnSync(bin, ["stop"], {
       env: {

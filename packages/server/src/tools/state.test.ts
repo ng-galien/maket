@@ -1,5 +1,5 @@
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { describe, expect, it } from "vitest";
-import type { ToolResult } from "../core/container.js";
 import { createBus } from "../services/bus.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
@@ -7,7 +7,7 @@ import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketStateTool, statePack } from "./state.js";
 
-function textOf(result: ToolResult) {
+function textOf(result: CallToolResult) {
 	return result.content
 		.filter(
 			(item): item is Extract<typeof item, { type: "text" }> =>

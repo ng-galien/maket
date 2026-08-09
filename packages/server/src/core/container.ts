@@ -5,21 +5,13 @@
  * Dependencies are resolved by parameter name via Awilix PROXY mode.
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
 import type {
 	CallToolResult,
-	ServerNotification,
-	ServerRequest,
-} from "@modelcontextprotocol/sdk/types.js";
+	McpServer,
+	ServerContext,
+} from "@modelcontextprotocol/server";
 import type { AwilixContainer } from "awilix";
 import type { z } from "zod";
-
-/** MCP extra context passed to tool handlers (signal, sendNotification, etc.). */
-export type ToolExtra = RequestHandlerExtra<ServerRequest, ServerNotification>;
-
-/** Re-export the SDK's tool result type so handlers don't depend on SDK paths. */
-export type ToolResult = CallToolResult;
 
 export interface ToolMetadata {
 	name: string;
@@ -31,8 +23,8 @@ export interface ToolHandler {
 	metadata: ToolMetadata;
 	handler: (
 		args: Record<string, unknown>,
-		extra: ToolExtra,
-	) => Promise<ToolResult>;
+		extra: ServerContext,
+	) => Promise<CallToolResult>;
 }
 
 // ============================================================
@@ -53,17 +45,19 @@ export function mountTools(
 	onCall?: (
 		name: string,
 		args: Record<string, unknown>,
-		result: ToolResult,
+		result: CallToolResult,
 	) => void,
 ): void {
 	const registry: Map<string, ToolHandler> = container.resolve("toolRegistry");
 
 	for (const [, tool] of registry) {
-		server.tool(
+		server.registerTool(
 			tool.metadata.name,
-			tool.metadata.description,
-			tool.metadata.schema.shape,
-			async (args: Record<string, unknown>, extra: ToolExtra) => {
+			{
+				description: tool.metadata.description,
+				inputSchema: tool.metadata.schema,
+			},
+			async (args, extra) => {
 				const result = await tool.handler(args, extra);
 				onCall?.(tool.metadata.name, args, result);
 				return result;

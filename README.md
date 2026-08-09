@@ -173,7 +173,7 @@ Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings
 ```text
 maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
-  bridge                Run stdio ↔ HTTP MCP proxy (default for MCP clients)
+  bridge                Run the MCP v2 stdio gateway (default for MCP clients)
   start                 Start the Maket HTTP server in the background
   stop                  Stop a server started by 'maket start'
   restart               Stop (if running) then start

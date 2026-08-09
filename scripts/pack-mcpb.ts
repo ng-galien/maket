@@ -40,7 +40,9 @@ function checkMcpbCli(): void {
 // Native modules and heavy runtime deps stay external — bundled into staging
 // via `npm install --omit=dev`.
 const EXTERNALS = [
-  "@modelcontextprotocol/sdk",
+  "@modelcontextprotocol/node",
+  "@modelcontextprotocol/server",
+  "@resvg/resvg-js",
   "awilix",
   "beautiful-mermaid",
   "express",
