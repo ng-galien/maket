@@ -16,6 +16,10 @@ import {
 } from "../store/useStore";
 import { sendStateValuePatch, sendTextEdit } from "../store/ws";
 import {
+	type PresentationPolicy,
+	presentationPolicy,
+} from "./presentation-policy";
+import {
 	findStateEnumAnchor,
 	StateEnumSelect,
 	type StateEnumSelectState,
@@ -62,11 +66,14 @@ function collectionPreviewHtml(
 	collection: Collection | null,
 	collectionName: string | undefined,
 	preview: CollectionPagePreview | undefined,
+	showTemplateMarkers: boolean,
 ): { html: string; error: string | null } {
 	if (!hasCollection) return { html: rawHtml, error: null };
 	if (!collection) {
 		return {
-			...markedTemplateHtml(rawHtml, null),
+			html: showTemplateMarkers
+				? markedTemplateHtml(rawHtml, null).html
+				: rawHtml,
 			error: `Collection "${collectionName ?? ""}" not found.`,
 		};
 	}
@@ -95,7 +102,9 @@ function collectionPreviewHtml(
 			}
 		}
 	}
-	return markedTemplateHtml(rawHtml, collection);
+	return showTemplateMarkers
+		? markedTemplateHtml(rawHtml, collection)
+		: { html: rawHtml, error: null };
 }
 
 /** Mark placeholders for template display. A template Mustache cannot parse
@@ -124,6 +133,7 @@ interface Props {
 	focused: boolean;
 	collection?: Collection | null;
 	preview?: CollectionPagePreview;
+	policy?: PresentationPolicy;
 }
 
 export interface CollectionPagePreview {
@@ -158,6 +168,7 @@ export const PageCanvas = memo(function PageCanvas({
 	focused,
 	collection = null,
 	preview,
+	policy,
 }: Props) {
 	const t = useT();
 	const pageRef = useRef<HTMLDivElement>(null);
@@ -170,7 +181,19 @@ export const PageCanvas = memo(function PageCanvas({
 	const page = doc.pages[pageIndex];
 	const stateBacked = doc.dataModel === "state";
 	const stateView = useStore((s) => s.documentStates[doc.name]);
-	const stateMode = useStore((s) => s.stateCanvasModes[doc.name] ?? "live");
+	const canvasStateMode = useStore(
+		(s) => s.stateCanvasModes[doc.name] ?? "live",
+	);
+	const readOnly = useStore((s) => s.readOnly);
+	const activePolicy =
+		policy ??
+		presentationPolicy({
+			surface: "canvas",
+			dataSource: readOnly ? "static" : "connected",
+			access: doc.meta?.locked ? "locked" : readOnly ? "read-only" : "writable",
+		});
+	const stateMode =
+		activePolicy.stateRepresentation === "live" ? "live" : canvasStateMode;
 	const statePatchPending = useStore((s) => s.statePatchPending);
 	const statePatchErrors = useStore((s) => s.statePatchErrors);
 	const stateDocumentPending = hasPendingStatePatchForDocument(
@@ -189,8 +212,9 @@ export const PageCanvas = memo(function PageCanvas({
 			collection,
 			page?.collection?.name,
 			preview,
+			activePolicy.authoring,
 		);
-	}, [collection, page?.collection, preview, rawHtml]);
+	}, [activePolicy.authoring, collection, page?.collection, preview, rawHtml]);
 	const html = useMemo(
 		() =>
 			collectionRender.html.replace(
@@ -202,12 +226,11 @@ export const PageCanvas = memo(function PageCanvas({
 	const { canvas } = doc;
 	const pending = useStore((s) => s.pending);
 	const isEditing = useStore((s) => s.editingElementId !== null);
-	const readOnly = useStore((s) => s.readOnly);
 	const canInteract =
-		!readOnly &&
-		doc.meta?.locked !== true &&
-		(!stateBacked || stateMode === "design");
+		activePolicy.authoring && (!stateBacked || stateMode === "design");
 	const canEditTemplate = canInteract && preview?.mode !== "rendered";
+	const canPersistState = activePolicy.stateControls === "persist";
+	const canUseStateControls = activePolicy.stateControls !== "disabled";
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
 	const placeholderOptions = useMemo(
 		() => [
@@ -243,6 +266,9 @@ export const PageCanvas = memo(function PageCanvas({
 	const [stateEditor, setStateEditor] = useState<StateValueEditorState | null>(
 		null,
 	);
+	const [localStateValues, setLocalStateValues] = useState<
+		Record<string, string | number | boolean | null>
+	>({});
 	const [enumEditor, setEnumEditor] = useState<StateEnumSelectState | null>(
 		null,
 	);
@@ -386,16 +412,20 @@ export const PageCanvas = memo(function PageCanvas({
 
 	const activateStateButton = useCallback(
 		(target: HTMLElement) => {
-			if (!stateView || readOnly || doc.meta?.locked === true) return;
+			if (!stateView || !canUseStateControls) return;
 			const pointer = target.dataset.maketPath;
 			const type = target.dataset.maketType;
 			if (!pointer || !type) return;
-			if (stateDocumentPending) return;
+			if (canPersistState && stateDocumentPending) return;
 			let value: unknown;
-			try {
-				value = readJsonPointer(stateView.data, pointer);
-			} catch {
-				return;
+			if (Object.hasOwn(localStateValues, pointer)) {
+				value = localStateValues[pointer];
+			} else {
+				try {
+					value = readJsonPointer(stateView.data, pointer);
+				} catch {
+					return;
+				}
 			}
 			if (
 				type !== "string" &&
@@ -413,7 +443,13 @@ export const PageCanvas = memo(function PageCanvas({
 				left: Math.min(window.innerWidth - 292, Math.max(12, rect.left)),
 			});
 		},
-		[doc.meta?.locked, readOnly, stateDocumentPending, stateView],
+		[
+			canPersistState,
+			canUseStateControls,
+			localStateValues,
+			stateDocumentPending,
+			stateView,
+		],
 	);
 
 	const authoritativeStateValue = useCallback(
@@ -430,10 +466,10 @@ export const PageCanvas = memo(function PageCanvas({
 	const commitStateStringValue = useCallback(
 		(pointer: string, value: string): "sent" | "unchanged" | "restored" => {
 			if (!stateView) return "restored";
-			if (readOnly) return "unchanged";
+			if (activePolicy.stateControls === "local") return "unchanged";
 			const authoritative = authoritativeStateValue(pointer);
 			if (
-				doc.meta?.locked === true ||
+				!canPersistState ||
 				stateDocumentPending ||
 				typeof authoritative !== "string"
 			)
@@ -452,10 +488,10 @@ export const PageCanvas = memo(function PageCanvas({
 		},
 		[
 			authoritativeStateValue,
-			doc.meta?.locked,
+			activePolicy.stateControls,
+			canPersistState,
 			doc.name,
 			pageIndex,
-			readOnly,
 			stateDocumentPending,
 			stateView,
 		],
@@ -463,13 +499,7 @@ export const PageCanvas = memo(function PageCanvas({
 
 	const activateStateEnum = useCallback(
 		(select: HTMLSelectElement) => {
-			if (
-				!stateView ||
-				readOnly ||
-				doc.meta?.locked === true ||
-				stateDocumentPending
-			)
-				return;
+			if (!stateView || !canPersistState || stateDocumentPending) return;
 			useStore.getState().setFocusedPage(doc.name, pageIndex);
 			const pointer = select.dataset.maketPath;
 			if (!pointer || select.dataset.maketType !== "string") return;
@@ -507,10 +537,9 @@ export const PageCanvas = memo(function PageCanvas({
 		},
 		[
 			authoritativeStateValue,
-			doc.meta?.locked,
+			canPersistState,
 			doc.name,
 			pageIndex,
-			readOnly,
 			stateDocumentPending,
 			stateView,
 			t,
@@ -565,6 +594,12 @@ export const PageCanvas = memo(function PageCanvas({
 				"select[data-maket-bind][data-maket-path]",
 			) as HTMLSelectElement | null;
 			if (!select) return;
+			if (!canUseStateControls) {
+				event.preventDefault();
+				event.stopPropagation();
+				return;
+			}
+			if (!canPersistState) return;
 			event.preventDefault();
 			event.stopPropagation();
 			select.focus({ preventScroll: true });
@@ -604,8 +639,8 @@ export const PageCanvas = memo(function PageCanvas({
 				commitStringControl(binding);
 				return;
 			}
-			if (readOnly) return;
-			if (doc.meta?.locked === true) {
+			if (activePolicy.stateControls === "local") return;
+			if (!canPersistState) {
 				restoreControl(binding, pointer);
 				return;
 			}
@@ -633,13 +668,25 @@ export const PageCanvas = memo(function PageCanvas({
 				textCommitRef.current.delete(target);
 			}
 		};
-		const onKeyDown = (event: KeyboardEvent) =>
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (!canUseStateControls) {
+				const target = event.target;
+				if (
+					target instanceof HTMLElement &&
+					target.closest("[data-maket-bind][data-maket-path]")
+				) {
+					event.preventDefault();
+				}
+				return;
+			}
+			if (!canPersistState) return;
 			handleLiveControlKeyDown(event, {
 				activateEnum: activateStateEnum,
 				commitString: commitStringControl,
 				restore: restoreControl,
 				textCommits: textCommitRef.current,
 			});
+		};
 		el.addEventListener("pointerdown", onPointerDown);
 		el.addEventListener("click", onClick);
 		el.addEventListener("change", onChange);
@@ -655,13 +702,14 @@ export const PageCanvas = memo(function PageCanvas({
 	}, [
 		activateStateEnum,
 		activateStateButton,
+		activePolicy.stateControls,
 		authoritativeStateValue,
+		canPersistState,
+		canUseStateControls,
 		commitStateStringValue,
-		doc.meta?.locked,
 		doc.name,
 		liveState,
 		pageIndex,
-		readOnly,
 		stateDocumentPending,
 		statePatchPending,
 		stateView,
@@ -678,15 +726,13 @@ export const PageCanvas = memo(function PageCanvas({
 				const error = key ? statePatchErrors[key] : undefined;
 				binding.toggleAttribute("data-maket-pending", isPending);
 				binding.setAttribute("aria-busy", String(isPending));
+				binding.setAttribute(
+					"aria-disabled",
+					String(!canUseStateControls || stateDocumentPending),
+				);
 				if (binding instanceof HTMLSelectElement) {
 					binding.setAttribute("aria-haspopup", "listbox");
 					binding.setAttribute("aria-expanded", "false");
-					binding.setAttribute(
-						"aria-disabled",
-						String(
-							readOnly || doc.meta?.locked === true || stateDocumentPending,
-						),
-					);
 				}
 				if (error) binding.setAttribute("data-maket-error", error);
 				else binding.removeAttribute("data-maket-error");
@@ -716,9 +762,8 @@ export const PageCanvas = memo(function PageCanvas({
 			});
 	}, [
 		doc.name,
-		doc.meta?.locked,
+		canUseStateControls,
 		liveState,
-		readOnly,
 		renderHtml,
 		statePatchErrors,
 		statePatchPending,
@@ -730,6 +775,18 @@ export const PageCanvas = memo(function PageCanvas({
 		setStateEditor(null);
 		setEnumEditor(null);
 	}, [stateMode, stateView?.revision]);
+
+	useEffect(() => {
+		if (activePolicy.authoring) return;
+		if (editingRef.current) exitEdit(false);
+		setToolbar(null);
+		pageRef.current
+			?.querySelectorAll("[data-id].selected")
+			.forEach((element) => {
+				element.classList.remove("selected");
+			});
+		useStore.getState().selectElement(null);
+	}, [activePolicy.authoring]);
 
 	const dismissEnumEditor = useCallback(
 		(restoreFocus: boolean) => {
@@ -802,6 +859,14 @@ export const PageCanvas = memo(function PageCanvas({
 
 	useEffect(() => {
 		if (!pageRef.current) return;
+		if (!activePolicy.showPendingMarkers) {
+			pageRef.current
+				.querySelectorAll("[data-id].flagged-delete, [data-id].has-note")
+				.forEach((element) => {
+					element.classList.remove("flagged-delete", "has-note");
+				});
+			return;
+		}
 		const deleteIds = new Set(
 			pending.filter((m) => m.type === "delete").map((m) => m.elementId),
 		);
@@ -814,7 +879,7 @@ export const PageCanvas = memo(function PageCanvas({
 			el.classList.toggle("flagged-delete", deleteIds.has(id));
 			el.classList.toggle("has-note", noteIds.has(id));
 		});
-	}, [pending, renderHtml]);
+	}, [activePolicy.showPendingMarkers, pending, renderHtml]);
 
 	const margins = canvas.margins;
 
@@ -822,7 +887,7 @@ export const PageCanvas = memo(function PageCanvas({
 		<>
 			<div
 				ref={pageRef}
-				className={`page-canvas${preview?.mode === "rendered" || liveState ? " data-preview" : ""}${liveState ? " state-live" : ""}`}
+				className={`page-canvas${activePolicy.showPreviewOutline && (preview?.mode === "rendered" || liveState) ? " data-preview" : ""}${liveState ? " state-live" : ""}${activePolicy.surface === "reader" ? " reader-page" : ""}`}
 				data-page={pageIndex}
 				data-document-mode={doc.dataModel}
 				aria-busy={liveState ? stateDocumentPending : undefined}
@@ -841,7 +906,7 @@ export const PageCanvas = memo(function PageCanvas({
 					dangerouslySetInnerHTML={{ __html: renderHtml }}
 					style={{ width: "100%", height: "100%" }}
 				/>
-				{margins && (
+				{activePolicy.showGuides && margins && (
 					<div
 						className="margin-guide"
 						style={{
@@ -856,7 +921,7 @@ export const PageCanvas = memo(function PageCanvas({
 						}}
 					/>
 				)}
-				{collectionRender.error && (
+				{activePolicy.showDiagnostics && collectionRender.error && (
 					<div className="absolute top-2 left-2 right-2 z-[10000] rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] font-semibold text-danger shadow-sm">
 						{t("collection_preview_error")}: {collectionRender.error}
 					</div>
@@ -930,6 +995,14 @@ export const PageCanvas = memo(function PageCanvas({
 						state={stateEditor}
 						onCancel={() => setStateEditor(null)}
 						onSubmit={(value) => {
+							if (activePolicy.stateControls === "local") {
+								setLocalStateValues((current) => ({
+									...current,
+									[stateEditor.pointer]: value,
+								}));
+								setStateEditor(null);
+								return;
+							}
 							if (stateDocumentPending) return;
 							const requestId = sendStateValuePatch(
 								doc.name,

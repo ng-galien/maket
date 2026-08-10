@@ -1,6 +1,8 @@
 import { act, cleanup, render } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import {
@@ -29,18 +31,18 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
+beforeEach(() => setLang("en"));
+
 describe("ReadingWorkspace", () => {
 	it("fits a fixed-width page inside narrow viewports without enlarging it", () => {
 		expect(readingScale(320, 210)).toBeCloseTo(296 / (210 * (96 / 25.4)));
 		expect(readingScale(1440, 210)).toBe(1);
 	});
 
-	it("blocks global reading shortcuts while a field or popover owns focus", () => {
+	it("blocks global reading shortcuts while an interactive control owns focus", () => {
 		const input = document.createElement("input");
-		expect(readingShortcutBlocked(input, null, false)).toBe(true);
-		expect(readingShortcutBlocked(document.body, "title", false)).toBe(true);
-		expect(readingShortcutBlocked(document.body, null, true)).toBe(true);
-		expect(readingShortcutBlocked(document.body, null, false)).toBe(false);
+		expect(readingShortcutBlocked(input)).toBe(true);
+		expect(readingShortcutBlocked(document.body)).toBe(false);
 	});
 
 	it("renders only the focused document and hides the canvas document chip", () => {
@@ -61,6 +63,34 @@ describe("ReadingWorkspace", () => {
 		expect(container.querySelectorAll("[data-doc]")).toHaveLength(1);
 		expect(container.querySelector("[data-doc='beta']")).not.toBeNull();
 		expect(container.querySelector(".doc-label")).toBeNull();
+	});
+
+	it("navigates between workspace documents without exposing author controls", async () => {
+		const user = userEvent.setup();
+		const alpha = makeDoc("alpha");
+		const beta = makeDoc("beta");
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+			]),
+			workspaceDocNames: [alpha.name, beta.name],
+			focusedDocName: alpha.name,
+			focusedPageIndex: 0,
+			workspaceView: "reading",
+		});
+
+		render(<ReadingWorkspace />);
+		expect(document.querySelector("[data-toolbar-shell]")).toBeNull();
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+
+		await user.click(
+			document.querySelector(
+				'button[aria-label="Next document"]',
+			) as HTMLButtonElement,
+		);
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(document.querySelector("[data-doc='beta']")).not.toBeNull();
 	});
 
 	it("positions the focused page after StrictMode effect replay", () => {

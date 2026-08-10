@@ -1,14 +1,11 @@
 import {
 	BookOpen,
 	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
 	ChevronUp,
 	FileText,
 	HelpCircle,
 	History,
 	Image,
-	LayoutGrid,
 	Lock,
 	LockOpen,
 	Maximize,
@@ -26,7 +23,6 @@ import { useFocusedDoc, useStore } from "../store/useStore";
 import { clearActivityBubbles, wsSend } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 import { DataSourceToolbarControl } from "./DataSourceToolbarControl";
-import { returnToCanvas, scrollToReadingPage } from "./ReadingWorkspace";
 
 type PanelName = "chartes" | "photos" | "docs" | "collections" | "exchange";
 
@@ -65,27 +61,18 @@ function BottomBarControls() {
 	const darkMode = useStore((s) => s.darkMode);
 	const autoFocusFit = useStore((s) => s.autoFocusFit);
 	const toggleAutoFocusFit = useStore((s) => s.toggleAutoFocusFit);
-	const workspaceView = useStore((s) => s.workspaceView);
 	const setWorkspaceView = useStore((s) => s.setWorkspaceView);
-	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
-	const setFocusedPage = useStore((s) => s.setFocusedPage);
-	const toggleWorkspaceView = () => {
+	const openReader = () => {
 		if (!focusedDoc) return;
-		if (workspaceView === "reading") {
-			returnToCanvas(focusedDoc.name, focusedPageIndex, setWorkspaceView);
-			return;
-		}
-		useStore.getState().setActivePanel(null);
 		useStore.getState().setFocusedCollection(null);
+		useStore.setState({
+			activePanel: null,
+			selectedIds: [],
+			editingElementId: null,
+			showPopover: false,
+		});
 		clearActivityBubbles();
 		setWorkspaceView("reading");
-	};
-	const showLogicalPage = (pageIndex: number) => {
-		if (!focusedDoc) return;
-		setFocusedPage(focusedDoc.name, pageIndex);
-		requestAnimationFrame(() =>
-			scrollToReadingPage(focusedDoc.name, pageIndex, "smooth"),
-		);
 	};
 
 	return (
@@ -93,39 +80,21 @@ function BottomBarControls() {
 			data-toolbar-shell
 			className="flex max-w-[calc(100vw-0.5rem)] items-center gap-1 overflow-x-auto rounded-full bg-panel px-1.5 h-11 shadow-lg select-none"
 		>
-			<PanelLaunchers compact={workspaceView === "reading"} />
+			<PanelLaunchers />
 			{focusedDoc && (
 				<WorkspaceViewToggle
-					reading={workspaceView === "reading"}
-					canvasLabel={t("canvas_view")}
 					readingLabel={t("reading_view")}
-					onToggle={toggleWorkspaceView}
+					onToggle={openReader}
 				/>
 			)}
 			<FitControls
-				reading={workspaceView === "reading"}
 				autoFocusFit={autoFocusFit}
 				onToggleAutoFocusFit={toggleAutoFocusFit}
-				onFit={
-					workspaceView === "reading" && focusedDoc
-						? () => showLogicalPage(focusedPageIndex)
-						: fitToView
-				}
-				fitLabel={
-					workspaceView === "reading" ? t("fit_reading_page") : t("fit")
-				}
+				onFit={fitToView}
+				fitLabel={t("fit")}
 				autoOnLabel={t("auto_focus_fit_on")}
 				autoOffLabel={t("auto_focus_fit_off")}
 			/>
-			{workspaceView === "reading" && focusedDoc && (
-				<ReadingPageControls
-					pageIndex={focusedPageIndex}
-					pageTotal={focusedDoc.pages.length}
-					previousLabel={t("previous_page")}
-					nextLabel={t("next_page")}
-					onChange={showLogicalPage}
-				/>
-			)}
 			<div className="flex items-center gap-1.5 px-2 max-md:hidden">
 				<div
 					className={`w-2 h-2 rounded-full transition-colors ${connected ? "bg-accent" : "bg-danger animate-pulse"}`}
@@ -134,9 +103,7 @@ function BottomBarControls() {
 					{focusedDoc?.name ?? t("no_document")}
 				</span>
 			</div>
-			<div
-				className={`items-center gap-1 ${workspaceView === "reading" ? "hidden md:flex" : "flex"}`}
-			>
+			<div className="flex items-center gap-1">
 				<DataSourceToolbarControl />
 				<StateDocumentIndicator doc={focusedDoc} />
 			</div>
@@ -148,9 +115,7 @@ function BottomBarControls() {
 				activePanel={activePanel}
 				onToggle={togglePanel}
 			/>
-			<div
-				className={`items-center gap-1 ${workspaceView === "reading" ? "hidden sm:flex" : "flex"}`}
-			>
+			<div className="flex items-center gap-1">
 				<HelpButton label={t("help")} />
 				{focusedDoc && (
 					<PrintLink href={printHrefForDoc(focusedDoc)} label={t("print")} />
@@ -179,16 +144,14 @@ function BottomBarControls() {
 	);
 }
 
-function PanelLaunchers({ compact }: { compact: boolean }) {
+function PanelLaunchers() {
 	const t = useT();
 	const activePanel = useStore((s) => s.activePanel);
 	const togglePanel = useStore((s) => s.togglePanel);
 	const dataViewOpen = useStore((s) => s.focusedCollectionName !== null);
 	return (
 		<>
-			<div
-				className={`items-center gap-1 ${compact ? "hidden sm:flex" : "flex"}`}
-			>
+			<div className="flex items-center gap-1">
 				<PanelButton
 					panel="chartes"
 					icon={<Palette size={16} />}
@@ -211,7 +174,7 @@ function PanelLaunchers({ compact }: { compact: boolean }) {
 				activePanel={activePanel}
 				onToggle={togglePanel}
 			/>
-			<div className={compact ? "hidden sm:block" : "block"}>
+			<div>
 				<PanelButton
 					panel="collections"
 					icon={<Table size={16} />}
@@ -226,77 +189,22 @@ function PanelLaunchers({ compact }: { compact: boolean }) {
 }
 
 function WorkspaceViewToggle({
-	reading,
-	canvasLabel,
 	readingLabel,
 	onToggle,
 }: {
-	reading: boolean;
-	canvasLabel: string;
 	readingLabel: string;
 	onToggle: () => void;
 }) {
-	const actionLabel = reading ? canvasLabel : readingLabel;
 	return (
 		<button
 			type="button"
 			onClick={onToggle}
-			title={actionLabel}
+			title={readingLabel}
 			aria-label={readingLabel}
-			aria-pressed={reading}
-			className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-				reading
-					? "bg-accent-soft text-accent"
-					: "text-text-3 hover:text-text-1 hover:bg-input"
-			}`}
+			className="w-9 h-9 rounded-full flex items-center justify-center text-text-3 transition-colors hover:text-text-1 hover:bg-input"
 		>
-			{reading ? <LayoutGrid size={16} /> : <BookOpen size={16} />}
+			<BookOpen size={16} />
 		</button>
-	);
-}
-
-function ReadingPageControls({
-	pageIndex,
-	pageTotal,
-	previousLabel,
-	nextLabel,
-	onChange,
-}: {
-	pageIndex: number;
-	pageTotal: number;
-	previousLabel: string;
-	nextLabel: string;
-	onChange: (pageIndex: number) => void;
-}) {
-	return (
-		<div
-			className="flex h-9 items-center rounded-full bg-input px-0.5"
-			role="group"
-		>
-			<button
-				type="button"
-				disabled={pageIndex <= 0}
-				onClick={() => onChange(pageIndex - 1)}
-				title={previousLabel}
-				aria-label={previousLabel}
-				className="flex h-8 w-7 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-panel hover:text-text-1 disabled:opacity-30"
-			>
-				<ChevronLeft size={15} />
-			</button>
-			<span className="min-w-11 px-1 text-center text-xs font-semibold tabular-nums text-text-2">
-				{pageIndex + 1}/{pageTotal}
-			</span>
-			<button
-				type="button"
-				disabled={pageIndex >= pageTotal - 1}
-				onClick={() => onChange(pageIndex + 1)}
-				title={nextLabel}
-				aria-label={nextLabel}
-				className="flex h-8 w-7 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-panel hover:text-text-1 disabled:opacity-30"
-			>
-				<ChevronRight size={15} />
-			</button>
-		</div>
 	);
 }
 
@@ -445,7 +353,6 @@ function PanelButton({
 }
 
 function FitControls({
-	reading,
 	autoFocusFit,
 	onToggleAutoFocusFit,
 	onFit,
@@ -453,7 +360,6 @@ function FitControls({
 	autoOnLabel,
 	autoOffLabel,
 }: {
-	reading: boolean;
 	autoFocusFit: boolean;
 	onToggleAutoFocusFit: () => void;
 	onFit: () => void;
@@ -473,22 +379,20 @@ function FitControls({
 			>
 				<Maximize size={16} />
 			</button>
-			{!reading && (
-				<button
-					type="button"
-					onClick={onToggleAutoFocusFit}
-					title={autoLabel}
-					aria-label={autoLabel}
-					aria-pressed={!autoFocusFit}
-					className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
-						autoFocusFit
-							? "text-text-3 hover:text-text-1 hover:bg-input"
-							: "text-accent hover:bg-input"
-					}`}
-				>
-					{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
-				</button>
-			)}
+			<button
+				type="button"
+				onClick={onToggleAutoFocusFit}
+				title={autoLabel}
+				aria-label={autoLabel}
+				aria-pressed={!autoFocusFit}
+				className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+					autoFocusFit
+						? "text-text-3 hover:text-text-1 hover:bg-input"
+						: "text-accent hover:bg-input"
+				}`}
+			>
+				{autoFocusFit ? <LockOpen size={16} /> : <Lock size={16} />}
+			</button>
 		</>
 	);
 }

@@ -208,16 +208,16 @@ textarea:not(.page-canvas *):focus-visible {
   font-size: revert;
 }
 
-.page-canvas:not(.state-live) [data-id] {
+.page-canvas:not(.state-live, .reader-page) [data-id] {
   cursor: pointer;
   transition: outline var(--duration-base) var(--ease-out);
   outline: 2px solid transparent;
   outline-offset: 2px;
 }
-.page-canvas:not(.state-live) [data-id]:hover {
+.page-canvas:not(.state-live, .reader-page) [data-id]:hover {
   outline-color: var(--color-accent-border);
 }
-.page-canvas:not(.state-live) [data-id].selected {
+.page-canvas:not(.state-live, .reader-page) [data-id].selected {
   outline-color: var(--color-accent);
 }
 
@@ -261,6 +261,18 @@ textarea:not(.page-canvas *):focus-visible {
 .page-canvas [data-id].has-note {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+[data-reader-appearance="app"] .page-canvas.reader-page {
+	border: 0;
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--color-border) 70%, transparent),
+		0 10px 32px rgb(15 23 42 / 0.12);
+}
+
+[data-reader-appearance="embed"] .page-canvas.reader-page {
+  border: 0;
+  box-shadow: none;
 }
 
 /* ============================================================

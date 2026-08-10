@@ -6,14 +6,20 @@ import {
 import { History, X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
+import type { Document } from "../store/types";
 import type { DraftCursorOverride } from "../store/useStore";
 import { useDocByName, useStore } from "../store/useStore";
 import { type CollectionPagePreview, PageCanvas } from "./PageCanvas";
+import {
+	type PresentationDataSource,
+	type PresentationSurface,
+	presentationPolicy,
+} from "./presentation-policy";
 import { DraftPill } from "./shared/DraftPill";
 
 const PAGE_GAP = 12;
 
-interface PageView {
+export interface PageView {
 	key: string;
 	pageIndex: number;
 	collection: Collection | null;
@@ -37,21 +43,26 @@ interface Props {
 	docName: string;
 	zoomK: number;
 	showDocumentLabel?: boolean;
+	showPageLabels?: boolean;
+	surface?: PresentationSurface;
+	dataSource?: PresentationDataSource;
 }
 
-function collectionPageViews(
-	doc: NonNullable<ReturnType<typeof useDocByName>>,
+export function collectionPageViews(
+	doc: Document,
 	collections: readonly Collection[],
 	cursors: Record<string, PageCollectionCursor>,
 	overrides: Record<string, DraftCursorOverride>,
 	labels: PageLabels,
+	surface: PresentationSurface = "canvas",
 ): PageView[] {
 	const entries = doc.pages.flatMap<PageViewEntry>((page, pageIndex) => {
-		const collection = page.collection?.name
+		const collectionName = page.collection?.name;
+		const collection = collectionName
 			? (collections.find((item) => item.name === page.collection?.name) ??
 				null)
 			: null;
-		if (!page.collection?.name || !collection) {
+		if (!collectionName) {
 			const view: PageViewEntry = {
 				key: page.id,
 				pageIndex,
@@ -59,7 +70,29 @@ function collectionPageViews(
 			};
 			return [view];
 		}
+		if (!collection)
+			return surface === "reader"
+				? []
+				: [
+						{
+							key: page.id,
+							pageIndex,
+							collection: null,
+						},
+					];
 		const members = sortedMembers(collection);
+		if (surface === "reader") {
+			return members.map<PageViewEntry>((member, memberIndex) => ({
+				key: `${page.id}:${collection.name}:${member.id}`,
+				pageIndex,
+				collection,
+				previewMode: "rendered",
+				memberId: member.id,
+				memberIndex,
+				members,
+				generatedLabel: `${page.name || labels.page} - ${labels.row} ${memberIndex + 1}`,
+			}));
+		}
 		const key = collectionCursorKey(doc.name, pageIndex);
 		const preview = previewStateFor(
 			collection,
@@ -172,6 +205,9 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	docName,
 	zoomK,
 	showDocumentLabel = true,
+	showPageLabels = true,
+	surface = "canvas",
+	dataSource = "connected",
 }: Props) {
 	const doc = useDocByName(docName);
 	const charteCss = useStore((s) => s.chartesCss.get(docName) ?? "");
@@ -186,6 +222,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	);
 	const collectionCursors = useStore((s) => s.collectionCursors);
 	const draftCursorOverrides = useStore((s) => s.draftCursorOverrides);
+	const readOnly = useStore((s) => s.readOnly);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
 	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
 	const t = useT();
@@ -200,21 +237,54 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			doc
 				? collectionPageViews(
 						doc,
-						effectiveCollections,
+						surface === "reader" ? collections : effectiveCollections,
 						collectionCursors,
-						draftCursorOverrides,
+						surface === "reader" ? {} : draftCursorOverrides,
 						{
 							page: t("page"),
 							row: t("collection_row_lower"),
 						},
+						surface,
 					)
 				: [],
-		[effectiveCollections, collectionCursors, draftCursorOverrides, doc, t],
+		[
+			collections,
+			effectiveCollections,
+			collectionCursors,
+			draftCursorOverrides,
+			doc,
+			surface,
+			t,
+		],
+	);
+	const missingReaderCollections = useMemo(
+		() =>
+			surface === "reader" && doc
+				? doc.pages.flatMap((page) => {
+						const name = page.collection?.name;
+						return name && !collections.some((item) => item.name === name)
+							? [name]
+							: [];
+					})
+				: [],
+		[collections, doc, surface],
 	);
 
 	if (!doc) return null;
 
 	const docWidthPx = doc.canvas.w * 3.78;
+	const policy = presentationPolicy({
+		surface,
+		dataSource,
+		access:
+			surface === "reader" && dataSource === "static"
+				? "read-only"
+				: doc.meta?.locked
+					? "locked"
+					: readOnly
+						? "read-only"
+						: "writable",
+	});
 	const labelScale = 1 / Math.max(zoomK, 0.1);
 	// Chip tracks the doc's on-screen width, but never below a readable floor
 	// (a narrow doc at far zoom would crush the name span to 0px) and never
@@ -228,15 +298,39 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 		<div
 			data-doc={docName}
 			onClick={() => setFocused(docName)}
-			className="flex flex-col items-center shrink-0 select-none"
+			className={`flex flex-col items-center shrink-0 ${surface === "reader" ? "select-text" : "select-none"}`}
 			style={{ gap: PAGE_GAP }}
 		>
-			{pageViews.map((view) => (
+			{missingReaderCollections.map((name) => (
+				<div
+					key={name}
+					role="status"
+					className="rounded-xl bg-panel px-4 py-3 text-sm text-text-2"
+				>
+					{t("reader_missing_collection", { name })}
+				</div>
+			))}
+			{surface === "reader" &&
+				pageViews.length === 0 &&
+				missingReaderCollections.length === 0 && (
+					<div
+						role="status"
+						className="rounded-xl bg-panel px-4 py-3 text-sm text-text-2"
+					>
+						{t("reader_empty_collection")}
+					</div>
+				)}
+			{pageViews.map((view, outputIndex) => (
 				<div
 					key={view.key}
 					data-page-view={view.pageIndex}
+					data-reader-page-index={
+						surface === "reader" ? outputIndex : undefined
+					}
 					data-active-page={
-						isFocused && view.pageIndex === focusedPageIndex
+						surface === "canvas" &&
+						isFocused &&
+						view.pageIndex === focusedPageIndex
 							? "true"
 							: undefined
 					}
@@ -250,8 +344,9 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						focused={isFocused}
 						collection={view.collection}
 						preview={view.preview}
+						policy={policy}
 					/>
-					{(doc.pages.length > 1 || view.generatedLabel) && (
+					{showPageLabels && (doc.pages.length > 1 || view.generatedLabel) && (
 						<span
 							className="text-text-3 mt-1"
 							style={{

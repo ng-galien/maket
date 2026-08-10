@@ -12,6 +12,7 @@ import type { Document } from "../store/types";
 import { statePatchKey, useStore } from "../store/useStore";
 import * as ws from "../store/ws";
 import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
+import { presentationPolicy } from "./presentation-policy";
 
 beforeEach(() => {
 	vi.useFakeTimers();
@@ -80,6 +81,149 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(useStore.getState().selectedIds).toEqual([]);
 		expect(document.querySelector(".element-toolbar")).toBeNull();
 		expect(target).not.toHaveClass("selected");
+	});
+
+	it("forces live state interactions in Reader without enabling document authoring", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "reader-state-request");
+		const doc = makeDoc(
+			'<p data-id="title">Live</p><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean">',
+			10,
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			stateCanvasModes: { [doc.name]: "design" },
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 7,
+					createdAt: "2026-08-10T00:00:00.000Z",
+					templates: {
+						[doc.pages[0]?.id ?? ""]: '<p data-id="title">Template</p>',
+					},
+				},
+			},
+			pending: [{ id: "note", type: "note", elementId: "title", ts: 0 }],
+		});
+		const policy = presentationPolicy({
+			surface: "reader",
+			dataSource: "connected",
+			access: "writable",
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={policy}
+			/>,
+		);
+
+		expect(container).toHaveTextContent("Live");
+		expect(container).not.toHaveTextContent("Template");
+		expect(container.querySelector(".margin-guide")).toBeNull();
+		expect(container.querySelector(".data-preview")).toBeNull();
+		expect(container.querySelector('[data-id="title"]')).not.toHaveClass(
+			"has-note",
+		);
+
+		fireEvent.click(container.querySelector('[data-id="title"]') as Element);
+		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+
+		fireEvent.change(container.querySelector("input") as HTMLInputElement, {
+			target: { checked: true },
+		});
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/done", 7, true);
+		expect(useStore.getState().stateCanvasModes[doc.name]).toBe("design");
+	});
+
+	it("keeps button state changes local in the static Reader", () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<button type="button" data-maket-bind="state.title" data-maket-path="/title" data-maket-type="string">Edit</button>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Before" },
+					revision: 1,
+					createdAt: "2026-08-10T00:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		const policy = presentationPolicy({
+			surface: "reader",
+			dataSource: "static",
+			access: "read-only",
+		});
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={policy}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		fireEvent.change(document.querySelector("#maket-state-value") as Element, {
+			target: { value: "After" },
+		});
+		const editor = document.querySelector("[data-state-value-editor]");
+		expect(editor).not.toBeNull();
+		fireEvent.submit(editor as HTMLFormElement);
+		expect(sendPatch).not.toHaveBeenCalled();
+		expect(document.querySelector("[data-state-value-editor]")).toBeNull();
+
+		fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+		expect(document.querySelector("#maket-state-value")).toHaveValue("After");
+	});
+
+	it("does not cancel ordinary keyboard interactions when state controls are disabled", () => {
+		const doc = makeDoc(
+			'<a href="#details">Details</a><input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean">',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 1,
+					createdAt: "2026-08-10T00:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		const policy = presentationPolicy({
+			surface: "reader",
+			dataSource: "connected",
+			access: "locked",
+		});
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={policy}
+			/>,
+		);
+		const event = new KeyboardEvent("keydown", {
+			key: "Enter",
+			bubbles: true,
+			cancelable: true,
+		});
+		screen.getByRole("link", { name: "Details" }).dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(false);
 	});
 
 	it("patches a native checkbox from its change event and current revision", async () => {
@@ -395,7 +539,19 @@ describe("PageCanvas toolbar interactions", () => {
 				},
 			},
 		});
-		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={presentationPolicy({
+					surface: "reader",
+					dataSource: "static",
+					access: "read-only",
+				})}
+			/>,
+		);
 
 		const checkbox = document.querySelector(
 			'input[type="checkbox"]',

@@ -39,46 +39,48 @@ export default function App() {
 			{workspaceView === "reading" && hasFocusedDoc ? (
 				<ReadingWorkspace />
 			) : (
-				<Board locked={locked} />
+				<>
+					<Board locked={locked} />
+					<BottomBar />
+
+					<SidePanel
+						open={activePanel === "chartes"}
+						onClose={closePanel}
+						side="left"
+					>
+						<ChartesTab />
+					</SidePanel>
+
+					<SidePanel
+						open={activePanel === "photos"}
+						onClose={closePanel}
+						side="left"
+					>
+						<PhotosTab />
+					</SidePanel>
+
+					<SidePanel
+						open={activePanel === "docs"}
+						onClose={closePanel}
+						side="left"
+						resizable
+					>
+						<DocsTab />
+					</SidePanel>
+
+					<SidePanel
+						open={activePanel === "collections"}
+						onClose={closePanel}
+						side="left"
+					>
+						<CollectionsTab />
+					</SidePanel>
+
+					<Popover />
+					<MessagesPanel />
+					<CollectionWorkspace />
+				</>
 			)}
-			<BottomBar />
-
-			<SidePanel
-				open={activePanel === "chartes"}
-				onClose={closePanel}
-				side="left"
-			>
-				<ChartesTab />
-			</SidePanel>
-
-			<SidePanel
-				open={activePanel === "photos"}
-				onClose={closePanel}
-				side="left"
-			>
-				<PhotosTab />
-			</SidePanel>
-
-			<SidePanel
-				open={activePanel === "docs"}
-				onClose={closePanel}
-				side="left"
-				resizable
-			>
-				<DocsTab />
-			</SidePanel>
-
-			<SidePanel
-				open={activePanel === "collections"}
-				onClose={closePanel}
-				side="left"
-			>
-				<CollectionsTab />
-			</SidePanel>
-
-			<Popover />
-			<MessagesPanel />
-			<CollectionWorkspace />
 		</div>
 	);
 }

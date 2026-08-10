@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 describe("BottomBar", () => {
-	it("switches to reading mode, closes the panel, and navigates logical pages", async () => {
+	it("switches to the isolated reader and clears authoring state", async () => {
 		const user = userEvent.setup();
 		const doc = makeDoc("long-report");
 		doc.pages.push({ id: "long-report-page-2", name: "p2", elements: [] });
@@ -73,6 +73,9 @@ describe("BottomBar", () => {
 			focusedDocName: doc.name,
 			focusedCollectionName: "clients",
 			activePanel: "docs",
+			selectedIds: ["title"],
+			editingElementId: "title",
+			showPopover: true,
 		});
 
 		render(<BottomBar />);
@@ -80,18 +83,15 @@ describe("BottomBar", () => {
 		activity.dataset.maketActivity = "";
 		document.body.appendChild(activity);
 		const viewToggle = screen.getByRole("button", { name: "Reading view" });
-		expect(viewToggle).toHaveAttribute("aria-pressed", "false");
 		await user.click(viewToggle);
 
 		expect(useStore.getState().workspaceView).toBe("reading");
 		expect(useStore.getState().activePanel).toBeNull();
 		expect(useStore.getState().focusedCollectionName).toBeNull();
+		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(useStore.getState().editingElementId).toBeNull();
+		expect(useStore.getState().showPopover).toBe(false);
 		expect(document.querySelector("[data-maket-activity]")).toBeNull();
-		expect(viewToggle).toHaveAttribute("aria-pressed", "true");
-		expect(screen.getByText("1/2")).toBeInTheDocument();
-
-		await user.click(screen.getByRole("button", { name: "Next page" }));
-		expect(useStore.getState().focusedPageIndex).toBe(1);
 	});
 
 	it("shows 'no document' placeholder when nothing is focused", () => {
