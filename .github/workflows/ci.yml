@@ -69,61 +69,6 @@ jobs:
           path: coverage/
           if-no-files-found: error
 
-  coverage-badge:
-    name: Publish coverage badge
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: quality
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency:
-      group: coverage-badge-main
-      cancel-in-progress: false
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: main
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-
-      - name: Download validated coverage
-        uses: actions/download-artifact@v8
-        with:
-          name: coverage-report
-          path: coverage/
-
-      - name: Generate coverage badge
-        run: node scripts/coverage-badge.mjs
-
-      - name: Commit coverage badge
-        shell: bash
-        run: |
-          if git diff --quiet -- .github/badges/coverage.json; then
-            exit 0
-          fi
-          base_sha="$(git rev-parse HEAD)"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/coverage.json
-          git commit -m "chore(ci): update coverage badge [skip ci]"
-          for attempt in 1 2 3; do
-            if git push origin HEAD:main; then
-              exit 0
-            fi
-            git fetch origin main
-            if [[ "$(git rev-parse origin/main)" != "$base_sha" ]]; then
-              echo "::notice::main advanced; a newer CI run will publish its coverage badge"
-              exit 0
-            fi
-            echo "::warning::coverage badge push attempt $attempt failed; retrying"
-          done
-          echo "::error::coverage badge push failed while main remained unchanged"
-          exit 1
-
   e2e:
     name: End-to-end (Chromium)
     runs-on: ubuntu-latest

@@ -35,6 +35,10 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   coverage-enforced quality contract as local development and a separate
   Playwright suite in Chromium. Installable-package smoke tests remain a
   release gate.
+- **Coverage badge publication no longer participates in pull-request CI.** A
+  separate write-scoped workflow consumes the validated artifact only after a
+  successful CI push to `main`, so pull-request runs terminate normally and
+  remain read-only.
 
 ## [1.6.0] — 2026-08-09
 
