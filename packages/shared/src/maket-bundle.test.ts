@@ -54,6 +54,51 @@ describe("manifest parse + validate", () => {
 		expect(data.chartes).toEqual([]);
 		expect(data.collections).toEqual([]);
 		expect(data.documentStates).toEqual([]);
+		expect(data.annotations).toEqual([]);
+	});
+
+	it("accepts optional v2 annotations while historical bundles default to none", () => {
+		const document = {
+			id: "doc-a",
+			name: "a",
+			canvas: { w: 10, h: 10 },
+			pages: [{ html: '<h1 data-id="title">Title</h1>' }],
+		};
+		const data = validateBundleManifest({
+			kind: MAKET_BUNDLE_KIND,
+			version: 2,
+			documents: [document],
+			annotations: [
+				{
+					documentId: "doc-a",
+					pageIndex: 0,
+					elementId: "title",
+					type: "note",
+					text: "Review",
+					ts: 42,
+				},
+			],
+		});
+		expect(data.annotations).toEqual([
+			{
+				documentId: "doc-a",
+				pageIndex: 0,
+				elementId: "title",
+				type: "note",
+				text: "Review",
+				ts: 42,
+			},
+		]);
+		expect(() =>
+			validateBundleManifest({
+				kind: MAKET_BUNDLE_KIND,
+				version: 2,
+				documents: [document],
+				annotations: [
+					{ documentId: "missing", type: "note", text: "x", ts: 1 },
+				],
+			}),
+		).toThrow(/annotations\[0\] is malformed/);
 	});
 
 	it("rejects documents that would crash a reader after hydration", () => {

@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { LoaderCircle, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
@@ -26,6 +26,8 @@ function usePopoverModel() {
 	const addPending = useStore((s) => s.addPending);
 	const pending = useStore((s) => s.pending);
 	const [note, setNote] = useState("");
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const popRef = useRef<HTMLDivElement>(null);
 	const [pos, setPos] = useState<{ top: number; left: number }>({
@@ -35,6 +37,8 @@ function usePopoverModel() {
 
 	useEffect(() => {
 		setNote("");
+		setError(null);
+		setSaving(false);
 	}, [selectedId]);
 
 	useLayoutEffect(() => {
@@ -54,37 +58,60 @@ function usePopoverModel() {
 	const pageIndex = selectedElementPageIndex(el);
 	const pageName = focusedDoc?.pages?.[pageIndex]?.name;
 	const isFlaggedDelete = pending.some(
-		(m) => m.type === "delete" && m.elementId === selectedId,
+		(m) =>
+			m.type === "delete" &&
+			m.docName === focusedDocName &&
+			m.pageIndex === pageIndex &&
+			m.elementId === selectedId,
 	);
 	const existingNote = pending.find(
-		(m) => m.type === "note" && m.elementId === selectedId,
+		(m) =>
+			m.type === "note" &&
+			m.docName === focusedDocName &&
+			m.pageIndex === pageIndex &&
+			m.elementId === selectedId,
 	);
 	const elName = el.dataset.name || el.textContent?.slice(0, 20) || selectedId;
 
 	const deselect = () => useStore.getState().selectElement(null);
-	const submitNote = () => {
-		if (!note.trim()) return;
-		addPending({
+	const submitNote = async () => {
+		const text = note.trim();
+		if (!text || saving) return;
+		setSaving(true);
+		setError(null);
+		const outcome = await addPending({
 			id: randomId(),
 			type: "note",
 			elementId: selectedId,
 			docName: focusedDocName ?? undefined,
 			pageIndex: pageIndex,
-			text: note.trim(),
+			text,
 			ts: Date.now(),
 		});
+		setSaving(false);
+		if (!outcome.ok) {
+			setError(t("pending_create_failed"));
+			return;
+		}
 		setNote("");
 		deselect();
 	};
 
-	const toggleDelete = () => {
+	const toggleDelete = async () => {
 		if (isFlaggedDelete) {
 			const msg = pending.find(
-				(m) => m.type === "delete" && m.elementId === selectedId,
+				(m) =>
+					m.type === "delete" &&
+					m.docName === focusedDocName &&
+					m.pageIndex === pageIndex &&
+					m.elementId === selectedId,
 			);
 			if (msg) useStore.getState().removePending(msg.id);
 		} else {
-			addPending({
+			if (saving) return;
+			setSaving(true);
+			setError(null);
+			const outcome = await addPending({
 				id: randomId(),
 				type: "delete",
 				elementId: selectedId,
@@ -92,6 +119,11 @@ function usePopoverModel() {
 				pageIndex: pageIndex,
 				ts: Date.now(),
 			});
+			setSaving(false);
+			if (!outcome.ok) {
+				setError(t("pending_create_failed"));
+				return;
+			}
 			deselect();
 		}
 	};
@@ -109,7 +141,12 @@ function usePopoverModel() {
 		existingNote,
 		isFlaggedDelete,
 		note,
-		setNote,
+		setNote: (value: string) => {
+			setNote(value);
+			if (error) setError(null);
+		},
+		saving,
+		error,
 		submitNote,
 		toggleDelete,
 	};
@@ -167,6 +204,8 @@ function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 		isFlaggedDelete,
 		note,
 		setNote,
+		saving,
+		error,
 		submitNote,
 		toggleDelete,
 	} = model;
@@ -193,6 +232,7 @@ function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 				<button
 					type="button"
 					onClick={toggleDelete}
+					disabled={saving}
 					className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
 						isFlaggedDelete
 							? "bg-danger/10 text-danger"
@@ -229,6 +269,7 @@ function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 					<textarea
 						ref={textareaRef}
 						value={note}
+						aria-invalid={error ? true : undefined}
 						onChange={(e) => setNote(e.target.value)}
 						onKeyDown={(e) => {
 							if (e.key === "Enter" && !e.shiftKey) {
@@ -244,24 +285,45 @@ function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 						<button
 							type="button"
 							onClick={submitNote}
+							disabled={saving}
+							aria-busy={saving}
+							aria-label={t("pending_send_note")}
 							className="px-2.5 self-end py-1.5 bg-accent text-white text-xs font-semibold rounded-lg hover:brightness-110 transition"
 						>
-							<svg
-								aria-hidden="true"
-								width="12"
-								height="12"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2.5"
-								strokeLinecap="round"
-								strokeLinejoin="round"
-							>
-								<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-							</svg>
+							{saving ? (
+								<LoaderCircle
+									size={12}
+									className="animate-spin"
+									aria-hidden="true"
+								/>
+							) : (
+								<svg
+									aria-hidden="true"
+									width="12"
+									height="12"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									strokeWidth="2.5"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+								>
+									<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+								</svg>
+							)}
 						</button>
 					)}
 				</div>
+				{saving && (
+					<p className="text-xs font-medium text-text-2" aria-live="polite">
+						{t("pending_sending")}
+					</p>
+				)}
+				{error && (
+					<p className="text-xs font-medium text-danger" role="alert">
+						{error}
+					</p>
+				)}
 			</div>
 		</div>
 	);

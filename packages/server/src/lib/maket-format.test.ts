@@ -57,6 +57,7 @@ describe("maket-format v1 (legacy gzip-JSON)", () => {
 		expect(decoded.documents[0]?.pages[0]?.html).toContain("data-id");
 		expect(decoded.chartes).toHaveLength(1);
 		expect(decoded.chartes[0]?.tokens.color?.primary).toBe("#123456");
+		expect(decoded.annotations).toEqual([]);
 		expect(decoded.assets).toEqual([]);
 	});
 

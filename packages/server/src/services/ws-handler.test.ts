@@ -7,10 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PendingMessage } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
 import { computeCanvasDims, createDocument, type Document } from "../types.js";
+import { createAnnotations } from "./annotations.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
 import { createCollectionCursors } from "./collection-cursor.js";
@@ -18,7 +18,6 @@ import { createCollections } from "./collections.js";
 import type { DocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
-import { createPending } from "./pending.js";
 import { createSQLiteStore } from "./store.js";
 import { createWsBridge } from "./ws-bridge.js";
 import { createWsHandler } from "./ws-handler/index.js";
@@ -48,7 +47,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const documentStates = createDocumentStates({ store, documents, bus });
-	const pending = createPending({ bus });
+	const pending = createAnnotations({ bus, store });
 	const wsRegistry = createWsRegistry();
 	const wsBridge = createWsBridge({ bus });
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
@@ -83,61 +82,60 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 
 const STUB_WS: any = { readyState: 1, send() {} };
 
-describe("ws-handler — sync_pending", () => {
-	it("delegates to the pending service which buckets per-doc and workspace", () => {
+describe("ws-handler — annotation persistence acknowledgement", () => {
+	it("correlates successful writes and reports rejected writes to the browser", () => {
 		const { store, documents, pending, handler, dispose } = fixture();
-		store.saveDoc(makeDoc("a"));
-		store.saveDoc(makeDoc("b"));
+		store.saveDoc(makeDoc("annotated"));
 		documents.loadAll();
+		const ws = { readyState: 1, send: vi.fn() } as any;
 
-		// Seed stale state to prove the client snapshot is authoritative.
-		pending.syncFromClient([
-			{ id: "stale", docName: "a", type: "note" },
-			{ id: "wstale", type: "classify-images" },
+		handler(
+			{
+				type: "annotation_create",
+				requestId: "create-ok",
+				annotation: {
+					id: "annotation-ok",
+					docName: "annotated",
+					type: "note",
+					text: "Persist me",
+					ts: 1,
+				},
+			},
+			ws,
+		);
+		handler(
+			{
+				type: "annotation_create",
+				requestId: "create-rejected",
+				annotation: {
+					id: "annotation-rejected",
+					docName: "missing",
+					type: "note",
+					text: "Keep this draft",
+					ts: 2,
+				},
+			},
+			ws,
+		);
+
+		expect(pending.all()).toEqual([
+			expect.objectContaining({ id: "annotation-ok", text: "Persist me" }),
 		]);
-
-		const snapshot: PendingMessage[] = [
-			{ id: "1", docName: "a", type: "note", text: "fix this" },
-			{ id: "2", docName: "b", type: "drop-image", file: "x.png" },
-			{ id: "3", type: "classify-images", text: "new images" },
-		];
-
-		handler({ type: "sync_pending", pending: snapshot }, STUB_WS);
-
-		expect(pending.forDoc("a").map((m) => m.id)).toEqual(["1"]);
-		expect(pending.forDoc("b").map((m) => m.id)).toEqual(["2"]);
-		expect(pending.forWorkspace().map((m) => m.id)).toEqual(["3"]);
-		dispose();
-	});
-
-	it("empty snapshot clears every bucket (workspace included)", () => {
-		const { pending, handler, dispose } = fixture();
-		pending.syncFromClient([
-			{ id: "a", docName: "doc-a", type: "note" },
-			{ id: "w", type: "classify-images" },
+		expect(
+			ws.send.mock.calls.map(([payload]: [string]) => JSON.parse(payload)),
+		).toEqual([
+			{
+				type: "annotation_create_result",
+				requestId: "create-ok",
+				ok: true,
+			},
+			{
+				type: "annotation_create_result",
+				requestId: "create-rejected",
+				ok: false,
+				error: 'Document "missing" not found',
+			},
 		]);
-
-		handler({ type: "sync_pending", pending: [] }, STUB_WS);
-
-		expect(pending.forDoc("doc-a")).toEqual([]);
-		expect(pending.forWorkspace()).toEqual([]);
-		dispose();
-	});
-
-	it("delete_document drops the deleted doc's pending bucket", () => {
-		const { store, documents, pending, handler, dispose } = fixture();
-		store.saveDoc(makeDoc("a"));
-		store.saveDoc(makeDoc("b"));
-		documents.loadAll();
-		pending.syncFromClient([
-			{ id: "1", docName: "a", type: "note" },
-			{ id: "2", docName: "b", type: "note" },
-		]);
-
-		handler({ type: "delete_document", name: "a" }, STUB_WS);
-
-		expect(pending.forDoc("a")).toEqual([]);
-		expect(pending.forDoc("b").map((m) => m.id)).toEqual(["2"]);
 		dispose();
 	});
 });
@@ -742,9 +740,17 @@ describe("ws-handler — file and document mutations", () => {
 	});
 
 	it("rename_document succeeds and emits delete + load for the rename", () => {
-		const { store, documents, bus, handler, dispose } = fixture();
+		const { store, documents, pending, bus, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("old"));
 		documents.loadAll();
+		pending.create({
+			id: "rename-note",
+			docName: "old",
+			pageIndex: 0,
+			elementId: "e0",
+			type: "note",
+			text: "Keep me",
+		});
 		const deleted = vi.fn();
 		const loaded = vi.fn();
 		const toast = vi.fn();
@@ -756,6 +762,9 @@ describe("ws-handler — file and document mutations", () => {
 
 		expect(documents.resolve("old")).toBeNull();
 		expect(documents.resolve("new")?.name).toBe("new");
+		expect(pending.forDoc("new")).toEqual([
+			expect.objectContaining({ id: "rename-note", docName: "new" }),
+		]);
 		expect(deleted).toHaveBeenCalledWith({ docName: "old" });
 		expect(loaded).toHaveBeenCalledWith({ docName: "new" });
 		expect(toast).toHaveBeenCalledWith(

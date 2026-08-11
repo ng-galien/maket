@@ -30,6 +30,7 @@ export function handleOpenOnboarding(
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),
+		annotations: ctx.pending.all(),
 		charteCss: ctx.documents.charteCss(doc),
 		addToWorkspace: true,
 		focus: true,

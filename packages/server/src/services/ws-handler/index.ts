@@ -98,8 +98,11 @@ function dispatchWorkspaceCommand(
 		case "load_document":
 			handleLoadDocument(ctx, msg, ws);
 			break;
-		case "sync_pending":
-			ctx.pending.syncFromClient(msg.pending || []);
+		case "annotation_create":
+			handleAnnotationCreate(ctx, msg, ws);
+			break;
+		case "annotation_remove":
+			ctx.pending.ack([msg.id]);
 			break;
 		case "workspace_update":
 			handleWorkspaceUpdate(ctx, msg);
@@ -173,5 +176,34 @@ function dispatchWorkspaceCommand(
 		case "check_layout_response":
 			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);
 			break;
+	}
+}
+
+function handleAnnotationCreate(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "annotation_create" }>,
+	ws: WebSocket,
+): void {
+	try {
+		ctx.pending.create(msg.annotation);
+		ws.send(
+			JSON.stringify({
+				type: "annotation_create_result",
+				requestId: msg.requestId,
+				ok: true,
+			}),
+		);
+	} catch (error) {
+		ws.send(
+			JSON.stringify({
+				type: "annotation_create_result",
+				requestId: msg.requestId,
+				ok: false,
+				error:
+					error instanceof Error
+						? error.message
+						: "The annotation could not be saved.",
+			}),
+		);
 	}
 }

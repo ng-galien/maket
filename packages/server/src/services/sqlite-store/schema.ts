@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -80,6 +80,18 @@ const SCHEMA_SQL = `
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (document_id, revision)
   );
+  CREATE TABLE annotations (
+    id          TEXT PRIMARY KEY,
+    document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+    page_index  INTEGER,
+    element_id  TEXT,
+    type        TEXT NOT NULL,
+    text        TEXT,
+    file        TEXT,
+    position    TEXT,
+    ts          INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `;
 
 interface SchemaMigration {
@@ -92,6 +104,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 9, up: migrateToV9 },
 	{ version: 10, up: migrateToV10 },
 	{ version: 11, up: migrateToV11 },
+	{ version: 12, up: migrateToV12 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -139,6 +152,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV9(db);
 	migrateToV10(db);
 	migrateToV11(db);
+	migrateToV12(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -173,6 +187,24 @@ function migrateToV11(db: DatabaseSync): void {
 		)
 		WHERE schema IS NULL OR schema = '';
 	`);
+}
+
+function migrateToV12(db: DatabaseSync): void {
+	migrateToV11(db);
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS annotations (
+      id          TEXT PRIMARY KEY,
+      document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+      page_index  INTEGER,
+      element_id  TEXT,
+      type        TEXT NOT NULL,
+      text        TEXT,
+      file        TEXT,
+      position    TEXT,
+      ts          INTEGER NOT NULL,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
 }
 
 function ensureDocumentStateSchema(db: DatabaseSync): void {
@@ -268,7 +300,56 @@ function assertCurrentSchema(db: DatabaseSync): void {
 		throw new Error("SQLite migration failed: documents.id is not UNIQUE");
 	}
 	assertRevisionSchemas(db);
+	assertAnnotationsSchema(db);
 	assertIntegrity(db);
+}
+
+function assertAnnotationsSchema(db: DatabaseSync): void {
+	if (!hasTable(db, "annotations")) {
+		throw new Error("SQLite migration failed: annotations table is missing");
+	}
+	const columns = new Set(
+		(
+			db.prepare("PRAGMA table_info(annotations)").all() as Array<{
+				name: string;
+			}>
+		).map((column) => column.name),
+	);
+	for (const required of [
+		"id",
+		"document_id",
+		"page_index",
+		"element_id",
+		"type",
+		"text",
+		"file",
+		"position",
+		"ts",
+		"created_at",
+	]) {
+		if (!columns.has(required)) {
+			throw new Error(
+				`SQLite migration failed: annotations.${required} is missing`,
+			);
+		}
+	}
+	const documentForeignKey = (
+		db.prepare("PRAGMA foreign_key_list(annotations)").all() as Array<{
+			from: string;
+			table: string;
+			to: string;
+			on_delete: string;
+		}>
+	).find((key) => key.from === "document_id");
+	if (
+		documentForeignKey?.table !== "documents" ||
+		documentForeignKey.to !== "id" ||
+		documentForeignKey.on_delete.toUpperCase() !== "CASCADE"
+	) {
+		throw new Error(
+			"SQLite migration failed: annotations.document_id foreign key is invalid",
+		);
+	}
 }
 
 function assertRevisionSchemas(db: DatabaseSync): void {

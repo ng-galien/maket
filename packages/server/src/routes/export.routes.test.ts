@@ -44,7 +44,6 @@ import {
 } from "../services/document-states.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
-import { createPending } from "../services/pending.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import { createMaketDocTool } from "../tools/documents.js";
@@ -292,7 +291,6 @@ describe("export routes — .maket bundle", () => {
 			bus,
 			store,
 			config,
-			pending: createPending({ bus }),
 			bundleExportService,
 			bundleImportService,
 		});
@@ -379,7 +377,6 @@ describe("export routes — .maket bundle", () => {
 			bus,
 			store,
 			config,
-			pending: createPending({ bus }),
 			bundleExportService,
 			bundleImportService,
 		});

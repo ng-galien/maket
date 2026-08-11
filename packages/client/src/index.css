@@ -253,14 +253,87 @@ textarea:not(.page-canvas *):focus-visible {
   outline-offset: 3px;
 }
 
-.page-canvas [data-id].flagged-delete {
-  opacity: 0.3;
-  outline: 2px dashed var(--color-danger);
-  outline-offset: 2px;
+.annotation-overlay {
+	position: absolute;
+	inset: 0;
+	z-index: 9998;
+	pointer-events: none;
 }
-.page-canvas [data-id].has-note {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+.page-authored-content {
+	width: 100%;
+	height: 100%;
+}
+.annotation-marker {
+	position: absolute;
+	box-sizing: border-box;
+	border-radius: 3px;
+}
+.annotation-marker-note {
+	outline: 4px solid var(--color-warning, #f59e0b);
+	outline-offset: 4px;
+	box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-warning, #f59e0b) 18%, transparent);
+}
+.annotation-marker-delete {
+	outline: 2px dashed var(--color-danger);
+	outline-offset: 2px;
+	background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+}
+.annotation-marker-badge {
+	content: "";
+	position: absolute;
+	top: -16px;
+	right: -16px;
+	z-index: 10000;
+	display: block;
+	width: 28px;
+	height: 28px;
+	border: 2px solid white;
+	border-radius: 999px;
+	background-color: var(--color-warning, #f59e0b);
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z'/%3E%3C/svg%3E");
+	background-position: center;
+	background-repeat: no-repeat;
+	background-size: 16px 16px;
+	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
+	pointer-events: none;
+}
+.annotation-page-marker {
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	display: inline-flex;
+	height: 32px;
+	min-width: 32px;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	padding: 0 9px;
+	border: 2px solid white;
+	border-radius: 999px;
+	background: var(--color-warning, #f59e0b);
+	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
+	color: white;
+	font: 700 13px/1 system-ui, sans-serif;
+}
+.page-canvas [data-id][data-maket-message-target],
+.page-canvas[data-maket-message-target],
+[data-doc][data-maket-message-target] {
+	outline: 5px solid var(--color-warning, #f59e0b) !important;
+	outline-offset: 5px !important;
+	box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-warning, #f59e0b) 28%, transparent) !important;
+	animation: maket-message-target-pulse 700ms ease-in-out infinite alternate;
+}
+@keyframes maket-message-target-pulse {
+	to {
+		box-shadow: 0 0 0 18px color-mix(in srgb, var(--color-warning, #f59e0b) 10%, transparent);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.page-canvas [data-id][data-maket-message-target],
+	.page-canvas[data-maket-message-target],
+	[data-doc][data-maket-message-target] {
+		animation: none;
+	}
 }
 
 [data-reader-appearance="app"] .page-canvas.reader-page {

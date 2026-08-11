@@ -13,6 +13,29 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Added
+- **Persistent document annotations.** Notes and element requests are stored in
+  SQLite, synchronized across browser windows, and included when `.maket`
+  bundles are exported and imported. Existing bundles and older clients remain
+  readable; clients that do not support annotations simply ignore them.
+
+### Changed
+- **The Exchanges panel makes requests easier to act on.** Notes now expose
+  their document and page context, can open a document before locating their
+  target, and use clearer, accessible View and Resolve actions with visible
+  document- and element-level markers.
+
+### Fixed
+- **Annotation actions no longer disappear before persistence is confirmed.**
+  Note and image requests wait for a correlated server acknowledgement, retain
+  user input when saving fails, and report connection or persistence errors.
+
+### Internal
+- **Pull requests now exercise real browser workflows.** CI runs the same
+  coverage-enforced quality contract as local development and a separate
+  Playwright suite in Chromium. Installable-package smoke tests remain a
+  release gate.
+
 ## [1.6.0] — 2026-08-09
 
 ### Added

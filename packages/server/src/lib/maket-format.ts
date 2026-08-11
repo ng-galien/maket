@@ -19,6 +19,7 @@
 
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
+	type BundleAnnotationSnapshot,
 	type BundleDocumentStateSnapshot,
 	buildBundleManifest,
 	type Collection,
@@ -64,6 +65,7 @@ export interface DecodedBundle {
 	chartes: Charte[];
 	collections: Collection[];
 	documentStates: BundleDocumentStateSnapshot[];
+	annotations: BundleAnnotationSnapshot[];
 	/** Empty for v1 bundles (they don't carry assets). */
 	assets: BundleAsset[];
 }
@@ -72,6 +74,7 @@ export interface EncodeBundleOptions {
 	exportedAt?: string;
 	entryDate?: Date;
 	documentStates?: BundleDocumentStateSnapshot[];
+	annotations?: BundleAnnotationSnapshot[];
 }
 
 /** Strip runtime-only fields so the snapshot round-trips cleanly. Field
@@ -90,11 +93,13 @@ function buildManifest(
 	version: number,
 	exportedAt = new Date().toISOString(),
 	documentStates: BundleDocumentStateSnapshot[] = [],
+	annotations: BundleAnnotationSnapshot[] = [],
 ) {
 	return buildBundleManifest(documents, chartes, collections, {
 		version,
 		exportedAt,
 		documentStates,
+		annotations,
 	}) as { documents: unknown[] };
 }
 
@@ -151,6 +156,7 @@ export async function encodeBundleV2(
 				2,
 				options.exportedAt,
 				options.documentStates,
+				options.annotations,
 			),
 			null,
 			2,
@@ -218,6 +224,7 @@ function finalizeManifest(
 		chartes: data.chartes as Charte[],
 		collections: data.collections as Collection[],
 		documentStates: data.documentStates,
+		annotations: data.annotations,
 		assets,
 	};
 }

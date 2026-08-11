@@ -28,6 +28,8 @@ export interface Documents {
 	persist(name: string): void;
 	/** Delete from store + cache. */
 	delete(name: string): void;
+	/** Rename while preserving the stable document identity and related state. */
+	rename(name: string, newName: string): void;
 	/** Summaries of every cached document. */
 	list(): DocSummary[];
 	/** Raw access to the backing map. */
@@ -96,6 +98,14 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 		delete(name) {
 			store.deleteDoc(name);
 			cache.delete(name);
+		},
+		rename(name, newName) {
+			const d = cache.get(name);
+			if (!d) return;
+			store.renameDoc(name, newName);
+			cache.delete(name);
+			d.name = newName;
+			cache.set(newName, d);
 		},
 		list() {
 			const timestamps = store.listTimestamps();

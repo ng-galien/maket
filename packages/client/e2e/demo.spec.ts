@@ -32,7 +32,7 @@ test.describe("Maket Demo", () => {
 		).toBeVisible();
 	});
 
-	test("stepping to the annotation shows the user note badge", async ({
+	test("stepping to the annotation shows the document note badge", async ({
 		page,
 	}) => {
 		await page.goto("/demo.html");
@@ -40,7 +40,8 @@ test.describe("Maket Demo", () => {
 		await expect(page.getByTestId("demo-caption")).toContainText(
 			"stand out more",
 		);
-		await expect(page.locator(".has-note")).toHaveCount(1);
+		const documentLabel = page.locator('[data-doc="price-labels"] .doc-label');
+		await expect(documentLabel.getByText("1", { exact: true })).toBeVisible();
 	});
 
 	test("collection step fans out six labels with real data", async ({
@@ -154,8 +155,6 @@ test.describe("Maket Demo", () => {
 		await page.setInputFiles('input[type="file"]', file);
 		const doc = page.locator('[data-doc="price-labels"]');
 		await expect(doc).toBeVisible();
-		await page.getByRole("button", { name: /products · Template/i }).click();
-		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(6);
 		await expect(
 			doc.locator(".page-canvas").getByText("Raw Honey"),

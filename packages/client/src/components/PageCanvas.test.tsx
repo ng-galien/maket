@@ -1156,68 +1156,6 @@ describe("PageCanvas rendering", () => {
 	});
 });
 
-describe("PageCanvas pending flags", () => {
-	it("adds flagged-delete / has-note classes for matching element ids", async () => {
-		const html = `
-			<p data-id="a">A</p>
-			<p data-id="b">B</p>
-			<p data-id="c">C</p>
-		`;
-		const { container } = render(
-			<PageCanvas
-				doc={makeDoc(html)}
-				pageIndex={0}
-				charteCss=""
-				focused={true}
-			/>,
-		);
-
-		await act(async () => {
-			useStore.setState({
-				pending: [
-					{ id: "m1", type: "delete", elementId: "a", ts: 0 },
-					{ id: "m2", type: "note", elementId: "b", ts: 0 },
-				],
-			});
-		});
-
-		const a = container.querySelector('[data-id="a"]') as HTMLElement;
-		const b = container.querySelector('[data-id="b"]') as HTMLElement;
-		const c = container.querySelector('[data-id="c"]') as HTMLElement;
-		expect(a.classList.contains("flagged-delete")).toBe(true);
-		expect(a.classList.contains("has-note")).toBe(false);
-		expect(b.classList.contains("has-note")).toBe(true);
-		expect(b.classList.contains("flagged-delete")).toBe(false);
-		expect(c.classList.contains("flagged-delete")).toBe(false);
-		expect(c.classList.contains("has-note")).toBe(false);
-	});
-
-	it("clears flags when the pending entry is removed", async () => {
-		const html = `<p data-id="a">A</p>`;
-		const { container } = render(
-			<PageCanvas
-				doc={makeDoc(html)}
-				pageIndex={0}
-				charteCss=""
-				focused={true}
-			/>,
-		);
-		const getA = () => container.querySelector('[data-id="a"]') as HTMLElement;
-
-		await act(async () => {
-			useStore.setState({
-				pending: [{ id: "m1", type: "delete", elementId: "a", ts: 0 }],
-			});
-		});
-		expect(getA().classList.contains("flagged-delete")).toBe(true);
-
-		await act(async () => {
-			useStore.setState({ pending: [] });
-		});
-		expect(getA().classList.contains("flagged-delete")).toBe(false);
-	});
-});
-
 describe("PageCanvas edit mode", () => {
 	it("starts inline editing from the toolbar for editable elements", async () => {
 		render(

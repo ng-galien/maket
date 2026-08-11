@@ -126,12 +126,9 @@ afterEach(() => {
 });
 
 describe("initWs + onopen", () => {
-	it("opens a single socket per initWs call and sends workspace_update + sync_pending on open", async () => {
+	it("opens a single socket and reports only the displayed workspace", async () => {
 		const { initWs, useStore } = await freshWsModule();
-		useStore.setState({
-			workspaceDocNames: ["alpha", "beta"],
-			pending: [{ id: "p1", type: "note", ts: 0 }],
-		});
+		useStore.setState({ workspaceDocNames: ["alpha", "beta"] });
 		initWs();
 		initWs(); // second call is a no-op while ws exists
 		expect(MockWebSocket.instances.length).toBe(1);
@@ -139,14 +136,10 @@ describe("initWs + onopen", () => {
 		MockWebSocket.last().open();
 
 		const payloads = MockWebSocket.last().sentPayloads();
-		expect(payloads).toHaveLength(2);
+		expect(payloads).toHaveLength(1);
 		expect(payloads[0]).toEqual({
 			type: "workspace_update",
 			displayed: ["alpha", "beta"],
-		});
-		expect(payloads[1]).toEqual({
-			type: "sync_pending",
-			pending: [{ id: "p1", type: "note", ts: 0 }],
 		});
 		expect(useStore.getState().connected).toBe(true);
 	});
@@ -589,6 +582,166 @@ describe("ack_messages", () => {
 			ids: ["nope"],
 		});
 		expect(useStore.getState().pending).toBe(pending);
+	});
+});
+
+describe("annotation_create acknowledgement", () => {
+	it("settles the matching creation only after the server confirms persistence", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "brief" });
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+
+		const outcomePromise = useStore.getState().addPending({
+			id: "note-1",
+			type: "note",
+			text: "Keep until confirmed",
+			ts: 1,
+		});
+		const command =
+			socket.lastSent<
+				Extract<WorkspaceCommand, { type: "annotation_create" }>
+			>();
+		expect(command).toMatchObject({
+			type: "annotation_create",
+			annotation: {
+				id: "note-1",
+				docName: "brief",
+				text: "Keep until confirmed",
+			},
+		});
+
+		socket.emit({
+			type: "annotation_create_result",
+			requestId: command.requestId,
+			ok: true,
+		});
+		await expect(outcomePromise).resolves.toEqual({ ok: true });
+	});
+
+	it("returns the correlated server refusal without mutating the annotation list", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "deleted", pending: [] });
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+
+		const outcomePromise = useStore.getState().addPending({
+			id: "note-rejected",
+			type: "note",
+			text: "Do not lose me",
+			ts: 2,
+		});
+		const command =
+			socket.lastSent<
+				Extract<WorkspaceCommand, { type: "annotation_create" }>
+			>();
+		socket.emit({
+			type: "annotation_create_result",
+			requestId: command.requestId,
+			ok: false,
+			error: 'Document "deleted" not found',
+		});
+
+		await expect(outcomePromise).resolves.toEqual({
+			ok: false,
+			error: 'Document "deleted" not found',
+		});
+		expect(useStore.getState().pending).toEqual([]);
+	});
+
+	it("reports a persistence timeout when the server never acknowledges", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "brief" });
+		initWs();
+		MockWebSocket.last().open();
+
+		const outcome = useStore.getState().addPending({
+			id: "note-timeout",
+			type: "note",
+			text: "Keep this draft",
+			ts: 3,
+		});
+		await vi.advanceTimersByTimeAsync(10_000);
+
+		await expect(outcome).resolves.toEqual({
+			ok: false,
+			error: "The note could not be confirmed by the server.",
+		});
+	});
+
+	it("settles an in-flight creation when the connection closes", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "brief" });
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+
+		const outcome = useStore.getState().addPending({
+			id: "note-disconnected",
+			type: "note",
+			text: "Keep this too",
+			ts: 4,
+		});
+		socket.close();
+
+		await expect(outcome).resolves.toEqual({
+			ok: false,
+			error: "The connection closed before the note was saved.",
+		});
+	});
+});
+
+describe("workspace command wire format", () => {
+	it("serializes the public document authoring commands", async () => {
+		const {
+			initWs,
+			sendDeleteDoc,
+			sendDuplicateDoc,
+			sendLockDoc,
+			sendRenameDoc,
+			sendTextEdit,
+		} = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.sent.length = 0;
+
+		sendTextEdit("poster", 1, "title", "<strong>Ready</strong>");
+		sendDeleteDoc("obsolete");
+		sendRenameDoc("draft", "final");
+		sendDuplicateDoc("final", "variant");
+		sendLockDoc("final", true);
+
+		expect(socket.sentPayloads()).toEqual([
+			{
+				type: "text_edit",
+				docName: "poster",
+				pageIndex: 1,
+				elementId: "title",
+				html: "<strong>Ready</strong>",
+			},
+			{ type: "delete_document", name: "obsolete" },
+			{ type: "rename_document", name: "draft", newName: "final" },
+			{ type: "duplicate_document", name: "final", newName: "variant" },
+			{ type: "lock_document", name: "final", locked: true },
+		]);
+	});
+
+	it("logs an unknown future signal without throwing", async () => {
+		const { initWs } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect(() =>
+			socket.emit({ type: "future_signal" } as unknown as WorkspaceSignal),
+		).not.toThrow();
+		expect(error).toHaveBeenCalledWith("[ws] unhandled server signal", {
+			type: "future_signal",
+		});
 	});
 });
 

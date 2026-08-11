@@ -24,19 +24,6 @@ async function openStarter(
 	await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
 }
 
-async function openCollectionControls(
-	page: import("@playwright/test").Page,
-	doc: import("@playwright/test").Locator,
-	collectionName: string,
-) {
-	await doc.locator(".doc-label-name").click();
-	await page
-		.getByRole("button", {
-			name: new RegExp(`${collectionName} · Template`, "i"),
-		})
-		.click();
-}
-
 test.describe("Starter bundles", () => {
 	test("event-poster: charte typography and artwork render", async ({
 		page,
@@ -73,8 +60,6 @@ test.describe("Starter bundles", () => {
 	test("social-series: four announcement cards fan out", async ({ page }) => {
 		await openStarter(page, "social-series.maket", "launch-posts");
 		const doc = page.locator('[data-doc="launch-posts"]');
-		await openCollectionControls(page, doc, "announcements");
-		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(4);
 		await expect(
 			doc.locator(".page-canvas").getByText("The Copper Section"),
@@ -86,8 +71,6 @@ test.describe("Starter bundles", () => {
 	}) => {
 		await openStarter(page, "product-catalog.maket", "price-labels");
 		const doc = page.locator('[data-doc="price-labels"]');
-		await openCollectionControls(page, doc, "products");
-		await page.getByRole("button", { name: "All rows" }).click();
 		await expect(doc.locator(".page-canvas")).toHaveCount(6);
 		const canvases = doc.locator(".page-canvas");
 		await expect(canvases.getByText("Heritage Tomatoes")).toBeVisible();

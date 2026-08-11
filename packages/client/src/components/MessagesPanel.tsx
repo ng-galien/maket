@@ -1,37 +1,115 @@
 import {
+	Check,
 	FileText,
 	Images,
-	Layers,
+	LoaderCircle,
+	MessageSquareText,
 	MousePointerClick,
-	Pin,
 	Send,
 	Trash2,
 	Type,
-	X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useT } from "../i18n/useT";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
+import { sendLoadDoc } from "../store/ws";
+import { requestFit } from "../store/zoomBridge";
 
-function highlightElement(id: string | undefined, on: boolean) {
-	if (!id) return;
-	const el = document.querySelector(`[data-id="${id}"]`) as HTMLElement | null;
-	if (!el) return;
-	if (on) {
-		el.style.outline = `3px solid var(--color-warning, #F59E0B)`;
-		el.style.outlineOffset = "3px";
-		el.style.transition = "outline 150ms ease";
-	} else {
-		el.style.outline = "";
-		el.style.outlineOffset = "";
-	}
+function messageElement(msg: PendingMessage): HTMLElement | null {
+	if (!msg.elementId || !msg.docName || typeof msg.pageIndex !== "number")
+		return null;
+	return (
+		[...document.querySelectorAll<HTMLElement>("[data-id]")].find((element) => {
+			const doc = element.closest<HTMLElement>("[data-doc]");
+			const page = element.closest<HTMLElement>(".page-canvas");
+			return (
+				element.dataset.id === msg.elementId &&
+				doc?.dataset.doc === msg.docName &&
+				Number(page?.dataset.page) === msg.pageIndex
+			);
+		}) ?? null
+	);
 }
 
-function scrollToElement(id: string | undefined) {
-	if (!id) return;
-	const el = document.querySelector(`[data-id="${id}"]`) as HTMLElement | null;
+function messageTarget(msg: PendingMessage): HTMLElement | null {
+	const element = messageElement(msg);
+	if (element) return element;
+	if (!msg.docName) return null;
+	const doc = [...document.querySelectorAll<HTMLElement>("[data-doc]")].find(
+		(candidate) => candidate.dataset.doc === msg.docName,
+	);
+	if (!doc) return null;
+	if (typeof msg.pageIndex !== "number") return doc;
+	return (
+		[...doc.querySelectorAll<HTMLElement>(".page-canvas")].find(
+			(page) => Number(page.dataset.page) === msg.pageIndex,
+		) ?? doc
+	);
+}
+
+function highlightElement(msg: PendingMessage, on: boolean) {
+	const el = messageTarget(msg);
+	if (!el) return;
+	el.toggleAttribute("data-maket-message-target", on);
+}
+
+function scrollToElement(msg: PendingMessage) {
+	const el = messageTarget(msg);
 	if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function revealMessageTarget(msg: PendingMessage) {
+	if (!msg.docName) return;
+	const pageIndex = msg.pageIndex ?? 0;
+	const state = useStore.getState();
+	state.addDocToWorkspace(msg.docName);
+	state.setWorkspaceView("canvas");
+	state.setFocusedPage(msg.docName, pageIndex);
+	state.setActivePanel(null);
+	requestFit({ docName: msg.docName, pageIndex });
+	requestAnimationFrame(() =>
+		requestAnimationFrame(() => {
+			highlightElement(msg, true);
+			scrollToElement(msg);
+			setTimeout(() => highlightElement(msg, false), 5000);
+		}),
+	);
+}
+
+function openMessageTarget(
+	msg: PendingMessage,
+	onOpened: () => void,
+	onError: () => void,
+) {
+	if (!msg.docName) {
+		onError();
+		return;
+	}
+	if (useStore.getState().docs.has(msg.docName)) {
+		revealMessageTarget(msg);
+		onOpened();
+		return;
+	}
+	let settled = false;
+	let timeout = 0;
+	const unsubscribe = useStore.subscribe((state) => {
+		if (!msg.docName || !state.docs.has(msg.docName)) return;
+		settled = true;
+		window.clearTimeout(timeout);
+		unsubscribe();
+		revealMessageTarget(msg);
+		onOpened();
+	});
+	if (!sendLoadDoc(msg.docName)) {
+		unsubscribe();
+		onError();
+		return;
+	}
+	timeout = window.setTimeout(() => {
+		unsubscribe();
+		if (!settled) onError();
+	}, 5000);
 }
 
 function formatTime(ts: number): string {
@@ -39,45 +117,38 @@ function formatTime(ts: number): string {
 	return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function resolveElementLabel(elementId: string): string {
-	const el = document.querySelector(
-		`[data-id="${elementId}"]`,
-	) as HTMLElement | null;
-	return el?.getAttribute("data-name") || elementId;
+function resolveElementLabel(msg: PendingMessage): string {
+	return messageElement(msg)?.getAttribute("data-name") || msg.elementId || "";
 }
 
 function TypeBadge({ type }: { type: PendingMessage["type"] }) {
 	const base =
-		"flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center";
+		"flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center";
 	switch (type) {
 		case "note":
-			return (
-				<span className={`${base} bg-amber-100 text-amber-600`}>
-					<Pin size={12} />
-				</span>
-			);
+			return null;
 		case "delete":
 			return (
 				<span className={`${base} bg-danger-soft text-danger`}>
-					<Trash2 size={12} />
+					<Trash2 size={15} />
 				</span>
 			);
 		case "drop-image":
 			return (
 				<span className={`${base} bg-accent-soft text-accent`}>
-					<Images size={12} />
+					<Images size={15} />
 				</span>
 			);
 		case "drop-text":
 			return (
 				<span className={`${base} bg-accent-soft text-accent`}>
-					<Type size={12} />
+					<Type size={15} />
 				</span>
 			);
 		case "classify-images":
 			return (
 				<span className={`${base} bg-accent-soft text-accent`}>
-					<Images size={12} />
+					<Images size={15} />
 				</span>
 			);
 		default:
@@ -90,38 +161,28 @@ function ScopeChips({ msg }: { msg: PendingMessage }) {
 	const hasDoc = Boolean(msg.docName);
 	const hasPage = typeof msg.pageIndex === "number";
 	const hasEl = Boolean(msg.elementId);
-	const elLabel = msg.elementId ? resolveElementLabel(msg.elementId) : "";
+	const elLabel = msg.elementId ? resolveElementLabel(msg) : "";
 
-	if (!hasDoc && !hasPage && !hasEl) {
-		return (
-			<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-input text-2xs font-semibold text-text-3 uppercase tracking-wider">
-				<Layers size={10} />
-				{t("scope_workspace")}
-			</span>
-		);
-	}
+	if (!hasDoc && !hasPage && !hasEl)
+		return <span className="font-medium">{t("scope_workspace")}</span>;
 
 	return (
-		<div className="flex flex-wrap items-center gap-1 text-2xs font-semibold text-text-3">
+		<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-text-2">
 			{hasDoc && (
-				<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-input max-w-[140px]">
-					<FileText size={10} className="flex-shrink-0" />
-					<span className="truncate">{msg.docName}</span>
+				<span className="max-w-[150px] truncate font-semibold text-text-1">
+					{msg.docName}
 				</span>
 			)}
+			{hasDoc && (hasPage || hasEl) && <span aria-hidden="true">›</span>}
 			{hasPage && (
-				<span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-input tabular-nums">
-					<Layers size={10} className="flex-shrink-0" />p
-					{(msg.pageIndex ?? 0) + 1}
+				<span className="tabular-nums">
+					{t("page")} {(msg.pageIndex ?? 0) + 1}
 				</span>
 			)}
+			{hasPage && hasEl && <span aria-hidden="true">›</span>}
 			{hasEl && (
-				<span
-					className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-input max-w-[140px]"
-					title={msg.elementId}
-				>
-					<MousePointerClick size={10} className="flex-shrink-0" />
-					<span className="truncate">{elLabel}</span>
+				<span className="max-w-[140px] truncate" title={msg.elementId}>
+					{elLabel}
 				</span>
 			)}
 		</div>
@@ -132,27 +193,232 @@ function MessageBody({ msg }: { msg: PendingMessage }) {
 	const t = useT();
 	if (msg.type === "note")
 		return (
-			<p className="text-sm text-text-1 leading-snug whitespace-pre-wrap break-words">
-				{msg.text}
-			</p>
+			<p className="text-text-1 whitespace-pre-wrap break-words">{msg.text}</p>
 		);
 	if (msg.type === "delete")
-		return (
-			<p className="text-sm font-semibold text-danger">{t("pending_delete")}</p>
-		);
+		return <p className="font-semibold text-danger">{t("pending_delete")}</p>;
 	if (msg.type === "drop-image")
 		return (
-			<p className="text-sm text-text-1 break-words">
+			<p className="text-text-1 break-words">
 				{t("pending_insert_image", { file: msg.file ?? "" })}
 			</p>
 		);
 	if (msg.type === "drop-text")
-		return <p className="text-sm text-text-1">{t("pending_insert_text")}</p>;
+		return <p className="text-text-1">{t("pending_insert_text")}</p>;
 	if (msg.type === "classify-images")
-		return (
-			<p className="text-sm text-text-1 leading-snug break-words">{msg.text}</p>
-		);
+		return <p className="text-text-1 break-words">{msg.text}</p>;
 	return null;
+}
+
+function MessageCard({
+	msg,
+	onResolve,
+}: {
+	msg: PendingMessage;
+	onResolve: (id: string) => boolean;
+}) {
+	const t = useT();
+	const canOpen = Boolean(msg.docName);
+	const [busy, setBusy] = useState<"opening" | "resolving" | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	useEffect(() => {
+		if (busy !== "resolving") return;
+		const timeout = window.setTimeout(() => {
+			setBusy(null);
+			setError(t("pending_resolve_failed"));
+		}, 5000);
+		return () => window.clearTimeout(timeout);
+	}, [busy, t]);
+	const openTarget = () => {
+		setError(null);
+		setBusy("opening");
+		openMessageTarget(
+			msg,
+			() => setBusy(null),
+			() => {
+				setBusy(null);
+				setError(t("pending_open_failed"));
+			},
+		);
+	};
+	const resolve = () => {
+		setError(null);
+		setBusy("resolving");
+		if (onResolve(msg.id)) return;
+		setBusy(null);
+		setError(t("pending_resolve_failed"));
+	};
+	return (
+		<article
+			aria-busy={busy !== null}
+			className={`rounded-[10px] border p-3 transition-colors ${
+				msg.type === "delete"
+					? "border-danger-border bg-danger-soft"
+					: "border-border bg-panel hover:border-accent/30 hover:bg-accent/[0.03]"
+			}`}
+			onMouseEnter={() => highlightElement(msg, true)}
+			onMouseLeave={() => highlightElement(msg, false)}
+		>
+			<div className="flex items-start justify-between gap-3">
+				<ScopeChips msg={msg} />
+				<time className="shrink-0 text-xs font-medium tabular-nums text-text-2">
+					{formatTime(msg.ts)}
+				</time>
+			</div>
+			<div className="mt-1.5 flex items-start gap-2">
+				<TypeBadge type={msg.type} />
+				<div className="min-w-0 flex-1 text-[15px] leading-[21px]">
+					<MessageBody msg={msg} />
+				</div>
+			</div>
+			<div className="mt-2.5 flex items-center gap-1.5">
+				{canOpen && (
+					<button
+						type="button"
+						onClick={openTarget}
+						disabled={busy !== null}
+						className="inline-flex h-8 items-center gap-1.5 rounded-[7px] px-2.5 text-[13px] font-semibold text-text-2 transition hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+					>
+						{busy === "opening" ? (
+							<LoaderCircle
+								size={15}
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<MousePointerClick size={15} aria-hidden="true" />
+						)}
+						{busy === "opening"
+							? t("pending_opening")
+							: t("pending_locate_short")}
+					</button>
+				)}
+				<button
+					type="button"
+					aria-label={t("pending_resolve_label")}
+					title={t("pending_resolve_label")}
+					onClick={resolve}
+					disabled={busy !== null}
+					className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-[7px] bg-accent-soft px-2.5 text-[13px] font-semibold text-accent transition hover:bg-accent hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					{busy === "resolving" ? (
+						<LoaderCircle
+							size={15}
+							className="animate-spin"
+							aria-hidden="true"
+						/>
+					) : (
+						<Check size={15} aria-hidden="true" />
+					)}
+					{busy === "resolving" ? t("pending_resolving") : t("pending_resolve")}
+				</button>
+			</div>
+			{error && (
+				<p className="mt-2 text-xs font-medium text-danger" role="alert">
+					{error}
+				</p>
+			)}
+		</article>
+	);
+}
+
+function MessageComposer({
+	isTop,
+	docName,
+	note,
+	saving,
+	error,
+	onChange,
+	onSubmit,
+}: {
+	isTop: boolean;
+	docName: string | null;
+	note: string;
+	saving: boolean;
+	error: string | null;
+	onChange: (value: string) => void;
+	onSubmit: () => void;
+}) {
+	const t = useT();
+	const positionClass = isTop ? "border-b order-first" : "border-t order-last";
+	if (!docName) {
+		return (
+			<div className={`border-border/60 px-3 py-3 ${positionClass}`}>
+				<p className="text-[13px] leading-[18px] text-text-2">
+					{t("note_requires_document")}
+				</p>
+				<button
+					type="button"
+					onClick={() => useStore.getState().setActivePanel("docs")}
+					className="mt-2 inline-flex h-8 items-center rounded-[7px] bg-input px-2.5 text-[13px] font-semibold text-text-1 transition hover:bg-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					{t("choose_document")}
+				</button>
+			</div>
+		);
+	}
+	return (
+		<div
+			className={`flex flex-col gap-1.5 border-border/60 px-3 py-3 ${positionClass}`}
+		>
+			<div className="flex min-w-0 items-center gap-1 px-0.5 text-[13px] font-medium text-text-2">
+				<FileText size={12} className="flex-shrink-0" />
+				<span className="truncate">
+					{t("new_note_scope", { scope: docName })}
+				</span>
+			</div>
+			<div className="flex items-end gap-1.5">
+				<textarea
+					aria-label={t("note_global_placeholder")}
+					aria-invalid={error ? true : undefined}
+					value={note}
+					onChange={(event) => onChange(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Enter" && !event.shiftKey) {
+							event.preventDefault();
+							onSubmit();
+						}
+					}}
+					rows={3}
+					placeholder={t("note_global_placeholder")}
+					className="flex-1 min-w-0 px-3 py-2.5 bg-input rounded-lg text-[15px] leading-[21px] outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
+				/>
+				<button
+					type="button"
+					onClick={onSubmit}
+					disabled={!note.trim() || saving}
+					aria-busy={saving}
+					aria-label={t("pending_send_note")}
+					title={t("pending_send_note")}
+					className={`w-9 h-9 rounded-lg flex items-center justify-center transition flex-shrink-0 ${
+						note.trim() && !saving
+							? "bg-accent text-white hover:brightness-110"
+							: "bg-input text-text-3 cursor-not-allowed"
+					}`}
+				>
+					{saving ? (
+						<LoaderCircle
+							size={14}
+							className="animate-spin"
+							aria-hidden="true"
+						/>
+					) : (
+						<Send size={14} aria-hidden="true" />
+					)}
+				</button>
+			</div>
+			{saving && (
+				<p className="text-xs font-medium text-text-2" aria-live="polite">
+					{t("pending_sending")}
+				</p>
+			)}
+			{error && (
+				<p className="text-xs font-medium text-danger" role="alert">
+					{error}
+				</p>
+			)}
+		</div>
+	);
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -162,11 +428,13 @@ export function MessagesPanel() {
 	const open = useStore((s) => s.activePanel === "exchange");
 	const barPosition = useStore((s) => s.barPosition);
 	const [globalNote, setGlobalNote] = useState("");
+	const [noteSaving, setNoteSaving] = useState(false);
+	const [noteError, setNoteError] = useState<string | null>(null);
 	const focusedDocName = useStore((s) => s.focusedDocName);
-	const hasDoc = focusedDocName !== null;
 	const pending = useStore((s) => s.pending);
 	const addPending = useStore((s) => s.addPending);
 	const removePending = useStore((s) => s.removePending);
+	const closePanel = () => useStore.getState().setActivePanel(null);
 
 	const barSide = 68;
 	const freeSide = 8;
@@ -176,34 +444,71 @@ export function MessagesPanel() {
 		? { top: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` }
 		: { bottom: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` };
 
-	const submitNote = () => {
+	const submitNote = async () => {
 		const text = globalNote.trim();
-		if (!text) return;
-		addPending({
+		if (!text || noteSaving) return;
+		setNoteSaving(true);
+		setNoteError(null);
+		const outcome = await addPending({
 			id: crypto.randomUUID(),
 			type: "note",
 			text,
 			ts: Date.now(),
 		});
-		setGlobalNote("");
+		setNoteSaving(false);
+		if (!outcome.ok) {
+			setNoteError(t("pending_create_failed"));
+			return;
+		}
+		setGlobalNote((current) => (current.trim() === text ? "" : current));
 	};
 
 	return (
-		<div
+		<aside
+			id="panel-exchange"
+			aria-labelledby="messages-panel-title"
+			aria-hidden={!open}
+			inert={!open}
+			hidden={!open}
 			style={panelStyle}
-			className={`fixed right-4 w-[320px] max-sm:w-[calc(100vw-2rem)] bg-panel border border-border rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] z-[var(--z-panel)] flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+			className={`fixed right-4 w-[360px] max-sm:w-[calc(100vw-2rem)] bg-panel border border-border rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] z-[var(--z-panel)] flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
 				open
 					? "opacity-100 translate-x-0"
 					: "opacity-0 translate-x-8 pointer-events-none"
 			}`}
 		>
+			<header className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
+				<div className="min-w-0 flex-1">
+					<h2
+						id="messages-panel-title"
+						className="text-base font-semibold text-text-1"
+					>
+						{t("exchanges")}
+					</h2>
+					<p
+						className="text-[13px] leading-[18px] text-text-2"
+						aria-live="polite"
+					>
+						{t("pending_count", { count: pending.length })}
+					</p>
+				</div>
+				<button
+					type="button"
+					onClick={closePanel}
+					aria-label={t("close_exchanges")}
+					title={t("close_exchanges")}
+					className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 transition hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					<span aria-hidden="true">×</span>
+				</button>
+			</header>
 			<div
-				className={`flex-1 overflow-y-auto px-3 py-2 flex gap-2 scrollbar-thin ${isTop ? "flex-col-reverse" : "flex-col"}`}
+				className={`flex-1 overflow-y-auto px-3 py-3 flex gap-2 scrollbar-thin ${isTop ? "flex-col-reverse" : "flex-col"}`}
 			>
 				{pending.length === 0 ? (
 					<div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 text-sm text-center px-4">
 						<span className="w-10 h-10 rounded-full bg-input flex items-center justify-center">
-							<Pin size={16} />
+							<MessageSquareText size={18} />
 						</span>
 						<span className="whitespace-pre-line leading-relaxed">
 							{t("pending_empty")}
@@ -211,87 +516,23 @@ export function MessagesPanel() {
 					</div>
 				) : (
 					pending.map((msg) => (
-						<div
-							role="button"
-							tabIndex={0}
-							onKeyDown={(e) => {
-								if (e.key === "Enter") scrollToElement(msg.elementId);
-							}}
-							key={msg.id}
-							className={`group rounded-lg p-2.5 text-sm cursor-pointer transition-all ring-1 ${
-								msg.type === "delete"
-									? "bg-danger-soft ring-danger-border"
-									: "bg-input/60 ring-black/[0.04] hover:bg-input hover:ring-accent/30"
-							}`}
-							onMouseEnter={() => highlightElement(msg.elementId, true)}
-							onMouseLeave={() => highlightElement(msg.elementId, false)}
-							onClick={() => scrollToElement(msg.elementId)}
-						>
-							<div className="flex items-start gap-2">
-								<TypeBadge type={msg.type} />
-								<div className="flex-1 min-w-0 flex flex-col gap-1">
-									<ScopeChips msg={msg} />
-									<MessageBody msg={msg} />
-									<span className="text-2xs text-text-3 tabular-nums">
-										{formatTime(msg.ts)}
-									</span>
-								</div>
-								<button
-									type="button"
-									aria-label={t("bulk_clear")}
-									onClick={(e) => {
-										e.stopPropagation();
-										removePending(msg.id);
-									}}
-									className="flex-shrink-0 w-6 h-6 rounded-md flex items-center justify-center text-text-3 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger-soft transition"
-								>
-									<X size={12} />
-								</button>
-							</div>
-						</div>
+						<MessageCard key={msg.id} msg={msg} onResolve={removePending} />
 					))
 				)}
 			</div>
 
-			<div
-				className={`px-3 py-3 flex flex-col gap-1.5 ${isTop ? "border-b order-first" : "border-t order-last"} border-border/60 ${hasDoc ? "" : "opacity-40 pointer-events-none"}`}
-			>
-				<div className="px-0.5 text-2xs font-semibold text-text-3 flex items-center gap-1 min-w-0">
-					<FileText size={10} className="flex-shrink-0" />
-					<span className="truncate">
-						{focusedDocName ?? t("scope_workspace")}
-					</span>
-				</div>
-				<div className="flex gap-1.5 items-end">
-					<textarea
-						value={globalNote}
-						onChange={(e) => setGlobalNote(e.target.value)}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" && !e.shiftKey) {
-								e.preventDefault();
-								submitNote();
-							}
-						}}
-						rows={3}
-						placeholder={t("note_global_placeholder")}
-						className="flex-1 min-w-0 px-2.5 py-2 bg-input rounded-lg text-sm outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
-					/>
-					<button
-						type="button"
-						onClick={submitNote}
-						disabled={!globalNote.trim()}
-						aria-label={t("pending_send_note")}
-						title={t("pending_send_note")}
-						className={`w-9 h-9 rounded-lg flex items-center justify-center transition flex-shrink-0 ${
-							globalNote.trim()
-								? "bg-accent text-white hover:brightness-110"
-								: "bg-input text-text-3 cursor-not-allowed"
-						}`}
-					>
-						<Send size={14} />
-					</button>
-				</div>
-			</div>
-		</div>
+			<MessageComposer
+				isTop={isTop}
+				docName={focusedDocName}
+				note={globalNote}
+				saving={noteSaving}
+				error={noteError}
+				onChange={(value) => {
+					setGlobalNote(value);
+					if (noteError) setNoteError(null);
+				}}
+				onSubmit={submitNote}
+			/>
+		</aside>
 	);
 }

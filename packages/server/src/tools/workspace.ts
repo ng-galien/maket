@@ -15,20 +15,20 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import type { Annotations } from "../services/annotations.js";
 import type { Bus } from "../services/bus.js";
 import type {
 	CollectionCursors,
 	CollectionCursorView,
 } from "../services/collection-cursor.js";
 import type { Documents } from "../services/documents.js";
-import type { Pending } from "../services/pending.js";
 import type { Page } from "../types.js";
 import { text } from "./_helpers.js";
 
 export interface WorkspaceDeps {
 	documents: Documents;
 	bus: Bus;
-	pending: Pending;
+	pending: Annotations;
 	collectionCursors: CollectionCursors;
 }
 
@@ -144,7 +144,7 @@ function runFocus(args: Args, documents: Documents, bus: Bus) {
 function runState(
 	args: Args,
 	documents: Documents,
-	pending: Pending,
+	pending: Annotations,
 	collectionCursors: CollectionCursors,
 ) {
 	if (!args.doc) return text("doc is required for action=state", true);
@@ -210,13 +210,13 @@ function runFitView(bus: Bus) {
 	return text("Workspace fit-to-view triggered.");
 }
 
-function runListMessages(pending: Pending) {
+function runListMessages(pending: Annotations) {
 	const list = pending.all();
 	if (list.length === 0) return text("No pending messages");
 	return text(JSON.stringify(list, null, 2));
 }
 
-function runAckMessages(args: Args, pending: Pending) {
+function runAckMessages(args: Args, pending: Annotations) {
 	if (!args.ids?.length)
 		return text("ids is required for action=ack_messages", true);
 	const { matched, unknown } = pending.ack(args.ids);
