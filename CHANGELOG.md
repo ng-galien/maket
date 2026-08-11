@@ -13,6 +13,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-08-11
+
 ### Added
 - **Persistent document annotations.** Notes and element requests are stored in
   SQLite, synchronized across browser windows, and included when `.maket`
