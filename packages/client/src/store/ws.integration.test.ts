@@ -650,6 +650,99 @@ describe("annotation_create acknowledgement", () => {
 		});
 		expect(useStore.getState().pending).toEqual([]);
 	});
+
+	it("reports a persistence timeout when the server never acknowledges", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "brief" });
+		initWs();
+		MockWebSocket.last().open();
+
+		const outcome = useStore.getState().addPending({
+			id: "note-timeout",
+			type: "note",
+			text: "Keep this draft",
+			ts: 3,
+		});
+		await vi.advanceTimersByTimeAsync(10_000);
+
+		await expect(outcome).resolves.toEqual({
+			ok: false,
+			error: "The note could not be confirmed by the server.",
+		});
+	});
+
+	it("settles an in-flight creation when the connection closes", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ focusedDocName: "brief" });
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+
+		const outcome = useStore.getState().addPending({
+			id: "note-disconnected",
+			type: "note",
+			text: "Keep this too",
+			ts: 4,
+		});
+		socket.close();
+
+		await expect(outcome).resolves.toEqual({
+			ok: false,
+			error: "The connection closed before the note was saved.",
+		});
+	});
+});
+
+describe("workspace command wire format", () => {
+	it("serializes the public document authoring commands", async () => {
+		const {
+			initWs,
+			sendDeleteDoc,
+			sendDuplicateDoc,
+			sendLockDoc,
+			sendRenameDoc,
+			sendTextEdit,
+		} = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.sent.length = 0;
+
+		sendTextEdit("poster", 1, "title", "<strong>Ready</strong>");
+		sendDeleteDoc("obsolete");
+		sendRenameDoc("draft", "final");
+		sendDuplicateDoc("final", "variant");
+		sendLockDoc("final", true);
+
+		expect(socket.sentPayloads()).toEqual([
+			{
+				type: "text_edit",
+				docName: "poster",
+				pageIndex: 1,
+				elementId: "title",
+				html: "<strong>Ready</strong>",
+			},
+			{ type: "delete_document", name: "obsolete" },
+			{ type: "rename_document", name: "draft", newName: "final" },
+			{ type: "duplicate_document", name: "final", newName: "variant" },
+			{ type: "lock_document", name: "final", locked: true },
+		]);
+	});
+
+	it("logs an unknown future signal without throwing", async () => {
+		const { initWs } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		const error = vi.spyOn(console, "error").mockImplementation(() => {});
+
+		expect(() =>
+			socket.emit({ type: "future_signal" } as unknown as WorkspaceSignal),
+		).not.toThrow();
+		expect(error).toHaveBeenCalledWith("[ws] unhandled server signal", {
+			type: "future_signal",
+		});
+	});
 });
 
 describe("doc_removed", () => {

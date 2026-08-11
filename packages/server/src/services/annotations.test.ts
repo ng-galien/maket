@@ -71,4 +71,23 @@ describe("annotations persistence boundary", () => {
 		]);
 		store.close();
 	});
+
+	it("separates workspace requests and treats an empty acknowledgement as a no-op", () => {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const annotations = createAnnotations({ bus, store });
+		annotations.create({ id: "workspace-note", type: "classify-images" });
+		const acknowledged: unknown[] = [];
+		bus.on("messages:acked", (event) => acknowledged.push(event));
+
+		expect(annotations.forWorkspace()).toEqual([
+			expect.objectContaining({
+				id: "workspace-note",
+				type: "classify-images",
+			}),
+		]);
+		expect(annotations.ack([])).toEqual({ matched: [], unknown: [] });
+		expect(acknowledged).toEqual([]);
+		store.close();
+	});
 });
