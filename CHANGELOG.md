@@ -30,6 +30,12 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   Note and image requests wait for a correlated server acknowledgement, retain
   user input when saving fails, and report connection or persistence errors.
 
+### Internal
+- **Pull requests now exercise real browser workflows.** CI runs the same
+  coverage-enforced quality contract as local development and a separate
+  Playwright suite in Chromium. Installable-package smoke tests remain a
+  release gate.
+
 ## [1.6.0] — 2026-08-09
 
 ### Added

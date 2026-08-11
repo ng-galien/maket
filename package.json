@@ -45,7 +45,7 @@
     "changelog:draft": "node scripts/changelog-draft.mjs",
     "test:e2e": "npm run build:client && npm run test:e2e -w @maket/client",
     "e2e:server": "node scripts/dev.mjs e2e:server",
-    "quality": "npm run lint && npm run smell:review && npm run typecheck && npm run test && npm run version:check",
+    "quality": "npm run lint && npm run smell:review && npm run typecheck && npm run test:coverage && npm run version:check",
     "version:check": "node scripts/check-versions.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "prepare": "lefthook install"

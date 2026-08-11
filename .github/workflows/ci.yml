@@ -11,8 +11,10 @@ jobs:
     name: Quality & Coverage
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     env:
+      CODE_MONIKER_VERSION: "0.6.1"
+      CODE_MONIKER_SHA256: "47879fd56827116b6cfdde9575b809cb7c867e28c63239f64803171e63da93e6"
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: init.defaultBranch
       GIT_CONFIG_VALUE_0: main
@@ -33,20 +35,29 @@ jobs:
         # checks when the registry resolves to the newer version.
         run: npm install --no-audit --loglevel=error
 
-      - name: Lint & Format (Biome)
-        run: npm run lint
+      - name: Install Code Moniker
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/code-moniker.tar.xz"
+          bin_dir="$RUNNER_TEMP/code-moniker-bin"
+          curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+            --output "$archive" \
+            "https://github.com/ng-galien/code-moniker/releases/download/v${CODE_MONIKER_VERSION}/code-moniker-x86_64-unknown-linux-musl.tar.xz"
+          echo "$CODE_MONIKER_SHA256  $archive" | sha256sum --check -
+          mkdir -p "$bin_dir"
+          tar --extract --xz --file "$archive" --directory "$bin_dir" \
+            --strip-components=1
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          "$bin_dir/code-moniker" --version
 
-      - name: Type Check
-        run: npm run typecheck
+      - name: Quality and coverage
+        run: npm run quality
 
       - name: Build client
         run: npm run build:client
 
       - name: Build GitHub Pages demo
         run: npm run build:pages
-
-      - name: Test with coverage
-        run: npm run test:coverage
 
       - name: Generate coverage badge and summary
         run: npm run coverage:badge
@@ -58,14 +69,91 @@ jobs:
           path: coverage/
           if-no-files-found: error
 
+  coverage-badge:
+    name: Publish coverage badge
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: coverage-badge-main
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+
+      - name: Download validated coverage
+        uses: actions/download-artifact@v8
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Generate coverage badge
+        run: node scripts/coverage-badge.mjs
+
       - name: Commit coverage badge
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
         run: |
           if git diff --quiet -- .github/badges/coverage.json; then
             exit 0
           fi
+          base_sha="$(git rev-parse HEAD)"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add .github/badges/coverage.json
           git commit -m "chore(ci): update coverage badge [skip ci]"
-          git push
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then
+              exit 0
+            fi
+            git fetch origin main
+            if [[ "$(git rev-parse origin/main)" != "$base_sha" ]]; then
+              echo "::notice::main advanced; a newer CI run will publish its coverage badge"
+              exit 0
+            fi
+            echo "::warning::coverage badge push attempt $attempt failed; retrying"
+          done
+          echo "::error::coverage badge push failed while main remained unchanged"
+          exit 1
+
+  e2e:
+    name: End-to-end (Chromium)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --loglevel=error
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser workflows
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            packages/client/playwright-report/
+            packages/client/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
