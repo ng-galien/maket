@@ -5,10 +5,11 @@
  * with the store in `readOnly` mode.
  */
 
-import { FileUp, Moon, Sun } from "lucide-react";
+import { FileUp, Moon, MoreHorizontal, Sun } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	preferredScroll,
+	ReaderDocumentPicker,
 	ReaderPageControls,
 	ReaderSurface,
 	readerPageName,
@@ -320,30 +321,21 @@ function ViewerBar({
 	const documentNames = useStore((s) => s.workspaceDocNames);
 	const setFocusedDoc = useStore((s) => s.setFocusedDoc);
 	const inputRef = useRef<HTMLInputElement>(null);
-	const t = useT();
 
 	return (
 		<div
 			data-toolbar-shell
-			className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-50 flex h-12 items-center justify-center gap-1 rounded-full border border-border bg-panel px-1.5 shadow-lg sm:right-auto sm:left-1/2 sm:w-[min(100%-1rem,760px)] sm:-translate-x-1/2"
+			className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-50 flex h-14 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:right-auto sm:left-1/2 sm:w-auto sm:-translate-x-1/2"
 		>
-			<label className="sr-only" htmlFor="viewer-document">
-				{t("reader_document")}
-			</label>
-			<select
-				id="viewer-document"
-				value={focusedDocName ?? ""}
-				onChange={(event) => setFocusedDoc(event.target.value)}
+			<ReaderDocumentPicker
+				documentNames={documentNames}
+				docName={focusedDocName ?? ""}
+				position="bottom"
+				onDocumentChange={setFocusedDoc}
 				title={fileName ?? undefined}
-				className="h-11 min-w-0 flex-1 truncate rounded-full bg-input px-3 text-sm font-semibold text-text-1 outline-none focus-visible:ring-2 focus-visible:ring-accent"
-			>
-				{documentNames.map((name) => (
-					<option key={name} value={name}>
-						{name}
-					</option>
-				))}
-			</select>
-			<div className="mx-0.5 h-6 w-px shrink-0 bg-border" />
+				className="min-w-0 flex-1 sm:w-[clamp(13rem,28vw,19rem)] sm:flex-none"
+			/>
+			<div className="mx-1 h-7 w-px shrink-0 bg-border" />
 			<ReaderPageControls
 				pageIndex={pageIndex}
 				pageTotal={pageTotal}
@@ -355,7 +347,7 @@ function ViewerBar({
 				title="Open another file"
 				aria-label="Open another file"
 				onClick={() => inputRef.current?.click()}
-				className="flex size-11 items-center justify-center rounded-full text-text-2 hover:bg-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				className="hidden size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex"
 			>
 				<FileUp size={14} />
 			</button>
@@ -364,10 +356,15 @@ function ViewerBar({
 				title="Toggle dark mode"
 				aria-label="Toggle dark mode"
 				onClick={() => useStore.getState().toggleDarkMode()}
-				className="flex size-11 items-center justify-center rounded-full text-text-2 hover:bg-border/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				className="hidden size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex"
 			>
 				{darkMode ? <Sun size={14} /> : <Moon size={14} />}
 			</button>
+			<ViewerMobileActions
+				darkMode={darkMode}
+				onOpenFile={() => inputRef.current?.click()}
+				onToggleDarkMode={() => useStore.getState().toggleDarkMode()}
+			/>
 			<input
 				ref={inputRef}
 				type="file"
@@ -379,6 +376,91 @@ function ViewerBar({
 					e.target.value = "";
 				}}
 			/>
+		</div>
+	);
+}
+
+function ViewerMobileActions({
+	darkMode,
+	onOpenFile,
+	onToggleDarkMode,
+}: {
+	darkMode: boolean;
+	onOpenFile: () => void;
+	onToggleDarkMode: () => void;
+}) {
+	const [open, setOpen] = useState(false);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+
+	useEffect(() => {
+		if (!open) return;
+		const closeOutside = (event: PointerEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		const closeOnEscape = (event: KeyboardEvent) => {
+			if (event.key !== "Escape") return;
+			setOpen(false);
+			triggerRef.current?.focus();
+		};
+		document.addEventListener("pointerdown", closeOutside);
+		window.addEventListener("keydown", closeOnEscape);
+		return () => {
+			document.removeEventListener("pointerdown", closeOutside);
+			window.removeEventListener("keydown", closeOnEscape);
+		};
+	}, [open]);
+
+	return (
+		<div
+			ref={rootRef}
+			className="relative sm:hidden"
+			onBlur={(event) => {
+				if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+			}}
+		>
+			<button
+				ref={triggerRef}
+				type="button"
+				aria-label="More viewer actions"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+				className="flex size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+			>
+				<MoreHorizontal size={18} />
+			</button>
+			{open && (
+				<div
+					role="group"
+					aria-label="Viewer actions"
+					data-reader-menu
+					className="absolute right-0 bottom-full mb-2 w-52 rounded-xl border border-border bg-panel p-1.5 shadow-[0_18px_56px_rgba(0,0,0,0.2)]"
+					style={{ animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+				>
+					<button
+						type="button"
+						onClick={() => {
+							setOpen(false);
+							onOpenFile();
+						}}
+						className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-text-2 outline-none transition-colors hover:bg-input focus-visible:bg-input focus-visible:text-text-1"
+					>
+						<FileUp size={16} />
+						Open another file
+					</button>
+					<button
+						type="button"
+						onClick={() => {
+							onToggleDarkMode();
+							setOpen(false);
+						}}
+						className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-text-2 outline-none transition-colors hover:bg-input focus-visible:bg-input focus-visible:text-text-1"
+					>
+						{darkMode ? <Sun size={16} /> : <Moon size={16} />}
+						Toggle dark mode
+					</button>
+				</div>
+			)}
 		</div>
 	);
 }

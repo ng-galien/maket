@@ -455,3 +455,9 @@ textarea:not(.page-canvas *):focus-visible {
     transform: translateX(0) scale(1);
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reader-menu] {
+    animation: none !important;
+  }
+}

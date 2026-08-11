@@ -1,8 +1,20 @@
-import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
-import type { ReactNode, RefObject } from "react";
+import {
+	Check,
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	LayoutGrid,
+} from "lucide-react";
+import type {
+	FocusEvent as ReactFocusEvent,
+	KeyboardEvent as ReactKeyboardEvent,
+	ReactNode,
+	RefObject,
+} from "react";
 import {
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -266,11 +278,12 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 	return (
 		<nav
 			aria-label={t("reader_navigation")}
-			className={`fixed left-1/2 z-[var(--z-bar)] flex h-12 w-[min(100%-1rem,720px)] -translate-x-1/2 items-center gap-1 rounded-full bg-panel px-1.5 shadow-lg ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
+			className={`fixed left-1/2 z-[var(--z-bar)] flex h-14 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
 		>
 			<ReaderButton label={t("canvas_view")} onClick={model.onExit}>
-				<LayoutGrid size={17} />
+				<LayoutGrid size={18} strokeWidth={1.8} />
 			</ReaderButton>
+			<div className="mx-1 hidden h-7 w-px shrink-0 bg-border sm:block" />
 			<ReaderButton
 				label={t("previous_document")}
 				disabled={documentIndex <= 0}
@@ -281,23 +294,15 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 					)
 				}
 			>
-				<ChevronLeft size={17} />
+				<ChevronLeft size={18} />
 			</ReaderButton>
-			<label className="sr-only" htmlFor="reader-document">
-				{t("reader_document")}
-			</label>
-			<select
-				id="reader-document"
-				value={model.docName}
-				onChange={(event) => model.onDocumentChange(event.target.value)}
-				className="h-11 min-w-0 flex-1 truncate rounded-full bg-input px-3 text-sm font-semibold text-text-1 outline-none focus-visible:ring-2 focus-visible:ring-accent"
-			>
-				{model.documentNames.map((name) => (
-					<option key={name} value={name}>
-						{name}
-					</option>
-				))}
-			</select>
+			<ReaderDocumentPicker
+				documentNames={model.documentNames}
+				docName={model.docName}
+				position={model.position}
+				onDocumentChange={model.onDocumentChange}
+				className="min-w-0 flex-1 sm:w-[clamp(13rem,28vw,19rem)] sm:flex-none"
+			/>
 			<ReaderButton
 				label={t("next_document")}
 				disabled={
@@ -310,9 +315,9 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				}
 				className="hidden sm:flex"
 			>
-				<ChevronRight size={17} />
+				<ChevronRight size={18} />
 			</ReaderButton>
-			<div className="mx-0.5 h-6 w-px shrink-0 bg-border" />
+			<div className="mx-1 h-7 w-px shrink-0 bg-border" />
 			<ReaderPageControls
 				pageIndex={model.pageIndex}
 				pageTotal={model.pageTotal}
@@ -320,6 +325,259 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				onPageChange={model.onPageChange}
 			/>
 		</nav>
+	);
+}
+
+export function ReaderDocumentPicker({
+	documentNames,
+	docName,
+	position,
+	onDocumentChange,
+	className = "",
+	title,
+}: {
+	documentNames: string[];
+	docName: string;
+	position: "top" | "bottom";
+	onDocumentChange: (name: string) => void;
+	className?: string;
+	title?: string;
+}) {
+	const t = useT();
+	const model = useReaderDocumentPicker({
+		documentNames,
+		docName,
+		onDocumentChange,
+	});
+	return (
+		<div
+			ref={model.rootRef}
+			className={`relative ${className}`}
+			onBlur={model.closeOnBlur}
+		>
+			<button
+				ref={model.triggerRef}
+				type="button"
+				title={title}
+				aria-label={t("reader_document")}
+				aria-haspopup="listbox"
+				aria-expanded={model.open}
+				aria-controls={model.open ? model.listboxId : undefined}
+				onClick={model.toggle}
+				onKeyDown={model.onTriggerKeyDown}
+				className="group flex h-10 w-full min-w-0 items-center gap-3 rounded-xl border border-transparent bg-input/70 px-3 text-left text-sm font-semibold text-text-1 outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border hover:bg-input focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/30"
+			>
+				<span className="min-w-0 flex-1 truncate">{docName}</span>
+				<ChevronDown
+					size={16}
+					strokeWidth={2}
+					className={`shrink-0 text-text-3 transition-transform duration-150 group-hover:text-text-2 ${model.open ? "rotate-180" : ""}`}
+				/>
+			</button>
+			{model.open && (
+				<ReaderDocumentList
+					model={model}
+					documentNames={documentNames}
+					docName={docName}
+					position={position}
+					label={t("reader_document")}
+				/>
+			)}
+		</div>
+	);
+}
+
+interface ReaderDocumentPickerModel {
+	open: boolean;
+	activeIndex: number;
+	listboxId: string;
+	rootRef: RefObject<HTMLDivElement | null>;
+	triggerRef: RefObject<HTMLButtonElement | null>;
+	optionRefs: RefObject<Array<HTMLButtonElement | null>>;
+	toggle: () => void;
+	closeOnBlur: (event: ReactFocusEvent<HTMLDivElement>) => void;
+	onTriggerKeyDown: (event: ReactKeyboardEvent) => void;
+	onOptionKeyDown: (event: ReactKeyboardEvent, index: number) => void;
+	choose: (name: string) => void;
+}
+
+function useReaderDocumentPicker({
+	documentNames,
+	docName,
+	onDocumentChange,
+}: {
+	documentNames: string[];
+	docName: string;
+	onDocumentChange: (name: string) => void;
+}): ReaderDocumentPickerModel {
+	const [open, setOpen] = useState(false);
+	const rootRef = useRef<HTMLDivElement>(null);
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	const typeaheadRef = useRef<{ query: string; timer: number | null }>({
+		query: "",
+		timer: null,
+	});
+	const listboxId = useId();
+	const selectedIndex = Math.max(0, documentNames.indexOf(docName));
+	const [activeIndex, setActiveIndex] = useState(selectedIndex);
+
+	useEffect(() => setOpen(false), [docName]);
+	useEffect(() => {
+		if (open) return;
+		const state = typeaheadRef.current;
+		state.query = "";
+		if (state.timer !== null) window.clearTimeout(state.timer);
+		state.timer = null;
+	}, [open]);
+	useEffect(
+		() => () => {
+			if (typeaheadRef.current.timer !== null) {
+				window.clearTimeout(typeaheadRef.current.timer);
+			}
+		},
+		[],
+	);
+	useEffect(() => {
+		if (!open) return;
+		const closeOutside = (event: PointerEvent) => {
+			if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+		};
+		document.addEventListener("pointerdown", closeOutside);
+		return () => document.removeEventListener("pointerdown", closeOutside);
+	}, [open]);
+	useEffect(() => {
+		if (!open) return;
+		setActiveIndex(selectedIndex);
+		optionRefs.current[selectedIndex]?.focus();
+	}, [open, selectedIndex]);
+
+	const closeAndFocus = () => {
+		setOpen(false);
+		requestAnimationFrame(() => triggerRef.current?.focus());
+	};
+	const choose = (name: string) => {
+		onDocumentChange(name);
+		closeAndFocus();
+	};
+	const moveFocus = (index: number) => {
+		const bounded = Math.max(0, Math.min(documentNames.length - 1, index));
+		setActiveIndex(bounded);
+		optionRefs.current[bounded]?.focus();
+	};
+	const typeahead = (event: ReactKeyboardEvent, fromIndex: number) => {
+		if (
+			documentNames.length === 0 ||
+			event.key.length !== 1 ||
+			event.altKey ||
+			event.ctrlKey ||
+			event.metaKey
+		) {
+			return false;
+		}
+		const state = typeaheadRef.current;
+		state.query += event.key.toLocaleLowerCase();
+		if (state.timer !== null) window.clearTimeout(state.timer);
+		state.timer = window.setTimeout(() => {
+			state.query = "";
+			state.timer = null;
+		}, 500);
+		const orderedIndexes = documentNames.map(
+			(_, offset) => (fromIndex + offset + 1) % documentNames.length,
+		);
+		const match = orderedIndexes.find((index) =>
+			documentNames[index]?.toLocaleLowerCase().startsWith(state.query),
+		);
+		if (match === undefined) return true;
+		event.preventDefault();
+		setOpen(true);
+		setActiveIndex(match);
+		if (open) optionRefs.current[match]?.focus();
+		else requestAnimationFrame(() => optionRefs.current[match]?.focus());
+		return true;
+	};
+	return {
+		open,
+		activeIndex,
+		listboxId,
+		rootRef,
+		triggerRef,
+		optionRefs,
+		toggle: () => setOpen((value) => !value),
+		closeOnBlur: (event) => {
+			if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+		},
+		onTriggerKeyDown: (event) => {
+			if (event.key === "Tab") {
+				setOpen(false);
+				return;
+			}
+			if (typeahead(event, selectedIndex)) return;
+			if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+			event.preventDefault();
+			setOpen(true);
+		},
+		onOptionKeyDown: (event, index) => {
+			if (typeahead(event, index)) return;
+			if (event.key === "ArrowDown") moveFocus(index + 1);
+			else if (event.key === "ArrowUp") moveFocus(index - 1);
+			else if (event.key === "Home") moveFocus(0);
+			else if (event.key === "End") moveFocus(documentNames.length - 1);
+			else if (event.key === "Escape") closeAndFocus();
+			else if (event.key === "Tab") {
+				setOpen(false);
+				return;
+			} else return;
+			event.preventDefault();
+		},
+		choose,
+	};
+}
+
+function ReaderDocumentList({
+	model,
+	documentNames,
+	docName,
+	position,
+	label,
+}: {
+	model: ReaderDocumentPickerModel;
+	documentNames: string[];
+	docName: string;
+	position: "top" | "bottom";
+	label: string;
+}) {
+	return (
+		<div
+			id={model.listboxId}
+			role="listbox"
+			aria-label={label}
+			data-reader-menu
+			className={`absolute left-0 z-[var(--z-popover)] max-h-64 w-[max(100%,16rem)] overflow-y-auto rounded-xl border border-border bg-panel p-1.5 shadow-[0_18px_56px_rgba(0,0,0,0.2)] ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
+			style={{ animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+		>
+			{documentNames.map((name, index) => {
+				const selected = name === docName;
+				return (
+					<button
+						key={name}
+						ref={(element) => {
+							model.optionRefs.current[index] = element;
+						}}
+						type="button"
+						role="option"
+						aria-selected={selected}
+						tabIndex={index === model.activeIndex ? 0 : -1}
+						onClick={() => model.choose(name)}
+						onKeyDown={(event) => model.onOptionKeyDown(event, index)}
+						className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm outline-none transition-colors ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
+					>
+						<span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+						{selected && <Check size={16} className="shrink-0 text-accent" />}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
 
@@ -337,7 +595,7 @@ export function ReaderPageControls({
 	const t = useT();
 	const current = pageTotal === 0 ? 0 : Math.min(pageIndex + 1, pageTotal);
 	return (
-		<>
+		<div className="flex shrink-0 items-center rounded-xl bg-input/55 p-0.5">
 			<ReaderButton
 				label={`${t("previous_page")} — ${pageLabel}`}
 				disabled={pageIndex <= 0 || pageTotal === 0}
@@ -360,7 +618,7 @@ export function ReaderPageControls({
 			>
 				<ChevronRight size={17} />
 			</ReaderButton>
-		</>
+		</div>
 	);
 }
 
@@ -398,7 +656,7 @@ function ReaderButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className={`size-11 shrink-0 items-center justify-center rounded-full text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-30 disabled:hover:bg-transparent ${className || "flex"}`}
+			className={`size-10 shrink-0 items-center justify-center rounded-xl text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
 		>
 			{children}
 		</button>

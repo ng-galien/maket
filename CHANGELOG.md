@@ -24,6 +24,9 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   their document and page context, can open a document before locating their
   target, and use clearer, accessible View and Resolve actions with visible
   document- and element-level markers.
+- **Reader navigation is quieter and easier to scan.** The oversized native
+  document selector is replaced by a compact, keyboard-accessible menu, while
+  document and page controls use balanced groups across desktop and mobile.
 
 ### Fixed
 - **Annotation actions no longer disappear before persistence is confirmed.**

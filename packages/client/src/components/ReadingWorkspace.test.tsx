@@ -93,6 +93,41 @@ describe("ReadingWorkspace", () => {
 		expect(document.querySelector("[data-doc='beta']")).not.toBeNull();
 	});
 
+	it("keeps the document picker keyboard-accessible", async () => {
+		const user = userEvent.setup();
+		const alpha = makeDoc("alpha");
+		const beta = makeDoc("beta");
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+			]),
+			workspaceDocNames: [alpha.name, beta.name],
+			focusedDocName: alpha.name,
+			focusedPageIndex: 0,
+			workspaceView: "reading",
+		});
+
+		render(<ReadingWorkspace />);
+		const picker = document.querySelector(
+			'button[aria-label="Document"]',
+		) as HTMLButtonElement;
+		await user.click(picker);
+		expect(document.querySelector('[role="listbox"]')).not.toBeNull();
+		await user.keyboard("b");
+		expect(document.activeElement).toHaveTextContent("beta");
+		await user.keyboard("{Enter}");
+		expect(useStore.getState().focusedDocName).toBe("beta");
+
+		await user.click(
+			document.querySelector(
+				'button[aria-label="Document"]',
+			) as HTMLButtonElement,
+		);
+		await user.keyboard("{Tab}");
+		expect(document.querySelector('[role="listbox"]')).toBeNull();
+	});
+
 	it("positions the focused page after StrictMode effect replay", () => {
 		const frames = new Map<number, FrameRequestCallback>();
 		let nextFrame = 0;

@@ -76,17 +76,29 @@ describe("viewerOptions", () => {
 
 		await screen.findByText("alpha page 1");
 		expect(useStore.getState().readOnly).toBe(true);
-		expect(screen.getByLabelText("Document")).toHaveValue("alpha");
+		expect(screen.getByLabelText("Document")).toHaveTextContent("alpha");
 		expect(screen.getByRole("status")).toHaveTextContent("Page 1, 1/2");
 
 		fireEvent.click(screen.getByRole("button", { name: /Next page/ }));
 		expect(screen.getByRole("status")).toHaveTextContent("Page 2, 2/2");
-		fireEvent.change(screen.getByLabelText("Document"), {
-			target: { value: "beta" },
-		});
+		fireEvent.click(screen.getByLabelText("Document"));
+		fireEvent.click(screen.getByRole("option", { name: "beta" }));
 		await screen.findByText("beta page 1");
 		fireEvent.click(screen.getByRole("button", { name: "Toggle dark mode" }));
 		expect(useStore.getState().darkMode).toBe(true);
+		fireEvent.click(
+			screen.getByRole("button", { name: "More viewer actions" }),
+		);
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "Toggle dark mode" })[1],
+		);
+		expect(useStore.getState().darkMode).toBe(false);
+		fireEvent.click(
+			screen.getByRole("button", { name: "More viewer actions" }),
+		);
+		fireEvent.click(
+			screen.getAllByRole("button", { name: "Open another file" })[1],
+		);
 		fireEvent.click(screen.getByRole("button", { name: "Open another file" }));
 		fireEvent.change(document.querySelector('input[type="file"]') as Element, {
 			target: { files: [viewerFile()] },

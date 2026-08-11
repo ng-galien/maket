@@ -24,7 +24,8 @@ async function selectDocument(
 	page: import("@playwright/test").Page,
 	name: string,
 ) {
-	await page.getByLabel("Document").selectOption(name);
+	await page.getByLabel("Document").click();
+	await page.getByRole("option", { name, exact: true }).click();
 	await expect(page.locator(`[data-doc="${name}"]`)).toBeVisible();
 }
 
@@ -118,7 +119,7 @@ test.describe("Maket Viewer", () => {
 			.poll(() => logo.evaluate((el) => (el as HTMLImageElement).naturalWidth))
 			.toBeGreaterThan(0);
 
-		await expect(page.getByLabel("Document")).toHaveValue("poster");
+		await expect(page.getByLabel("Document")).toHaveText("poster");
 	});
 
 	test("collection members render as successive passive pages", async ({
@@ -262,6 +263,34 @@ test.describe("Maket Viewer", () => {
 			),
 		).toBe(true);
 		await expect(page.getByLabel("Document")).toBeVisible();
+		await page.getByRole("button", { name: "More viewer actions" }).click();
+		await expect(
+			page.getByRole("button", { name: "Open another file" }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Toggle dark mode" }),
+		).toBeVisible();
+	});
+
+	test("document menu supports typeahead and closes when tabbing away", async ({
+		page,
+	}) => {
+		await openFixture(page);
+		const picker = page.getByLabel("Document");
+		await picker.focus();
+		await picker.press("Enter");
+		await expect(page.getByRole("listbox", { name: "Document" })).toBeVisible();
+		await page.keyboard.press("b");
+		await expect(page.getByRole("option", { name: "brochure" })).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(page.locator('[data-doc="brochure"]')).toBeVisible();
+
+		await picker.focus();
+		await picker.press("Enter");
+		await page.keyboard.press("Tab");
+		await expect(page.getByRole("listbox", { name: "Document" })).toHaveCount(
+			0,
+		);
 	});
 
 	test("embed loads a same-origin bundle into the chrome-free Reader", async ({
