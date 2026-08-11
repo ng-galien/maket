@@ -1,4 +1,8 @@
-import type { BundleDocumentStateSnapshot, Collection } from "@maket/shared";
+import type {
+	BundleAnnotationSnapshot,
+	BundleDocumentStateSnapshot,
+	Collection,
+} from "@maket/shared";
 import {
 	collectAssetFilenames,
 	loadAssetsFromDir,
@@ -33,6 +37,7 @@ export interface BundleExportSuccess {
 	chartes: Charte[];
 	collections: Collection[];
 	documentStates: BundleDocumentStateSnapshot[];
+	annotations: BundleAnnotationSnapshot[];
 	assets: BundleAsset[];
 	missingAssets: string[];
 }
@@ -91,6 +96,7 @@ async function buildBundle(
 	const chartes = loadReferencedChartes(documents, deps.store);
 	const collections = deps.collections.referencedBy(documents);
 	const documentStates = currentDocumentStateSnapshots(documents, deps.store);
+	const annotations = portableAnnotations(documents, deps.store);
 	const { assets, missing: missingAssets } =
 		options.includeAssets === false
 			? { assets: [], missing: [] }
@@ -100,6 +106,7 @@ async function buildBundle(
 				);
 	const buffer = await encodeBundleV2(documents, chartes, collections, assets, {
 		documentStates,
+		annotations,
 	});
 	const baseName =
 		documents.length === 1
@@ -114,9 +121,41 @@ async function buildBundle(
 		chartes,
 		collections,
 		documentStates,
+		annotations,
 		assets,
 		missingAssets,
 	};
+}
+
+function portableAnnotations(
+	docs: Document[],
+	store: Store,
+): BundleAnnotationSnapshot[] {
+	const documentIds = new Map(docs.map((doc) => [doc.name, doc.id]));
+	return store.loadAnnotations().flatMap((annotation) => {
+		const documentId = annotation.docName
+			? documentIds.get(annotation.docName)
+			: undefined;
+		if (!documentId) return [];
+		return [
+			{
+				documentId,
+				...(annotation.pageIndex !== undefined
+					? { pageIndex: annotation.pageIndex }
+					: {}),
+				...(annotation.elementId !== undefined
+					? { elementId: annotation.elementId }
+					: {}),
+				type: annotation.type ?? "note",
+				...(annotation.text !== undefined ? { text: annotation.text } : {}),
+				...(annotation.file !== undefined ? { file: annotation.file } : {}),
+				...(annotation.position !== undefined
+					? { position: annotation.position }
+					: {}),
+				ts: annotation.ts ?? 0,
+			},
+		];
+	});
 }
 
 function loadReferencedChartes(docs: Document[], store: Store): Charte[] {

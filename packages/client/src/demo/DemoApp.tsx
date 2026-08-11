@@ -55,6 +55,7 @@ function applyStep(scenario: DemoScenario, stepIndex: number): void {
 				id: `demo-note-${i}`,
 				type: "note" as const,
 				elementId: note.elementId,
+				pageIndex: 0,
 				text: note.text,
 				docName,
 				ts: Date.now(),

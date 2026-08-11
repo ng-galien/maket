@@ -1,4 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
+import type { AnnotationRepository } from "./sqlite-store/annotation-repository.js";
+import { createAnnotationRepository } from "./sqlite-store/annotation-repository.js";
 import type { AssetRepository } from "./sqlite-store/asset-repository.js";
 import {
 	type AssetInput,
@@ -22,7 +24,8 @@ export interface Store
 		CharteRepository,
 		CollectionRepository,
 		DocumentStateRepository,
-		AssetRepository {
+		AssetRepository,
+		AnnotationRepository {
 	close(): void;
 }
 
@@ -40,6 +43,7 @@ export function createSQLiteStore(dbPath: string): Store {
 		...createCollectionRepository(db),
 		...createDocumentStateRepository(db),
 		...createAssetRepository(db),
+		...createAnnotationRepository(db),
 		close() {
 			db.close();
 		},

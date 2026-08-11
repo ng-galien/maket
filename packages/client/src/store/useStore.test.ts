@@ -242,57 +242,6 @@ describe("upsertDoc", () => {
 	});
 });
 
-describe("pending messages", () => {
-	it("addPending appends and injects the focused doc name", () => {
-		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
-		useStore.getState().addPending({
-			id: "m1",
-			type: "note",
-			text: "hello",
-			ts: Date.now(),
-		});
-		const [msg] = useStore.getState().pending;
-		expect(msg.id).toBe("m1");
-		expect(msg.docName).toBe("alpha");
-	});
-
-	it("addPending preserves an explicit docName over focus", () => {
-		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
-		useStore.getState().addPending({
-			id: "m1",
-			type: "note",
-			docName: "other",
-			ts: 0,
-		});
-		expect(useStore.getState().pending[0].docName).toBe("other");
-	});
-
-	it("addPending honors an explicit `docName: undefined` as workspace scope", () => {
-		// PhotosTab uploads create classify-images alerts that should land in
-		// the workspace bucket regardless of which doc is focused.
-		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
-		useStore.getState().addPending({
-			id: "m1",
-			type: "classify-images",
-			docName: undefined,
-			text: "3 new images",
-			ts: 0,
-		});
-		expect(useStore.getState().pending[0].docName).toBeUndefined();
-	});
-
-	it("removePending drops by id and leaves the rest", () => {
-		useStore.setState({
-			pending: [
-				{ id: "a", type: "note", ts: 0 },
-				{ id: "b", type: "note", ts: 0 },
-			],
-		});
-		useStore.getState().removePending("a");
-		expect(useStore.getState().pending.map((m) => m.id)).toEqual(["b"]);
-	});
-});
-
 describe("workspace / focus", () => {
 	it("removeDocFromWorkspace reassigns focus to the last remaining doc", () => {
 		useStore

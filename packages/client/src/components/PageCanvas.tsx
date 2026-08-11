@@ -5,7 +5,16 @@ import {
 	resolveCollectionText,
 } from "@maket/shared";
 import { MessageCircle, Pencil } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	forwardRef,
+	memo,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
@@ -126,6 +135,56 @@ function markedTemplateHtml(
 	}
 }
 
+interface AnnotationTarget {
+	elementId: string;
+	note: boolean;
+	deletion: boolean;
+}
+
+interface AnnotationMarkerBounds extends AnnotationTarget {
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+}
+
+const AuthoredPageHtml = memo(
+	forwardRef<HTMLDivElement, { html: string }>(function AuthoredPageHtml(
+		{ html },
+		ref,
+	) {
+		return (
+			<div
+				ref={ref}
+				className="page-authored-content"
+				dangerouslySetInnerHTML={{ __html: html }}
+			/>
+		);
+	}),
+);
+
+function sameAnnotationMarkers(
+	current: AnnotationMarkerBounds[],
+	next: AnnotationMarkerBounds[],
+): boolean {
+	return (
+		current.length === next.length &&
+		current.every((marker, index) => {
+			const candidate = next[index];
+			return (
+				candidate !== undefined &&
+				marker.elementId === candidate.elementId &&
+				marker.note === candidate.note &&
+				marker.deletion === candidate.deletion &&
+				marker.left === candidate.left &&
+				marker.top === candidate.top &&
+				marker.width === candidate.width &&
+				marker.height === candidate.height
+			);
+		})
+	);
+}
+
 interface Props {
 	doc: Document;
 	pageIndex: number;
@@ -172,6 +231,7 @@ export const PageCanvas = memo(function PageCanvas({
 }: Props) {
 	const t = useT();
 	const pageRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
 	const editingRef = useRef<{
 		id: string;
 		originalHtml: string;
@@ -255,6 +315,126 @@ export const PageCanvas = memo(function PageCanvas({
 	const stableHtmlRef = useRef(html);
 	if (!isEditing) stableHtmlRef.current = html;
 	const renderHtml = isEditing ? stableHtmlRef.current : html;
+	const annotationTargets = useMemo(() => {
+		if (!activePolicy.showPendingMarkers) return [];
+		const byElement = new Map<string, AnnotationTarget>();
+		for (const message of pending) {
+			if (
+				message.docName !== doc.name ||
+				message.pageIndex !== pageIndex ||
+				!message.elementId ||
+				(message.type !== "note" && message.type !== "delete")
+			)
+				continue;
+			const target = byElement.get(message.elementId) ?? {
+				elementId: message.elementId,
+				note: false,
+				deletion: false,
+			};
+			if (message.type === "note") target.note = true;
+			if (message.type === "delete") target.deletion = true;
+			byElement.set(message.elementId, target);
+		}
+		return [...byElement.values()];
+	}, [activePolicy.showPendingMarkers, doc.name, pageIndex, pending]);
+	const pageNoteCount = useMemo(
+		() =>
+			activePolicy.showPendingMarkers
+				? pending.filter(
+						(message) =>
+							message.docName === doc.name &&
+							!message.elementId &&
+							message.type === "note" &&
+							(message.pageIndex === pageIndex ||
+								(message.pageIndex === undefined && pageIndex === 0)),
+					).length
+				: 0,
+		[activePolicy.showPendingMarkers, doc.name, pageIndex, pending],
+	);
+	const [annotationMarkers, setAnnotationMarkers] = useState<
+		AnnotationMarkerBounds[]
+	>([]);
+	const measureAnnotationMarkers = useCallback(() => {
+		const pageElement = pageRef.current;
+		const contentElement = contentRef.current;
+		if (!pageElement || !contentElement || annotationTargets.length === 0) {
+			setAnnotationMarkers((current) => (current.length === 0 ? current : []));
+			return;
+		}
+		const pageRect = pageElement.getBoundingClientRect();
+		const scaleX = pageRect.width
+			? pageElement.offsetWidth / pageRect.width
+			: 1;
+		const scaleY = pageRect.height
+			? pageElement.offsetHeight / pageRect.height
+			: 1;
+		const elements = [
+			...contentElement.querySelectorAll<HTMLElement>("[data-id]"),
+		];
+		const next = annotationTargets.flatMap((annotation) => {
+			const target = elements.find(
+				(element) => element.dataset.id === annotation.elementId,
+			);
+			if (!target) return [];
+			const rect = target.getBoundingClientRect();
+			return [
+				{
+					...annotation,
+					left: (rect.left - pageRect.left) * scaleX,
+					top: (rect.top - pageRect.top) * scaleY,
+					width: rect.width * scaleX,
+					height: rect.height * scaleY,
+				},
+			];
+		});
+		setAnnotationMarkers((current) =>
+			sameAnnotationMarkers(current, next) ? current : next,
+		);
+	}, [annotationTargets]);
+
+	useLayoutEffect(() => {
+		if (annotationTargets.length === 0) {
+			setAnnotationMarkers((current) => (current.length === 0 ? current : []));
+			return;
+		}
+		const frame = requestAnimationFrame(measureAnnotationMarkers);
+		const contentElement = contentRef.current;
+		const resizeObserver =
+			typeof ResizeObserver === "undefined"
+				? null
+				: new ResizeObserver(measureAnnotationMarkers);
+		if (contentElement) {
+			resizeObserver?.observe(contentElement);
+			for (const target of contentElement.querySelectorAll<HTMLElement>(
+				"[data-id]",
+			)) {
+				resizeObserver?.observe(target);
+			}
+			contentElement.addEventListener("load", measureAnnotationMarkers, true);
+		}
+		const mutationObserver =
+			contentElement && typeof MutationObserver !== "undefined"
+				? new MutationObserver(measureAnnotationMarkers)
+				: null;
+		mutationObserver?.observe(contentElement as Node, {
+			attributes: true,
+			childList: true,
+			subtree: true,
+			characterData: true,
+		});
+		window.addEventListener("resize", measureAnnotationMarkers);
+		return () => {
+			cancelAnimationFrame(frame);
+			resizeObserver?.disconnect();
+			mutationObserver?.disconnect();
+			contentElement?.removeEventListener(
+				"load",
+				measureAnnotationMarkers,
+				true,
+			);
+			window.removeEventListener("resize", measureAnnotationMarkers);
+		};
+	}, [annotationTargets.length, measureAnnotationMarkers, renderHtml]);
 
 	useEffect(() => {
 		if (!isEditing) return;
@@ -857,30 +1037,6 @@ export const PageCanvas = memo(function PageCanvas({
 		pageIndex,
 	]);
 
-	useEffect(() => {
-		if (!pageRef.current) return;
-		if (!activePolicy.showPendingMarkers) {
-			pageRef.current
-				.querySelectorAll("[data-id].flagged-delete, [data-id].has-note")
-				.forEach((element) => {
-					element.classList.remove("flagged-delete", "has-note");
-				});
-			return;
-		}
-		const deleteIds = new Set(
-			pending.filter((m) => m.type === "delete").map((m) => m.elementId),
-		);
-		const noteIds = new Set(
-			pending.filter((m) => m.type === "note").map((m) => m.elementId),
-		);
-		pageRef.current.querySelectorAll("[data-id]").forEach((el) => {
-			const id = (el as HTMLElement).dataset.id;
-			if (!id) return;
-			el.classList.toggle("flagged-delete", deleteIds.has(id));
-			el.classList.toggle("has-note", noteIds.has(id));
-		});
-	}, [activePolicy.showPendingMarkers, pending, renderHtml]);
-
 	const margins = canvas.margins;
 
 	return (
@@ -902,10 +1058,33 @@ export const PageCanvas = memo(function PageCanvas({
 					...charteVars,
 				}}
 			>
-				<div
-					dangerouslySetInnerHTML={{ __html: renderHtml }}
-					style={{ width: "100%", height: "100%" }}
-				/>
+				<AuthoredPageHtml ref={contentRef} html={renderHtml} />
+				<div className="annotation-overlay" aria-hidden="true">
+					{annotationMarkers.map((marker) => (
+						<div
+							key={marker.elementId}
+							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}`}
+							data-annotation-marker={marker.elementId}
+							style={{
+								left: marker.left,
+								top: marker.top,
+								width: marker.width,
+								height: marker.height,
+							}}
+						>
+							{marker.note && <span className="annotation-marker-badge" />}
+						</div>
+					))}
+					{pageNoteCount > 0 && (
+						<div
+							className="annotation-page-marker"
+							data-annotation-page-marker=""
+						>
+							<MessageCircle size={16} strokeWidth={2.4} />
+							<span>{pageNoteCount}</span>
+						</div>
+					)}
+				</div>
 				{activePolicy.showGuides && margins && (
 					<div
 						className="margin-guide"

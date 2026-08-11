@@ -333,6 +333,9 @@ function PanelButton({
 			type="button"
 			onClick={() => onToggle(panel)}
 			title={title}
+			aria-label={title}
+			aria-expanded={activePanel === panel}
+			aria-controls={`panel-${panel}`}
 			className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors relative ${
 				activePanel === panel
 					? "bg-accent text-white"

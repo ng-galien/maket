@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { decodeBundle } from "../lib/maket-format.js";
+import { createAnnotations } from "../services/annotations.js";
 import { createBundleExportService } from "../services/bundle-export.js";
 import { createBundleImportService } from "../services/bundle-import.js";
 import { createBus } from "../services/bus.js";
@@ -15,7 +16,6 @@ import {
 import type { Config } from "../services/config.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
-import { createPending } from "../services/pending.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import {
@@ -59,10 +59,9 @@ function fixture() {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
-	const pending = createPending({ bus });
 	const collections = createCollections({ bus, documents, store });
 	const config = { EXPORTS_DIR: "/tmp" } as unknown as Config;
-	return { store, bus, documents, config, pending, collections };
+	return { store, bus, documents, config, collections };
 }
 
 const NO_EXTRA = {} as any;
@@ -102,7 +101,7 @@ describe("documentsPack — registration", () => {
 
 describe("maket_doc — action=new", () => {
 	it("creates a new document with canvas + charte and emits events", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const created = vi.fn();
 		const toast = vi.fn();
 		bus.on("document:created", created);
@@ -113,7 +112,6 @@ describe("maket_doc — action=new", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -139,13 +137,12 @@ describe("maket_doc — action=new", () => {
 	});
 
 	it("defaults format to A3 portrait and category to general", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "new", doc: "d2" }, NO_EXTRA);
@@ -158,13 +155,12 @@ describe("maket_doc — action=new", () => {
 	});
 
 	it("errors when doc is missing", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "new" }, NO_EXTRA);
@@ -173,7 +169,7 @@ describe("maket_doc — action=new", () => {
 	});
 
 	it("errors when the name already exists", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("dup"));
 		documents.loadAll();
 		const tool = createMaketDocTool({
@@ -181,7 +177,6 @@ describe("maket_doc — action=new", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "new", doc: "dup" }, NO_EXTRA);
@@ -192,7 +187,7 @@ describe("maket_doc — action=new", () => {
 
 describe("maket_doc — action=list", () => {
 	it("groups documents by category", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const a = makeDoc("a");
 		a.category = "affiches";
 		const b = makeDoc("b");
@@ -209,7 +204,6 @@ describe("maket_doc — action=list", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
@@ -220,7 +214,7 @@ describe("maket_doc — action=list", () => {
 	});
 
 	it("renders slash-separated categories as a hierarchy", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const brief = makeDoc("brief");
 		brief.category = "clients/acme";
 		const proposal = makeDoc("proposal");
@@ -233,7 +227,6 @@ describe("maket_doc — action=list", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const result = await tool.handler({ action: "list" }, NO_EXTRA);
@@ -246,13 +239,12 @@ describe("maket_doc — action=list", () => {
 	});
 
 	it("returns placeholder when no documents", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "list" }, NO_EXTRA);
@@ -263,7 +255,7 @@ describe("maket_doc — action=list", () => {
 
 describe("maket_doc — action=delete", () => {
 	it("refuses to delete the only document", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("solo"));
 		documents.loadAll();
 		const tool = createMaketDocTool({
@@ -271,7 +263,6 @@ describe("maket_doc — action=delete", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "delete", doc: "solo" }, NO_EXTRA);
@@ -280,7 +271,7 @@ describe("maket_doc — action=delete", () => {
 	});
 
 	it("deletes an existing document and emits events", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("a"));
 		store.saveDoc(makeDoc("b"));
 		documents.loadAll();
@@ -295,7 +286,6 @@ describe("maket_doc — action=delete", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "delete", doc: "a" }, NO_EXTRA);
@@ -308,7 +298,7 @@ describe("maket_doc — action=delete", () => {
 	});
 
 	it("errors when the document is missing", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("a"));
 		store.saveDoc(makeDoc("b"));
 		documents.loadAll();
@@ -317,7 +307,6 @@ describe("maket_doc — action=delete", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -331,7 +320,7 @@ describe("maket_doc — action=delete", () => {
 
 describe("maket_doc — action=duplicate", () => {
 	it("clones a document with a new name", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const src = makeDoc("orig", 2);
 		src.meta.charte = "brand";
 		store.saveDoc(src);
@@ -345,7 +334,6 @@ describe("maket_doc — action=duplicate", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -364,13 +352,12 @@ describe("maket_doc — action=duplicate", () => {
 	});
 
 	it("errors when the source is missing", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -382,7 +369,7 @@ describe("maket_doc — action=duplicate", () => {
 	});
 
 	it("errors when the target name already exists", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("a"));
 		store.saveDoc(makeDoc("b"));
 		documents.loadAll();
@@ -391,7 +378,6 @@ describe("maket_doc — action=duplicate", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -405,13 +391,12 @@ describe("maket_doc — action=duplicate", () => {
 
 describe("maket_doc — action=meta", () => {
 	it("errors when the document does not exist", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "meta", doc: "ghost" }, NO_EXTRA);
@@ -420,7 +405,7 @@ describe("maket_doc — action=meta", () => {
 	});
 
 	it("updates in-memory meta fields and emits meta:updated", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("poster"));
 		documents.loadAll();
 
@@ -432,7 +417,6 @@ describe("maket_doc — action=meta", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -457,7 +441,7 @@ describe("maket_doc — action=meta", () => {
 	});
 
 	it("clamps rating into [0, 5]", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("clamp"));
 		documents.loadAll();
 		const tool = createMaketDocTool({
@@ -465,7 +449,6 @@ describe("maket_doc — action=meta", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		await tool.handler({ action: "meta", doc: "clamp", rating: 99 }, NO_EXTRA);
@@ -478,7 +461,7 @@ describe("maket_doc — action=meta", () => {
 
 describe("maket_doc — lock enforcement", () => {
 	it("refuses delete/rename/meta on a locked doc", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const d = makeDoc("locked");
 		d.meta.locked = true;
 		store.saveDoc(d);
@@ -489,7 +472,6 @@ describe("maket_doc — lock enforcement", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 
@@ -518,7 +500,7 @@ describe("maket_doc — lock enforcement", () => {
 	});
 
 	it("clears locked on duplicate so the clone is editable", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const d = makeDoc("src");
 		d.meta.locked = true;
 		store.saveDoc(d);
@@ -528,7 +510,6 @@ describe("maket_doc — lock enforcement", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 
@@ -544,10 +525,19 @@ describe("maket_doc — lock enforcement", () => {
 
 describe("maket_doc — action=rename", () => {
 	it("renames a document in memory and store", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("old"));
 		store.saveDoc(makeDoc("other"));
 		documents.loadAll();
+		const annotations = createAnnotations({ bus, store });
+		annotations.create({
+			id: "rename-note",
+			docName: "old",
+			pageIndex: 0,
+			elementId: "e0",
+			type: "note",
+			text: "Keep me",
+		});
 
 		const loaded = vi.fn();
 		bus.on("document:loaded", loaded);
@@ -557,7 +547,6 @@ describe("maket_doc — action=rename", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -569,18 +558,20 @@ describe("maket_doc — action=rename", () => {
 		expect(documents.resolve("new")?.name).toBe("new");
 		expect(store.loadOne("old")).toBeNull();
 		expect(store.loadOne("new")?.name).toBe("new");
+		expect(annotations.forDoc("new")).toEqual([
+			expect.objectContaining({ id: "rename-note", docName: "new" }),
+		]);
 		expect(loaded).toHaveBeenCalledWith({ docName: "new" });
 		store.close();
 	});
 
 	it("errors when the source is missing", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -592,7 +583,7 @@ describe("maket_doc — action=rename", () => {
 	});
 
 	it("errors when the target name already exists", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("a"));
 		store.saveDoc(makeDoc("b"));
 		documents.loadAll();
@@ -601,7 +592,6 @@ describe("maket_doc — action=rename", () => {
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler(
@@ -625,7 +615,7 @@ describe("maket_doc — action=export / import", () => {
 
 	it("exports then imports a bundle with its referenced charte", async () => {
 		await withTmp(async (dir) => {
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
 			const src = makeDoc("poster");
 			src.meta.charte = "brand";
@@ -641,7 +631,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config: cfg,
-				pending,
 				collections,
 			});
 			const exportRes = await tool.handler(
@@ -656,7 +645,6 @@ describe("maket_doc — action=export / import", () => {
 			const store2 = createSQLiteStore(":memory:");
 			const bus2 = createBus();
 			const documents2 = createDocuments({ store: store2 });
-			const pending2 = createPending({ bus: bus2 });
 			const collections2 = createCollections({
 				bus: bus2,
 				documents: documents2,
@@ -667,7 +655,6 @@ describe("maket_doc — action=export / import", () => {
 				documents: documents2,
 				store: store2,
 				config: cfg,
-				pending: pending2,
 				collections: collections2,
 			});
 			const importRes = await tool2.handler(
@@ -683,9 +670,99 @@ describe("maket_doc — action=export / import", () => {
 		});
 	});
 
+	it("round-trips document annotations through the public MCP export and import", async () => {
+		await withTmp(async (dir) => {
+			const source = fixture();
+			const config = { EXPORTS_DIR: dir } as unknown as Config;
+			const document = makeDoc("annotated-poster");
+			source.store.saveDoc(document);
+			source.documents.loadAll();
+			const annotations = createAnnotations({
+				bus: source.bus,
+				store: source.store,
+			});
+			annotations.create({
+				id: "source-note",
+				docName: document.name,
+				pageIndex: 0,
+				elementId: "e0",
+				type: "note",
+				text: "Keep this annotation with the document",
+				ts: 1234,
+			});
+			annotations.create({
+				id: "workspace-note",
+				type: "note",
+				text: "Do not attach workspace notes to a document bundle",
+				ts: 1235,
+			});
+
+			const exportTool = createMaketDocTool({
+				bus: source.bus,
+				documents: source.documents,
+				store: source.store,
+				config,
+				collections: source.collections,
+			});
+			const exportResult = await exportTool.handler(
+				{ action: "export", doc: document.name },
+				NO_EXTRA,
+			);
+			expect(exportResult.isError).toBeUndefined();
+			const output = (exportResult.content[0] as { text: string }).text;
+			const bundlePath = output.match(/→ (\S+\.maket)/)?.[1];
+			expect(bundlePath).toBeDefined();
+			const bundle = await decodeBundle(readFileSync(bundlePath as string));
+			expect(bundle.version).toBe(2);
+			expect(bundle.annotations).toEqual([
+				{
+					documentId: document.id,
+					pageIndex: 0,
+					elementId: "e0",
+					type: "note",
+					text: "Keep this annotation with the document",
+					ts: 1234,
+				},
+			]);
+
+			const target = fixture();
+			target.store.saveDoc(makeDoc(document.name));
+			target.documents.loadAll();
+			const importTool = createMaketDocTool({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+				config,
+				collections: target.collections,
+			});
+			const importResult = await importTool.handler(
+				{ action: "import", input: bundlePath },
+				NO_EXTRA,
+			);
+			expect(importResult.isError).toBeUndefined();
+			expect(
+				target.documents.resolve("annotated-poster (imported)"),
+			).not.toBeNull();
+			expect(target.store.loadAnnotations()).toEqual([
+				expect.objectContaining({
+					docName: "annotated-poster (imported)",
+					pageIndex: 0,
+					elementId: "e0",
+					type: "note",
+					text: "Keep this annotation with the document",
+					ts: 1234,
+				}),
+			]);
+			expect(target.store.loadAnnotations()[0]?.id).not.toBe("source-note");
+
+			source.store.close();
+			target.store.close();
+		});
+	});
+
 	it("round-trips a collection-backed document through MCP and renders it", async () => {
 		await withTmp(async (dir) => {
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
 			const doc = makeDoc("collection-poster");
 			const page = doc.pages[0];
@@ -721,7 +798,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config: cfg,
-				pending,
 				collections,
 			});
 			const exportRes = await tool.handler(
@@ -742,7 +818,6 @@ describe("maket_doc — action=export / import", () => {
 				documents: target.documents,
 				store: target.store,
 				config: cfg,
-				pending: target.pending,
 				collections: target.collections,
 			});
 			const importResult = await importTool.handler(
@@ -783,7 +858,7 @@ describe("maket_doc — action=export / import", () => {
 
 	it("round-trips a state-backed document through MCP at revision 1", async () => {
 		await withTmp(async (dir) => {
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const config = {
 				ASSETS_DIR: dir,
 				EXPORTS_DIR: dir,
@@ -811,7 +886,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config,
-				pending,
 				collections,
 			});
 			const exportResult = await tool.handler(
@@ -854,7 +928,6 @@ describe("maket_doc — action=export / import", () => {
 				documents: target.documents,
 				store: target.store,
 				config,
-				pending: target.pending,
 				collections: target.collections,
 			});
 			const importResult = await importTool.handler(
@@ -879,7 +952,7 @@ describe("maket_doc — action=export / import", () => {
 
 	it("renames colliding document names on import without overwriting", async () => {
 		await withTmp(async (dir) => {
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
 			store.saveDoc(makeDoc("flyer"));
 			documents.loadAll();
@@ -889,7 +962,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config: cfg,
-				pending,
 				collections,
 			});
 			const exportRes = await tool.handler(
@@ -914,7 +986,7 @@ describe("maket_doc — action=export / import", () => {
 
 	it("exports every document when no doc filter is given", async () => {
 		await withTmp(async (dir) => {
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
 			store.saveDoc(makeDoc("a"));
 			store.saveDoc(makeDoc("b"));
@@ -925,7 +997,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config: cfg,
-				pending,
 				collections,
 			});
 			const exportRes = await tool.handler({ action: "export" }, NO_EXTRA);
@@ -937,13 +1008,12 @@ describe("maket_doc — action=export / import", () => {
 	});
 
 	it("errors when import input is missing", async () => {
-		const { store, bus, documents, config, pending, collections } = fixture();
+		const { store, bus, documents, config, collections } = fixture();
 		const tool = createMaketDocTool({
 			bus,
 			documents,
 			store,
 			config,
-			pending,
 			collections,
 		});
 		const res = await tool.handler({ action: "import" }, NO_EXTRA);
@@ -954,7 +1024,7 @@ describe("maket_doc — action=export / import", () => {
 	it("errors when import file is not a bundle", async () => {
 		await withTmp(async (dir) => {
 			const { writeFileSync } = await import("node:fs");
-			const { store, bus, documents, pending, collections } = fixture();
+			const { store, bus, documents, collections } = fixture();
 			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
 			const garbage = join(dir, "garbage.maket");
 			writeFileSync(garbage, Buffer.from("not a gzip"));
@@ -963,7 +1033,6 @@ describe("maket_doc — action=export / import", () => {
 				documents,
 				store,
 				config: cfg,
-				pending,
 				collections,
 			});
 			const res = await tool.handler(

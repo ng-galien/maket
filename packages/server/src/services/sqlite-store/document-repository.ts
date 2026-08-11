@@ -35,6 +35,7 @@ export interface DocumentRepository {
 	loadAll(): Document[];
 	loadOne(name: string): Document | null;
 	loadById(id: string): Document | null;
+	renameDoc(name: string, newName: string): void;
 	deleteDoc(name: string): void;
 	isEmpty(): boolean;
 	listTimestamps(): Map<string, string>;
@@ -108,6 +109,18 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 			if (!row) return null;
 			return rowToDoc(row, statements.pageSelectByDoc);
 		},
+		renameDoc(name, newName) {
+			db.exec("BEGIN");
+			try {
+				db.exec("PRAGMA defer_foreign_keys = ON");
+				statements.docRename.run({ name, new_name: newName });
+				statements.pageRenameDoc.run({ name, new_name: newName });
+				db.exec("COMMIT");
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
+		},
 		deleteDoc(name) {
 			statements.docDelete.run({ name });
 		},
@@ -131,13 +144,17 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 	};
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// SQLite repository setup owns the prepared-statement catalog for this persistence adapter.
 function prepareDocumentStatements(db: DatabaseSync): {
 	docUpsert: StatementSync;
 	docSelectAll: StatementSync;
 	docSelectOne: StatementSync;
 	docDelete: StatementSync;
+	docRename: StatementSync;
 	pageUpsert: StatementSync;
 	pageDeleteByDoc: StatementSync;
+	pageRenameDoc: StatementSync;
 	pageSelectByDoc: StatementSync;
 } {
 	return {
@@ -145,8 +162,14 @@ function prepareDocumentStatements(db: DatabaseSync): {
 		docSelectAll: db.prepare("SELECT * FROM documents ORDER BY updated_at ASC"),
 		docSelectOne: db.prepare("SELECT * FROM documents WHERE name = $name"),
 		docDelete: db.prepare("DELETE FROM documents WHERE name = $name"),
+		docRename: db.prepare(
+			"UPDATE documents SET name = $new_name, updated_at = datetime('now') WHERE name = $name",
+		),
 		pageUpsert: db.prepare(PAGE_UPSERT_SQL),
 		pageDeleteByDoc: db.prepare("DELETE FROM pages WHERE doc_name = $doc_name"),
+		pageRenameDoc: db.prepare(
+			"UPDATE pages SET doc_name = $new_name WHERE doc_name = $name",
+		),
 		pageSelectByDoc: db.prepare(
 			"SELECT * FROM pages WHERE doc_name = $doc_name ORDER BY idx ASC",
 		),

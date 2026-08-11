@@ -43,6 +43,8 @@ export interface WorkspaceStateSignal {
 	measureId?: string;
 	/** Present for state-backed documents: raw data, schema, revision, templates. */
 	documentState?: DocumentStateClientView | null;
+	/** Persistent server-owned annotations mirrored by every browser client. */
+	annotations?: PendingMessage[];
 }
 
 export interface StatePageProjectionSignal {
@@ -89,6 +91,18 @@ export interface DocumentRemovedSignal {
 export interface PendingAcknowledgedSignal {
 	type: "ack_messages";
 	ids: unknown[];
+}
+
+export interface AnnotationsChangedSignal {
+	type: "annotations_changed";
+	annotations: PendingMessage[];
+}
+
+export interface AnnotationCreateResultSignal {
+	type: "annotation_create_result";
+	requestId: string;
+	ok: boolean;
+	error?: string;
 }
 
 export interface WorkspaceReloadSignal {
@@ -344,15 +358,15 @@ export interface PendingMessage {
 	ts?: number;
 }
 
-/**
- * Sync the client's workspace-wide pending list to the server. The server
- * buckets entries by `p.docName` and replaces each document's `_pending`
- * with the matching subset — client is the single source of truth between
- * syncs, so the envelope itself carries no `docName`.
- */
-export interface SyncPendingMessagesCommand {
-	type: "sync_pending";
-	pending: PendingMessage[];
+export interface CreateAnnotationCommand {
+	type: "annotation_create";
+	requestId: string;
+	annotation: PendingMessage;
+}
+
+export interface RemoveAnnotationCommand {
+	type: "annotation_remove";
+	id: string;
 }
 
 export interface UpdateWorkspaceCommand {
@@ -404,6 +418,8 @@ export type WorkspaceSignal =
 	| CharteRemovedSignal
 	| DocumentRemovedSignal
 	| PendingAcknowledgedSignal
+	| AnnotationsChangedSignal
+	| AnnotationCreateResultSignal
 	| WorkspaceReloadSignal
 	| ActivitySignal
 	| AssetsChangedSignal
@@ -435,7 +451,8 @@ export type WorkspaceCommand =
 	| ClearCanvasCommand
 	| EditTextCommand
 	| PatchDocumentStateCommand
-	| SyncPendingMessagesCommand
+	| CreateAnnotationCommand
+	| RemoveAnnotationCommand
 	| UpdateWorkspaceCommand
 	| LayoutReportCommand
 	| LayoutCheckResult;

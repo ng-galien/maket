@@ -9,7 +9,11 @@ import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import { applyColorScheme } from "../lib/colorScheme";
 import type { DocSummary, Document } from "./types";
-import { wsSend } from "./ws";
+import {
+	type AnnotationCreateOutcome,
+	sendAnnotationCreate,
+	wsSend,
+} from "./ws";
 
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
@@ -180,8 +184,8 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 	setLocked: (v: boolean) => void;
 	setZoom: (v: number) => void;
 	toggleAutoFocusFit: () => void;
-	addPending: (msg: PendingMessage) => void;
-	removePending: (id: string) => void;
+	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
+	removePending: (id: string) => boolean;
 
 	// Deprecated — backward compat
 	setServerState: (
@@ -189,12 +193,6 @@ interface AppState extends CollectionSlice, DocumentStateSlice {
 		docList: DocSummary[],
 		charteCss?: string,
 	) => void;
-}
-
-function syncPending() {
-	setTimeout(() => {
-		wsSend({ type: "sync_pending", pending: useStore.getState().pending });
-	}, 0);
 }
 
 function syncWorkspace() {
@@ -877,20 +875,13 @@ export const useStore = create<AppState>((set, get) => ({
 		set({ autoFocusFit: next });
 	},
 	addPending: (msg) => {
-		set((s) => {
-			// Only inject focusedDocName when the caller did NOT specify the
-			// docName key. An explicit `docName: undefined` means the caller
-			// wants a workspace-scoped message (e.g. classify-images alerts
-			// that should appear in the workspace bucket regardless of focus).
-			const docName =
-				"docName" in msg ? msg.docName : (s.focusedDocName ?? undefined);
-			return { pending: [...s.pending, { ...msg, docName }] };
-		});
-		syncPending();
+		const state = get();
+		const docName =
+			"docName" in msg ? msg.docName : (state.focusedDocName ?? undefined);
+		return sendAnnotationCreate({ ...msg, docName });
 	},
 	removePending: (id) => {
-		set((s) => ({ pending: s.pending.filter((m) => m.id !== id) }));
-		syncPending();
+		return wsSend({ type: "annotation_remove", id });
 	},
 
 	// Deprecated — calls upsertDoc for backward compat

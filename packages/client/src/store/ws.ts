@@ -11,7 +11,11 @@ import en from "../i18n/en.json";
 import fr from "../i18n/fr.json";
 import { getLang } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
-import { hasPendingStatePatchForDocument, useStore } from "./useStore";
+import {
+	hasPendingStatePatchForDocument,
+	type PendingMessage,
+	useStore,
+} from "./useStore";
 import { requestFit } from "./zoomBridge";
 
 const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
@@ -32,6 +36,18 @@ export function translateBubble(
 
 let ws: WebSocket | null = null;
 const backgroundLoadDocs = new Set<string>();
+const annotationCreateRequests = new Map<
+	string,
+	{
+		resolve: (outcome: AnnotationCreateOutcome) => void;
+		timeout: ReturnType<typeof setTimeout>;
+	}
+>();
+
+export interface AnnotationCreateOutcome {
+	ok: boolean;
+	error?: string;
+}
 
 export function sendTextEdit(
 	docName: string,
@@ -374,15 +390,14 @@ function handleWsOpen(): void {
 		type: "workspace_update",
 		displayed: useStore.getState().workspaceDocNames,
 	});
-	wsSend({
-		type: "sync_pending",
-		pending: useStore.getState().pending,
-	});
 }
 
 function handleWsClose(): void {
 	useStore.getState().setConnected(false);
 	useStore.getState().clearStatePatches();
+	settleAllAnnotationCreates(
+		"The connection closed before the note was saved.",
+	);
 	ws = null;
 	setTimeout(connect, 2000);
 }
@@ -462,6 +477,15 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "ack_messages":
 			applyAckMessages(msg.ids as string[]);
 			break;
+		case "annotations_changed":
+			useStore.setState({ pending: msg.annotations as PendingMessage[] });
+			break;
+		case "annotation_create_result":
+			settleAnnotationCreate(msg.requestId, {
+				ok: msg.ok,
+				...(msg.error ? { error: msg.error } : {}),
+			});
+			break;
 		default:
 			reportUnhandledSignal(msg);
 	}
@@ -476,6 +500,9 @@ function applyStateMessage(
 ): void {
 	const doc = msg.doc as Document | null;
 	const docList = (msg.docList ?? []) as DocSummary[];
+	if (msg.annotations !== undefined) {
+		useStore.setState({ pending: msg.annotations as PendingMessage[] });
+	}
 	if (msg.collections !== undefined) {
 		useStore.getState().setCollections(msg.collections as Collection[]);
 	}
@@ -602,10 +629,54 @@ export function wsSend(msg: WorkspaceCommand): boolean {
 	return false;
 }
 
-export function sendLoadDoc(name: string): void {
+export function sendAnnotationCreate(
+	annotation: Extract<
+		WorkspaceCommand,
+		{ type: "annotation_create" }
+	>["annotation"],
+): Promise<AnnotationCreateOutcome> {
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve) => {
+		const timeout = setTimeout(
+			() =>
+				settleAnnotationCreate(requestId, {
+					ok: false,
+					error: "The note could not be confirmed by the server.",
+				}),
+			10_000,
+		);
+		annotationCreateRequests.set(requestId, { resolve, timeout });
+		if (wsSend({ type: "annotation_create", requestId, annotation })) return;
+		settleAnnotationCreate(requestId, {
+			ok: false,
+			error: "The note could not be sent.",
+		});
+	});
+}
+
+function settleAnnotationCreate(
+	requestId: string,
+	outcome: AnnotationCreateOutcome,
+): void {
+	const pending = annotationCreateRequests.get(requestId);
+	if (!pending) return;
+	clearTimeout(pending.timeout);
+	annotationCreateRequests.delete(requestId);
+	pending.resolve(outcome);
+}
+
+function settleAllAnnotationCreates(error: string): void {
+	for (const requestId of annotationCreateRequests.keys()) {
+		settleAnnotationCreate(requestId, { ok: false, error });
+	}
+}
+
+export function sendLoadDoc(name: string): boolean {
 	backgroundLoadDocs.delete(name);
 	pendingLoadDoc = name;
-	wsSend({ type: "load_document", name });
+	const sent = wsSend({ type: "load_document", name });
+	if (!sent) pendingLoadDoc = null;
+	return sent;
 }
 
 export function clearActivityBubbles(): void {

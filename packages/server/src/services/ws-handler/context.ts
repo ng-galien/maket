@@ -5,6 +5,7 @@
 import type { WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
 import type { Document } from "../../types.js";
+import type { Annotations } from "../annotations.js";
 import type { AssetsService } from "../assets.js";
 import type { Bus } from "../bus.js";
 import type { CollectionCursors } from "../collection-cursor.js";
@@ -12,7 +13,6 @@ import type { Collections } from "../collections.js";
 import type { DocumentRenderer } from "../document-renderer.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
-import type { Pending } from "../pending.js";
 import type { Store } from "../store.js";
 import type { WsBridge } from "../ws-bridge.js";
 import type { WsRegistry } from "../ws-registry.js";
@@ -30,7 +30,7 @@ export interface WsHandlerDeps {
 	documentRenderer: DocumentRenderer;
 	documentStates: DocumentStates;
 	documents: Documents;
-	pending: Pending;
+	pending: Annotations;
 	store: Store;
 	wsRegistry: WsRegistry;
 	wsBridge: WsBridge;

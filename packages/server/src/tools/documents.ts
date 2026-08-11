@@ -6,8 +6,8 @@
  * Session-scoped operations (focus, state, lock) live in maket_workspace.
  *
  * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
- * `store` (document metadata), `config` (EXPORTS_DIR), `pending`
- * (pending-message cleanup on delete), and shared bundle import/export services.
+ * `store` (document metadata), `config` (EXPORTS_DIR), and shared bundle
+ * import/export services.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -27,7 +27,6 @@ import type {
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
-import type { Pending } from "../services/pending.js";
 import type { Store } from "../services/store.js";
 import { computeCanvasDims, createDocument, type Page } from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
@@ -37,7 +36,6 @@ export interface DocumentsDeps {
 	bus: Bus;
 	store: Store;
 	config: Config;
-	pending: Pending;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
 }
@@ -184,7 +182,6 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 		bus,
 		store,
 		config,
-		pending,
 		bundleExportService,
 		bundleImportService,
 	} = deps;
@@ -200,7 +197,6 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 				bus,
 				store,
 				config,
-				pending,
 				bundleExportService,
 				bundleImportService,
 			}),
@@ -214,7 +210,6 @@ interface MaketDocToolDeps {
 	bus: Bus;
 	store: Store;
 	config: Config;
-	pending: Pending;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
 }
@@ -229,7 +224,7 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 		case "list":
 			return runList(deps.documents);
 		case "delete":
-			return runDelete(args, deps.documents, deps.bus, deps.pending);
+			return runDelete(args, deps.documents, deps.bus);
 		case "duplicate":
 			return runDuplicate(args, deps.documents, deps.bus);
 		case "rename":
@@ -361,12 +356,7 @@ function documentCategoryCount(node: DocumentCategoryNode): number {
 
 // code-moniker: ignore[smell-feature-envy-local]
 // MCP tool action `runDelete`: edge adapter over services/store/bus, not domain ownership.
-function runDelete(
-	args: Args,
-	documents: Documents,
-	bus: Bus,
-	pending: Pending,
-) {
+function runDelete(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=delete", true);
 	const all = documents.all();
 	const d = all.get(args.doc);
@@ -375,7 +365,6 @@ function runDelete(
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	documents.delete(args.doc);
-	pending.dropDoc(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
 		text: `Document "${args.doc}" deleted`,
@@ -462,10 +451,7 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (documents.all().has(args.name))
 		return text(`Document "${args.name}" already exists`, true);
 	const oldName = d.name;
-	documents.delete(oldName);
-	d.name = args.name;
-	documents.all().set(args.name, d);
-	documents.persist(d.name);
+	documents.rename(oldName, args.name);
 	bus.emit("document:loaded", { docName: args.name });
 	bus.emit("toast", {
 		text: `"${oldName}" → "${args.name}"`,
@@ -611,7 +597,6 @@ export const documentsPack: ToolPack = {
 		"bus",
 		"store",
 		"config",
-		"pending",
 		"bundleExportService",
 		"bundleImportService",
 	],

@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
+import { createAnnotationRepository } from "./annotation-repository.js";
 import { createAssetRepository } from "./asset-repository.js";
 import { createCharteRepository } from "./charte-repository.js";
 import { createCollectionRepository } from "./collection-repository.js";
@@ -14,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -56,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -78,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -102,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -112,6 +113,51 @@ describe("SQLite schema migrations", () => {
 			.all() as Array<{ schema: string; current_schema: string }>;
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.schema).toBe(rows[0]?.current_schema);
+		db.close();
+	});
+
+	it("migrates a v11 database to persistent annotations without rewriting data", () => {
+		const db = historicalV11StateDatabase();
+		const dataBefore = stateData(db);
+
+		initializeSQLiteSchema(db);
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(12);
+		expect(hasTable(db, "annotations")).toBe(true);
+		expect(annotationColumns(db)).toEqual([
+			"created_at",
+			"document_id",
+			"element_id",
+			"file",
+			"id",
+			"page_index",
+			"position",
+			"text",
+			"ts",
+			"type",
+		]);
+		expect(hasAnnotationDocumentCascade(db)).toBe(true);
+		expect(stateData(db)).toEqual(dataBefore);
+
+		const annotations = createAnnotationRepository(db);
+		annotations.saveAnnotation({
+			id: "migration-note",
+			docName: "first",
+			pageIndex: 0,
+			elementId: "title",
+			type: "note",
+			text: "Preserved",
+			ts: 42,
+		});
+		expect(annotations.loadAnnotations()).toEqual([
+			expect.objectContaining({
+				id: "migration-note",
+				docName: "first",
+				text: "Preserved",
+			}),
+		]);
+		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		db.close();
 	});
 
@@ -128,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(12);
+		const db = historicalDatabaseWithoutIds(13);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v12 is newer than supported v11/,
+			/schema v13 is newer than supported v12/,
 		);
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -161,7 +207,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(11);
+		expect(schemaVersion(db)).toBe(12);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
 		db.close();
@@ -263,6 +309,21 @@ function historicalV10StateDatabase(): DatabaseSync {
 	return db;
 }
 
+function historicalV11StateDatabase(): DatabaseSync {
+	const db = historicalV10StateDatabase();
+	db.exec(`
+		ALTER TABLE document_state_revisions ADD COLUMN schema TEXT;
+		UPDATE document_state_revisions
+		SET schema = (
+			SELECT document_states.schema
+			FROM document_states
+			WHERE document_states.document_id = document_state_revisions.document_id
+		);
+		PRAGMA user_version = 11;
+	`);
+	return db;
+}
+
 function historicalV8Database(): DatabaseSync {
 	const db = historicalDatabaseWithoutIds(8);
 	db.exec("ALTER TABLE documents ADD COLUMN id TEXT;");
@@ -342,6 +403,33 @@ function hasColumn(db: DatabaseSync, table: string, column: string): boolean {
 	return (
 		db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
 	).some((entry) => entry.name === column);
+}
+
+function annotationColumns(db: DatabaseSync): string[] {
+	return (
+		db.prepare("PRAGMA table_info(annotations)").all() as Array<{
+			name: string;
+		}>
+	)
+		.map((column) => column.name)
+		.sort();
+}
+
+function hasAnnotationDocumentCascade(db: DatabaseSync): boolean {
+	return (
+		db.prepare("PRAGMA foreign_key_list(annotations)").all() as Array<{
+			from: string;
+			table: string;
+			to: string;
+			on_delete: string;
+		}>
+	).some(
+		(key) =>
+			key.from === "document_id" &&
+			key.table === "documents" &&
+			key.to === "id" &&
+			key.on_delete.toUpperCase() === "CASCADE",
+	);
 }
 
 function businessData(db: DatabaseSync): Record<string, unknown[]> {

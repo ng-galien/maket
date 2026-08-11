@@ -10,11 +10,13 @@ import { PhotosTab } from "./components/PhotosTab";
 import { Popover } from "./components/Popover";
 import { ReadingWorkspace } from "./components/ReadingWorkspace";
 import { SidePanel } from "./components/SidePanel";
+import { useT } from "./i18n/useT";
 import { applyColorScheme } from "./lib/colorScheme";
 import { useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
 export default function App() {
+	const t = useT();
 	const activePanel = useStore((s) => s.activePanel);
 	const locked = useStore((s) => s.locked);
 	const workspaceView = useStore((s) => s.workspaceView);
@@ -44,6 +46,9 @@ export default function App() {
 					<BottomBar />
 
 					<SidePanel
+						id="panel-chartes"
+						label={t("chartes")}
+						closeLabel={t("close_panel", { panel: t("chartes") })}
 						open={activePanel === "chartes"}
 						onClose={closePanel}
 						side="left"
@@ -52,6 +57,9 @@ export default function App() {
 					</SidePanel>
 
 					<SidePanel
+						id="panel-photos"
+						label={t("photos")}
+						closeLabel={t("close_panel", { panel: t("photos") })}
 						open={activePanel === "photos"}
 						onClose={closePanel}
 						side="left"
@@ -60,6 +68,9 @@ export default function App() {
 					</SidePanel>
 
 					<SidePanel
+						id="panel-docs"
+						label={t("documents")}
+						closeLabel={t("close_panel", { panel: t("documents") })}
 						open={activePanel === "docs"}
 						onClose={closePanel}
 						side="left"
@@ -69,6 +80,9 @@ export default function App() {
 					</SidePanel>
 
 					<SidePanel
+						id="panel-collections"
+						label={t("collections")}
+						closeLabel={t("close_panel", { panel: t("collections") })}
 						open={activePanel === "collections"}
 						onClose={closePanel}
 						side="left"

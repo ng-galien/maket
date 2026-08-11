@@ -19,7 +19,8 @@ import {
 export const MAKET_BUNDLE_KIND = "maket-bundle";
 export const MAKET_BUNDLE_EXT = ".maket";
 
-/** Versions any Maket reader can decode. Increment on format changes. */
+/** Versions any Maket reader can decode. Increment for incompatible changes;
+ * additive optional manifest fields remain within their container version. */
 export const SUPPORTED_BUNDLE_VERSIONS: ReadonlySet<number> = new Set([1, 2]);
 
 /** `50 4b 03 04` — v2 ZIP container. */
@@ -60,6 +61,7 @@ export interface BundleManifestData {
 	chartes: unknown[];
 	collections: unknown[];
 	documentStates: BundleDocumentStateSnapshot[];
+	annotations: BundleAnnotationSnapshot[];
 }
 
 /** Current portable snapshot for one state-backed document. Revision history
@@ -68,6 +70,20 @@ export interface BundleDocumentStateSnapshot {
 	documentId: string;
 	schema: DocumentStateSchema;
 	data: DocumentStateData;
+}
+
+/** Portable user annotation. Runtime ids and document names are deliberately
+ * omitted: imports create a new annotation id and remap the source document id
+ * to the document actually created in the destination workspace. */
+export interface BundleAnnotationSnapshot {
+	documentId: string;
+	pageIndex?: number;
+	elementId?: string;
+	type: string;
+	text?: string;
+	file?: string;
+	position?: string;
+	ts: number;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -258,6 +274,63 @@ function validateBundleDocumentStates(
 	return snapshots;
 }
 
+function optionalText(
+	value: Record<string, unknown>,
+	key: "elementId" | "text" | "file" | "position",
+	index: number,
+): string | undefined {
+	const candidate = value[key];
+	if (candidate === undefined) return undefined;
+	if (typeof candidate !== "string") {
+		throw new Error(
+			`Invalid .maket file: annotations[${index}].${key} is not text`,
+		);
+	}
+	return candidate;
+}
+
+function validateBundleAnnotation(
+	value: unknown,
+	index: number,
+	docsById: BundleDocumentStateValidationContext["docsById"],
+): BundleAnnotationSnapshot {
+	if (
+		!isPlainRecord(value) ||
+		typeof value.documentId !== "string" ||
+		!docsById.has(value.documentId) ||
+		typeof value.type !== "string" ||
+		value.type.length === 0 ||
+		typeof value.ts !== "number" ||
+		!Number.isFinite(value.ts)
+	) {
+		throw new Error(`Invalid .maket file: annotations[${index}] is malformed`);
+	}
+	if (
+		value.pageIndex !== undefined &&
+		(!Number.isInteger(value.pageIndex) || Number(value.pageIndex) < 0)
+	) {
+		throw new Error(
+			`Invalid .maket file: annotations[${index}].pageIndex is invalid`,
+		);
+	}
+	const elementId = optionalText(value, "elementId", index);
+	const text = optionalText(value, "text", index);
+	const file = optionalText(value, "file", index);
+	const position = optionalText(value, "position", index);
+	return {
+		documentId: value.documentId,
+		...(value.pageIndex !== undefined
+			? { pageIndex: Number(value.pageIndex) }
+			: {}),
+		...(elementId !== undefined ? { elementId } : {}),
+		type: value.type,
+		...(text !== undefined ? { text } : {}),
+		...(file !== undefined ? { file } : {}),
+		...(position !== undefined ? { position } : {}),
+		ts: value.ts,
+	};
+}
+
 export function parseBundleManifest(json: string): Record<string, unknown> {
 	let parsed: unknown;
 	try {
@@ -289,12 +362,17 @@ export function validateBundleManifest(
 	const documentStates = Array.isArray(m.documentStates)
 		? m.documentStates
 		: [];
+	const annotations = Array.isArray(m.annotations) ? m.annotations : [];
 	m.documents.forEach(validateBundleDocument);
 	chartes.forEach(validateBundleCharte);
 	collections.forEach(validateBundleCollection);
 	const validatedStates = validateBundleDocumentStates(
 		documentStates,
 		m.documents,
+	);
+	const docsById = indexBundleDocuments(m.documents);
+	const validatedAnnotations = annotations.map((annotation, index) =>
+		validateBundleAnnotation(annotation, index, docsById),
 	);
 
 	return {
@@ -304,6 +382,7 @@ export function validateBundleManifest(
 		chartes,
 		collections,
 		documentStates: validatedStates,
+		annotations: validatedAnnotations,
 	};
 }
 
@@ -358,6 +437,7 @@ export function buildBundleManifest(
 		version: number;
 		exportedAt: string;
 		documentStates?: readonly BundleDocumentStateSnapshot[];
+		annotations?: readonly BundleAnnotationSnapshot[];
 	},
 ): Record<string, unknown> {
 	return {
@@ -368,5 +448,6 @@ export function buildBundleManifest(
 		chartes,
 		collections,
 		documentStates: opts.documentStates ?? [],
+		annotations: opts.annotations ?? [],
 	};
 }

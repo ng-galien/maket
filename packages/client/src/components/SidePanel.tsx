@@ -3,6 +3,9 @@ import { useStore } from "../store/useStore";
 import { clampPanelWidth, initialPanelWidth } from "./sidePanelResize";
 
 interface Props {
+	id: string;
+	label: string;
+	closeLabel: string;
 	open: boolean;
 	onClose: () => void;
 	side?: "left" | "right";
@@ -11,6 +14,9 @@ interface Props {
 }
 
 export function SidePanel({
+	id,
+	label,
+	closeLabel,
 	open,
 	onClose,
 	side = "left",
@@ -41,20 +47,25 @@ export function SidePanel({
 	return (
 		<>
 			{open && (
-				<div
-					role="button"
-					tabIndex={-1}
-					onKeyDown={(e) => {
-						if (e.key === "Escape") onClose();
-					}}
+				<button
+					type="button"
+					aria-label={closeLabel}
 					className="fixed inset-0 bg-black/8 z-[200]"
 					onClick={onClose}
 				/>
 			)}
 
 			<aside
+				id={id}
 				ref={panelRef}
+				aria-label={label}
+				aria-hidden={!open}
+				inert={!open}
+				hidden={!open}
 				style={panelStyle}
+				onKeyDown={(event) => {
+					if (event.key === "Escape") onClose();
+				}}
 				className={`fixed w-[90vw] sm:w-[50vw] md:w-[33vw] bg-panel border border-border shadow-[0_20px_60px_rgba(0,0,0,0.15)] z-[201] flex flex-col overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] rounded-xl ${sideClass}`}
 			>
 				{resizable && (

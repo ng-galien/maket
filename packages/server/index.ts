@@ -19,6 +19,7 @@ import { assertActivityContract } from "./src/core/activity-contract.js";
 import { registerToolPacks } from "./src/core/tool-pack-registry.js";
 import { isLoopbackHost, isLoopbackOrigin } from "./src/lib/local-origin.js";
 import { mountRoutes } from "./src/routes/index.js";
+import type { Annotations } from "./src/services/annotations.js";
 import type { AssetsService } from "./src/services/assets.js";
 import type { Bus } from "./src/services/bus.js";
 import type { CollectionCursors } from "./src/services/collection-cursor.js";
@@ -96,6 +97,7 @@ const documentRenderer =
 const wsRegistry = appContainer.resolve<WsRegistry>("wsRegistry");
 const wsHandler = appContainer.resolve<WorkspaceCommandHandler>("wsHandler");
 const assets = appContainer.resolve<AssetsService>("assets");
+const pending = appContainer.resolve<Annotations>("pending");
 
 const thumbMigration = assets.migrateLegacyThumbs();
 if (
@@ -204,6 +206,7 @@ function broadcastDoc(
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),
+		annotations: pending.all(),
 		charteCss: documents.charteCss(doc),
 		addToWorkspace,
 		focus,
@@ -288,10 +291,21 @@ bus.on("toast", ({ text, level, duration }) => {
 
 bus.on("document:deleted", ({ docName }) => {
 	wsRegistry.broadcast({ type: "doc_removed", name: docName });
+	wsRegistry.broadcast({
+		type: "annotations_changed",
+		annotations: pending.all(),
+	});
 });
 
 bus.on("messages:acked", ({ ids }) => {
 	wsRegistry.broadcast({ type: "ack_messages", ids });
+});
+
+bus.on("annotations:changed", () => {
+	wsRegistry.broadcast({
+		type: "annotations_changed",
+		annotations: pending.all(),
+	});
 });
 
 bus.on("assets:changed", () => {
@@ -395,6 +409,7 @@ wss.on("connection", (ws) => {
 		docList: documents.list(),
 		collections: collections.loadAll(),
 		collectionCursors: collectionCursors.snapshot(),
+		annotations: pending.all(),
 		charteCss: documents.charteCss(firstDoc ?? null),
 		addToWorkspace: true,
 	};

@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+	type Annotations,
+	createAnnotations,
+} from "../services/annotations.js";
 import { createBus } from "../services/bus.js";
 import { createCollectionCursors } from "../services/collection-cursor.js";
 import { createDocuments } from "../services/documents.js";
-import { createPending } from "../services/pending.js";
-import { createSQLiteStore } from "../services/store.js";
+import { createSQLiteStore, type Store } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketWorkspaceTool, workspacePack } from "./workspace.js";
 
@@ -11,9 +14,20 @@ function fixture() {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
-	const pending = createPending({ bus });
+	const pending = createAnnotations({ bus, store });
 	const collectionCursors = createCollectionCursors({ bus, documents, store });
 	return { store, bus, documents, pending, collectionCursors };
+}
+
+function seedAnnotations(
+	store: Store,
+	annotations: Annotations,
+	messages: Parameters<Annotations["create"]>[0][],
+) {
+	for (const docName of new Set(messages.map((message) => message.docName))) {
+		if (docName && !store.loadOne(docName)) store.saveDoc(makeDoc(docName));
+	}
+	for (const message of messages) annotations.create(message);
 }
 
 const NO_EXTRA = {} as any;
@@ -253,7 +267,9 @@ describe("maket_workspace — action=list_messages", () => {
 
 	it("does not require a document scope", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([{ id: "d1", docName: "alpha", text: "fix this" }]);
+		seedAnnotations(store, pending, [
+			{ id: "d1", docName: "alpha", text: "fix this" },
+		]);
 		const tool = createMaketWorkspaceTool({
 			bus,
 			documents,
@@ -268,7 +284,7 @@ describe("maket_workspace — action=list_messages", () => {
 
 	it("returns every pending message across both buckets in one call", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([
+		seedAnnotations(store, pending, [
 			{ id: "w1", type: "classify-images", text: "new uploads" },
 			{ id: "d1", docName: "alpha", text: "fix this" },
 			{ id: "d2", docName: "beta", type: "delete" },
@@ -291,7 +307,7 @@ describe("maket_workspace — action=list_messages", () => {
 describe("maket_workspace — action=ack_messages", () => {
 	it("removes doc-scoped pending and emits messages:acked", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([
+		seedAnnotations(store, pending, [
 			{ id: "m1", docName: "d", text: "hi" },
 			{ id: "m2", docName: "d", text: "ho" },
 		]);
@@ -317,7 +333,7 @@ describe("maket_workspace — action=ack_messages", () => {
 
 	it("acks across workspace and doc buckets in one call", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([
+		seedAnnotations(store, pending, [
 			{ id: "d1", docName: "d", text: "doc msg" },
 			{ id: "w1", type: "classify-images" },
 		]);
@@ -358,7 +374,7 @@ describe("maket_workspace — action=ack_messages", () => {
 
 	it("reports no-match when every id is unknown", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([{ id: "m1", docName: "d", text: "hi" }]);
+		seedAnnotations(store, pending, [{ id: "m1", docName: "d", text: "hi" }]);
 
 		const listener = vi.fn();
 		bus.on("messages:acked", listener);
@@ -382,7 +398,7 @@ describe("maket_workspace — action=ack_messages", () => {
 
 	it("reports partial match with unknown ids flagged", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
-		pending.syncFromClient([
+		seedAnnotations(store, pending, [
 			{ id: "m1", docName: "d", text: "hi" },
 			{ id: "m2", docName: "d", text: "ho" },
 		]);

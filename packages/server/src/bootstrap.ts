@@ -17,6 +17,7 @@ import { createMcpRouter } from "./routes/mcp.routes.js";
 import { createMcpHttpHandler } from "./routes/mcp-handler.js";
 import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
+import { createAnnotations } from "./services/annotations.js";
 import { createAssetsService } from "./services/assets.js";
 import { createBrowserPool } from "./services/browser-pool.js";
 import { createBundleExportService } from "./services/bundle-export.js";
@@ -35,7 +36,6 @@ import {
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
-import { createPending } from "./services/pending.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
@@ -86,7 +86,7 @@ export function createAppContainer(
 			? asValue(inputs.documents)
 			: asFunction(createDocuments).singleton(),
 
-		pending: asFunction(createPending).singleton(),
+		pending: asFunction(createAnnotations).singleton(),
 
 		collections: asFunction(createCollections).singleton(),
 

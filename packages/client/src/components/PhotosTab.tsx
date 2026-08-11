@@ -18,6 +18,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
+import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { copyToClipboard } from "../utils";
@@ -36,6 +37,7 @@ export function PhotosTab() {
 				onClose={() => model.setSelected(null)}
 				onDelete={model.deleteSelected}
 				onInsert={model.insertSelected}
+				error={model.annotationError}
 			/>
 		);
 	}
@@ -69,6 +71,8 @@ function usePhotoAssets() {
 function usePhotoUpload(
 	t: ReturnType<typeof useT>,
 	setImages: (images: ImageAsset[]) => void,
+	clearAnnotationError: () => void,
+	onAnnotationError: () => void,
 ) {
 	const [uploadBtnDrag, setUploadBtnDrag] = useState(false);
 	const [uploading, setUploading] = useState<{
@@ -79,16 +83,18 @@ function usePhotoUpload(
 	const uploadInputRef = useRef<HTMLInputElement>(null);
 	const handleUpload = useCallback(
 		async (files: FileList) => {
+			clearAnnotationError();
 			const state = { total: files.length, done: 0, errors: [] as string[] };
 			setUploading({ ...state });
 			await uploadFiles(files, state, setUploading);
 			const r = await fetch("/api/assets");
 			const data = (await r.json()) as AssetsListResponse;
 			setImages(data.images || []);
-			queueImageClassification(files, state.errors, t);
+			const classified = await queueImageClassification(files, state.errors, t);
+			if (!classified) onAnnotationError();
 			setTimeout(() => setUploading(null), state.errors.length ? 3000 : 800);
 		},
-		[setImages, t],
+		[clearAnnotationError, onAnnotationError, setImages, t],
 	);
 	const openFilePicker = () => {
 		if (uploading) return;
@@ -132,16 +138,16 @@ async function uploadFiles(
 	);
 }
 
-function queueImageClassification(
+async function queueImageClassification(
 	files: FileList,
 	errors: string[],
 	t: ReturnType<typeof useT>,
-): void {
+): Promise<boolean> {
 	const uploaded = Array.from(files)
 		.map((f) => f.name)
 		.filter((n) => !errors.includes(n));
-	if (uploaded.length === 0) return;
-	useStore.getState().addPending({
+	if (uploaded.length === 0) return true;
+	const outcome = await useStore.getState().addPending({
 		id: crypto.randomUUID(),
 		type: "classify-images",
 		docName: undefined,
@@ -151,6 +157,7 @@ function queueImageClassification(
 		}),
 		ts: Date.now(),
 	});
+	return outcome.ok;
 }
 
 function usePhotoFilters(images: ImageAsset[], search: string) {
@@ -177,10 +184,47 @@ function photoMatchesQuery(img: ImageAsset, query: string): boolean {
 	return img.tags?.some((tag) => tag.toLowerCase().includes(query)) ?? false;
 }
 
+function usePhotoRequests(t: ReturnType<typeof useT>) {
+	const [error, setError] = useState<string | null>(null);
+	const reportError = useCallback(
+		() => setError(t("pending_create_failed")),
+		[t],
+	);
+	const clearError = useCallback(() => setError(null), []);
+	const create = useCallback(
+		async (message: PendingMessage): Promise<boolean> => {
+			clearError();
+			const outcome = await useStore.getState().addPending(message);
+			if (outcome.ok) return true;
+			reportError();
+			return false;
+		},
+		[clearError, reportError],
+	);
+	const insertImage = useCallback(
+		(file: string) =>
+			create({
+				id: crypto.randomUUID(),
+				type: "drop-image",
+				file,
+				text: t("pending_insert_image", { file }),
+				ts: Date.now(),
+			}),
+		[create, t],
+	);
+	return { error, reportError, clearError, insertImage };
+}
+
 function usePhotosTabModel() {
 	const t = useT();
+	const requests = usePhotoRequests(t);
 	const assets = usePhotoAssets();
-	const upload = usePhotoUpload(t, assets.setImages);
+	const upload = usePhotoUpload(
+		t,
+		assets.setImages,
+		requests.clearError,
+		requests.reportError,
+	);
 	const [selected, setSelected] = useState<ImageAsset | null>(null);
 	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -263,18 +307,14 @@ function usePhotosTabModel() {
 			closeMenu: () => setMenuFor(null),
 			changeMode: (mode) =>
 				setModeFor(mode.kind === "idle" ? null : { file: img.file, mode }),
+			insert: requests.insertImage,
 		},
 	});
 
 	const insertSelected = useStore.getState().focusedDocName
-		? (file: string) => {
-				useStore.getState().addPending({
-					id: crypto.randomUUID(),
-					type: "drop-image",
-					file,
-					text: t("pending_insert_image", { file }),
-					ts: Date.now(),
-				});
+		? async (file: string) => {
+				const created = await requests.insertImage(file);
+				if (!created) return;
 				setSelected(null);
 			}
 		: null;
@@ -310,6 +350,7 @@ function usePhotosTabModel() {
 		photoItemFor,
 		insertSelected,
 		deleteSelected,
+		annotationError: requests.error,
 	};
 }
 
@@ -340,6 +381,7 @@ function PhotosTabView({
 		clearChecked,
 		bulkDelete,
 		photoItemFor,
+		annotationError,
 	} = model;
 
 	return (
@@ -358,6 +400,12 @@ function PhotosTabView({
 					openFilePicker,
 				}}
 			/>
+
+			{annotationError && (
+				<p className="text-xs font-medium text-danger" role="alert">
+					{annotationError}
+				</p>
+			)}
 
 			{categories.length > 1 && (
 				<div className="flex gap-1.5 flex-wrap">
@@ -681,6 +729,7 @@ interface PhotoTileActions {
 	openMenu: () => void;
 	closeMenu: () => void;
 	changeMode: (mode: RowMode) => void;
+	insert: (file: string) => Promise<boolean>;
 }
 
 interface PhotoTileProps {
@@ -694,17 +743,15 @@ function PhotoTile({ model, actions }: PhotoTileProps) {
 	const menuBtnRef = useRef<HTMLButtonElement>(null);
 	const confirming = mode.kind === "confirm-delete";
 	const hasDoc = useStore((s) => s.focusedDocName !== null);
+	const [inserting, setInserting] = useState(false);
 
-	const onInsert = () => {
+	const onInsert = async (): Promise<boolean> => {
 		const focused = useStore.getState().focusedDocName;
-		if (!focused) return;
-		useStore.getState().addPending({
-			id: crypto.randomUUID(),
-			type: "drop-image",
-			file: img.file,
-			text: t("pending_insert_image", { file: img.file }),
-			ts: Date.now(),
-		});
+		if (!focused || inserting) return false;
+		setInserting(true);
+		const created = await actions.insert(img.file);
+		setInserting(false);
+		return created;
 	};
 
 	return (
@@ -770,8 +817,10 @@ function PhotoTile({ model, actions }: PhotoTileProps) {
 							type="button"
 							onClick={(e) => {
 								e.stopPropagation();
-								onInsert();
+								void onInsert();
 							}}
+							disabled={inserting}
+							aria-busy={inserting}
 							aria-label={t("insert_in_doc")}
 							title={t("insert_in_doc")}
 							className="w-7 h-7 rounded-md bg-black/55 backdrop-blur-sm text-white flex items-center justify-center hover:bg-accent transition"
@@ -821,7 +870,7 @@ interface PhotoMenuProps {
 	hasDoc: boolean;
 	anchorRef: React.RefObject<HTMLElement | null>;
 	onClose: () => void;
-	onInsert: () => void;
+	onInsert: () => Promise<boolean>;
 	onDeleteRequest: () => void;
 }
 
@@ -889,9 +938,8 @@ function PhotoMenu({
 			{hasDoc && (
 				<MenuItem
 					icon={<ImagePlus size={13} />}
-					onClick={() => {
-						onInsert();
-						onClose();
+					onClick={async () => {
+						if (await onInsert()) onClose();
 					}}
 				>
 					{t("insert_in_doc")}
@@ -912,7 +960,7 @@ function PhotoMenu({
 interface MenuItemProps {
 	icon: React.ReactNode;
 	children: React.ReactNode;
-	onClick: () => void;
+	onClick: () => void | Promise<void>;
 	danger?: boolean;
 }
 
@@ -989,14 +1037,17 @@ function ImageDetail({
 	onClose,
 	onInsert,
 	onDelete,
+	error,
 }: {
 	img: ImageAsset;
 	onClose: () => void;
-	onInsert: ((file: string) => void) | null;
+	onInsert: ((file: string) => Promise<void>) | null;
 	onDelete: (file: string) => void;
+	error: string | null;
 }) {
 	const t = useT();
 	const [confirming, setConfirming] = useState(false);
+	const [inserting, setInserting] = useState(false);
 
 	return (
 		<div className="flex flex-col gap-3 p-3">
@@ -1026,6 +1077,12 @@ function ImageDetail({
 
 			{img.description && (
 				<p className="text-sm text-text-2 leading-relaxed">{img.description}</p>
+			)}
+
+			{error && (
+				<p className="text-xs font-medium text-danger" role="alert">
+					{error}
+				</p>
 			)}
 
 			<div className="flex flex-wrap gap-2">
@@ -1073,7 +1130,14 @@ function ImageDetail({
 					{onInsert && (
 						<button
 							type="button"
-							onClick={() => onInsert(img.file)}
+							onClick={async () => {
+								if (inserting) return;
+								setInserting(true);
+								await onInsert(img.file);
+								setInserting(false);
+							}}
+							disabled={inserting}
+							aria-busy={inserting}
 							className="flex-1 py-2.5 rounded-xl text-base font-semibold bg-accent text-white hover:brightness-110 transition flex items-center justify-center gap-2"
 						>
 							<ImagePlus size={16} />

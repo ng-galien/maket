@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+import type { BundleAnnotationSnapshot } from "@maket/shared";
 import { writeBundleAssets } from "../lib/asset-writer.js";
 import { type DecodedBundle, uniqueName } from "../lib/maket-format.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
@@ -21,6 +23,7 @@ export interface BundleImportResult {
 	assetsSkipped: number;
 	assetsRejected: string[];
 	statesImported: number;
+	annotationsImported: number;
 }
 
 export interface BundleImportService {
@@ -50,6 +53,12 @@ function restoreBundle(
 	bundle: DecodedBundle,
 ): BundleImportResult {
 	const imported = importDocuments(deps, bundle);
+	const annotationsImported = importAnnotations(
+		bundle.annotations,
+		imported.documentNamesBySourceId,
+		deps.store,
+	);
+	if (annotationsImported > 0) deps.bus.emit("annotations:changed", {});
 	const chartes = importChartes(bundle.chartes, deps.store, deps.bus);
 	const collections = importCollections(
 		bundle.collections,
@@ -75,6 +84,7 @@ function restoreBundle(
 		assetsSkipped: assets.skipped,
 		assetsRejected: assets.rejected,
 		statesImported: imported.statesImported,
+		annotationsImported,
 	};
 }
 
@@ -85,10 +95,12 @@ function importDocuments(
 	documents: string[];
 	renamed: { from: string; to: string }[];
 	statesImported: number;
+	documentNamesBySourceId: Map<string, string>;
 } {
 	const imported: string[] = [];
 	const renamed: { from: string; to: string }[] = [];
 	let statesImported = 0;
+	const documentNamesBySourceId = new Map<string, string>();
 	const all = deps.documents.all();
 	const stateByDocumentId = new Map(
 		bundle.documentStates.map((state) => [state.documentId, state]),
@@ -120,12 +132,49 @@ function importDocuments(
 			statesImported++;
 		}
 		deps.bus.emit("document:created", { docName: finalName });
+		if (snapshot.id) documentNamesBySourceId.set(snapshot.id, finalName);
 		imported.push(finalName);
 		if (finalName !== snapshot.name) {
 			renamed.push({ from: snapshot.name, to: finalName });
 		}
 	}
-	return { documents: imported, renamed, statesImported };
+	return {
+		documents: imported,
+		renamed,
+		statesImported,
+		documentNamesBySourceId,
+	};
+}
+
+function importAnnotations(
+	annotations: BundleAnnotationSnapshot[],
+	documentNamesBySourceId: Map<string, string>,
+	store: Store,
+): number {
+	let imported = 0;
+	for (const annotation of annotations) {
+		const docName = documentNamesBySourceId.get(annotation.documentId);
+		if (!docName) continue;
+		store.saveAnnotation({
+			id: crypto.randomUUID(),
+			docName,
+			...(annotation.pageIndex !== undefined
+				? { pageIndex: annotation.pageIndex }
+				: {}),
+			...(annotation.elementId !== undefined
+				? { elementId: annotation.elementId }
+				: {}),
+			type: annotation.type,
+			...(annotation.text !== undefined ? { text: annotation.text } : {}),
+			...(annotation.file !== undefined ? { file: annotation.file } : {}),
+			...(annotation.position !== undefined
+				? { position: annotation.position }
+				: {}),
+			ts: annotation.ts,
+		});
+		imported++;
+	}
+	return imported;
 }
 
 function sanitiseBundlePages(

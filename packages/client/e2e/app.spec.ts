@@ -43,4 +43,19 @@ test.describe("App boot", () => {
 		});
 		await expect(placeholder).toBeVisible();
 	});
+
+	test("offers document selection instead of a disabled note composer", async ({
+		page,
+	}) => {
+		await page.goto("/");
+		await page.getByRole("button", { name: /^(exchanges|échanges)$/i }).click();
+		await expect(
+			page.getByRole("button", {
+				name: /choose a document|choisir un document/i,
+			}),
+		).toBeVisible();
+		await expect(
+			page.getByPlaceholder(/Note sur le document|Note about the document/i),
+		).toHaveCount(0);
+	});
 });

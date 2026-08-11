@@ -33,6 +33,7 @@ export function handleLoadDocument(
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),
+		annotations: ctx.pending.all(),
 		charteCss: ctx.documents.charteCss(requested),
 		addToWorkspace: true,
 		focus: true,
@@ -136,7 +137,6 @@ export function handleDeleteDocument(
 		return;
 	}
 	ctx.documents.delete(name);
-	ctx.pending.dropDoc(name);
 	ctx.bus.emit("document:deleted", { docName: name });
 }
 
@@ -162,10 +162,7 @@ export function handleRenameDocument(
 		});
 		return;
 	}
-	ctx.documents.delete(name);
-	d.name = newName;
-	ctx.documents.all().set(newName, d);
-	ctx.documents.persist(newName);
+	ctx.documents.rename(name, newName);
 	ctx.bus.emit("document:deleted", { docName: name });
 	ctx.bus.emit("document:loaded", { docName: newName });
 	ctx.bus.emit("toast", {
