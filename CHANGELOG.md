@@ -13,6 +13,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.7.1] — 2026-08-12
+
 ### Fixed
 
 - Close the collection library when opening its data workspace so the panel backdrop cannot block collection editing.
