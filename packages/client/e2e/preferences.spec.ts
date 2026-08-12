@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./isolated-test";
 
 // Verifies that UI preferences persist to localStorage and are restored
 // on reload — the Zustand store's init path runs against a real browser.

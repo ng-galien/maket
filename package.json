@@ -44,6 +44,7 @@
     "smell:review": "scripts/run-smell-review.sh . .code-moniker.toml",
     "changelog:draft": "node scripts/changelog-draft.mjs",
     "test:e2e": "npm run build:client && npm run test:e2e -w @maket/client",
+    "test:e2e:coverage": "node scripts/run-e2e-coverage.mjs",
     "e2e:server": "node scripts/dev.mjs e2e:server",
     "quality": "npm run lint && npm run smell:review && npm run typecheck && npm run test:coverage && npm run version:check",
     "version:check": "node scripts/check-versions.mjs",
@@ -54,10 +55,15 @@
     "@biomejs/biome": "^2.5.7",
     "@modelcontextprotocol/client": "^2.0.0",
     "@vitest/coverage-v8": "^4.1.10",
+    "c8": "^12.0.0",
     "esbuild": "^0.28.1",
+    "istanbul-lib-coverage": "^3.2.2",
+    "istanbul-lib-report": "^3.0.1",
+    "istanbul-reports": "^3.2.0",
     "lefthook": "^2.1.10",
     "tsx": "^4.23.10",
     "typescript": "^7.0.2",
+    "v8-to-istanbul": "^9.3.0",
     "vitest": "^4.1.10"
   },
   "allowScripts": {

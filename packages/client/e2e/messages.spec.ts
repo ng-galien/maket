@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./isolated-test";
 import { McpTestClient } from "./mcp-test-client";
 
 const NOTE_TEXT = "Make this title more prominent";
@@ -28,12 +28,13 @@ async function cleanupMessage(mcp: McpTestClient, text: string) {
 
 test.describe("Document annotations", () => {
 	test("an element annotation survives another window and its acknowledgement propagates", async ({
+		baseURL,
 		context,
 		page,
 	}) => {
 		const docName = `annotation-e2e-${Date.now()}`;
 		const otherDocName = `${docName}-other`;
-		const mcp = await McpTestClient.connect();
+		const mcp = await McpTestClient.connect(baseURL);
 
 		try {
 			await mcp.call("maket_doc", {
@@ -267,11 +268,12 @@ test.describe("Document annotations", () => {
 	});
 
 	test("a document-level annotation survives another window and its acknowledgement propagates", async ({
+		baseURL,
 		context,
 		page,
 	}) => {
 		const docName = `document-annotation-e2e-${Date.now()}`;
-		const mcp = await McpTestClient.connect();
+		const mcp = await McpTestClient.connect(baseURL);
 
 		try {
 			await mcp.call("maket_doc", {

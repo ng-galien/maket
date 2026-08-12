@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
-import { computeCanvasDims, createDocument, type Document } from "../types.js";
+import { createDocument, type Document } from "../types.js";
 import { createAnnotations } from "./annotations.js";
 import { createAssetsService } from "./assets.js";
 import { createBus } from "./bus.js";
@@ -19,7 +19,6 @@ import type { DocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createSQLiteStore } from "./store.js";
-import { createWsBridge } from "./ws-bridge.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
@@ -49,7 +48,6 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const documentStates = createDocumentStates({ store, documents, bus });
 	const pending = createAnnotations({ bus, store });
 	const wsRegistry = createWsRegistry();
-	const wsBridge = createWsBridge({ bus });
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
@@ -61,7 +59,6 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		pending,
 		store,
 		wsRegistry,
-		wsBridge,
 	});
 	return {
 		store,
@@ -70,7 +67,6 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documentStates,
 		pending,
 		handler,
-		wsBridge,
 		wsRegistry,
 		assetsDir,
 		dispose: () => {
@@ -531,89 +527,6 @@ describe("ws-handler — document and canvas flows", () => {
 		dispose();
 	});
 
-	it("layout_report stores layout data and resolves bridge responses", () => {
-		const { store, documents, handler, wsBridge, dispose } = fixture();
-		store.saveDoc(makeDoc("layout"));
-		documents.loadAll();
-		const resolveSpy = vi.spyOn(wsBridge, "resolveResponse");
-
-		handler(
-			{
-				type: "layout_report",
-				docName: "layout",
-				measureId: "m-1",
-				overflow: true,
-				containerHeight: 100,
-				contentHeight: 130,
-				overflowBy: 30,
-				overflowing: ["title"],
-			},
-			STUB_WS,
-		);
-
-		expect(documents.resolve("layout")?._layout).toEqual({
-			overflow: true,
-			containerHeight: 100,
-			contentHeight: 130,
-			overflowBy: 30,
-			overflowing: ["title"],
-		});
-		expect(resolveSpy).toHaveBeenCalledWith(
-			"m-1",
-			expect.objectContaining({ type: "layout_report" }),
-		);
-		dispose();
-	});
-
-	it("save_document persists and emits save + toast events", () => {
-		const { store, bus, documents, handler, dispose } = fixture();
-		store.saveDoc(makeDoc("saved"));
-		documents.loadAll();
-		const saved = vi.fn();
-		const toast = vi.fn();
-		bus.on("document:saved", saved);
-		bus.on("toast", toast);
-
-		handler({ type: "save_document", docName: "saved" }, STUB_WS);
-
-		expect(saved).toHaveBeenCalledWith({ docName: "saved" });
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ text: expect.stringMatching(/saved/i) }),
-		);
-		expect(store.loadOne("saved")).not.toBeNull();
-		dispose();
-	});
-
-	it("update_canvas recalculates dims and background", () => {
-		const { store, documents, bus, handler, dispose } = fixture();
-		store.saveDoc(makeDoc("poster"));
-		documents.loadAll();
-		const changed = vi.fn();
-		bus.on("canvas:changed", changed);
-		const next = computeCanvasDims("A5", "landscape");
-
-		handler(
-			{
-				type: "update_canvas",
-				docName: "poster",
-				format: "A5",
-				orientation: "landscape",
-				bg: "#101010",
-			},
-			STUB_WS,
-		);
-
-		expect(documents.resolve("poster")?.canvas).toMatchObject({
-			format: "A5",
-			orientation: "landscape",
-			bg: "#101010",
-			w: next.w,
-			h: next.h,
-		});
-		expect(changed).toHaveBeenCalledWith({ docName: "poster" });
-		dispose();
-	});
-
 	it("update_meta mutates fields, clamps rating, and persists", () => {
 		const { store, documents, bus, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("meta"));
@@ -669,41 +582,6 @@ describe("ws-handler — document and canvas flows", () => {
 			designNotes: "",
 			teamNotes: "",
 		});
-		dispose();
-	});
-
-	it("page_go switches the active page and clear_canvas resets the current page", () => {
-		const { store, documents, bus, handler, dispose } = fixture();
-		const doc = createDocument({
-			name: "pages",
-			canvas: {
-				format: "A4",
-				orientation: "portrait",
-				w: 210,
-				h: 297,
-				bg: "#fff",
-			},
-			pages: [
-				{ name: "P1", elements: [{ id: "a" }] },
-				{ name: "P2", elements: [{ id: "b" }] },
-			],
-			nextId: 42,
-		});
-		store.saveDoc(doc);
-		documents.loadAll();
-		const loaded = vi.fn();
-		const cleared = vi.fn();
-		bus.on("document:loaded", loaded);
-		bus.on("elements:cleared", cleared);
-
-		handler({ type: "page_go", docName: "pages", page: 2 }, STUB_WS);
-		handler({ type: "clear_canvas", docName: "pages" }, STUB_WS);
-
-		expect(documents.resolve("pages")?.activePage).toBe(1);
-		expect(documents.resolve("pages")?.pages[1]?.elements).toEqual([]);
-		expect(documents.resolve("pages")?.nextId).toBe(1);
-		expect(loaded).toHaveBeenCalledWith({ docName: "pages" });
-		expect(cleared).toHaveBeenCalledWith({ docName: "pages" });
 		dispose();
 	});
 });
@@ -1035,278 +913,6 @@ describe("ws-handler — text editing", () => {
 			dispose();
 		},
 	);
-
-	it("update_charte_meta merges fields into an existing charte without wiping omitted ones", () => {
-		const { store, bus, handler, dispose } = fixture();
-		store.saveCharte({
-			name: "brand",
-			description: "v1 desc",
-			tokens: { color: { primary: "#2563EB" } },
-			voice: { personality: ["bold"] },
-		});
-		const updates = vi.fn();
-		bus.on("charte:updated", updates);
-
-		handler(
-			{
-				type: "update_charte_meta",
-				name: "brand",
-				description: "v2 desc",
-				rules: { titles: "sentence case" },
-			},
-			STUB_WS,
-		);
-
-		const stored = store.loadCharte("brand");
-		// Updated fields written.
-		expect(stored?.description).toBe("v2 desc");
-		expect(stored?.rules?.titles).toBe("sentence case");
-		// Omitted fields preserved.
-		expect(stored?.tokens.color?.primary).toBe("#2563EB");
-		expect(stored?.voice?.personality).toEqual(["bold"]);
-		// Wire emits the recomposed CSS so clients reload tokens/fonts.
-		expect(updates).toHaveBeenCalledWith(
-			expect.objectContaining({ name: "brand" }),
-		);
-		dispose();
-	});
-
-	it("update_charte_meta clears description when the caller sends ``", () => {
-		const { store, handler, dispose } = fixture();
-		store.saveCharte({
-			name: "brand",
-			description: "kept",
-			tokens: { color: { primary: "#2563EB" } },
-		});
-
-		handler(
-			{
-				type: "update_charte_meta",
-				name: "brand",
-				description: "",
-			},
-			STUB_WS,
-		);
-
-		const stored = store.loadCharte("brand");
-		expect(stored?.description).toBe("");
-		expect(stored?.tokens.color?.primary).toBe("#2563EB");
-		dispose();
-	});
-
-	it("update_charte_meta toasts when the charte does not exist (no creation)", () => {
-		const { store, bus, handler, dispose } = fixture();
-		const toast = vi.fn();
-		const updates = vi.fn();
-		bus.on("toast", toast);
-		bus.on("charte:updated", updates);
-
-		handler(
-			{
-				type: "update_charte_meta",
-				name: "nope",
-				description: "ghost",
-			},
-			STUB_WS,
-		);
-
-		expect(store.loadCharte("nope")).toBeNull();
-		expect(updates).not.toHaveBeenCalled();
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ level: "error" }),
-		);
-		dispose();
-	});
-
-	it("update_charte_meta rejects malformed tokens without persisting", () => {
-		const { store, bus, handler, dispose } = fixture();
-		store.saveCharte({
-			name: "brand",
-			tokens: { color: { primary: "#2563EB" } },
-		});
-		const updates = vi.fn();
-		const toast = vi.fn();
-		bus.on("charte:updated", updates);
-		bus.on("toast", toast);
-
-		handler(
-			{
-				type: "update_charte_meta",
-				name: "brand",
-				tokens: "oops" as unknown,
-			} as any,
-			STUB_WS,
-		);
-
-		// Existing charte left intact.
-		expect(store.loadCharte("brand")?.tokens.color?.primary).toBe("#2563EB");
-		expect(updates).not.toHaveBeenCalled();
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ level: "error" }),
-		);
-		dispose();
-	});
-
-	it("update_asset_meta clears string fields when the caller sends ``", () => {
-		const { store, bus, assetsDir, handler, dispose } = fixture();
-		writeFileSync(join(assetsDir, "hero.png"), "px");
-		store.saveAsset({
-			filename: "hero.png",
-			title: "Old title",
-			description: "Old desc",
-			credit: "@photographer",
-		});
-		const changed = vi.fn();
-		bus.on("assets:changed", changed);
-
-		handler(
-			{
-				type: "update_asset_meta",
-				filename: "hero.png",
-				title: "",
-				credit: "",
-			},
-			STUB_WS,
-		);
-
-		const row = store.loadAsset("hero.png");
-		expect(row?.title).toBe("");
-		expect(row?.credit).toBe("");
-		expect(row?.description).toBe("Old desc");
-		expect(changed).toHaveBeenCalledWith({});
-		dispose();
-	});
-
-	it("update_asset_meta clears tags when the caller sends []", () => {
-		const { store, assetsDir, handler, dispose } = fixture();
-		writeFileSync(join(assetsDir, "hero.png"), "px");
-		store.saveAsset({
-			filename: "hero.png",
-			title: "Hero",
-			tags: ["a", "b"],
-		});
-
-		handler(
-			{
-				type: "update_asset_meta",
-				filename: "hero.png",
-				tags: [],
-			},
-			STUB_WS,
-		);
-
-		const row = store.loadAsset("hero.png");
-		expect(row?.tags).toEqual([]);
-		expect(row?.title).toBe("Hero");
-		dispose();
-	});
-
-	it("update_asset_meta merges fields into an existing asset row without wiping omitted ones", () => {
-		const { store, bus, assetsDir, handler, dispose } = fixture();
-		writeFileSync(join(assetsDir, "hero.png"), "px");
-		store.saveAsset({
-			filename: "hero.png",
-			title: "Old title",
-			description: "Old desc",
-			tags: ["a", "b"],
-		});
-		const changed = vi.fn();
-		bus.on("assets:changed", changed);
-
-		handler(
-			{
-				type: "update_asset_meta",
-				filename: "hero.png",
-				title: "New title",
-				credit: "@photographer",
-			},
-			STUB_WS,
-		);
-
-		const row = store.loadAsset("hero.png");
-		expect(row?.title).toBe("New title");
-		expect(row?.credit).toBe("@photographer");
-		// Omitted fields preserved by the COALESCE upsert.
-		expect(row?.description).toBe("Old desc");
-		expect(row?.tags).toEqual(["a", "b"]);
-		expect(changed).toHaveBeenCalledWith({});
-		dispose();
-	});
-
-	it.each([
-		["title as number", { title: 42 as unknown }],
-		["tags as string", { tags: "oops" as unknown }],
-		["tags non-string element", { tags: [1, 2] as unknown }],
-		["credit as object", { credit: { x: 1 } as unknown }],
-	])(
-		"update_asset_meta rejects malformed payload (%s) without persisting",
-		(_, extra) => {
-			const { store, bus, assetsDir, handler, dispose } = fixture();
-			writeFileSync(join(assetsDir, "hero.png"), "px");
-			store.saveAsset({ filename: "hero.png", title: "kept" });
-			const toast = vi.fn();
-			const changed = vi.fn();
-			bus.on("toast", toast);
-			bus.on("assets:changed", changed);
-
-			handler(
-				{
-					type: "update_asset_meta",
-					filename: "hero.png",
-					...extra,
-				} as any,
-				STUB_WS,
-			);
-
-			// Existing row left intact.
-			expect(store.loadAsset("hero.png")?.title).toBe("kept");
-			expect(changed).not.toHaveBeenCalled();
-			expect(toast).toHaveBeenCalledWith(
-				expect.objectContaining({ level: "error" }),
-			);
-			dispose();
-		},
-	);
-
-	it("update_asset_meta toasts when the file is missing (no row creation)", () => {
-		const { store, bus, handler, dispose } = fixture();
-		const toast = vi.fn();
-		const changed = vi.fn();
-		bus.on("toast", toast);
-		bus.on("assets:changed", changed);
-
-		handler(
-			{
-				type: "update_asset_meta",
-				filename: "missing.png",
-				title: "Ghost",
-			},
-			STUB_WS,
-		);
-
-		expect(store.loadAsset("missing.png")).toBeNull();
-		expect(changed).not.toHaveBeenCalled();
-		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ level: "error" }),
-		);
-		dispose();
-	});
-
-	it("check_layout_response resolves pending bridge requests", () => {
-		const { handler, wsBridge, dispose } = fixture();
-		const resolveSpy = vi.spyOn(wsBridge, "resolveResponse");
-
-		handler(
-			{ type: "check_layout_response", _reqId: "req-1", overflow: false },
-			STUB_WS,
-		);
-
-		expect(resolveSpy).toHaveBeenCalledWith(
-			"req-1",
-			expect.objectContaining({ type: "check_layout_response" }),
-		);
-		dispose();
-	});
 });
 
 describe("ws-handler — collection cursor", () => {
@@ -1333,7 +939,6 @@ describe("ws-handler — collection cursor", () => {
 			pending: base.pending,
 			store: base.store,
 			wsRegistry: base.wsRegistry,
-			wsBridge: base.wsBridge,
 		});
 		collections.save({
 			name: "clients",

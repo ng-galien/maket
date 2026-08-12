@@ -14,10 +14,9 @@ import type { DocumentStateClientView } from "./document-state.js";
  * on public send/broadcast APIs; `WorkspaceMessage` exists only for parsing
  * or dispatch code that intentionally handles the complete wire vocabulary.
  *
- * Partial-update messages (`update_meta`, `update_charte_meta`,
- * `update_asset_meta`) carry only fields to merge; omitted fields are
- * preserved server-side. Full-record writes use a different verb
- * (`charte_save`).
+ * Partial document metadata updates carry only fields to merge; omitted
+ * fields are preserved server-side. Full-record writes use distinct verbs
+ * such as `charte_save`.
  */
 
 import type {
@@ -39,8 +38,6 @@ export interface WorkspaceStateSignal {
 	charteCss: string;
 	addToWorkspace?: boolean;
 	focus?: boolean;
-	/** Correlation id awaited by `wsBridge.waitForResponse` after an html mutation. */
-	measureId?: string;
 	/** Present for state-backed documents: raw data, schema, revision, templates. */
 	documentState?: DocumentStateClientView | null;
 	/** Persistent server-owned annotations mirrored by every browser client. */
@@ -138,14 +135,6 @@ export interface FitViewSignal {
 	type: "fit_view";
 }
 
-/** Server-initiated RPC awaited via `wsBridge.sendRequest`. */
-export interface LayoutCheckRequest {
-	type: "check_layout_request";
-	_reqId: string;
-	docName: string;
-	pageIdx: number;
-}
-
 // ============================================================
 // Protocol commands and responses
 // ============================================================
@@ -153,11 +142,6 @@ export interface LayoutCheckRequest {
 export interface LoadDocumentCommand {
 	type: "load_document";
 	name: string;
-}
-
-export interface SaveDocumentCommand {
-	type: "save_document";
-	docName: string;
 }
 
 export interface DeleteDocumentCommand {
@@ -188,14 +172,6 @@ export interface OpenOnboardingCommand {
 	lang?: "en" | "fr";
 }
 
-export interface UpdateCanvasCommand {
-	type: "update_canvas";
-	docName: string;
-	format?: string;
-	orientation?: string;
-	bg?: string;
-}
-
 export interface UpdateDocumentMetadataCommand {
 	type: "update_meta";
 	docName: string;
@@ -214,52 +190,13 @@ export interface DeleteAssetCommand {
 }
 
 /**
- * Partial update of an asset's metadata row. Mirrors `update_meta` for docs
- * and `update_charte_meta` for chartes — same clear-vs-preserve rule across
- * the three: only `undefined` preserves; `""` clears a string field, `[]`
- * clears tags. Identity is `filename` (renames are out of envelope).
- */
-export interface UpdateAssetMetadataCommand {
-	type: "update_asset_meta";
-	filename: string;
-	title?: string;
-	description?: string;
-	category?: string;
-	tags?: string[];
-	credit?: string;
-	orientation?: string;
-}
-
-/**
  * Write a full charte record. Name is the identity — renaming is not part of
  * this envelope; clients wanting to rename should `charte_save` under the new
  * name and then call `maket_charte delete` on the old one. Tokens/voice/rules
- * fully replace the stored values (no partial merge — use
- * `update_charte_meta` for partial edits).
+ * fully replace the stored values.
  */
 export interface SaveCharteCommand {
 	type: "charte_save";
-	name: string;
-	description?: string;
-	tokens?: Record<string, Record<string, string>>;
-	voice?: {
-		personality?: string[];
-		formality?: string;
-		do?: string[];
-		dont?: string[];
-		vocabulary?: string[];
-	};
-	rules?: Record<string, string>;
-}
-
-/**
- * Partial update of a charte. Mirrors `update_meta` for docs and
- * `update_asset_meta` for assets: only fields explicitly set are merged;
- * omitted fields are preserved server-side. Use this for editing
- * description/voice/rules without rebuilding tokens, or vice versa.
- */
-export interface UpdateCharteMetadataCommand {
-	type: "update_charte_meta";
 	name: string;
 	description?: string;
 	tokens?: Record<string, Record<string, string>>;
@@ -307,17 +244,6 @@ export interface SetCollectionCursorCommand {
 	pageIndex: number;
 	mode?: CollectionCursorMode;
 	memberId?: string | null;
-}
-
-export interface ShowPageCommand {
-	type: "page_go";
-	docName: string;
-	page: number;
-}
-
-export interface ClearCanvasCommand {
-	type: "clear_canvas";
-	docName: string;
 }
 
 export interface EditTextCommand {
@@ -374,41 +300,6 @@ export interface UpdateWorkspaceCommand {
 	displayed: string[];
 }
 
-/**
- * Browser-measured layout report. `docName` is optional because the browser
- * may measure the focused canvas without a targeted doc context; the server
- * resolves it best-effort via `wsDoc(msg)`.
- */
-export interface LayoutReportCommand {
-	type: "layout_report";
-	docName?: string;
-	measureId?: string;
-	overflow?: boolean;
-	containerHeight?: number;
-	contentHeight?: number;
-	overflowBy?: number;
-	containerWidth?: number;
-	contentWidth?: number;
-	overflowByW?: number;
-	overflowing?: string[];
-	elements?: unknown[];
-}
-
-/** Reply to a server-initiated `check_layout_request`. */
-export interface LayoutCheckResult {
-	type: "check_layout_response";
-	_reqId: string;
-	overflow?: boolean;
-	containerHeight?: number;
-	contentHeight?: number;
-	overflowBy?: number;
-	containerWidth?: number;
-	contentWidth?: number;
-	overflowByW?: number;
-	overflowing?: string[];
-	elements?: unknown[];
-}
-
 export type WorkspaceSignal =
 	| WorkspaceStateSignal
 	| StatePageProjectionSignal
@@ -425,38 +316,27 @@ export type WorkspaceSignal =
 	| AssetsChangedSignal
 	| CollectionsChangedSignal
 	| CollectionCursorsSignal
-	| FitViewSignal
-	| LayoutCheckRequest;
+	| FitViewSignal;
 
 export type WorkspaceCommand =
 	| LoadDocumentCommand
-	| SaveDocumentCommand
 	| DeleteDocumentCommand
 	| RenameDocumentCommand
 	| DuplicateDocumentCommand
 	| LockDocumentCommand
 	| OpenOnboardingCommand
-	| UpdateCanvasCommand
 	| UpdateDocumentMetadataCommand
 	| DeleteAssetCommand
-	| UpdateAssetMetadataCommand
 	| SaveCharteCommand
-	| UpdateCharteMetadataCommand
 	| SaveCollectionCommand
 	| DeleteCollectionCommand
 	| BindPageCollectionCommand
 	| ClearPageCollectionCommand
 	| SetCollectionCursorCommand
-	| ShowPageCommand
-	| ClearCanvasCommand
 	| EditTextCommand
 	| PatchDocumentStateCommand
 	| CreateAnnotationCommand
 	| RemoveAnnotationCommand
-	| UpdateWorkspaceCommand
-	| LayoutReportCommand
-	| LayoutCheckResult;
+	| UpdateWorkspaceCommand;
 
 export type WorkspaceMessage = WorkspaceSignal | WorkspaceCommand;
-
-export type LayoutCheckRequestDraft = Omit<LayoutCheckRequest, "_reqId">;

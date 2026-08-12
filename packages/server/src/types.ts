@@ -90,14 +90,6 @@ export type PageInit = Page | Omit<Page, "id">;
 
 export type DocumentDataModel = "static" | "collection" | "state";
 
-export interface LayoutReport {
-	overflow: boolean;
-	containerHeight: number;
-	contentHeight: number;
-	overflowBy: number;
-	overflowing: string[];
-}
-
 import type { PendingMessage } from "@maket/shared";
 
 export type { PendingMessage };
@@ -113,7 +105,6 @@ export interface Document {
 	activePage: number;
 	nextId: number;
 	// Runtime-only presentation state. User annotations are persisted separately.
-	_layout?: LayoutReport;
 	_displayed?: boolean;
 }
 

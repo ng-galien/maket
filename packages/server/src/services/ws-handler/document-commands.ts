@@ -8,9 +8,8 @@ import {
 	type WorkspaceStateSignal,
 } from "@maket/shared";
 import type WebSocket from "ws";
-import { computeCanvasDims, createDocument } from "../../types.js";
+import { createDocument } from "../../types.js";
 import type { WsHandlerContext } from "./context.js";
-import { log } from "./context.js";
 
 export function handleLoadDocument(
 	ctx: WsHandlerContext,
@@ -41,40 +40,6 @@ export function handleLoadDocument(
 	ws.send(JSON.stringify(state));
 }
 
-export function handleSaveDocument(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "save_document" }>,
-): void {
-	const d = ctx.wsDoc(msg);
-	if (!d) return;
-	ctx.documents.persist(d.name);
-	ctx.bus.emit("document:saved", { docName: d.name });
-	ctx.bus.emit("toast", {
-		text: `Document "${d.name}" saved`,
-		level: "success",
-	});
-	log(`Saved via UI: "${d.name}"`);
-}
-
-export function handleUpdateCanvas(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "update_canvas" }>,
-): void {
-	const d = ctx.wsDoc(msg);
-	if (!d) return;
-	if (msg.format || msg.orientation != null) {
-		const fmt = msg.format || d.canvas.format;
-		const orient = msg.orientation ?? d.canvas.orientation ?? "portrait";
-		const { w, h } = computeCanvasDims(fmt, orient);
-		d.canvas.format = fmt;
-		d.canvas.w = w;
-		d.canvas.h = h;
-		d.canvas.orientation = orient;
-	}
-	if (msg.bg) d.canvas.bg = msg.bg;
-	ctx.bus.emit("canvas:changed", { docName: d.name });
-}
-
 export function handleUpdateMeta(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "update_meta" }>,
@@ -98,28 +63,6 @@ export function handleUpdateMeta(
 		d.category = normalizeCategoryPath(msg.category);
 	ctx.documents.persist(d.name);
 	ctx.bus.emit("meta:updated", { docName: d.name });
-}
-
-export function handlePageGo(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "page_go" }>,
-): void {
-	const d = ctx.wsDoc(msg);
-	if (!d || msg.page < 1 || msg.page > d.pages.length) return;
-	d.activePage = msg.page - 1;
-	ctx.bus.emit("document:loaded", { docName: d.name });
-}
-
-export function handleClearCanvas(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "clear_canvas" }>,
-): void {
-	const d = ctx.wsDoc(msg);
-	if (!d) return;
-	const page = d.pages[d.activePage];
-	if (page) page.elements = [];
-	d.nextId = 1;
-	ctx.bus.emit("elements:cleared", { docName: d.name });
 }
 
 export function handleDeleteDocument(

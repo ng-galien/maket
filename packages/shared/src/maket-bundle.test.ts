@@ -248,7 +248,7 @@ describe("manifest building", () => {
 					name: "P",
 					elements: [],
 					html: "<b>x</b>",
-					_layout: { secret: true },
+					_runtimeOnly: { secret: true },
 				},
 			],
 			activePage: 0,
@@ -257,7 +257,7 @@ describe("manifest building", () => {
 		expect(snap.category).toBe("general");
 		expect(snap.nextId).toBe(7);
 		expect((snap.pages as Record<string, unknown>[])[0]).not.toHaveProperty(
-			"_layout",
+			"_runtimeOnly",
 		);
 	});
 

@@ -6,13 +6,21 @@ import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { HoldToDelete } from "./shared/HoldToDelete";
 
+// code-moniker: ignore[smell-feature-envy-local]
+// Collections panel shell: coordinates store-backed library focus with the
+// overlay lifecycle so opening an editor also dismisses the blocking panel.
 export function CollectionsTab() {
 	const t = useT();
 	const collections = useStore((s) => s.collections);
 	const focusedCollectionName = useStore((s) => s.focusedCollectionName);
 	const setFocusedCollection = useStore((s) => s.setFocusedCollection);
+	const setActivePanel = useStore((s) => s.setActivePanel);
 	const [naming, setNaming] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const openCollection = (name: string) => {
+		setFocusedCollection(name);
+		setActivePanel(null);
+	};
 
 	const sortedCollections = useMemo(
 		() => [...collections].sort((a, b) => a.name.localeCompare(b.name)),
@@ -43,6 +51,7 @@ export function CollectionsTab() {
 				<NewCollectionForm
 					existingNames={collections.map((collection) => collection.name)}
 					onDone={() => setNaming(false)}
+					onCreated={openCollection}
 				/>
 			)}
 
@@ -58,7 +67,7 @@ export function CollectionsTab() {
 							collection={collection}
 							active={focusedCollectionName === collection.name}
 							deleting={deleting === collection.name}
-							onOpen={() => setFocusedCollection(collection.name)}
+							onOpen={() => openCollection(collection.name)}
 							onAskDelete={() => setDeleting(collection.name)}
 							onCancelDelete={() => setDeleting(null)}
 						/>
@@ -134,9 +143,11 @@ function CollectionCard({
 function NewCollectionForm({
 	existingNames,
 	onDone,
+	onCreated,
 }: {
 	existingNames: string[];
 	onDone: () => void;
+	onCreated: (name: string) => void;
 }) {
 	const t = useT();
 	const [name, setName] = useState("");
@@ -163,7 +174,7 @@ function NewCollectionForm({
 				members: [{ id: "member_1", position: 0, data: { client_name: "" } }],
 			},
 		});
-		useStore.getState().setFocusedCollection(trimmed);
+		onCreated(trimmed);
 		onDone();
 	};
 

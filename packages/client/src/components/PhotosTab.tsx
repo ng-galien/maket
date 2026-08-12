@@ -83,14 +83,23 @@ function usePhotoUpload(
 	const uploadInputRef = useRef<HTMLInputElement>(null);
 	const handleUpload = useCallback(
 		async (files: FileList) => {
+			const selectedFiles = Array.from(files);
 			clearAnnotationError();
-			const state = { total: files.length, done: 0, errors: [] as string[] };
+			const state = {
+				total: selectedFiles.length,
+				done: 0,
+				errors: [] as string[],
+			};
 			setUploading({ ...state });
-			await uploadFiles(files, state, setUploading);
+			await uploadFiles(selectedFiles, state, setUploading);
 			const r = await fetch("/api/assets");
 			const data = (await r.json()) as AssetsListResponse;
 			setImages(data.images || []);
-			const classified = await queueImageClassification(files, state.errors, t);
+			const classified = await queueImageClassification(
+				selectedFiles,
+				state.errors,
+				t,
+			);
 			if (!classified) onAnnotationError();
 			setTimeout(() => setUploading(null), state.errors.length ? 3000 : 800);
 		},
@@ -111,7 +120,7 @@ function usePhotoUpload(
 }
 
 async function uploadFiles(
-	files: FileList,
+	files: readonly File[],
 	state: { total: number; done: number; errors: string[] },
 	setUploading: (state: {
 		total: number;
@@ -120,7 +129,7 @@ async function uploadFiles(
 	}) => void,
 ): Promise<void> {
 	await Promise.all(
-		Array.from(files).map(async (file) => {
+		files.map(async (file) => {
 			const formData = new FormData();
 			formData.append("file", file);
 			try {
@@ -139,13 +148,11 @@ async function uploadFiles(
 }
 
 async function queueImageClassification(
-	files: FileList,
+	files: readonly File[],
 	errors: string[],
 	t: ReturnType<typeof useT>,
 ): Promise<boolean> {
-	const uploaded = Array.from(files)
-		.map((f) => f.name)
-		.filter((n) => !errors.includes(n));
+	const uploaded = files.map((f) => f.name).filter((n) => !errors.includes(n));
 	if (uploaded.length === 0) return true;
 	const outcome = await useStore.getState().addPending({
 		id: crypto.randomUUID(),
@@ -1147,6 +1154,8 @@ function ImageDetail({
 					<button
 						type="button"
 						onClick={() => setConfirming(true)}
+						aria-label={t("doc_delete")}
+						title={t("doc_delete")}
 						className="py-2.5 px-3 rounded-xl text-base font-semibold border border-danger-border text-danger hover:bg-danger-soft transition flex items-center justify-center"
 					>
 						<Trash2 size={16} />

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./coverage-test";
 
 // Acceptance for /demo.html: an honest replay of a recorded Maket session —
 // explicit "Replayed session" labelling, stepping through real workspace
