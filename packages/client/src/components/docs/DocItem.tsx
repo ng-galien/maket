@@ -3,6 +3,7 @@ import { History, Lock, Palette } from "lucide-react";
 import { useRef } from "react";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
+import { useStore } from "../../store/useStore";
 import { DraftPill } from "../shared/DraftPill";
 import {
 	DocDeleteHold,
@@ -164,7 +165,8 @@ function handleItemDragStart(
 
 export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 	const doc = model.doc;
-	const cacheToken = doc.updatedAt ?? String(Date.now());
+	const chartesVersion = useStore((state) => state.chartesVersion);
+	const cacheToken = `${doc.updatedAt ?? String(Date.now())}-${chartesVersion}`;
 	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
 	return (
 		<button

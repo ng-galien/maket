@@ -40,40 +40,6 @@ export function handleCharteSave(
 	});
 }
 
-export function handleUpdateCharteMeta(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "update_charte_meta" }>,
-): void {
-	const name = String(msg.name || "").trim();
-	if (!name) {
-		ctx.bus.emit("toast", { text: "Charte name is required", level: "error" });
-		return;
-	}
-	const existing = ctx.store.loadCharte(name);
-	if (!existing) {
-		ctx.bus.emit("toast", {
-			text: `Charte "${name}" not found`,
-			level: "error",
-		});
-		return;
-	}
-	const invalid = validateCharteSavePayload(msg);
-	if (invalid) {
-		ctx.bus.emit("toast", {
-			text: `Charte "${name}" rejected: ${invalid}`,
-			level: "error",
-		});
-		return;
-	}
-	const merged: Charte = { ...existing };
-	if (msg.description !== undefined) merged.description = msg.description;
-	if (msg.tokens !== undefined) merged.tokens = msg.tokens as Charte["tokens"];
-	if (msg.voice !== undefined) merged.voice = msg.voice;
-	if (msg.rules !== undefined) merged.rules = msg.rules;
-	ctx.store.saveCharte(merged);
-	ctx.bus.emit("charte:updated", { name, css: composeCharteCss(merged) });
-}
-
 function validateCharteSavePayload(msg: {
 	tokens?: unknown;
 	voice?: unknown;
@@ -107,7 +73,3 @@ function validateCharteSavePayload(msg: {
 	}
 	return null;
 }
-
-/** Runtime shape check for `update_asset_meta` payloads. Returns an error
- * message when the payload would persist malformed data, `null` when it's
- * safe. Same contract as validateCharteSavePayload. */

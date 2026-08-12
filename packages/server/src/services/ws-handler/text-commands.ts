@@ -65,23 +65,6 @@ export function handleWorkspaceUpdate(
 	}
 }
 
-export function handleLayoutReport(
-	ctx: WsHandlerContext,
-	msg: Extract<WorkspaceCommand, { type: "layout_report" }>,
-): void {
-	const d = ctx.wsDoc(msg);
-	if (d) {
-		d._layout = {
-			overflow: msg.overflow ?? false,
-			containerHeight: msg.containerHeight ?? 0,
-			contentHeight: msg.contentHeight ?? 0,
-			overflowBy: msg.overflowBy ?? 0,
-			overflowing: msg.overflowing ?? [],
-		};
-	}
-	if (msg.measureId) ctx.wsBridge.resolveResponse(msg.measureId, msg);
-}
-
 // code-moniker: ignore[smell-feature-envy-local]
 // text_edit is a WS adapter workflow: resolve doc/page, patch HTML via
 // linkedom, strip active markup, persist, broadcast. Coordinating those

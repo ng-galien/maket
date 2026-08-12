@@ -2,7 +2,6 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
-	LayoutReportCommand,
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
@@ -96,100 +95,6 @@ export function sendStateValuePatch(
 		10_000,
 	);
 	return requestId;
-}
-
-/** Find the page canvas element by doc name + page index, with progressive fallback */
-function findPageCanvas(
-	docName?: string,
-	pageIdx?: number,
-): HTMLElement | null {
-	if (docName != null && pageIdx != null) {
-		const exact = document.querySelector(
-			`[data-doc="${docName}"] [data-page="${pageIdx}"].page-canvas`,
-		) as HTMLElement | null;
-		if (exact) return exact;
-	}
-	const { focusedDocName: focusedName, focusedPageIndex } = useStore.getState();
-	if (focusedName) {
-		const focused = document.querySelector(
-			`[data-doc="${focusedName}"] [data-page="${focusedPageIndex}"].page-canvas`,
-		) as HTMLElement | null;
-		if (focused) return focused;
-	}
-	return document.querySelector(".page-canvas") as HTMLElement | null;
-}
-
-export function measurePageLayout(page: HTMLElement) {
-	const pageRect = page.getBoundingClientRect();
-	const containerHeight = Math.round(pageRect.height);
-	const containerWidth = Math.round(pageRect.width);
-	const elements = [...page.querySelectorAll("[data-id]")].map((node) => {
-		const el = node as HTMLElement;
-		const rect = el.getBoundingClientRect();
-		const top = Math.round(rect.top - pageRect.top);
-		const left = Math.round(rect.left - pageRect.left);
-		const bottom = Math.round(rect.bottom - pageRect.top);
-		const right = Math.round(rect.right - pageRect.left);
-		const overflow =
-			top < -1 ||
-			left < -1 ||
-			bottom > containerHeight + 1 ||
-			right > containerWidth + 1;
-		return {
-			id: el.dataset.id,
-			name: el.dataset.name || "",
-			top,
-			left,
-			bottom,
-			right,
-			overflow,
-		};
-	});
-	const minTop = elements.length
-		? Math.min(0, ...elements.map((el) => el.top))
-		: 0;
-	const minLeft = elements.length
-		? Math.min(0, ...elements.map((el) => el.left))
-		: 0;
-	const maxBottom = elements.length
-		? Math.max(page.scrollHeight, ...elements.map((el) => el.bottom))
-		: page.scrollHeight;
-	const maxRight = elements.length
-		? Math.max(page.scrollWidth, ...elements.map((el) => el.right))
-		: page.scrollWidth;
-	const contentHeight = Math.round(maxBottom - minTop);
-	const contentWidth = Math.round(maxRight - minLeft);
-	const overflowing = elements
-		.filter((el) => el.overflow)
-		.map((el) => el.id || el.name || "")
-		.filter(Boolean);
-	const overflowV = contentHeight > containerHeight;
-	const overflowH = contentWidth > containerWidth;
-	const overflow = overflowV || overflowH || overflowing.length > 0;
-	return {
-		overflow,
-		containerHeight,
-		contentHeight,
-		overflowBy: overflowV ? contentHeight - containerHeight : 0,
-		containerWidth,
-		contentWidth,
-		overflowByW: overflowH ? contentWidth - containerWidth : 0,
-		overflowing,
-		elements,
-	};
-}
-
-function reportLayout(measureId?: string, docName?: string, pageIdx?: number) {
-	const page = findPageCanvas(docName, pageIdx);
-	if (!page) return;
-	const layout = measurePageLayout(page);
-	const msg: LayoutReportCommand = {
-		type: "layout_report",
-		...layout,
-	};
-	if (measureId) msg.measureId = measureId;
-	if (docName) msg.docName = docName;
-	wsSend(msg);
 }
 
 // Lucide icon SVG paths (subset)
@@ -471,9 +376,6 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "activity":
 			spawnBubble(translateBubble(msg.key, msg.params), msg.icon);
 			break;
-		case "check_layout_request":
-			replyToLayoutCheck(msg._reqId, msg.docName, msg.pageIdx);
-			break;
 		case "ack_messages":
 			applyAckMessages(msg.ids as string[]);
 			break;
@@ -540,7 +442,6 @@ function applyStateMessage(
 			);
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
-	schedulePostStateLayout(doc, msg.measureId);
 }
 
 function applyInitialState(
@@ -561,19 +462,6 @@ function sendBackgroundLoadDoc(name: string): void {
 	wsSend({ type: "load_document", name });
 }
 
-function schedulePostStateLayout(
-	doc: Document,
-	measureId: string | undefined,
-): void {
-	const docName = doc.name;
-	const pageIndex = doc.activePage ?? 0;
-	requestAnimationFrame(() =>
-		requestAnimationFrame(() => {
-			reportLayout(measureId, docName, pageIndex);
-		}),
-	);
-}
-
 function applyCharteUpdated(name: string, css: string): void {
 	ensureCharteFonts(css);
 	const s = useStore.getState();
@@ -584,20 +472,6 @@ function applyCharteUpdated(name: string, css: string): void {
 	useStore.setState({
 		chartesCss,
 		chartesVersion: s.chartesVersion + 1,
-	});
-}
-
-function replyToLayoutCheck(
-	reqId: string,
-	docName: string,
-	pageIdx: number,
-): void {
-	const page = findPageCanvas(docName, pageIdx);
-	if (!page) return;
-	wsSend({
-		type: "check_layout_response",
-		_reqId: reqId,
-		...measurePageLayout(page),
 	});
 }
 

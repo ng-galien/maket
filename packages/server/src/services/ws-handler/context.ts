@@ -14,7 +14,6 @@ import type { DocumentRenderer } from "../document-renderer.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
 import type { Store } from "../store.js";
-import type { WsBridge } from "../ws-bridge.js";
 import type { WsRegistry } from "../ws-registry.js";
 
 export type WorkspaceCommandHandler = (
@@ -33,7 +32,6 @@ export interface WsHandlerDeps {
 	pending: Annotations;
 	store: Store;
 	wsRegistry: WsRegistry;
-	wsBridge: WsBridge;
 }
 
 export interface WsHandlerContext

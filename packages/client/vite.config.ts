@@ -28,6 +28,8 @@ export default defineConfig(({ mode }) => {
 			},
 		},
 		build: {
+			sourcemap: process.env.E2E_COVERAGE === "1",
+			minify: process.env.E2E_COVERAGE === "1" ? false : undefined,
 			// The shared hydration runtime is ~530 kB minified (~160 kB gzip).
 			// Keep the warning budget aligned with the shipped transfer size.
 			chunkSizeWarningLimit: 600,

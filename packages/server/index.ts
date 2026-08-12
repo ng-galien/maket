@@ -218,11 +218,7 @@ const MUTATION_EVENTS = [
 	"document:saved",
 	"document:deleted",
 	"canvas:changed",
-	"element:added",
 	"element:updated",
-	"element:deleted",
-	"element:reordered",
-	"elements:cleared",
 	"meta:updated",
 ] as const;
 
@@ -310,10 +306,6 @@ bus.on("annotations:changed", () => {
 
 bus.on("assets:changed", () => {
 	wsRegistry.broadcast({ type: "assets_changed" });
-});
-
-bus.on("workspace:client-request", (msg) => {
-	wsRegistry.broadcast(msg);
 });
 
 // Dispose container (closes SQLite + future-proofed disposers) on exit.

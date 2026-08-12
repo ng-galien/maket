@@ -4,17 +4,19 @@ import {
 } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 
-const MCP_URL = new URL("http://localhost:3399/mcp");
-
 export class McpTestClient {
 	private constructor(private readonly client: Client) {}
 
-	static async connect(): Promise<McpTestClient> {
+	static async connect(
+		baseURL = "http://localhost:3399",
+	): Promise<McpTestClient> {
 		const client = new Client(
 			{ name: "maket-playwright", version: "1.0.0" },
 			{ versionNegotiation: { mode: "auto" } },
 		);
-		await client.connect(new StreamableHTTPClientTransport(MCP_URL));
+		await client.connect(
+			new StreamableHTTPClientTransport(new URL("/mcp", baseURL)),
+		);
 		return new McpTestClient(client);
 	}
 
@@ -34,6 +36,24 @@ export class McpTestClient {
 
 	async callJson<T>(name: string, args: Record<string, unknown>): Promise<T> {
 		return JSON.parse(resultText(await this.call(name, args))) as T;
+	}
+
+	async callError(
+		name: string,
+		args: Record<string, unknown>,
+	): Promise<string> {
+		const result = (await this.client.callTool({
+			name,
+			arguments: args,
+		})) as CallToolResult;
+		if (!result.isError) {
+			throw new Error(`${name} unexpectedly succeeded: ${resultText(result)}`);
+		}
+		return resultText(result);
+	}
+
+	async callText(name: string, args: Record<string, unknown>): Promise<string> {
+		return resultText(await this.call(name, args));
 	}
 
 	async close(): Promise<void> {

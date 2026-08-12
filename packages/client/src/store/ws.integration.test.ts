@@ -1,6 +1,5 @@
 import type {
 	Collection,
-	LayoutCheckResult,
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
@@ -758,46 +757,6 @@ describe("doc_removed", () => {
 		MockWebSocket.last().emit({ type: "doc_removed", name: "beta" });
 		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
 		expect(useStore.getState().docs.has("beta")).toBe(false);
-	});
-});
-
-describe("check_layout_request", () => {
-	it("responds with a check_layout_response when a page-canvas is present", async () => {
-		const { initWs } = await freshWsModule();
-		initWs();
-		MockWebSocket.last().open();
-
-		// Install a minimal page-canvas the measurer can find.
-		const page = document.createElement("div");
-		page.className = "page-canvas";
-		document.body.appendChild(page);
-		vi.spyOn(page, "getBoundingClientRect").mockReturnValue({
-			top: 0,
-			left: 0,
-			bottom: 200,
-			right: 200,
-			width: 200,
-			height: 200,
-			x: 0,
-			y: 0,
-			toJSON: () => ({}),
-		} as DOMRect);
-
-		// Drain the onopen-driven sends before asserting on the response.
-		MockWebSocket.last().sent.length = 0;
-
-		MockWebSocket.last().emit({
-			type: "check_layout_request",
-			_reqId: "r-42",
-			docName: "alpha",
-			pageIdx: 0,
-		});
-
-		const payload = MockWebSocket.last().lastSent<LayoutCheckResult>();
-		expect(payload.type).toBe("check_layout_response");
-		expect(payload._reqId).toBe("r-42");
-
-		document.body.innerHTML = "";
 	});
 });
 

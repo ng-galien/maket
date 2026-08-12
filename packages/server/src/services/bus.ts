@@ -8,7 +8,6 @@
  */
 
 import { EventEmitter } from "node:events";
-import type { LayoutCheckRequest } from "@maket/shared";
 
 export interface BusEvents {
 	"document:created": { docName: string };
@@ -18,11 +17,7 @@ export interface BusEvents {
 	"workspace:fit-view": Record<string, never>;
 	"document:deleted": { docName: string };
 	"canvas:changed": { docName: string };
-	"element:added": { docName: string; id: string };
-	"element:updated": { docName: string; id: string; measureId?: string };
-	"element:deleted": { docName: string; id: string };
-	"element:reordered": { docName: string; id: string; action: string };
-	"elements:cleared": { docName: string };
+	"element:updated": { docName: string; id: string };
 	"assets:changed": Record<string, never>;
 	"meta:updated": { docName: string };
 	"charte:updated": { name: string; css: string };
@@ -42,8 +37,6 @@ export interface BusEvents {
 	"messages:acked": { ids: string[] };
 	"annotations:changed": Record<string, never>;
 	toast: { text: string; level?: string; duration?: number };
-	/** Edge-only: push a correlated WS request to every connected client. */
-	"workspace:client-request": LayoutCheckRequest;
 }
 
 export interface Bus {

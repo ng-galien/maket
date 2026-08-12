@@ -13,6 +13,39 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Fixed
+
+- Close the collection library when opening its data workspace so the panel backdrop cannot block collection editing.
+- Preserve the selected upload files across the asynchronous Photos workflow so
+  successful UI uploads still create the agent classification request after the
+  native file input is cleared.
+- Refresh document-card thumbnails when their applied charte changes, and expose
+  the photo-detail delete action with an accessible name.
+
+### Internal
+- Remove unreachable browser WebSocket mutations and the superseded
+  browser-to-server layout measurement round trip; canvas, asset, charte, and
+  layout behavior remain owned by their active MCP and server boundaries.
+- **Playwright now reports product coverage from real browser workflows.** Each
+  connected test gets isolated server state, while the existing Chromium run
+  produces separate source-mapped client and server baselines as CI artifacts.
+  The reports are informational until targeted thresholds are stabilized; the
+  existing Vitest coverage gate remains unchanged.
+- Agent-driven Playwright journeys now exercise live MCP document/page
+  composition, collection rendering and cursors, document-state revisions, and
+  portable bundle restoration. Coverage includes a historical v1 import plus
+  separate v2 round-trips for collection-backed and state-backed documents.
+- Public browser coverage now also exercises human upload through agent image
+  inspection and document insertion, charte enforcement and compliant rendering,
+  print/PNG/PDF output, and press-and-hold deletion safety.
+- Browser execution of shared runtime sources is merged into the server/shared
+  E2E report, so compatibility code used by the UI is no longer reported as
+  untouched merely because it did not execute in the Node process.
+- Asset deletion now covers the real hold interaction and cross-window WS
+  refresh; historical string-form charte rules are imported, displayed and
+  modernized; document thumbnails are rendered and refreshed after live charte
+  changes.
+
 ## [1.7.0] — 2026-08-11
 
 ### Added

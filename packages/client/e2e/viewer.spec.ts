@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
 import JSZip from "jszip";
+import { expect, test } from "./coverage-test";
 
 // Acceptance tests for the standalone viewer (/viewer.html): a .maket bundle
 // opens fully client-side — one document renders through the clean Reader,

@@ -43,7 +43,7 @@ describe("bus", () => {
 		const bus = createBus();
 		// These compile because the payload shape matches BusEvents
 		bus.emit("toast", { text: "hello", level: "info" });
-		bus.emit("element:added", { docName: "d", id: "el-1" });
+		bus.emit("element:updated", { docName: "d", id: "el-1" });
 		bus.emit("assets:changed", {});
 		// No assertion needed — if this compiles, the typing is correct.
 		expect(true).toBe(true);

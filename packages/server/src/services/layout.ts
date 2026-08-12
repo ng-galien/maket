@@ -12,12 +12,9 @@
  *   path as `measure` but without the preview emit, and the result is
  *   trimmed (no leading newline).
  *
- * Earlier revisions awaited a browser-measured layout report via WebSocket
- * (measureId correlation). That reported the *thumbnail's* container size,
- * not the canvas, so agents routinely saw phantom overflow on pages that
- * fit the canvas perfectly. We kept the preview emit (independent of
- * measurement) but dropped the round-trip wait and report nothing but
- * canvas-authoritative numbers.
+ * Browser-side measurement was removed because it reported the preview
+ * container rather than the canvas and produced phantom overflow. The server
+ * now reports only canvas-authoritative numbers.
  */
 
 import { parseHTML } from "linkedom";

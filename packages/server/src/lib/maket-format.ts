@@ -11,9 +11,9 @@
  * `decodeBundle` sniffs the first four bytes: `1f 8b` → v1 gunzip path,
  * `50 4b 03 04` → v2 ZIP path. Anything else is rejected up front.
  *
- * Runtime-only document fields (`_layout`, `_displayed`) are stripped on the
- * way out — we pick the fields we want instead of blindly serializing the
- * whole doc. Chartes are auto-collected from `doc.meta.charte` so an import
+ * Runtime-only document fields such as `_displayed` are stripped on the way
+ * out — we pick the fields we want instead of blindly serializing the whole
+ * doc. Chartes are auto-collected from `doc.meta.charte` so an import
  * on a clean install restores the same look without extra steps.
  */
 
@@ -29,7 +29,6 @@ import {
 	parseBundleManifest,
 	MAKET_BUNDLE_EXT as SHARED_BUNDLE_EXT,
 	MAKET_BUNDLE_KIND as SHARED_BUNDLE_KIND,
-	snapshotBundleDocument,
 	validateBundleManifest,
 } from "@maket/shared";
 import JSZip from "jszip";
@@ -75,13 +74,6 @@ export interface EncodeBundleOptions {
 	entryDate?: Date;
 	documentStates?: BundleDocumentStateSnapshot[];
 	annotations?: BundleAnnotationSnapshot[];
-}
-
-/** Strip runtime-only fields so the snapshot round-trips cleanly. Field
- * picking lives in @maket/shared (snapshotBundleDocument via buildManifest)
- * so browser encoders share the exact wire shape. */
-export function snapshotDocument(doc: Document): BundleDocument {
-	return snapshotBundleDocument(doc) as unknown as BundleDocument;
 }
 
 // ── v1 (legacy gzip-JSON) ────────────────────────────────────────────────────

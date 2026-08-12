@@ -90,7 +90,25 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run browser workflows
-        run: npm run test:e2e
+        run: npm run test:e2e:coverage
+
+      - name: Upload client E2E coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-client-coverage
+          path: coverage/e2e/client/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload server E2E coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-server-coverage
+          path: coverage/e2e/server/
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}

@@ -27,6 +27,7 @@ bun.lock
 
 # Playwright E2E
 /.e2e-maket
+/.e2e-coverage
 /packages/client/playwright-report
 /packages/client/test-results
 /packages/client/blob-report

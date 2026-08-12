@@ -14,8 +14,8 @@ import type { WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
 import { createCollectionCursors } from "../collection-cursor.js";
 import { createCollections } from "../collections.js";
-import { handleDeleteAsset, handleUpdateAssetMeta } from "./asset-commands.js";
-import { handleCharteSave, handleUpdateCharteMeta } from "./charte-commands.js";
+import { handleDeleteAsset } from "./asset-commands.js";
+import { handleCharteSave } from "./charte-commands.js";
 import {
 	handleCollectionBindPage,
 	handleCollectionClearPage,
@@ -29,20 +29,15 @@ import type {
 	WsHandlerDeps,
 } from "./context.js";
 import {
-	handleClearCanvas,
 	handleDeleteDocument,
 	handleDuplicateDocument,
 	handleLoadDocument,
 	handleLockDocument,
-	handlePageGo,
 	handleRenameDocument,
-	handleSaveDocument,
-	handleUpdateCanvas,
 	handleUpdateMeta,
 } from "./document-commands.js";
 import { handleStatePatch } from "./state-commands.js";
 import {
-	handleLayoutReport,
 	handleOpenOnboarding,
 	handleTextEdit,
 	handleWorkspaceUpdate,
@@ -59,7 +54,6 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documents,
 		pending,
 		store,
-		wsBridge,
 		wsRegistry,
 	} = deps;
 	const collections =
@@ -77,7 +71,6 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documents,
 		pending,
 		store,
-		wsBridge,
 		wsRegistry,
 		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
 		broadcastState: (d) => {
@@ -107,23 +100,11 @@ function dispatchWorkspaceCommand(
 		case "workspace_update":
 			handleWorkspaceUpdate(ctx, msg);
 			break;
-		case "layout_report":
-			handleLayoutReport(ctx, msg);
-			break;
-		case "save_document":
-			handleSaveDocument(ctx, msg);
-			break;
-		case "update_canvas":
-			handleUpdateCanvas(ctx, msg);
-			break;
 		case "update_meta":
 			handleUpdateMeta(ctx, msg);
 			break;
 		case "charte_save":
 			handleCharteSave(ctx, msg);
-			break;
-		case "update_charte_meta":
-			handleUpdateCharteMeta(ctx, msg);
 			break;
 		case "collection_save":
 			handleCollectionSave(ctx, msg);
@@ -142,15 +123,6 @@ function dispatchWorkspaceCommand(
 			break;
 		case "delete_asset":
 			handleDeleteAsset(ctx, msg);
-			break;
-		case "update_asset_meta":
-			handleUpdateAssetMeta(ctx, msg);
-			break;
-		case "page_go":
-			handlePageGo(ctx, msg);
-			break;
-		case "clear_canvas":
-			handleClearCanvas(ctx, msg);
 			break;
 		case "delete_document":
 			handleDeleteDocument(ctx, msg);
@@ -172,9 +144,6 @@ function dispatchWorkspaceCommand(
 			break;
 		case "state_patch":
 			handleStatePatch(ctx, msg, ws);
-			break;
-		case "check_layout_response":
-			if (msg._reqId) ctx.wsBridge.resolveResponse(msg._reqId, msg);
 			break;
 	}
 }

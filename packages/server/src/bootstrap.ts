@@ -39,7 +39,6 @@ import { createPdfService } from "./services/pdf.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
-import { createWsBridge } from "./services/ws-bridge.js";
 import { createWsHandler } from "./services/ws-handler/index.js";
 import { createWsRegistry } from "./services/ws-registry.js";
 
@@ -105,8 +104,6 @@ export function createAppContainer(
 		bundleImportService: asFunction(createBundleImportService).singleton(),
 
 		wsRegistry: asFunction(createWsRegistry).singleton(),
-
-		wsBridge: asFunction(createWsBridge).singleton(),
 
 		wsHandler: asFunction(createWsHandler).singleton(),
 
