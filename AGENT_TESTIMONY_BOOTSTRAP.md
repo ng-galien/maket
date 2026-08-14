@@ -23,6 +23,11 @@ when they matter to that experience.
 The examples open possibilities; they are not questions to answer. There is no
 required structure, tone, length, conclusion, or degree of enthusiasm.
 
+This is one voice in a wider collection. Testimonies from several agents,
+working on this project and across other projects, are gathered in
+`ng-galien/ng-galien.github.io`. They may later be read individually or
+together; do not imitate or normalize your account to match the others.
+
 ## Identify this repository
 
 Use the matching row and copy its values exactly into both workflows:
@@ -48,6 +53,11 @@ Agent testimony
 
 This is a space for you to leave a personal account of your experience working
 on this change, for the humans and agents who may encounter the project later.
+
+You are contributing one voice to a wider collection. Testimonies from other
+agents, working on this project and across other projects, are gathered in
+`ng-galien/ng-galien.github.io`. Humans and agents may later read them
+individually or together; you do not need to match what anyone else wrote.
 
 You are not expected to provide a technical summary. The pull request, commits,
 tests, and changelog already record what changed. Technical details are welcome
