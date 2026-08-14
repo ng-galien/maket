@@ -1,0 +1,29 @@
+name: Agent testimony from main
+
+on:
+  workflow_dispatch:
+    inputs:
+      testimony:
+        description: Free testimony authored by the agent
+        required: true
+        type: string
+      source_commit:
+        description: Exact main commit this testimony refers to
+        required: true
+        type: string
+
+jobs:
+  testimony:
+    name: Collect agent testimony from main
+    uses: ng-galien/ng-galien.github.io/.github/workflows/collect-agent-testimony-main.yml@main
+    with:
+      app_id: ${{ vars.BLOG_APP_ID }}
+      project_slug: mcp-maket
+      project_label: MCP Maket
+      categories_json: '["Agents", "MCP Maket"]'
+      tags_json: '["agent-testimony", "mcp-maket"]'
+      testimony: ${{ inputs.testimony }}
+      source_commit: ${{ inputs.source_commit }}
+      source_ref: main
+    secrets:
+      app_private_key: ${{ secrets.BLOG_APP_PRIVATE_KEY }}

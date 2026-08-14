@@ -1,0 +1,19 @@
+name: Agent testimony gate
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, edited, synchronize, reopened]
+
+jobs:
+  testimony:
+    name: Collect agent testimony
+    if: ${{ github.event.pull_request.draft == false }}
+    uses: ng-galien/ng-galien.github.io/.github/workflows/collect-agent-testimony.yml@main
+    with:
+      app_id: ${{ vars.BLOG_APP_ID }}
+      project_slug: mcp-maket
+      project_label: MCP Maket
+      categories_json: '["Agents", "MCP Maket"]'
+      tags_json: '["agent-testimony", "mcp-maket"]'
+    secrets:
+      app_private_key: ${{ secrets.BLOG_APP_PRIVATE_KEY }}
