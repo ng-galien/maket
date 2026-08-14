@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       testimony:
-        description: Free testimony authored by the agent
+        description: Témoignage libre rédigé par l’agent en français
         required: true
         type: string
       source_commit:
-        description: Exact main commit this testimony refers to
+        description: Commit exact de main concerné par le témoignage
         required: true
         type: string
 
