@@ -452,7 +452,7 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 		return text(`Document "${args.name}" already exists`, true);
 	const oldName = d.name;
 	documents.rename(oldName, args.name);
-	bus.emit("document:loaded", { docName: args.name });
+	bus.emit("document:renamed", { oldName, docName: args.name });
 	bus.emit("toast", {
 		text: `"${oldName}" → "${args.name}"`,
 		level: "success",

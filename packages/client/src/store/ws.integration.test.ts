@@ -744,6 +744,48 @@ describe("workspace command wire format", () => {
 	});
 });
 
+describe("doc_renamed", () => {
+	it("atomically replaces the open identity and preserves local focus", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		useStore.setState({
+			docs: new Map([
+				["old", doc("old")],
+				["other", doc("other")],
+			]),
+			workspaceDocNames: ["old", "other"],
+			focusedDocName: "old",
+			focusedPageIndex: 0,
+		});
+
+		MockWebSocket.last().emit({
+			type: "doc_renamed",
+			oldName: "old",
+			doc: doc("renamed"),
+			docList: [summary("renamed"), summary("other")],
+			annotations: [
+				{
+					id: "note-1",
+					docName: "renamed",
+					type: "note",
+					text: "Keep me",
+				},
+			],
+			charteCss: "/* renamed */",
+		});
+
+		const state = useStore.getState();
+		expect(state.workspaceDocNames).toEqual(["renamed", "other"]);
+		expect(state.docs.has("old")).toBe(false);
+		expect(state.docs.has("renamed")).toBe(true);
+		expect(state.focusedDocName).toBe("renamed");
+		expect(state.pending).toEqual([
+			expect.objectContaining({ id: "note-1", docName: "renamed" }),
+		]);
+	});
+});
+
 describe("doc_removed", () => {
 	it("removes the named doc from the workspace", async () => {
 		const { initWs, useStore } = await freshWsModule();

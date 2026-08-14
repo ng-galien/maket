@@ -13,6 +13,7 @@ export interface BusEvents {
 	"document:created": { docName: string };
 	"document:saved": { docName: string };
 	"document:loaded": { docName: string };
+	"document:renamed": { oldName: string; docName: string };
 	"document:focused": { docName: string };
 	"workspace:fit-view": Record<string, never>;
 	"document:deleted": { docName: string };

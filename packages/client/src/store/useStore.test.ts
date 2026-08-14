@@ -242,6 +242,70 @@ describe("upsertDoc", () => {
 	});
 });
 
+describe("replaceRenamedDoc", () => {
+	it("replaces the workspace identity while preserving focus, page and reader mode", () => {
+		const oldDoc = makeDoc("old", "report", 3, 0);
+		const otherDoc = makeDoc("other", "report", 1, 0);
+		const renamedDoc = { ...oldDoc, name: "renamed" };
+		useStore.setState({
+			docs: new Map([
+				[oldDoc.name, oldDoc],
+				[otherDoc.name, otherDoc],
+			]),
+			workspaceDocNames: [oldDoc.name, otherDoc.name],
+			focusedDocName: oldDoc.name,
+			focusedPageIndex: 2,
+			workspaceView: "reading",
+			chartesCss: new Map([[oldDoc.name, "/* old */"]]),
+		});
+
+		useStore
+			.getState()
+			.replaceRenamedDoc(
+				oldDoc.name,
+				renamedDoc,
+				[summary("renamed"), summary("other")],
+				"/* renamed */",
+			);
+
+		const state = useStore.getState();
+		expect(state.workspaceDocNames).toEqual(["renamed", "other"]);
+		expect(state.docs.has("old")).toBe(false);
+		expect(state.docs.get("renamed")).toEqual(renamedDoc);
+		expect(state.focusedDocName).toBe("renamed");
+		expect(state.focusedPageIndex).toBe(2);
+		expect(state.workspaceView).toBe("reading");
+		expect(state.chartesCss.has("old")).toBe(false);
+		expect(state.chartesCss.get("renamed")).toBe("/* renamed */");
+	});
+
+	it("does not steal focus from another open document", () => {
+		const oldDoc = makeDoc("old");
+		const otherDoc = makeDoc("other");
+		useStore.setState({
+			docs: new Map([
+				[oldDoc.name, oldDoc],
+				[otherDoc.name, otherDoc],
+			]),
+			workspaceDocNames: [oldDoc.name, otherDoc.name],
+			focusedDocName: otherDoc.name,
+			focusedPageIndex: 0,
+		});
+
+		useStore
+			.getState()
+			.replaceRenamedDoc(
+				oldDoc.name,
+				{ ...oldDoc, name: "renamed" },
+				[summary("renamed"), summary("other")],
+				"",
+			);
+
+		expect(useStore.getState().focusedDocName).toBe("other");
+		expect(useStore.getState().workspaceDocNames).toEqual(["renamed", "other"]);
+	});
+});
+
 describe("workspace / focus", () => {
 	it("removeDocFromWorkspace reassigns focus to the last remaining doc", () => {
 		useStore

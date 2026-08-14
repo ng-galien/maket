@@ -617,7 +617,7 @@ describe("ws-handler — file and document mutations", () => {
 		dispose();
 	});
 
-	it("rename_document succeeds and emits delete + load for the rename", () => {
+	it("rename_document succeeds and emits one atomic rename", () => {
 		const { store, documents, pending, bus, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("old"));
 		documents.loadAll();
@@ -629,11 +629,9 @@ describe("ws-handler — file and document mutations", () => {
 			type: "note",
 			text: "Keep me",
 		});
-		const deleted = vi.fn();
-		const loaded = vi.fn();
+		const renamed = vi.fn();
 		const toast = vi.fn();
-		bus.on("document:deleted", deleted);
-		bus.on("document:loaded", loaded);
+		bus.on("document:renamed", renamed);
 		bus.on("toast", toast);
 
 		handler({ type: "rename_document", name: "old", newName: "new" }, STUB_WS);
@@ -643,8 +641,10 @@ describe("ws-handler — file and document mutations", () => {
 		expect(pending.forDoc("new")).toEqual([
 			expect.objectContaining({ id: "rename-note", docName: "new" }),
 		]);
-		expect(deleted).toHaveBeenCalledWith({ docName: "old" });
-		expect(loaded).toHaveBeenCalledWith({ docName: "new" });
+		expect(renamed).toHaveBeenCalledWith({
+			oldName: "old",
+			docName: "new",
+		});
 		expect(toast).toHaveBeenCalledWith(
 			expect.objectContaining({ text: expect.stringMatching(/old.*new/i) }),
 		);

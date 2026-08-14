@@ -213,6 +213,24 @@ function broadcastDoc(
 	});
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// The server entrypoint is the intentional composition boundary for atomic rename fan-out.
+function broadcastRenamedDoc(oldName: string, docName: string): void {
+	const doc = documents.resolve(docName);
+	if (!doc) return;
+	wsRegistry.broadcast({
+		type: "doc_renamed",
+		oldName,
+		doc: documents.lightView(documentRenderer.render(doc), doc.activePage),
+		documentState: documentRenderer.stateView(doc),
+		docList: documents.list(),
+		collections: collections.loadAll(),
+		collectionCursors: collectionCursors.snapshot(),
+		annotations: pending.all(),
+		charteCss: documents.charteCss(doc),
+	});
+}
+
 const LOAD_EVENTS = ["document:created", "document:loaded"] as const;
 const MUTATION_EVENTS = [
 	"document:saved",
@@ -228,6 +246,9 @@ for (const evt of LOAD_EVENTS) {
 for (const evt of MUTATION_EVENTS) {
 	bus.on(evt, ({ docName }) => broadcastDoc(docName));
 }
+bus.on("document:renamed", ({ oldName, docName }) =>
+	broadcastRenamedDoc(oldName, docName),
+);
 bus.on("document-state:changed", ({ docName, paths, attached }) => {
 	if (attached) {
 		broadcastDoc(docName);
