@@ -18,7 +18,7 @@ const SCHEMA_SQL = `
     active_page INTEGER NOT NULL DEFAULT 0,
     next_id    INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
   );
   CREATE TABLE pages (
     doc_name   TEXT NOT NULL REFERENCES documents(name) ON DELETE CASCADE,

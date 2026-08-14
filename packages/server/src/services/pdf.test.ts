@@ -110,7 +110,7 @@ describe("boxShadowToDropShadow", () => {
 });
 
 describe("buildPrintHtml", () => {
-	it("wraps each page in a .page div and inserts @page size", () => {
+	it("wraps each page in a private render frame and inserts @page size", () => {
 		const doc = makeDoc();
 		const out = buildPrintHtml(
 			doc,
@@ -118,9 +118,9 @@ describe("buildPrintHtml", () => {
 			"",
 		);
 		expect(out).toMatch(/@page \{ size: 210mm 297mm/);
-		expect(out).toMatch(/class="page"/);
+		expect(out).toMatch(/<maket-render-page/);
 		// Second page starts with page-break-before
-		expect(out).toMatch(/page-break-before: always/);
+		expect(out).toMatch(/page-break-before:always/);
 	});
 });
 

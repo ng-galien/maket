@@ -78,11 +78,11 @@ describe("createThumbnailService", () => {
 		expect(Buffer.isBuffer(buf)).toBe(true);
 		expect(snapshot).toHaveBeenCalledOnce();
 		const html = snapshot.mock.calls[0]?.[0] ?? "";
-		// The canvas div is still composed with the doc background, just
+		// The private render frame is still composed with the doc background, just
 		// with no content inside — that's what the DocsTab thumbnail shows
 		// for docs the user just created but hasn't laid out yet.
-		expect(html).toContain('<div class="page"');
-		expect(html).toContain("</div></body>");
+		expect(html).toContain("<maket-render-page");
+		expect(html).toContain("</maket-render-page></body>");
 		cleanup();
 	});
 

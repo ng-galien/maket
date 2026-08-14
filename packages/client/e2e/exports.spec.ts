@@ -40,7 +40,7 @@ test.describe("Preview and PDF export", () => {
 			window.print = () => undefined;
 		});
 		await printPage.goto(`/print?name=${encodeURIComponent(docName)}`);
-		await expect(printPage.locator(".page")).toHaveCount(2);
+		await expect(printPage.locator("maket-render-page")).toHaveCount(2);
 		await expect(printPage.getByText("Export proof cover")).toBeVisible();
 		await expect(printPage.getByText("Export proof details")).toBeVisible();
 

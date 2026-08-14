@@ -2,10 +2,14 @@ import crypto from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { Document, Page } from "../../types.js";
 import { createDocument } from "../../types.js";
+import {
+	DOCUMENT_NOW_SQL,
+	NEXT_DOCUMENT_UPDATED_AT_SQL,
+} from "./document-timestamp.js";
 
 const DOC_UPSERT_SQL = `
   INSERT INTO documents (name, id, category, data_model, canvas, meta, active_page, next_id, created_at, updated_at)
-  VALUES ($name, $id, $category, $data_model, $canvas, $meta, $active_page, $next_id, datetime('now'), datetime('now'))
+  VALUES ($name, $id, $category, $data_model, $canvas, $meta, $active_page, $next_id, ${DOCUMENT_NOW_SQL}, ${DOCUMENT_NOW_SQL})
   ON CONFLICT(name) DO UPDATE SET
     id          = coalesce(excluded.id, documents.id),
     category    = excluded.category,
@@ -14,7 +18,7 @@ const DOC_UPSERT_SQL = `
     meta        = excluded.meta,
     active_page = excluded.active_page,
     next_id     = excluded.next_id,
-    updated_at  = datetime('now')
+    updated_at  = ${NEXT_DOCUMENT_UPDATED_AT_SQL}
 `;
 
 const PAGE_UPSERT_SQL = `
@@ -163,7 +167,7 @@ function prepareDocumentStatements(db: DatabaseSync): {
 		docSelectOne: db.prepare("SELECT * FROM documents WHERE name = $name"),
 		docDelete: db.prepare("DELETE FROM documents WHERE name = $name"),
 		docRename: db.prepare(
-			"UPDATE documents SET name = $new_name, updated_at = datetime('now') WHERE name = $name",
+			`UPDATE documents SET name = $new_name, updated_at = ${NEXT_DOCUMENT_UPDATED_AT_SQL} WHERE name = $name`,
 		),
 		pageUpsert: db.prepare(PAGE_UPSERT_SQL),
 		pageDeleteByDoc: db.prepare("DELETE FROM pages WHERE doc_name = $doc_name"),

@@ -72,6 +72,41 @@ const DESCRIPTION = [
 	"Unspecified fields keep their current value.",
 ].join("\n");
 
+type CanvasArgs = z.infer<typeof MaketCanvasSchema>;
+
+// code-moniker: ignore[smell-feature-envy-local]
+// Canvas setup intentionally coordinates document mutation, persistence, and the post-commit bus notification.
+function runCanvasSetup(
+	args: CanvasArgs,
+	documents: Documents,
+	bus: Bus,
+): ReturnType<typeof text> {
+	const d = documents.resolve(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
+	const locked = lockGuard(d);
+	if (locked) return locked;
+	const fmt = args.format || d.canvas.format;
+	const orient = args.orientation || d.canvas.orientation || "portrait";
+	const { w, h } = computeCanvasDims(fmt, orient);
+	d.canvas = {
+		format: fmt,
+		orientation: orient,
+		w,
+		h,
+		bg: args.background || d.canvas.bg,
+		margins: args.margins ?? d.canvas.margins,
+	};
+	documents.persist(d.name);
+	bus.emit("canvas:changed", { docName: d.name });
+	const m = d.canvas.margins;
+	const mDesc = m
+		? `  margins:{t:${m.top} r:${m.right} b:${m.bottom} l:${m.left}}mm`
+		: "";
+	return text(
+		`Canvas: ${fmt} ${orient} (${w}x${h}mm) bg=${d.canvas.bg}${mDesc}`,
+	);
+}
+
 export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 	const { documents, bus } = deps;
 	return {
@@ -82,29 +117,7 @@ export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 		},
 		handler: async (rawArgs) => {
 			const args = MaketCanvasSchema.parse(rawArgs);
-			const d = documents.resolve(args.doc);
-			if (!d) return text(`Document "${args.doc}" not found`, true);
-			const locked = lockGuard(d);
-			if (locked) return locked;
-			const fmt = args.format || d.canvas.format;
-			const orient = args.orientation || d.canvas.orientation || "portrait";
-			const { w, h } = computeCanvasDims(fmt, orient);
-			d.canvas = {
-				format: fmt,
-				orientation: orient,
-				w,
-				h,
-				bg: args.background || d.canvas.bg,
-				margins: args.margins ?? d.canvas.margins,
-			};
-			bus.emit("canvas:changed", { docName: d.name });
-			const m = d.canvas.margins;
-			const mDesc = m
-				? `  margins:{t:${m.top} r:${m.right} b:${m.bottom} l:${m.left}}mm`
-				: "";
-			return text(
-				`Canvas: ${fmt} ${orient} (${w}x${h}mm) bg=${d.canvas.bg}${mDesc}`,
-			);
+			return runCanvasSetup(args, documents, bus);
 		},
 	};
 }

@@ -13,6 +13,17 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.7.3] — 2026-08-14
+
+### Fixed
+
+- Keep authored page selectors isolated from Maket's headless render frames so
+  document thumbnails, print previews, PNG snapshots, and PDF exports preserve
+  the same geometry across page sizes and orientations.
+- Persist canvas format, orientation, and print-safe margin changes before
+  broadcasting them, and advance render revision timestamps for rapid updates
+  so document thumbnails cannot reuse stale dimensions.
+
 ## [1.7.2] — 2026-08-14
 
 ### Fixed

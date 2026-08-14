@@ -34,6 +34,29 @@ describe("SQLiteStore", () => {
 		store.close();
 	});
 
+	it("advances the document render timestamp across back-to-back saves", () => {
+		const store = createSQLiteStore(":memory:");
+		const doc = makeDoc("rapid-updates");
+		store.saveDoc(doc);
+		const first = store.listTimestamps().get(doc.name);
+
+		doc.canvas = {
+			...doc.canvas,
+			format: "A3",
+			orientation: "landscape",
+			w: 420,
+			h: 297,
+		};
+		store.saveDoc(doc);
+		const second = store.listTimestamps().get(doc.name);
+
+		expect(first).toBeTruthy();
+		expect(second).toBeTruthy();
+		expect(second).not.toBe(first);
+		expect(second && first && second > first).toBe(true);
+		store.close();
+	});
+
 	it("preserves page ids across save and load", () => {
 		const store = createSQLiteStore(":memory:");
 		const d = createDocument({

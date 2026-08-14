@@ -20,10 +20,10 @@ import {
 	type CollectionRenderMode,
 	cursorRenderOptions,
 } from "../lib/collection-render.js";
-import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
+import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
@@ -234,31 +234,10 @@ export function buildPrintHtml(
 	pageHtmls: string[],
 	charteCss: string,
 ): string {
-	const { w, h, bg } = doc.canvas;
-	const pagesHtml = pageHtmls
-		.map(
-			(html, i) => `
-    <div class="page" ${i > 0 ? 'style="page-break-before: always"' : ""}>
-      ${html}
-    </div>
-  `,
-		)
-		.join("\n");
-
-	const safeBg = escapeCssValue(bg || "#ffffff");
-	const safeCharteCss = stripStyleClose(charteCss);
-	return `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-  ${safeCharteCss}
-  @page { size: ${w}mm ${h}mm; margin: 0; }
-  * { box-sizing: border-box; margin: 0; padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-  body { margin: 0; padding: 0; }
-  .page { width: ${w}mm; height: ${h}mm; background: ${safeBg}; position: relative; overflow: hidden; }
-</style>
-</head>
-<body>${pagesHtml}</body>
-</html>`;
+	return buildRenderSurfaceHtml({
+		canvas: doc.canvas,
+		pageHtmls,
+		charteCss,
+		surface: { kind: "print" },
+	});
 }
