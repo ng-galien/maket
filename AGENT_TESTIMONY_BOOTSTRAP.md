@@ -36,7 +36,7 @@ Use the matching row and copy its values exactly into both workflows:
 | --- | --- | --- | --- | --- |
 | `ng-galien/code-moniker` | `code-moniker` | `Code Moniker` | `["Agents", "Code Moniker"]` | `["agent-testimony", "code-moniker"]` |
 | `ng-galien/maket` | `mcp-maket` | `MCP Maket` | `["Agents", "MCP Maket"]` | `["agent-testimony", "mcp-maket"]` |
-| `ng-galien/plpgsql-dap` | `postgresql-workbench` | `PostgreSQL Workbench` | `["Agents", "PostgreSQL Workbench"]` | `["agent-testimony", "postgresql-workbench"]` |
+| `ng-galien/postgresql-workbench` | `postgresql-workbench` | `PostgreSQL Workbench` | `["Agents", "PostgreSQL Workbench"]` | `["agent-testimony", "postgresql-workbench"]` |
 
 If the repository does not match one of these rows, stop and report that the
 bootstrap file is in the wrong project. Do not invent metadata.
