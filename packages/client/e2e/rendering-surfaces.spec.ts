@@ -137,6 +137,10 @@ test.describe("Rendering surface isolation", () => {
 			doc: docName,
 			page: 1,
 		});
+		const surfacePage = await page.context().newPage();
+		await surfacePage.addInitScript(() => {
+			window.print = () => undefined;
+		});
 
 		let previousThumbnailSource: string | null = null;
 		for (const stage of stages) {
@@ -154,6 +158,7 @@ test.describe("Rendering surface isolation", () => {
 				spec: stage.spec,
 				margins: stage.margins,
 				previousThumbnailSource,
+				surfacePage,
 				testInfo,
 			});
 		}
@@ -291,7 +296,7 @@ async function expectExportSurfaces(
 	expect(pdfResult).toContain("1 page");
 	const pdfPath = pdfResult.match(/^PDF exported:\s*(.+?)\s+\(/)?.[1];
 	if (!pdfPath) throw new Error(`PDF path is missing for ${docName}`);
-	await expectPdfPixels(page, pdfPath, spec, docName, testInfo);
+	await expectPdfPixels(printPage, pdfPath, spec, docName, testInfo);
 }
 
 async function expectLifecycleStage({
@@ -302,6 +307,7 @@ async function expectLifecycleStage({
 	spec,
 	margins,
 	previousThumbnailSource,
+	surfacePage,
 	testInfo,
 }: {
 	page: Page;
@@ -311,6 +317,7 @@ async function expectLifecycleStage({
 	spec: DocumentSpec;
 	margins: PrintMargins;
 	previousThumbnailSource: string | null;
+	surfacePage: Page;
 	testInfo: TestInfo;
 }): Promise<string> {
 	await expectCanvasGeometry(page, docName, spec, stageName);
@@ -331,11 +338,10 @@ async function expectLifecycleStage({
 	});
 	const image = snapshot.content.find((item) => item.type === "image");
 	if (!image?.data) throw new Error("maket_preview did not return an image");
-	const snapshotPage = await page.context().newPage();
-	await snapshotPage.setContent(
+	await surfacePage.setContent(
 		`<img alt="${stageName} snapshot" src="data:image/png;base64,${image.data}">`,
 	);
-	const snapshotImage = snapshotPage.getByRole("img", {
+	const snapshotImage = surfacePage.getByRole("img", {
 		name: `${stageName} snapshot`,
 	});
 	await expect(snapshotImage).toHaveJSProperty(
@@ -354,8 +360,6 @@ async function expectLifecycleStage({
 			edgeMarkerRatio(spec.h),
 		),
 	).toEqual([34, 197, 94]);
-	await snapshotPage.close();
-
 	await page.getByRole("button", { name: /^documents$/i }).click();
 	const panel = page.getByRole("complementary", { name: /^documents$/i });
 	await panel.getByRole("button", { name: /grid view|vue vignettes/i }).click();
@@ -386,17 +390,12 @@ async function expectLifecycleStage({
 		.getByRole("button", { name: /Close Documents|Fermer.*documents/i })
 		.click();
 
-	const printPage = await page.context().newPage();
-	await printPage.addInitScript(() => {
-		window.print = () => undefined;
-	});
-	await printPage.goto(`/print?name=${encodeURIComponent(docName)}`);
-	await expectPrintGeometry(printPage, spec, stageName);
+	await surfacePage.goto(`/print?name=${encodeURIComponent(docName)}`);
+	await expectPrintGeometry(surfacePage, spec, stageName);
 	await expect(
-		printPage.locator(".margin-guide"),
+		surfacePage.locator(".margin-guide"),
 		`${stageName} print excludes the informational guide`,
 	).toHaveCount(0);
-	await printPage.close();
 
 	const pdfResult = await mcp.callText("maket_pdf", {
 		doc: docName,
@@ -420,7 +419,7 @@ async function expectLifecycleStage({
 		Math.abs(Number(mediaBox[2]) - (spec.h * 72) / 25.4),
 		`${stageName} PDF height`,
 	).toBeLessThan(1);
-	await expectPdfPixels(page, pdfPath, spec, stageName, testInfo);
+	await expectPdfPixels(surfacePage, pdfPath, spec, stageName, testInfo);
 
 	return thumbnailSource;
 }
@@ -449,11 +448,10 @@ async function expectPdfPixels(
 		prefix,
 	]);
 	const raster = await readFile(`${prefix}.png`);
-	const rasterPage = await page.context().newPage();
-	await rasterPage.setContent(
+	await page.setContent(
 		`<img alt="${label} PDF raster" src="data:image/png;base64,${raster.toString("base64")}">`,
 	);
-	const image = rasterPage.getByRole("img", { name: `${label} PDF raster` });
+	const image = page.getByRole("img", { name: `${label} PDF raster` });
 	expect(await imagePixel(image, 0.5, 0.5), `${label} PDF center`).toEqual([
 		26, 54, 93,
 	]);
@@ -461,7 +459,6 @@ async function expectPdfPixels(
 		await imagePixel(image, edgeMarkerRatio(spec.w), edgeMarkerRatio(spec.h)),
 		`${label} PDF edge marker`,
 	).toEqual([34, 197, 94]);
-	await rasterPage.close();
 }
 
 async function expectMarginGuide(
