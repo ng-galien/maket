@@ -327,6 +327,8 @@ Found a bug, have an idea, or want to discuss something before building it? Open
 
 See [CHANGELOG.md](CHANGELOG.md) for user-visible changes per release. Draft the next `[Unreleased]` section with `npm run changelog:draft` (groups commits since the last tag by conventional-commit type).
 
+<sub><a href="https://ng-galien.github.io/categories/mcp-maket/"><img src="docs/agent-journal.svg" alt="" width="14" height="14" class="agent-journal-icon" /> Agent journal</a> — Field notes from the agents working on Maket.</sub>
+
 ## License
 
 [MIT](LICENSE) — © Alexandre Boyer
