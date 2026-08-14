@@ -799,6 +799,25 @@ describe("doc_removed", () => {
 		MockWebSocket.last().emit({ type: "doc_removed", name: "beta" });
 		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
 		expect(useStore.getState().docs.has("beta")).toBe(false);
+		expect(useStore.getState().docList.map((doc) => doc.name)).toEqual([
+			"alpha",
+		]);
+	});
+
+	it("removes a closed document from the library without changing the workspace", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		useStore.getState().upsertDoc(doc("alpha"), [summary("alpha")], "");
+		useStore.setState({ docList: [summary("alpha"), summary("beta")] });
+
+		MockWebSocket.last().emit({ type: "doc_removed", name: "beta" });
+
+		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+		expect(useStore.getState().docList.map((doc) => doc.name)).toEqual([
+			"alpha",
+		]);
 	});
 });
 

@@ -437,6 +437,51 @@ textarea:not(.page-canvas *):focus-visible {
   transform: translateX(-50%) translateY(0);
 }
 
+.doc-row-tooltip {
+  position: fixed;
+  z-index: 202;
+  max-width: min(22rem, calc(100vw - 2rem));
+  overflow: hidden;
+  padding: 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel);
+  color: var(--color-text-1);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transform: translate(-18px, calc(-100% - 5px));
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    visibility 0s linear var(--duration-fast);
+}
+
+.doc-row-tooltip::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 14px;
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel);
+  transform: rotate(45deg);
+}
+
+.doc-row-tooltip--visible {
+  visibility: visible;
+  opacity: 1;
+  transform: translate(-18px, calc(-100% - 8px));
+  transition-delay: 80ms;
+}
+
 .doc-close-btn:hover {
   color: var(--color-danger) !important;
   background: var(--color-danger-soft) !important;

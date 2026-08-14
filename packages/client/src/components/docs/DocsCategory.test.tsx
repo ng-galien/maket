@@ -13,6 +13,7 @@ describe("DocsCategoryHeader", () => {
 			path: "roadmap",
 			depth: 0,
 			total: 1,
+			openTotal: 0,
 			docs: [],
 			children: [],
 			collapsed: false,

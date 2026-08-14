@@ -67,8 +67,7 @@ export function DocMenuButton({
 	size: "card" | "row";
 }) {
 	const t = useT();
-	const rowPosition = "absolute right-1.5 top-1/2 -translate-y-1/2";
-	const buttonSize = size === "card" ? "w-6 h-6" : `w-7 h-7 ${rowPosition}`;
+	const buttonSize = size === "card" ? "w-7 h-7" : "w-8 h-8 shrink-0";
 	const hover =
 		size === "card"
 			? "group-hover/card:opacity-100"
@@ -85,7 +84,7 @@ export function DocMenuButton({
 					: `opacity-0 ${hover} focus:opacity-100`
 			}`}
 		>
-			<MoreVertical size={size === "card" ? 13 : 14} />
+			<MoreVertical size={size === "card" ? 15 : 16} />
 		</button>
 	);
 }

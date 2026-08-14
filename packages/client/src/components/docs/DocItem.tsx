@@ -1,6 +1,7 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { History, Lock, Palette } from "lucide-react";
-import { useRef } from "react";
+import { Eye, History, Lock, Palette } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import { useStore } from "../../store/useStore";
@@ -40,6 +41,8 @@ export interface DocItemFactoryArgs {
 	modeFor: { name: string; mode: RowMode } | null;
 	draggingName: string | null;
 	isOnWorkspace: (name: string) => boolean;
+	isFocused: (name: string) => boolean;
+	focusDoc: (name: string) => void;
 	setMenuFor: React.Dispatch<React.SetStateAction<string | null>>;
 	setModeFor: React.Dispatch<
 		React.SetStateAction<{ name: string; mode: RowMode } | null>
@@ -55,6 +58,7 @@ export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
 		model: {
 			doc,
 			onWs: args.isOnWorkspace(doc.name),
+			focused: args.isFocused(doc.name),
 			selected: args.selected.has(doc.name),
 			menuOpen: args.menuFor === doc.name,
 			mode:
@@ -66,6 +70,7 @@ export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
 		},
 		actions: {
 			click: (event) => args.rowClick(doc.name, event),
+			focus: () => args.focusDoc(doc.name),
 			openMenu: () => args.setMenuFor(doc.name),
 			closeMenu: () => args.setMenuFor(null),
 			changeMode: (mode) =>
@@ -114,21 +119,73 @@ export function DocCard({ model, actions }: DocItemProps) {
 export function DocRow({ model, actions }: DocItemProps) {
 	const meta = useDocItemMeta(model);
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
+	const tooltipDismissed = useRef(false);
+	const [tooltipPoint, setTooltipPoint] = useState<{
+		x: number;
+		y: number;
+	} | null>(null);
+	const showsInfo = !meta.editing && !meta.confirming;
+	const showTooltipAt = (x: number, y: number) => {
+		if (showsInfo && !tooltipDismissed.current) setTooltipPoint({ x, y });
+	};
+	useEffect(() => {
+		if (!showsInfo) setTooltipPoint(null);
+	}, [showsInfo]);
 
 	return (
 		<div
-			className={`relative group ${model.dragging ? "opacity-40" : ""}`}
+			data-doc-row={model.doc.name}
+			className={`relative group flex min-w-0 items-center gap-1 hover:z-20 focus-within:z-20 ${model.dragging ? "opacity-40" : ""}`}
 			draggable={meta.dragEnabled}
 			onDragStart={(event) => handleItemDragStart(event, meta, actions)}
 			onDragEnd={actions.dragEnd}
 		>
-			<DocRowMain model={model} meta={meta} actions={actions} />
+			<div
+				className="relative min-w-0 flex-1"
+				onPointerEnter={(event) => {
+					tooltipDismissed.current = false;
+					showTooltipAt(event.clientX, event.clientY);
+				}}
+				onPointerMove={(event) => showTooltipAt(event.clientX, event.clientY)}
+				onPointerLeave={() => {
+					tooltipDismissed.current = false;
+					setTooltipPoint(null);
+				}}
+				onPointerDown={() => {
+					tooltipDismissed.current = true;
+					setTooltipPoint(null);
+				}}
+				onFocusCapture={(event) => {
+					if (!showsInfo) return;
+					if (!(event.target instanceof HTMLElement)) return;
+					if (!event.target.matches(":focus-visible")) return;
+					const rect = event.target.getBoundingClientRect();
+					setTooltipPoint({
+						x: rect.left + Math.min(rect.width / 2, 40),
+						y: rect.top,
+					});
+				}}
+				onBlurCapture={(event) => {
+					if (
+						!event.currentTarget.contains(event.relatedTarget as Node | null)
+					) {
+						setTooltipPoint(null);
+					}
+				}}
+			>
+				<DocRowMain model={model} meta={meta} actions={actions} />
+				{showsInfo && <DocRowInfo doc={model.doc} point={tooltipPoint} />}
+			</div>
+			{!meta.editing && !meta.confirming && <DocDraftPill doc={model.doc} />}
 			<DocRowMenuButton
 				model={model}
 				meta={meta}
 				actions={actions}
 				anchorRef={menuButtonRef}
 			/>
+			{model.onWs && !meta.editing && !meta.confirming && (
+				<DocViewButton model={model} actions={actions} />
+			)}
 			<DocItemMenu
 				model={model}
 				meta={meta}
@@ -187,7 +244,7 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 				<DocSelectedMark className="absolute top-1.5 right-1.5" />
 			)}
 			{meta.locked && <DocLockedMark className="absolute top-1.5 left-1.5" />}
-			<DocCardBadges doc={doc} onWs={model.onWs} />
+			<DocCardBadges doc={doc} />
 		</button>
 	);
 }
@@ -222,13 +279,7 @@ function DocLockedMark({ className }: { className: string }) {
 	);
 }
 
-export function DocCardBadges({
-	doc,
-	onWs,
-}: {
-	doc: DocSummary;
-	onWs: boolean;
-}) {
+export function DocCardBadges({ doc }: { doc: DocSummary }) {
 	return (
 		<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
 			{(doc.rating ?? 0) > 0 && (
@@ -236,7 +287,6 @@ export function DocCardBadges({
 					★{doc.rating}
 				</span>
 			)}
-			{onWs && <DocSelectedMark className="" />}
 		</span>
 	);
 }
@@ -299,6 +349,7 @@ export function DocCardSummary({
 				anchorRef={anchorRef}
 				size="card"
 			/>
+			{model.onWs && <DocViewButton model={model} actions={actions} />}
 		</div>
 	);
 }
@@ -341,24 +392,46 @@ export function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
 		<button
 			type="button"
 			onClick={actions.click}
-			className={`w-full min-h-8 flex items-center gap-2 px-2 py-1.5 pr-10 rounded-md text-left transition-colors ${rowBackgroundClass(model)}`}
+			aria-describedby={`doc-info-${model.doc.id}`}
+			className={`w-full min-h-8 flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${rowBackgroundClass(model)}`}
 		>
-			<div className="flex-1 min-w-0 flex items-center gap-2">
-				<div className="flex-1 min-w-0">
-					<DocRowTitle model={model} meta={meta} />
-				</div>
-				<DocRowMetadata doc={model.doc} />
+			<div className="min-w-0 flex-1">
+				<DocRowTitle model={model} meta={meta} />
 			</div>
-			{model.onWs && !model.menuOpen && !meta.confirming && (
-				<span className="text-2xs font-bold text-accent">✓</span>
-			)}
 		</button>
 	);
 }
 
 function rowBackgroundClass(model: DocItemModel): string {
 	if (model.selected) return "bg-accent/10 ring-2 ring-accent/30";
-	return model.onWs ? "bg-accent/5" : "hover:bg-black/[0.03]";
+	return "hover:bg-black/[0.03]";
+}
+
+function DocViewButton({
+	model,
+	actions,
+}: {
+	model: DocItemModel;
+	actions: DocItemActions;
+}) {
+	const t = useT();
+	return (
+		<button
+			type="button"
+			aria-label={t("doc_view", { name: model.doc.name })}
+			onClick={(event) => {
+				event.stopPropagation();
+				actions.focus();
+			}}
+			className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
+				model.focused
+					? "bg-accent/10 text-accent"
+					: "text-accent/55 hover:bg-accent/10 hover:text-accent"
+			} focus-visible:bg-accent/10 focus-visible:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30`}
+		>
+			<Eye size={16} strokeWidth={2} aria-hidden />
+		</button>
+	);
 }
 
 export function DocRowTitle({
@@ -372,7 +445,7 @@ export function DocRowTitle({
 	return (
 		<div
 			className={`text-base truncate flex items-center gap-1.5 ${
-				model.onWs ? "font-bold text-accent" : "font-medium text-text-1"
+				model.onWs ? "font-bold text-accent" : "font-medium text-text-2"
 			}`}
 		>
 			{meta.locked && (
@@ -407,44 +480,38 @@ function CharteIndicator({ doc }: { doc: DocSummary }) {
 	);
 }
 
-export function DocRowMetadata({ doc }: { doc: DocSummary }) {
+function DocRowInfo({
+	doc,
+	point,
+}: {
+	doc: DocSummary;
+	point: { x: number; y: number } | null;
+}) {
 	const t = useT();
 	const updated = relativeTime(doc.updatedAt, navigator.language);
-	const details = [doc.format, `${doc.pageCount ?? 1}p`, updated]
+	const details = [
+		doc.format,
+		`${doc.pageCount ?? 1}p`,
+		doc.dataModel === "state" ? t("state_document_badge_label") : null,
+		doc.charte || null,
+		(doc.rating ?? 0) > 0 ? `★ ${doc.rating}` : null,
+		updated,
+	]
 		.filter(Boolean)
 		.join(" · ");
-	return (
+	return createPortal(
 		<div
-			title={details}
-			className="flex flex-shrink-0 items-center gap-1.5 text-2xs text-text-2"
+			id={`doc-info-${doc.id}`}
+			role="tooltip"
+			className={`doc-row-tooltip ${point ? "doc-row-tooltip--visible" : ""}`}
+			style={{
+				left: point?.x ?? -9999,
+				top: point?.y ?? -9999,
+			}}
 		>
-			<span className="font-bold">{doc.format}</span>
-			{(doc.pageCount ?? 1) > 1 && <span>{doc.pageCount}p</span>}
-			<CharteIndicator doc={doc} />
-			{doc.dataModel === "state" && (
-				<span
-					title={t("state_document_badge_label")}
-					className="inline-flex items-center gap-0.5 font-bold text-accent"
-				>
-					<History size={9} />
-					{t("state_document_badge")}
-				</span>
-			)}
-			{(doc.rating ?? 0) > 0 && <DocRating rating={doc.rating ?? 0} />}
-			<DocDraftPill doc={doc} />
-		</div>
-	);
-}
-
-function DocRating({ rating }: { rating: number }) {
-	return (
-		<span
-			className="flex items-center gap-0.5 text-amber-500"
-			title={`rating ${rating}`}
-		>
-			<span className="leading-none">★</span>
-			<span className="tabular-nums">{rating}</span>
-		</span>
+			{details}
+		</div>,
+		document.body,
 	);
 }
 
