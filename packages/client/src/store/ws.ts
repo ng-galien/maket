@@ -356,6 +356,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			console.log("[ws] doc_removed:", msg.name);
 			useStore.getState().removeDocFromWorkspace(msg.name);
 			break;
+		case "doc_renamed":
+			applyRenamedDocument(msg);
+			break;
 		case "charte_removed":
 			applyCharteUpdated(msg.name, "");
 			break;
@@ -442,6 +445,32 @@ function applyStateMessage(
 			);
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
+}
+
+function applyRenamedDocument(
+	msg: Extract<WorkspaceSignal, { type: "doc_renamed" }>,
+): void {
+	const doc = msg.doc as Document;
+	const docList = (msg.docList ?? []) as DocSummary[];
+	if (msg.annotations !== undefined) {
+		useStore.setState({ pending: msg.annotations as PendingMessage[] });
+	}
+	if (msg.collections !== undefined) {
+		useStore.getState().setCollections(msg.collections as Collection[]);
+	}
+	if (msg.collectionCursors !== undefined) {
+		useStore.getState().setCollectionCursors(msg.collectionCursors);
+	}
+	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
+	useStore
+		.getState()
+		.replaceRenamedDoc(
+			msg.oldName,
+			doc,
+			docList,
+			msg.charteCss || "",
+			msg.documentState,
+		);
 }
 
 function applyInitialState(

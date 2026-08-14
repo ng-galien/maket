@@ -539,8 +539,8 @@ describe("maket_doc — action=rename", () => {
 			text: "Keep me",
 		});
 
-		const loaded = vi.fn();
-		bus.on("document:loaded", loaded);
+		const renamed = vi.fn();
+		bus.on("document:renamed", renamed);
 
 		const tool = createMaketDocTool({
 			bus,
@@ -561,7 +561,7 @@ describe("maket_doc — action=rename", () => {
 		expect(annotations.forDoc("new")).toEqual([
 			expect.objectContaining({ id: "rename-note", docName: "new" }),
 		]);
-		expect(loaded).toHaveBeenCalledWith({ docName: "new" });
+		expect(renamed).toHaveBeenCalledWith({ oldName: "old", docName: "new" });
 		store.close();
 	});
 

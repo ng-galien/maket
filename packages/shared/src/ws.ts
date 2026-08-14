@@ -85,6 +85,21 @@ export interface DocumentRemovedSignal {
 	name: string;
 }
 
+/** Atomically replaces a persistent document identity in each browser.
+ * Clients that display or focus `oldName` must preserve that local position
+ * under the renamed document instead of treating the rename as delete + open. */
+export interface DocumentRenamedSignal {
+	type: "doc_renamed";
+	oldName: string;
+	doc: unknown;
+	docList: unknown[];
+	collections?: unknown[];
+	collectionCursors?: PageCollectionCursor[];
+	charteCss: string;
+	documentState?: DocumentStateClientView | null;
+	annotations?: PendingMessage[];
+}
+
 export interface PendingAcknowledgedSignal {
 	type: "ack_messages";
 	ids: unknown[];
@@ -308,6 +323,7 @@ export type WorkspaceSignal =
 	| CharteUpdatedSignal
 	| CharteRemovedSignal
 	| DocumentRemovedSignal
+	| DocumentRenamedSignal
 	| PendingAcknowledgedSignal
 	| AnnotationsChangedSignal
 	| AnnotationCreateResultSignal

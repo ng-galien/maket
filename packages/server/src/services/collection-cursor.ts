@@ -109,6 +109,7 @@ export function createCollectionCursors({
 	bus.on("collection:deleted", reconcile);
 	bus.on("document:created", reconcile);
 	bus.on("document:loaded", reconcile);
+	bus.on("document:renamed", reconcile);
 	bus.on("document:saved", reconcile);
 	bus.on("document:deleted", reconcile);
 

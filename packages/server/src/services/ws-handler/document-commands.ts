@@ -106,8 +106,7 @@ export function handleRenameDocument(
 		return;
 	}
 	ctx.documents.rename(name, newName);
-	ctx.bus.emit("document:deleted", { docName: name });
-	ctx.bus.emit("document:loaded", { docName: newName });
+	ctx.bus.emit("document:renamed", { oldName: name, docName: newName });
 	ctx.bus.emit("toast", {
 		text: `"${name}" → "${newName}"`,
 		level: "success",

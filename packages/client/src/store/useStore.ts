@@ -117,7 +117,20 @@ interface DocumentStateSlice {
 	clearStatePatches: () => void;
 }
 
-interface AppState extends CollectionSlice, DocumentStateSlice {
+interface DocumentIdentitySlice {
+	replaceRenamedDoc: (
+		oldName: string,
+		doc: Document,
+		docList: DocSummary[],
+		charteCss: string,
+		documentState?: DocumentStateClientView | null,
+	) => void;
+}
+
+interface AppState
+	extends CollectionSlice,
+		DocumentStateSlice,
+		DocumentIdentitySlice {
 	// Connection
 	connected: boolean;
 
@@ -757,6 +770,49 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedPageIndex,
 				docList,
 				chartesCss,
+			};
+		}),
+
+	replaceRenamedDoc: (oldName, doc, docList, charteCss, documentState) =>
+		set((s) => {
+			const docs = new Map(s.docs);
+			docs.delete(oldName);
+			docs.set(doc.name, doc);
+			const workspaceDocNames = [
+				...new Set(
+					s.workspaceDocNames.map((name) =>
+						name === oldName ? doc.name : name,
+					),
+				),
+			];
+			const focusedDocName =
+				s.focusedDocName === oldName ? doc.name : s.focusedDocName;
+			const focusedPageIndex =
+				s.focusedDocName === oldName
+					? clampPageIndex(doc, s.focusedPageIndex)
+					: s.focusedPageIndex;
+			const chartesCss = new Map(s.chartesCss);
+			chartesCss.delete(oldName);
+			chartesCss.set(doc.name, charteCss);
+			const documentStates = { ...s.documentStates };
+			delete documentStates[oldName];
+			if (documentState) documentStates[doc.name] = documentState;
+			const stateCanvasModes = { ...s.stateCanvasModes };
+			const oldCanvasMode = stateCanvasModes[oldName];
+			delete stateCanvasModes[oldName];
+			if (oldCanvasMode) stateCanvasModes[doc.name] = oldCanvasMode;
+			saveWorkspace(workspaceDocNames);
+			syncWorkspace();
+			if (focusedDocName) saveFocusedDoc(focusedDocName);
+			return {
+				docs,
+				workspaceDocNames,
+				focusedDocName,
+				focusedPageIndex,
+				docList,
+				chartesCss,
+				documentStates,
+				stateCanvasModes,
 			};
 		}),
 

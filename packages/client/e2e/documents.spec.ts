@@ -103,6 +103,169 @@ test.describe("Document library", () => {
 		expect(persisted).toContain("Delivery plan approved");
 	});
 
+	for (const workspaceView of ["canvas", "reader"] as const) {
+		test(`atomically renames an annotated open document in ${workspaceView} mode`, async ({
+			context,
+			mcp,
+			page,
+		}) => {
+			const oldName = "Agent proposal draft";
+			const newName = "Agent proposal final";
+			const otherName = "Unrelated document";
+			const noteText = "Review the proposal before delivery";
+			await openWorkspace(page);
+			await createDocument(mcp, oldName);
+			await mcp.call("maket_page", {
+				action: "add",
+				doc: oldName,
+				name: "Delivery review",
+				html: '<main data-id="review-page"><h2 data-id="review-heading">Delivery review</h2></main>',
+			});
+			await createDocument(mcp, otherName);
+
+			const oldDocument = page.locator(`[data-doc="${oldName}"]`);
+			await expect(oldDocument).toBeVisible();
+			await oldDocument.locator('[data-page-view="1"]').click();
+			await expect(oldDocument.locator('[data-page-view="1"]')).toHaveAttribute(
+				"data-active-page",
+				"true",
+			);
+			const messagesButton = page.getByRole("button", {
+				name: /^(exchanges|échanges)$/i,
+			});
+			await messagesButton.click();
+			await page
+				.getByPlaceholder(/Note sur le document|Note about the document/i)
+				.fill(noteText);
+			await page.keyboard.press("Enter");
+			await expect(
+				oldDocument.locator("[data-annotation-page-marker]"),
+			).toBeVisible();
+			await messagesButton.click();
+
+			const secondPage = await context.newPage();
+			await openWorkspace(secondPage);
+			const secondOtherDocument = secondPage.locator(
+				`[data-doc="${otherName}"]`,
+			);
+			await expect(secondOtherDocument).toBeVisible();
+			await secondOtherDocument.click();
+			await expect(
+				secondOtherDocument.locator('[data-page-view="0"]'),
+			).toHaveAttribute("data-active-page", "true");
+
+			if (workspaceView === "reader") {
+				await page
+					.getByRole("button", { name: /Reading view|Vue lecture/i })
+					.click();
+				await secondPage
+					.getByRole("button", { name: /Reading view|Vue lecture/i })
+					.click();
+				await expect(
+					page.getByRole("button", { name: /^(Document)$/i }),
+				).toContainText(oldName);
+				await expect(
+					secondPage.getByRole("button", { name: /^(Document)$/i }),
+				).toContainText(otherName);
+				await expect(
+					page
+						.getByRole("navigation", {
+							name: /Reader navigation|Navigation du lecteur/i,
+						})
+						.getByRole("status"),
+				).toHaveText(/2\/2/);
+			}
+
+			await mcp.call("maket_doc", {
+				action: "rename",
+				doc: oldName,
+				name: newName,
+			});
+
+			if (workspaceView === "reader") {
+				await expect(
+					page.getByRole("button", { name: /^(Document)$/i }),
+				).toContainText(newName);
+				await expect(page.locator(`[data-doc="${newName}"]`)).toHaveCount(1);
+				await expect(page.locator(`[data-doc="${oldName}"]`)).toHaveCount(0);
+				await expect(
+					page
+						.getByRole("navigation", {
+							name: /Reader navigation|Navigation du lecteur/i,
+						})
+						.getByRole("status"),
+				).toHaveText(/2\/2/);
+				await expect(
+					secondPage.getByRole("button", { name: /^(Document)$/i }),
+				).toContainText(otherName);
+				await expect(secondPage.locator(`[data-doc="${newName}"]`)).toHaveCount(
+					0,
+				);
+				await page
+					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.click();
+				await secondPage
+					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.click();
+			}
+
+			for (const browserPage of [page, secondPage]) {
+				await expect(
+					browserPage.locator(`[data-doc="${newName}"]`),
+				).toHaveCount(1);
+				await expect(
+					browserPage.locator(`[data-doc="${oldName}"]`),
+				).toHaveCount(0);
+			}
+			await expect(
+				page.locator(
+					`[data-doc="${newName}"] [data-page-view="1"][data-active-page="true"]`,
+				),
+			).toBeVisible();
+			await expect(
+				secondPage.locator(
+					`[data-doc="${otherName}"] [data-page-view="0"][data-active-page="true"]`,
+				),
+			).toBeVisible();
+			await expect(
+				page.locator(`[data-doc="${newName}"] [data-annotation-page-marker]`),
+			).toBeVisible();
+			await expect(
+				secondPage.locator(
+					`[data-doc="${newName}"] [data-annotation-page-marker]`,
+				),
+			).toBeVisible();
+
+			const panel = await openDocuments(page);
+			await expect(panel.getByText(newName, { exact: true })).toHaveCount(1);
+			await expect(panel.getByText(oldName, { exact: true })).toHaveCount(0);
+			await page
+				.getByRole("button", {
+					name: /Close Documents|Fermer Documents/i,
+				})
+				.click();
+			await messagesButton.click();
+			await expect(page.getByText(noteText, { exact: true })).toHaveCount(1);
+
+			const messages = await mcp.callJson<
+				Array<{ id: string; docName?: string; text?: string }>
+			>("maket_workspace", { action: "list_messages" });
+			const annotation = messages.find((message) => message.text === noteText);
+			expect(annotation).toMatchObject({ docName: newName, text: noteText });
+			if (!annotation) throw new Error("Renamed annotation was not returned");
+			await mcp.call("maket_workspace", {
+				action: "ack_messages",
+				ids: [annotation.id],
+			});
+			await expect(messagesButton.locator("span")).toHaveCount(0);
+			await expect(
+				secondPage.locator(
+					`[data-doc="${newName}"] [data-annotation-page-marker]`,
+				),
+			).toHaveCount(0);
+		});
+	}
+
 	test("renames, duplicates and bulk-organises documents through the UI", async ({
 		mcp,
 		page,
