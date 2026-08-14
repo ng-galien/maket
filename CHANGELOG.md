@@ -13,6 +13,14 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.7.2] — 2026-08-14
+
+### Fixed
+
+- Keep a renamed document as a single workspace instance across Canvas and
+  Reader, preserving each window's focus, active page, and annotations without
+  requiring a browser refresh.
+
 ## [1.7.1] — 2026-08-12
 
 ### Fixed
