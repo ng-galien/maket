@@ -9,12 +9,18 @@ export interface FitTarget {
 }
 
 let _requestFit: ((target?: FitTarget) => void) | null = null;
+let _cancelFit: (() => void) | null = null;
 let _pendingFit: { target?: FitTarget } | null = null;
+let _workspaceRemovalSuppressesAutoFit = false;
 
 export function registerRequestFit(
 	fn: ((target?: FitTarget) => void) | null,
 ): void {
 	_requestFit = fn;
+}
+
+export function registerCancelFit(fn: (() => void) | null): void {
+	_cancelFit = fn;
 }
 
 export function consumePendingFit(): { target?: FitTarget } | null {
@@ -57,9 +63,26 @@ export function fitToDoc(docName: string, pageIndex?: number): void {
  * Board has measurable content.
  */
 export function requestFit(target?: FitTarget): void {
+	_workspaceRemovalSuppressesAutoFit = false;
 	if (_requestFit) {
 		_requestFit(target);
 	} else {
 		_pendingFit = { target };
 	}
+}
+
+export function cancelFit(): void {
+	_pendingFit = null;
+	_cancelFit?.();
+}
+
+export function cancelFitForWorkspaceRemoval(): void {
+	_workspaceRemovalSuppressesAutoFit = true;
+	cancelFit();
+}
+
+export function consumeWorkspaceRemovalFitSuppression(): boolean {
+	const suppressed = _workspaceRemovalSuppressesAutoFit;
+	_workspaceRemovalSuppressesAutoFit = false;
+	return suppressed;
 }

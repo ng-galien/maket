@@ -15,6 +15,8 @@ import {
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import {
 	consumePendingFit,
+	consumeWorkspaceRemovalFitSuppression,
+	registerCancelFit,
 	registerFitToDoc,
 	registerFitToView,
 	registerRequestFit,
@@ -118,11 +120,23 @@ function useAutoFocusFit(workspaceDocNames: string[]): void {
 	const focusedDocName = useStore((state) => state.focusedDocName);
 	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
 	const autoFocusFit = useStore((state) => state.autoFocusFit);
+	const workspaceCount = workspaceDocNames.length;
+	const previousWorkspaceCount = useRef(workspaceCount);
 	const workspaceKey = workspaceDocNames.join("\u0000");
 	useEffect(() => {
+		const removalSuppressedAutoFit = consumeWorkspaceRemovalFitSuppression();
+		const workspaceShrank = workspaceCount < previousWorkspaceCount.current;
+		previousWorkspaceCount.current = workspaceCount;
+		if (removalSuppressedAutoFit || workspaceShrank) return;
 		if (!autoFocusFit || !focusedDocName) return;
 		requestFit({ docName: focusedDocName, pageIndex: focusedPageIndex });
-	}, [autoFocusFit, focusedDocName, focusedPageIndex, workspaceKey]);
+	}, [
+		autoFocusFit,
+		focusedDocName,
+		focusedPageIndex,
+		workspaceCount,
+		workspaceKey,
+	]);
 }
 
 function useSpacePanCursor(wrapRef: React.RefObject<HTMLDivElement | null>) {
@@ -213,6 +227,10 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	const fitDoc = createFitToDoc(el, zoomBehavior, wrap, context.boardRef);
 	registerFitToDoc(fitDoc);
 	const deferredFit = createDeferredFit(fit, fitDoc);
+	registerCancelFit(() => {
+		deferredFit.cancel();
+		el.interrupt();
+	});
 	zoomBehavior.on("start.deferred-fit", (event) => {
 		cancelDeferredFitOnUserZoom(deferredFit, event);
 	});
@@ -423,5 +441,6 @@ function cleanupBoardZoom(
 	registerFitToView(() => {});
 	registerFitToDoc(() => {});
 	registerRequestFit(null);
+	registerCancelFit(null);
 	registerZoomTo(() => {});
 }

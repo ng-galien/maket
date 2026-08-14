@@ -14,6 +14,7 @@ import {
 	sendAnnotationCreate,
 	wsSend,
 } from "./ws";
+import { cancelFitForWorkspaceRemoval } from "./zoomBridge";
 
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
@@ -824,7 +825,10 @@ export const useStore = create<AppState>((set, get) => ({
 			return { workspaceDocNames };
 		}),
 
-	removeDocFromWorkspace: (docName) =>
+	removeDocFromWorkspace: (docName) => {
+		if (get().workspaceDocNames.includes(docName)) {
+			cancelFitForWorkspaceRemoval();
+		}
 		set((s) => {
 			const workspaceDocNames = s.workspaceDocNames.filter(
 				(n) => n !== docName,
@@ -851,7 +855,8 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedPageIndex,
 				selectedIds: focusChanged ? [] : s.selectedIds,
 			};
-		}),
+		});
+	},
 
 	setFocusedDoc: (docName) =>
 		set((s) => {

@@ -14,6 +14,7 @@ const { useStore, cursorForPage, previewCursorForPage } = await import(
 	"./useStore"
 );
 const { wsSend } = await import("./ws");
+const { consumeWorkspaceRemovalFitSuppression } = await import("./zoomBridge");
 
 // Snapshot of the store's initial shape so each test can reset cleanly.
 // Captured once after module import — before any test mutates state.
@@ -92,6 +93,7 @@ function summary(name: string, category = "flyer"): DocSummary {
 }
 
 beforeEach(() => {
+	consumeWorkspaceRemovalFitSuppression();
 	resetStore();
 });
 
@@ -339,6 +341,15 @@ describe("workspace / focus", () => {
 		const s = useStore.getState();
 		expect(s.focusedDocName).toBe("alpha");
 		expect(s.selectedIds).toEqual(["x"]);
+	});
+
+	it("removeDocFromWorkspace does not suppress a future fit when the doc is not open", () => {
+		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+		useStore.getState().removeDocFromWorkspace("absent");
+
+		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+		expect(consumeWorkspaceRemovalFitSuppression()).toBe(false);
 	});
 
 	it("addDocToWorkspace is idempotent", () => {

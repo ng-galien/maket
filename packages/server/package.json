@@ -1,6 +1,6 @@
 {
 	"name": "@maket/server",
-	"version": "1.7.3",
+	"version": "1.7.4",
 	"type": "module",
 	"main": "index.ts",
 	"license": "MIT",

@@ -354,6 +354,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			break;
 		case "doc_removed":
 			console.log("[ws] doc_removed:", msg.name);
+			useStore.setState((state) => ({
+				docList: state.docList.filter((doc) => doc.name !== msg.name),
+			}));
 			useStore.getState().removeDocFromWorkspace(msg.name);
 			break;
 		case "doc_renamed":

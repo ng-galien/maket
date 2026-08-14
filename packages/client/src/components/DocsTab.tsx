@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
+import { requestFit } from "../store/zoomBridge";
 import { BulkActionBar } from "./docs/BulkActionBar";
 import {
 	buildCategoryTree,
@@ -47,6 +48,7 @@ function useDocsTabModel(): DocsTabModel {
 	const t = useT();
 	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
+	const focusedDocName = useStore((state) => state.focusedDocName);
 	const barPosition = useStore((state) => state.barPosition);
 	const removeDoc = useStore((state) => state.removeDocFromWorkspace);
 	const [search, setSearch] = useState("");
@@ -70,12 +72,19 @@ function useDocsTabModel(): DocsTabModel {
 	const query = parseQuery(search, { deferLastFilterToken: true });
 	const filtered = docList.filter((doc) => matchesQuery(doc, query));
 	const categoryTree = buildCategoryTree(filtered);
+	const openDocNames = new Set(workspaceDocNames);
 	const flatOrder = visibleDocOrder(categoryTree, searching, collapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
 		if (isOnWorkspace(name)) removeDoc(name);
 		else sendLoadDoc(name);
+	};
+	const focusDoc = (name: string) => {
+		const state = useStore.getState();
+		state.setFocusedDoc(name);
+		state.setActivePanel(null);
+		requestFit({ docName: name });
 	};
 
 	const selection = {
@@ -111,6 +120,7 @@ function useDocsTabModel(): DocsTabModel {
 			setDragOverCat,
 			setDraggingName,
 			docList,
+			openDocNames,
 			view,
 			itemFor: (doc) =>
 				createDocItemProps({
@@ -121,6 +131,8 @@ function useDocsTabModel(): DocsTabModel {
 					modeFor,
 					draggingName,
 					isOnWorkspace,
+					isFocused: (name) => focusedDocName === name,
+					focusDoc,
 					setMenuFor,
 					setModeFor,
 					setDraggingName,
@@ -214,7 +226,10 @@ function DocsTabView({ model }: { model: DocsTabModel }) {
 	return (
 		<div className="h-[calc(100vh-76px)] max-h-full min-h-0 flex flex-col overflow-hidden">
 			{model.barPosition === "top" && toolbar}
-			<div className="flex-1 min-h-0 overflow-y-auto p-2.5">
+			<div
+				data-documents-scroll
+				className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-2.5"
+			>
 				{model.categories.map((category) => (
 					<DocsCategory key={category.path} model={category} />
 				))}

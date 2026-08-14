@@ -327,6 +327,410 @@ test.describe("Document library", () => {
 		expect(list).toContain("launch (2)");
 	});
 
+	test("runs the remaining document row menu actions through the UI", async ({
+		baseURL,
+		context,
+		mcp,
+		page,
+	}) => {
+		if (!baseURL) throw new Error("Playwright baseURL is required");
+		const docName = "Menu action proposal";
+		await createDocument(mcp, docName, { category: "clients/menu" });
+		await createDocument(mcp, "Keep delete available", {
+			category: "clients/menu",
+		});
+		await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+			origin: new URL(baseURL).origin,
+		});
+
+		await openWorkspace(page);
+		const panel = await openDocuments(page);
+		const row = () => docRow(panel, docName);
+
+		await openDocumentMenu(row());
+		await page
+			.getByRole("button", { name: /^(Copy name|Copier le nom)$/i })
+			.click();
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe(docName);
+
+		await openDocumentMenu(row());
+		await page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }).click();
+		const category = row().getByPlaceholder(
+			/Category path|Chemin de catégorie/i,
+		);
+		await category.fill("clients/moved");
+		await category.press("Enter");
+		await expect(
+			panel
+				.locator('[data-category-documents="clients/moved"]')
+				.getByText(docName, { exact: true }),
+		).toBeVisible();
+
+		await openDocumentMenu(row());
+		await page
+			.getByRole("button", {
+				name: /^(Lock \(MCP read-only\)|Verrouiller \(MCP en lecture seule\))$/i,
+			})
+			.click();
+		await expect(
+			row().getByLabel(/Locked document|Document verrouillé/i),
+		).toBeVisible();
+
+		await openDocumentMenu(row());
+		await expect(
+			page.getByRole("button", { name: /^(Rename|Renommer)$/i }),
+		).toBeDisabled();
+		await expect(
+			page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }),
+		).toBeDisabled();
+		await expect(
+			page.getByRole("button", { name: /^(Delete|Supprimer)$/i }),
+		).toBeDisabled();
+		await page
+			.getByRole("button", { name: /^(Unlock|Déverrouiller)$/i })
+			.click();
+		await expect(
+			row().getByLabel(/Locked document|Document verrouillé/i),
+		).toHaveCount(0);
+
+		await openDocumentMenu(row());
+		const deleteAction = page.getByRole("button", {
+			name: /^(Delete|Supprimer)$/i,
+		});
+		await expect(deleteAction).toBeEnabled();
+		await deleteAction.click();
+		const hold = row().getByRole("button", {
+			name: /Hold to delete|Maintenir pour supprimer/i,
+		});
+		await expect(hold).toBeVisible();
+		await pressFor(page, hold, 800);
+		await expect(row()).toHaveCount(0);
+
+		const list = await mcp.callText("maket_doc", { action: "list" });
+		expect(list).not.toContain(docName);
+	});
+
+	test("keeps nested categories aligned at the minimum panel width", async ({
+		mcp,
+		page,
+	}) => {
+		await createDocument(mcp, "Client index", { category: "clients" });
+		await createDocument(mcp, "Acme overview", { category: "clients/acme" });
+		await createDocument(mcp, "Acme campaign brief", {
+			category: "clients/acme/campaigns",
+		});
+		await createDocument(mcp, "Acme campaign copy", {
+			category: "clients/acme/campaigns",
+		});
+		await createDocument(mcp, "Acme report", {
+			category: "clients/acme/reports",
+		});
+		await createDocument(mcp, "Globex campaign", {
+			category: "clients/globex/campaigns",
+		});
+
+		await openWorkspace(page);
+		const panel = await openDocuments(page);
+		const resizeHandle = panel.getByRole("separator", { name: "Resize panel" });
+		await resizeHandle.focus();
+		for (let index = 0; index < 10; index += 1) {
+			await resizeHandle.press("ArrowLeft");
+		}
+		await expect(resizeHandle).toHaveAttribute("aria-valuenow", "320");
+
+		const category = (path: string) =>
+			panel.locator(`[data-category-path="${path}"]`);
+		const categoryPart = (path: string, part: string) =>
+			category(path).locator(`[data-category-${part}]`);
+		const clients = category("clients");
+		await clients.click();
+		await expect(categoryPart("clients", "chevron")).toHaveCSS(
+			"color",
+			"rgb(24, 24, 27)",
+		);
+		await expect(category("clients/acme")).toHaveCount(0);
+		await clients.click();
+		await expect(categoryPart("clients", "chevron")).toHaveCSS(
+			"color",
+			"rgb(16, 185, 129)",
+		);
+		await expect(category("clients/acme")).toBeVisible();
+		const acme = category("clients/acme");
+		await acme.click();
+		await expect(category("clients/acme/campaigns")).toHaveCount(0);
+		await acme.click();
+		await expect(category("clients/acme/campaigns")).toBeVisible();
+
+		const paths = [
+			"clients",
+			"clients/acme",
+			"clients/globex",
+			"clients/acme/campaigns",
+			"clients/acme/reports",
+			"clients/globex/campaigns",
+		];
+		const boxes = new Map<
+			string,
+			{
+				label: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>;
+				count: NonNullable<Awaited<ReturnType<Locator["boundingBox"]>>>;
+			}
+		>();
+		for (const path of paths) {
+			const label = await categoryPart(path, "label").boundingBox();
+			const count = await categoryPart(path, "count").boundingBox();
+			expect(label, `${path} label should be rendered`).not.toBeNull();
+			expect(count, `${path} count should be rendered`).not.toBeNull();
+			if (label && count) boxes.set(path, { label, count });
+		}
+
+		const x = (path: string) => boxes.get(path)?.label.x ?? 0;
+		expect(x("clients/acme") - x("clients")).toBeCloseTo(16, 0);
+		expect(x("clients/acme/campaigns") - x("clients/acme")).toBeCloseTo(16, 0);
+		expect(x("clients/globex/campaigns") - x("clients/globex")).toBeCloseTo(
+			16,
+			0,
+		);
+		expect(x("clients/acme")).toBeCloseTo(x("clients/globex"), 0);
+		expect(x("clients/acme/campaigns")).toBeCloseTo(
+			x("clients/acme/reports"),
+			0,
+		);
+
+		for (const [docName, owner] of [
+			["Client index", "clients"],
+			["Acme overview", "clients/acme"],
+			["Acme campaign brief", "clients/acme/campaigns"],
+			["Acme report", "clients/acme/reports"],
+			["Globex campaign", "clients/globex/campaigns"],
+		] as const) {
+			const title = await panel
+				.getByText(docName, { exact: true })
+				.boundingBox();
+			expect(title, `${docName} should be rendered`).not.toBeNull();
+			if (title) expect(title.x).toBeCloseTo(x(owner), 0);
+		}
+
+		for (const { label, count } of boxes.values()) {
+			const gap = count.x - (label.x + label.width);
+			expect(gap).toBeGreaterThanOrEqual(7);
+			expect(gap).toBeLessThanOrEqual(9);
+		}
+		await expect(categoryPart("clients/acme/reports", "label")).toHaveCSS(
+			"color",
+			"rgb(24, 24, 27)",
+		);
+		await expect(panel.getByText("Acme report", { exact: true })).toHaveCSS(
+			"color",
+			"rgb(113, 113, 122)",
+		);
+		await expect(
+			category("clients").locator("[data-category-total]"),
+		).toHaveText("6");
+		await expect(
+			category("clients").locator("[data-category-open-count]"),
+		).toHaveCount(0);
+		await expect(categoryPart("clients", "count")).toHaveText("6");
+		await expect(
+			category("clients").locator("[data-category-marker]"),
+		).toHaveCount(0);
+		const chevronBackground = await categoryPart("clients", "chevron").evaluate(
+			(element) => getComputedStyle(element).backgroundColor,
+		);
+		expect(chevronBackground).toBe("rgba(0, 0, 0, 0)");
+		const countRadius = await categoryPart("clients", "count").evaluate(
+			(element) => Number.parseFloat(getComputedStyle(element).borderRadius),
+		);
+		expect(countRadius).toBe(8);
+
+		for (const path of ["clients", "clients/acme", "clients/globex"]) {
+			const chevron = await categoryPart(path, "chevron").boundingBox();
+			const guide = await panel
+				.locator(`[data-category-guide="${path}"]`)
+				.boundingBox();
+			expect(chevron, `${path} chevron should be rendered`).not.toBeNull();
+			expect(guide, `${path} guide should be rendered`).not.toBeNull();
+			if (chevron && guide) {
+				expect(guide.x).toBeCloseTo(chevron.x + chevron.width / 2, 0);
+			}
+		}
+
+		const documentScroll = panel.locator("[data-documents-scroll]");
+		const panelSize = await documentScroll.evaluate((element) => ({
+			clientWidth: element.clientWidth,
+			scrollWidth: element.scrollWidth,
+		}));
+		expect(panelSize.scrollWidth).toBeLessThanOrEqual(panelSize.clientWidth);
+	});
+
+	test("centers an open document without a heavy row treatment", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Open proposal alpha";
+		const beta = "Open proposal beta";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha, { category: "clients/open" });
+		await createDocument(mcp, beta, { category: "clients/open" });
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
+		});
+		await expect(page.locator(`[data-doc="${alpha}"]`)).toBeVisible();
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
+
+		const panel = await openDocuments(page);
+		const alphaRow = docRow(panel, alpha);
+		const betaRow = docRow(panel, beta);
+		await expect(
+			panel.locator(
+				'[data-category-path="clients/open"] [data-category-count]',
+			),
+		).toHaveText("2/2");
+		await expect(docButton(panel, alpha)).toHaveCSS(
+			"background-color",
+			"rgba(0, 0, 0, 0)",
+		);
+		await expect(alphaRow.getByText(alpha, { exact: true })).toHaveCSS(
+			"color",
+			"rgb(16, 185, 129)",
+		);
+		await expect(alphaRow.getByText("✓", { exact: true })).toHaveCount(0);
+		await expect(betaRow.getByText("✓", { exact: true })).toHaveCount(0);
+		const viewAlpha = alphaRow.getByRole("button", {
+			name: `View ${alpha}`,
+		});
+		await expect(viewAlpha).not.toHaveAttribute("aria-pressed");
+		await expect(
+			betaRow.getByRole("button", { name: `View ${beta}` }),
+		).not.toHaveAttribute("aria-pressed");
+		await expect(alphaRow.getByText("A4", { exact: true })).toHaveCount(0);
+		const infoId = await docButton(panel, alpha).getAttribute(
+			"aria-describedby",
+		);
+		expect(infoId).not.toBeNull();
+		const info = page.locator(`[id="${infoId}"]`);
+		await expect(info).toContainText("A4 · 1p");
+		await expect(info).toHaveCSS("opacity", "0");
+		await docButton(panel, alpha).hover();
+		await expect(info).toHaveCSS("opacity", "1");
+		await expect(info).toHaveCSS("background-color", "rgb(255, 255, 255)");
+		await expect(info).toHaveCSS("color", "rgb(24, 24, 27)");
+		const rowButtonBox = await docButton(panel, alpha).boundingBox();
+		const infoBox = await info.boundingBox();
+		expect(rowButtonBox).not.toBeNull();
+		expect(infoBox).not.toBeNull();
+		if (rowButtonBox && infoBox) {
+			const pointerX = rowButtonBox.x + rowButtonBox.width / 2;
+			const pointerY = rowButtonBox.y + rowButtonBox.height / 2;
+			expect(pointerX - infoBox.x).toBeCloseTo(18, 0);
+			expect(pointerY - (infoBox.y + infoBox.height)).toBeCloseTo(8, 0);
+		}
+		await docButton(panel, alpha).click({ modifiers: ["Meta"] });
+		await expect(info).toHaveCSS("opacity", "0");
+		await page.keyboard.press("Tab");
+		await page.keyboard.press("Shift+Tab");
+		await expect(docButton(panel, alpha)).toBeFocused();
+		await expect(info).toHaveCSS("opacity", "1");
+		await page.keyboard.press("Tab");
+		await expect(info).toHaveCSS("opacity", "0");
+		const titleBox = await alphaRow
+			.getByText(alpha, { exact: true })
+			.boundingBox();
+		const menuBox = await alphaRow
+			.getByRole("button", { name: "Actions" })
+			.boundingBox();
+		const viewBox = await viewAlpha.boundingBox();
+		const viewIconBox = await viewAlpha.locator("svg").boundingBox();
+		expect(titleBox).not.toBeNull();
+		expect(menuBox).not.toBeNull();
+		expect(viewBox).not.toBeNull();
+		expect(viewIconBox).not.toBeNull();
+		if (titleBox && menuBox && viewBox && viewIconBox) {
+			expect(titleBox.x + titleBox.width).toBeLessThan(menuBox.x);
+			expect(menuBox.x + menuBox.width).toBeLessThan(viewBox.x);
+			expect(viewBox.width).toBe(32);
+			expect(viewBox.height).toBe(32);
+			expect(viewIconBox.width).toBe(16);
+			expect(viewIconBox.height).toBe(16);
+		}
+
+		await viewAlpha.click();
+		await expect(panel).toHaveCount(0);
+		await expect(page.locator(`[data-doc="${alpha}"]`)).toBeVisible();
+		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
+		await expect
+			.poll(async () => {
+				const box = await page.locator(`[data-doc="${alpha}"]`).boundingBox();
+				const viewport = page.viewportSize();
+				if (!box || !viewport) return 100;
+				const x = Math.abs(box.x + box.width / 2 - viewport.width / 2);
+				const y = Math.abs(box.y + box.height / 2 - viewport.height / 2);
+				return Math.round(Math.max(x, y));
+			})
+			.toBeLessThanOrEqual(12);
+	});
+
+	test("keeps the canvas camera steady when a workspace document is closed", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Close steady alpha";
+		const beta = "Close steady beta";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha);
+		await createDocument(mcp, beta);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
+		});
+		await expect(page.locator(`[data-doc="${alpha}"]`)).toBeVisible();
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		const alphaDocument = page.locator(`[data-doc="${alpha}"]`);
+		const betaDocument = page.locator(`[data-doc="${beta}"]`);
+		await expect(betaDocument).toBeVisible();
+		await page.waitForTimeout(50);
+
+		const board = betaDocument.locator("xpath=..");
+		await alphaDocument
+			.getByRole("button", { name: /^(Close|Fermer)$/ })
+			.evaluate((button: HTMLButtonElement) => button.click());
+		await expect(alphaDocument).toHaveCount(0);
+		const transformAtClose = await board.evaluate((element) => {
+			const matrix = new DOMMatrix(getComputedStyle(element).transform);
+			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+		});
+		await page.waitForTimeout(350);
+
+		await expect(betaDocument).toBeVisible();
+		const transformAfterClose = await board.evaluate((element) => {
+			const matrix = new DOMMatrix(getComputedStyle(element).transform);
+			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+		});
+		expect(Math.abs(transformAfterClose.x - transformAtClose.x)).toBeLessThan(
+			1,
+		);
+		expect(Math.abs(transformAfterClose.y - transformAtClose.y)).toBeLessThan(
+			1,
+		);
+		expect(
+			Math.abs(transformAfterClose.scale - transformAtClose.scale),
+		).toBeLessThan(0.001);
+	});
+
 	test("exports a bundle from the library and imports it back", async ({
 		mcp,
 		page,
@@ -415,11 +819,7 @@ async function openDocuments(page: Page): Promise<Locator> {
 }
 
 function docRow(panel: Locator, name: string): Locator {
-	return panel
-		.getByText(name, { exact: true })
-		.locator(
-			"xpath=ancestor::div[contains(@class,'relative') and contains(@class,'group')][1]",
-		);
+	return panel.locator(`[data-doc-row="${name}"]`);
 }
 
 function docButton(panel: Locator, name: string): Locator {
@@ -429,4 +829,17 @@ function docButton(panel: Locator, name: string): Locator {
 async function openDocumentMenu(row: Locator): Promise<void> {
 	await row.hover();
 	await row.getByRole("button", { name: /^(Actions)$/i }).click();
+}
+
+async function pressFor(
+	page: Page,
+	button: Locator,
+	durationMs: number,
+): Promise<void> {
+	const box = await button.boundingBox();
+	if (!box) throw new Error("Hold button has no visible bounds");
+	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+	await page.mouse.down();
+	await page.waitForTimeout(durationMs);
+	await page.mouse.up();
 }

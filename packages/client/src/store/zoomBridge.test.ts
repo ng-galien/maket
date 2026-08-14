@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+	cancelFitForWorkspaceRemoval,
 	consumePendingFit,
+	consumeWorkspaceRemovalFitSuppression,
 	type FitTarget,
 	fitToView,
+	registerCancelFit,
 	registerFitToView,
 	registerRequestFit,
 	registerZoomTo,
@@ -15,6 +18,8 @@ import {
 describe("zoomBridge", () => {
 	beforeEach(() => {
 		consumePendingFit();
+		consumeWorkspaceRemovalFitSuppression();
+		registerCancelFit(null);
 		registerRequestFit(null);
 		registerZoomTo(() => {});
 		registerFitToView(() => {});
@@ -75,5 +80,26 @@ describe("requestFit", () => {
 	it("reports when no pending fit is available", () => {
 		registerRequestFit(null);
 		expect(consumePendingFit()).toBeNull();
+	});
+
+	it("cancels queued and active motion while suppressing the next removal auto-fit", () => {
+		const cancel = vi.fn();
+		registerRequestFit(null);
+		registerCancelFit(cancel);
+		requestFit({ docName: "d" });
+
+		cancelFitForWorkspaceRemoval();
+
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(consumePendingFit()).toBeNull();
+		expect(consumeWorkspaceRemovalFitSuppression()).toBe(true);
+		expect(consumeWorkspaceRemovalFitSuppression()).toBe(false);
+	});
+
+	it("lets an explicit fit request supersede removal suppression", () => {
+		cancelFitForWorkspaceRemoval();
+		requestFit({ docName: "d" });
+
+		expect(consumeWorkspaceRemovalFitSuppression()).toBe(false);
 	});
 });

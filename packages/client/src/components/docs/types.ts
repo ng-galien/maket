@@ -54,6 +54,7 @@ export interface DocsCategoryModel {
 	path: string;
 	depth: number;
 	total: number;
+	openTotal: number;
 	docs: DocSummary[];
 	children: DocsCategoryModel[];
 	collapsed: boolean;
@@ -79,6 +80,7 @@ export interface SelectionContext {
 export interface DocItemModel {
 	doc: DocSummary;
 	onWs: boolean;
+	focused: boolean;
 	selected: boolean;
 	menuOpen: boolean;
 	mode: RowMode;
@@ -88,6 +90,7 @@ export interface DocItemModel {
 
 export interface DocItemActions {
 	click: (event: React.MouseEvent) => void;
+	focus: () => void;
 	openMenu: () => void;
 	closeMenu: () => void;
 	changeMode: (mode: RowMode) => void;
