@@ -13,6 +13,33 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [1.7.4] — 2026-08-14
+
+### Changed
+
+- **The Documents tree is clearer and easier to navigate.** Categories now use
+  stable indentation, stronger hierarchy, stateful chevrons, and lightweight
+  total/open counters beside their labels. Document rows stay visually quieter,
+  keep open documents identifiable in green, preserve Gmail draft access, and
+  expose a clear action to return to an already open document.
+- Secondary document details now live in a compact, theme-aware tooltip that
+  follows the pointer without obscuring unrelated categories and remains
+  available to keyboard navigation.
+
+### Fixed
+
+- Closing documents from the workspace no longer triggers an unwanted canvas
+  recenter, including when a focus transition is already in progress.
+- Document tooltips no longer remain visible after pointer selection, and
+  deleted documents disappear from the library immediately instead of leaving
+  a stale row until reload.
+
+### Internal
+
+- Playwright now protects the complete document row menu — copy, rename,
+  duplicate, move, export, lock, unlock, locked states, and hold-to-delete — as
+  well as nested-tree geometry, open-document focusing, and camera stability.
+
 ## [1.7.3] — 2026-08-14
 
 ### Fixed
@@ -501,7 +528,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v1.4.5...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v1.7.4...HEAD
+[1.7.4]: https://github.com/ng-galien/maket/compare/v1.7.3...v1.7.4
 [1.4.5]: https://github.com/ng-galien/maket/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/ng-galien/maket/compare/v1.4.3...v1.4.4
 [1.4.3]: https://github.com/ng-galien/maket/compare/v1.4.2...v1.4.3
