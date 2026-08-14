@@ -4,6 +4,7 @@ import type {
 	DocumentStateRevision,
 	DocumentStateSchema,
 } from "@maket/shared";
+import { NEXT_DOCUMENT_UPDATED_AT_SQL } from "./document-timestamp.js";
 
 export interface StoredDocumentState {
 	documentId: string;
@@ -229,10 +230,10 @@ function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 			"SELECT document_id, revision, schema, data, created_at FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC",
 		),
 		documentMarkState: db.prepare(
-			"UPDATE documents SET data_model = 'state', updated_at = datetime('now') WHERE id = $document_id",
+			`UPDATE documents SET data_model = 'state', updated_at = ${NEXT_DOCUMENT_UPDATED_AT_SQL} WHERE id = $document_id`,
 		),
 		documentTouch: db.prepare(
-			"UPDATE documents SET updated_at = datetime('now') WHERE id = $document_id",
+			`UPDATE documents SET updated_at = ${NEXT_DOCUMENT_UPDATED_AT_SQL} WHERE id = $document_id`,
 		),
 	};
 }

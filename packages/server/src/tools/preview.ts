@@ -19,10 +19,10 @@ import {
 	CHROMIUM_HEADLESS,
 	shouldDisableSandbox,
 } from "../lib/chromium-sandbox.js";
-import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
+import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { AssetsService } from "../services/assets.js";
 import type { Config } from "../services/config.js";
@@ -136,14 +136,12 @@ async function runSnapshot(
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
 
-	const charteCss = documents.charteCss(rendered);
-	const safeCharteCss = stripStyleClose(charteCss);
-	const safeBg = escapeCssValue(d.canvas.bg || "#ffffff");
-	const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
-  ${safeCharteCss}
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
-  </style></head><body>${inlinedHtml}</body></html>`;
+	const fullHtml = buildRenderSurfaceHtml({
+		canvas: rendered.canvas,
+		pageHtmls: [inlinedHtml],
+		charteCss: documents.charteCss(rendered),
+		surface: { kind: "snapshot" },
+	});
 
 	const scale = 3.78;
 	const browser = await puppeteer.launch({

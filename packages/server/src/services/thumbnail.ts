@@ -13,10 +13,10 @@
  * (puppeteer access). `opts` exists for test overrides only.
  */
 
-import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
+import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
@@ -152,31 +152,17 @@ async function renderThumbnailDocument(ctx: {
 	});
 	const resolved = boxShadowToDropShadow(inlined, shadowVars);
 
-	const safeBg = escapeCssValue(renderedDoc.canvas.bg || "#ffffff");
-	const safeCharteCss = stripStyleClose(charteCss);
-	const fullHtml = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<style>
-  ${safeCharteCss}
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { width: 100%; height: 100%; background: ${safeBg}; overflow: hidden; }
-  .page { width: ${renderedDoc.canvas.w}mm; height: ${renderedDoc.canvas.h}mm; background: ${safeBg}; position: relative; overflow: hidden; transform-origin: top left; }
-</style>
-</head>
-<body><div class="page">${resolved}</div></body>
-</html>`;
-
 	const canvasPxW = Math.round(renderedDoc.canvas.w * MM_TO_PX);
 	const pxH = Math.round(
 		(renderedDoc.canvas.h / renderedDoc.canvas.w) * widthPx,
 	);
 	const scale = widthPx / canvasPxW;
-	const scaledHtml = fullHtml.replace(
-		".page {",
-		`.page { transform: scale(${scale});`,
-	);
+	const scaledHtml = buildRenderSurfaceHtml({
+		canvas: renderedDoc.canvas,
+		pageHtmls: [resolved],
+		charteCss,
+		surface: { kind: "thumbnail", scale },
+	});
 
 	const buf = await snapshot(
 		scaledHtml,

@@ -89,6 +89,9 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Install PDF rasterizer
+        run: sudo apt-get install --yes poppler-utils
+
       - name: Run browser workflows
         run: npm run test:e2e:coverage
 

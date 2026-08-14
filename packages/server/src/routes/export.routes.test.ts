@@ -670,7 +670,7 @@ describe("export routes — .maket bundle", () => {
 		expect(page.html).toContain('data-maket-bind="state.done"');
 		expect(page.html).not.toContain("data-maket-path");
 		expect(page.html).not.toContain("data-maket-type");
-		expect((html.match(/class="page"/g) ?? []).length).toBe(1);
+		expect((html.match(/<maket-render-page/g) ?? []).length).toBe(1);
 	});
 
 	it("GET /api/export-pdf streams the rendered PDF with the default quality", async () => {
