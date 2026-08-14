@@ -112,8 +112,27 @@ jobs:
             exit 1
           fi
 
-          PUBLISHED_VERSION="$(npm view "${PACKAGE_NAME}@${VERSION}" version)"
-          PUBLISHED_MCP_NAME="$(npm view "${PACKAGE_NAME}@${VERSION}" mcpName)"
+          ERROR_FILE="$(mktemp)"
+          trap 'rm -f "$ERROR_FILE"' EXIT
+          for attempt in {1..12}; do
+            if PUBLISHED_METADATA="$(npm view "${PACKAGE_NAME}@${VERSION}" version mcpName --json --prefer-online 2>"$ERROR_FILE")"; then
+              break
+            fi
+            if ! grep -q "E404" "$ERROR_FILE"; then
+              cat "$ERROR_FILE" >&2
+              exit 1
+            fi
+            if [[ "$attempt" -eq 12 ]]; then
+              cat "$ERROR_FILE" >&2
+              echo "::error::${PACKAGE_NAME}@${VERSION} is still not visible from npm after ${attempt} attempts."
+              exit 1
+            fi
+            echo "::notice::${PACKAGE_NAME}@${VERSION} is not visible from npm yet; retrying in 5 seconds (${attempt}/12)."
+            sleep 5
+          done
+
+          PUBLISHED_VERSION="$(node -p "JSON.parse(process.argv[1]).version ?? ''" "$PUBLISHED_METADATA")"
+          PUBLISHED_MCP_NAME="$(node -p "JSON.parse(process.argv[1]).mcpName ?? ''" "$PUBLISHED_METADATA")"
           if [[ "$PUBLISHED_VERSION" != "$VERSION" ]]; then
             echo "::error::Published npm version ${PUBLISHED_VERSION} does not match ${VERSION}."
             exit 1
