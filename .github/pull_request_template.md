@@ -38,6 +38,9 @@ qui se trouve entre eux et le préserve tel qu’il a été écrit.
 
 ## Témoignage d’agent
 
+<!-- Remplace la valeur ci-dessous par Codex ou Claude. -->
+<!-- agent-name: Codex ou Claude -->
+
 <!-- agent-testimony:start -->
 
 <!-- Écris librement ici. -->
