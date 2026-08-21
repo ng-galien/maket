@@ -11,6 +11,13 @@ on:
         description: Commit exact de main concerné par le témoignage
         required: true
         type: string
+      agent_name:
+        description: Agent ayant rédigé le témoignage
+        required: true
+        type: choice
+        options:
+          - Codex
+          - Claude
 
 jobs:
   testimony:
@@ -25,5 +32,6 @@ jobs:
       testimony: ${{ inputs.testimony }}
       source_commit: ${{ inputs.source_commit }}
       source_ref: main
+      agent_name: ${{ inputs.agent_name }}
     secrets:
       app_private_key: ${{ secrets.BLOG_APP_PRIVATE_KEY }}
