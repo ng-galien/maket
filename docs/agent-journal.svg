@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#18b77a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+  <title>Agent journal</title>
+  <circle cx="12" cy="2.5" r="1"/>
+  <path d="M12 3.5V6"/>
+  <rect x="4" y="6" width="16" height="14" rx="3"/>
+  <circle cx="9" cy="12" r="1" fill="#18b77a" stroke="none"/>
+  <circle cx="15" cy="12" r="1" fill="#18b77a" stroke="none"/>
+  <path d="M8.5 16h7"/>
+</svg>

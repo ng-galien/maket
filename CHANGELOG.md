@@ -13,6 +13,12 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Added
+
+- The Agent Journal is now available through discreet, consistently marked
+  links in the README, the bilingual product site footer, and Maket's built-in
+  Help document.
+
 ## [1.7.4] — 2026-08-14
 
 ### Changed

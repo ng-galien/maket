@@ -3,6 +3,7 @@ import { createDocument, type Document } from "../types.js";
 export type OnboardingLocale = "en" | "fr";
 
 export const ONBOARDING_DOCUMENT_NAME = "Maket Help";
+const AGENT_JOURNAL_URL = "https://ng-galien.github.io/categories/mcp-maket/";
 
 const COPY: Record<OnboardingLocale, OnboardingCopy> = {
 	en: {
@@ -39,6 +40,7 @@ const COPY: Record<OnboardingLocale, OnboardingCopy> = {
 			"Collections: drive variants with data.",
 			"Exchanges: send your feedback to the assistant.",
 		],
+		agentJournal: "Behind the scenes: read the agents’ journal ↗",
 		footer:
 			"This built-in document is user help. It is separate from the maket_learn MCP tool, which only orients agents.",
 	},
@@ -76,6 +78,7 @@ const COPY: Record<OnboardingLocale, OnboardingCopy> = {
 			"Collections : piloter les variantes par les données.",
 			"Échanges : transmettre vos retours à l'assistant.",
 		],
+		agentJournal: "En coulisses : lire le journal des agents ↗",
 		footer:
 			"Ce document est une aide utilisateur builtin. Il est séparé de la tool MCP maket_learn, qui sert uniquement à orienter les agents.",
 	},
@@ -91,6 +94,7 @@ interface OnboardingCopy {
 	workspaceText: string;
 	checklistTitle: string;
 	checklist: string[];
+	agentJournal: string;
 	footer: string;
 }
 
@@ -172,14 +176,22 @@ function onboardingHtml(copy: OnboardingCopy): string {
         <h2 data-id="help-workspace-title" style="margin:0 0 4mm;font-size:15pt;">${copy.workspaceTitle}</h2>
         <p data-id="help-workspace-text" style="margin:0;font-size:10pt;line-height:1.45;color:#d8dee8;">${copy.workspaceText}</p>
       </div>
-      <div data-id="help-checklist" style="background:#ffffff;padding:7mm;display:grid;gap:3mm;">
+      <div data-id="help-checklist" style="background:#ffffff;padding:6mm;display:grid;gap:2mm;">
         <h2 data-id="help-checklist-title" style="margin:0 0 2mm;font-size:14pt;color:#172033;">${copy.checklistTitle}</h2>
         ${checklist}
+        <a data-id="help-agent-journal" href="${AGENT_JOURNAL_URL}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:2mm;margin-top:1mm;color:#0f766e;font-size:9pt;font-weight:700;text-decoration:none;">
+          ${agentJournalIcon()}
+          <span>${copy.agentJournal}</span>
+        </a>
       </div>
       <div data-id="help-footer" style="margin-top:auto;border-top:0.4mm solid #cbd5e1;padding-top:4mm;color:#637083;font-size:8.5pt;line-height:1.35;">${copy.footer}</div>
     </aside>
   </main>
 </section>`.trim();
+}
+
+function agentJournalIcon(): string {
+	return `<svg data-id="agent-journal-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="width:4mm;height:4mm;flex:none;"><circle cx="12" cy="2.5" r="1"/><path d="M12 3.5V6"/><rect x="4" y="6" width="16" height="14" rx="3"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><path d="M8.5 16h7"/></svg>`;
 }
 
 function stepBlock([title, body]: [string, string], index: number): string {
