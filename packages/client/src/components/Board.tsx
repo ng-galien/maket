@@ -274,7 +274,9 @@ function applyBoardZoomTransform(
 ) {
 	const transform = event.transform;
 	setTransform({ x: transform.x, y: transform.y, k: transform.k });
-	useStore.getState().setZoom(Math.round(transform.k * 100));
+	const zoom = Math.round(transform.k * 100);
+	const store = useStore.getState();
+	if (store.zoom !== zoom) store.setZoom(zoom);
 }
 
 function canStartBoardZoom(

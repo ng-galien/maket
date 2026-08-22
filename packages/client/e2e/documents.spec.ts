@@ -2,7 +2,14 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Locator, Page } from "@playwright/test";
-import { createDocument, expect, openWorkspace, test } from "./workspace-test";
+import {
+	closeLibrary,
+	createDocument,
+	expect,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 const HISTORICAL_V1_FIXTURE = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -239,11 +246,7 @@ test.describe("Document library", () => {
 			const panel = await openDocuments(page);
 			await expect(panel.getByText(newName, { exact: true })).toHaveCount(1);
 			await expect(panel.getByText(oldName, { exact: true })).toHaveCount(0);
-			await page
-				.getByRole("button", {
-					name: /Close Documents|Fermer Documents/i,
-				})
-				.click();
+			await closeLibrary(page);
 			await messagesButton.click();
 			await expect(page.getByText(noteText, { exact: true })).toHaveCount(1);
 
@@ -433,7 +436,9 @@ test.describe("Document library", () => {
 
 		await openWorkspace(page);
 		const panel = await openDocuments(page);
-		const resizeHandle = panel.getByRole("separator", { name: "Resize panel" });
+		const resizeHandle = panel.getByRole("separator", {
+			name: /Resize library panel|Redimensionner le panneau de bibliothèque/i,
+		});
 		await resizeHandle.focus();
 		for (let index = 0; index < 10; index += 1) {
 			await resizeHandle.press("ArrowLeft");
@@ -565,6 +570,48 @@ test.describe("Document library", () => {
 		expect(panelSize.scrollWidth).toBeLessThanOrEqual(panelSize.clientWidth);
 	});
 
+	test("turns breadcrumb levels into cumulative removable category filters", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Breadcrumb filters";
+		await openWorkspace(page);
+		await createDocument(mcp, docName, {
+			category: "clients/acme/campaigns",
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+
+		await page
+			.getByRole("button", {
+				name: /Filter documents by category clients$|Filtrer les documents par catégorie clients$/i,
+			})
+			.click();
+		await page
+			.getByRole("button", {
+				name: /Filter documents by category clients\/acme$|Filtrer les documents par catégorie clients\/acme$/i,
+			})
+			.click();
+
+		const search = page.getByRole("combobox", {
+			name: /@category|@catégorie/i,
+		});
+		await expect(search).toHaveValue("@clients @clients/acme ");
+		await expect(
+			page.getByRole("button", { name: "@clients", exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "@clients/acme", exact: true }),
+		).toBeVisible();
+
+		await page.getByRole("button", { name: "@clients", exact: true }).click();
+		await expect(search).toHaveValue("@clients/acme ");
+		await expect(page.locator(`[data-doc-row="${docName}"]`)).toBeVisible();
+	});
+
 	test("centers an open document without a heavy row treatment", async ({
 		mcp,
 		page,
@@ -664,22 +711,28 @@ test.describe("Document library", () => {
 		}
 
 		await viewAlpha.click();
-		await expect(panel).toHaveCount(0);
+		await expect(panel).toBeVisible();
 		await expect(page.locator(`[data-doc="${alpha}"]`)).toBeVisible();
 		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
 		await expect
 			.poll(async () => {
 				const box = await page.locator(`[data-doc="${alpha}"]`).boundingBox();
-				const viewport = page.viewportSize();
-				if (!box || !viewport) return 100;
-				const x = Math.abs(box.x + box.width / 2 - viewport.width / 2);
-				const y = Math.abs(box.y + box.height / 2 - viewport.height / 2);
+				const canvas = await page
+					.locator("[data-canvas-workspace]")
+					.boundingBox();
+				if (!box || !canvas) return 100;
+				const x = Math.abs(
+					box.x + box.width / 2 - (canvas.x + canvas.width / 2),
+				);
+				const y = Math.abs(
+					box.y + box.height / 2 - (canvas.y + canvas.height / 2),
+				);
 				return Math.round(Math.max(x, y));
 			})
 			.toBeLessThanOrEqual(12);
 	});
 
-	test("keeps the canvas camera steady when a workspace document is closed", async ({
+	test("reframes the focused document when another workspace document is closed", async ({
 		mcp,
 		page,
 	}) => {
@@ -704,31 +757,126 @@ test.describe("Document library", () => {
 		await expect(betaDocument).toBeVisible();
 		await page.waitForTimeout(50);
 
-		const board = betaDocument.locator("xpath=..");
 		await alphaDocument
 			.getByRole("button", { name: /^(Close|Fermer)$/ })
 			.evaluate((button: HTMLButtonElement) => button.click());
 		await expect(alphaDocument).toHaveCount(0);
-		const transformAtClose = await board.evaluate((element) => {
-			const matrix = new DOMMatrix(getComputedStyle(element).transform);
-			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
-		});
 		await page.waitForTimeout(350);
 
 		await expect(betaDocument).toBeVisible();
-		const transformAfterClose = await board.evaluate((element) => {
-			const matrix = new DOMMatrix(getComputedStyle(element).transform);
-			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+		await expect
+			.poll(async () => {
+				const box = await betaDocument.boundingBox();
+				const canvas = await page
+					.locator("[data-canvas-workspace]")
+					.boundingBox();
+				if (!box || !canvas) return 100;
+				const x = Math.abs(
+					box.x + box.width / 2 - (canvas.x + canvas.width / 2),
+				);
+				const y = Math.abs(
+					box.y + box.height / 2 - (canvas.y + canvas.height / 2),
+				);
+				return Math.round(Math.max(x, y));
+			})
+			.toBeLessThanOrEqual(12);
+	});
+
+	test("keeps the remaining document focused when the active handle is closed", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Close active alpha";
+		const beta = "Close active beta";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha);
+		await createDocument(mcp, beta);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
 		});
-		expect(Math.abs(transformAfterClose.x - transformAtClose.x)).toBeLessThan(
-			1,
-		);
-		expect(Math.abs(transformAfterClose.y - transformAtClose.y)).toBeLessThan(
-			1,
-		);
-		expect(
-			Math.abs(transformAfterClose.scale - transformAtClose.scale),
-		).toBeLessThan(0.001);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		const alphaDocument = page.locator(`[data-doc="${alpha}"]`);
+		const betaDocument = page.locator(`[data-doc="${beta}"]`);
+		await expect(betaDocument).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(beta);
+
+		await betaDocument
+			.getByRole("button", { name: /^(Close|Fermer)$/ })
+			.click();
+
+		await expect(betaDocument).toHaveCount(0);
+		await expect(alphaDocument).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(alpha);
+		await expect(
+			alphaDocument.locator('[data-active-page="true"]'),
+		).toBeVisible();
+	});
+
+	test("closes one or every document from the header selector", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Picker close alpha";
+		const beta = "Picker close beta";
+		const gamma = "Picker close gamma";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha);
+		await createDocument(mcp, beta);
+		await createDocument(mcp, gamma);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: gamma,
+			page: 1,
+		});
+
+		await page.getByRole("button", { name: /^(Document)$/i }).click();
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^(Close|Fermer) ${alpha}$`),
+			})
+			.click();
+		await expect(page.getByRole("option", { name: alpha })).toHaveCount(0);
+		await expect(page.getByRole("option", { name: beta })).toBeVisible();
+		await expect(page.getByRole("option", { name: gamma })).toBeVisible();
+
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^(Close|Fermer) ${gamma}$`),
+			})
+			.click();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(beta);
+		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
+
+		await page.getByRole("button", { name: "Document", exact: true }).click();
+		await page
+			.getByRole("button", { name: /^(Close all|Tout fermer)$/i })
+			.click();
+		await expect(
+			page.getByText(/^(No document|Aucun document)$/i),
+		).toBeVisible();
+		await expect(page.locator("[data-doc]")).toHaveCount(0);
 	});
 
 	test("exports a bundle from the library and imports it back", async ({
@@ -812,10 +960,7 @@ test.describe("Document library", () => {
 });
 
 async function openDocuments(page: Page): Promise<Locator> {
-	await page.getByRole("button", { name: /^(Documents)$/i }).click();
-	const panel = page.getByRole("complementary", { name: /^(Documents)$/i });
-	await expect(panel).toBeVisible();
-	return panel;
+	return openLibraryView(page, "docs");
 }
 
 function docRow(panel: Locator, name: string): Locator {

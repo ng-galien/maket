@@ -974,7 +974,89 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(useStore.getState().showPopover).toBe(true);
 		expect(useStore.getState().selectedIds).toEqual(["a"]);
 	});
+
+	it("keeps full-page annotation outlines inside the clipped canvas", async () => {
+		useStore.setState({
+			pending: [
+				{
+					id: "full-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "full",
+					text: "Full page",
+					ts: 0,
+				},
+				{
+					id: "inner-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "inner",
+					text: "Inner element",
+					ts: 0,
+				},
+			],
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<div data-id="full"><span data-id="inner">Content</span></div>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		const full = container.querySelector('[data-id="full"]') as HTMLElement;
+		const inner = container.querySelector('[data-id="inner"]') as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(10, 20, 200, 100),
+		);
+		vi.spyOn(full, "getBoundingClientRect").mockReturnValue(
+			mockRect(10, 20, 200, 100),
+		);
+		vi.spyOn(inner, "getBoundingClientRect").mockReturnValue(
+			mockRect(40, 45, 80, 30),
+		);
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		expect(
+			container.querySelector('[data-annotation-marker="full"]'),
+		).toHaveClass("annotation-marker-inset");
+		expect(
+			container.querySelector('[data-annotation-marker="inner"]'),
+		).not.toHaveClass("annotation-marker-inset");
+	});
 });
+
+function mockRect(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+): DOMRect {
+	return {
+		x,
+		y,
+		width,
+		height,
+		left: x,
+		top: y,
+		right: x + width,
+		bottom: y + height,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
 
 function makeDoc(html: string, marginUniform?: number): Document {
 	return {

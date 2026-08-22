@@ -1,10 +1,10 @@
 {
 	"name": "@maket/stdio-bridge",
-	"version": "1.7.4",
+	"version": "2.0.0",
 	"type": "module",
 	"main": "src/index.ts",
 	"bin": {
-		"maket-stdio-bridge": "src/index.ts"
+		"maket-server": "src/index.ts"
 	},
 	"license": "MIT",
 	"private": true,

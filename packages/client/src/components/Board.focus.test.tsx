@@ -93,7 +93,7 @@ describe("Board automatic focus fit", () => {
 		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(callsWithAutoFit);
 	});
 
-	it("recalculates the focused frame when the workspace expands but not when it shrinks", async () => {
+	it("recalculates the focused frame when the workspace expands or shrinks", async () => {
 		render(<Board locked={false} />);
 		await waitFor(() => expect(zoomSpies.requestFit).toHaveBeenCalledTimes(1));
 
@@ -104,18 +104,38 @@ describe("Board automatic focus fit", () => {
 			pageIndex: 0,
 		});
 
-		act(() => useStore.getState().removeDocFromWorkspace("gamma"));
-		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(2);
+		act(() => useStore.getState().closeWorkspaceDocuments(["gamma"]));
+		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(3);
+		expect(zoomSpies.requestFit).toHaveBeenLastCalledWith({
+			docName: "alpha",
+			pageIndex: 0,
+		});
 		expect(zoomSpies.cancelFitForWorkspaceRemoval).toHaveBeenCalledOnce();
 	});
 
-	it("keeps the camera steady when the focused document is closed", async () => {
+	it("reframes the next document when the focused document is closed", async () => {
 		render(<Board locked={false} />);
 		await waitFor(() => expect(zoomSpies.requestFit).toHaveBeenCalledTimes(1));
 
-		act(() => useStore.getState().removeDocFromWorkspace("alpha"));
+		act(() => useStore.getState().closeWorkspaceDocuments(["alpha"]));
 
 		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(2);
+		expect(zoomSpies.requestFit).toHaveBeenLastCalledWith({
+			docName: "beta",
+			pageIndex: 0,
+		});
+		expect(zoomSpies.cancelFitForWorkspaceRemoval).toHaveBeenCalledOnce();
+	});
+
+	it("closes the whole workspace atomically through the same camera path", async () => {
+		render(<Board locked={false} />);
+		await waitFor(() => expect(zoomSpies.requestFit).toHaveBeenCalledTimes(1));
+
+		act(() => useStore.getState().closeWorkspaceDocuments(["alpha", "beta"]));
+
+		expect(useStore.getState().workspaceDocNames).toEqual([]);
+		expect(useStore.getState().focusedDocName).toBeNull();
 		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(1);
 		expect(zoomSpies.cancelFitForWorkspaceRemoval).toHaveBeenCalledOnce();
 	});

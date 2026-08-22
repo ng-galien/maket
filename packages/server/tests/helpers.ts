@@ -1,5 +1,5 @@
-import { ServerResponse } from "node:http";
-import { PassThrough, Readable } from "node:stream";
+import { IncomingMessage, ServerResponse } from "node:http";
+import { PassThrough } from "node:stream";
 import type { Express } from "express";
 
 export interface TestApp {
@@ -117,25 +117,19 @@ async function dispatch(
 function requestStream(
 	url: URL,
 	parts: { method: string; headers: Record<string, string>; body: Buffer },
-): Readable & { method: string; url: string; headers: Record<string, string> } {
-	const req = new Readable({
-		read() {
-			this.push(parts.body);
-			this.push(null);
-		},
-	}) as Readable & {
-		method: string;
-		url: string;
-		headers: Record<string, string>;
-	};
+): IncomingMessage {
+	const socket = new PassThrough();
+	const req = new IncomingMessage(socket as never);
 	req.method = parts.method;
 	req.url = `${url.pathname}${url.search}`;
 	req.headers = parts.headers;
+	req.push(parts.body);
+	req.push(null);
 	return req;
 }
 
-function rawResponse(app: Express, req: Readable): Promise<Buffer> {
-	const res = new ServerResponse(req as never);
+function rawResponse(app: Express, req: IncomingMessage): Promise<Buffer> {
+	const res = new ServerResponse(req);
 	const socket = new PassThrough();
 	const chunks: Buffer[] = [];
 	socket.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
@@ -148,7 +142,11 @@ function rawResponse(app: Express, req: Readable): Promise<Buffer> {
 	});
 }
 
-function expressHandle(app: Express, req: Readable, res: ServerResponse): void {
+function expressHandle(
+	app: Express,
+	req: IncomingMessage,
+	res: ServerResponse,
+): void {
 	(app as unknown as { handle(req: unknown, res: unknown): void }).handle(
 		req,
 		res,

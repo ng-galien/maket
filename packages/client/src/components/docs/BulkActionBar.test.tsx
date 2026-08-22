@@ -20,6 +20,7 @@ describe("BulkActionBar category picker", () => {
 				format: "A4",
 				pageCount: 1,
 				elementCount: 0,
+				collectionBindings: [],
 			}),
 		);
 		render(

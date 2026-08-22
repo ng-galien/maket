@@ -1,7 +1,7 @@
 {
 	"name": "@maket/client",
 	"private": true,
-	"version": "1.7.4",
+	"version": "2.0.0",
 	"type": "module",
 	"license": "MIT",
 	"scripts": {
@@ -23,6 +23,7 @@
 		"jszip": "^3.10.1",
 		"lucide-react": "^1.29.0",
 		"react": "^19.2.8",
+		"react-data-grid": "^7.0.0-beta.61",
 		"react-dom": "^19.2.8",
 		"tailwindcss": "^4.3.3",
 		"zustand": "^5.0.14"

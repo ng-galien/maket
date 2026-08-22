@@ -56,6 +56,7 @@ export interface DocSummary {
 	format: string;
 	pageCount: number;
 	elementCount: number;
+	collectionBindings: Array<{ name: string; pageCount: number }>;
 	rating?: number;
 	locked?: boolean;
 	orientation?: string;

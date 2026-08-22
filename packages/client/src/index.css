@@ -5,6 +5,7 @@
    output (illegal per CSS spec, PostCSS warns). */
 @import url("https://fonts.googleapis.com/css2?family=Raleway:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap");
 
+@import "react-data-grid/lib/styles.css";
 @import "tailwindcss";
 
 [data-reading-workspace] {
@@ -58,8 +59,8 @@
 
   /* ---------- Accent (emerald) ---------- */
   --color-accent: #10b981;
-  --color-accent-soft: light-dark(rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.12));
-  --color-accent-border: light-dark(rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.25));
+  --color-accent-soft: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  --color-accent-border: color-mix(in srgb, var(--color-accent) 24%, transparent);
 
   /* ---------- Danger ---------- */
   --color-danger: light-dark(#ef4444, #f87171);
@@ -80,13 +81,15 @@
   --color-blue: var(--color-editing);
   --color-blue-soft: var(--color-editing-soft);
 
-  /* ---------- Radius (aligned with Tailwind v4 scale) ---------- */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-2xl: 20px;
+  /* ---------- Radius ----------
+     Maket is a dense authoring tool: controls and work surfaces stay precise.
+     Circles and pills remain explicit through `rounded-full`. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 5px;
+  --radius-xl: 6px;
+  --radius-2xl: 8px;
 
   /* ---------- Shadows — depth ladder for panels/tooltips/popovers ---------- */
   --shadow-xs: 0 1px 2px light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.3));
@@ -148,6 +151,21 @@ body {
   height: 100vh;
 }
 
+/* Electron lets the shared header carry the native window chrome. Interactive
+   descendants remain clickable while the quiet surface can move the window. */
+[data-window-drag="true"] {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+[data-window-drag="true"] button,
+[data-window-drag="true"] a,
+[data-window-drag="true"] input,
+[data-window-drag="true"] select,
+[data-window-drag="true"] [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
 /* Global focus states */
 button:not(.page-canvas *):focus-visible,
 [role="button"]:not(.page-canvas *):focus-visible,
@@ -156,6 +174,10 @@ input:not(.page-canvas *):focus-visible,
 textarea:not(.page-canvas *):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+.category-picker-search-input:focus-visible {
+	outline: none !important;
 }
 
 /* ============================================================
@@ -269,9 +291,15 @@ textarea:not(.page-canvas *):focus-visible {
 	border-radius: 3px;
 }
 .annotation-marker-note {
-	outline: 4px solid var(--color-warning, #f59e0b);
+	outline: 4px solid var(--color-accent);
 	outline-offset: 4px;
-	box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-warning, #f59e0b) 18%, transparent);
+	box-shadow: 0 0 0 10px var(--color-accent-soft);
+}
+.annotation-marker-note.annotation-marker-inset {
+	outline: 0;
+	box-shadow:
+		inset 0 0 0 4px var(--color-accent),
+		inset 0 0 0 10px var(--color-accent-soft);
 }
 .annotation-marker-delete {
 	outline: 2px dashed var(--color-danger);
@@ -289,13 +317,17 @@ textarea:not(.page-canvas *):focus-visible {
 	height: 28px;
 	border: 2px solid white;
 	border-radius: 999px;
-	background-color: var(--color-warning, #f59e0b);
+	background-color: var(--color-accent);
 	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z'/%3E%3C/svg%3E");
 	background-position: center;
 	background-repeat: no-repeat;
 	background-size: 16px 16px;
 	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
 	pointer-events: none;
+}
+.annotation-marker-inset .annotation-marker-badge {
+	top: 8px;
+	right: 8px;
 }
 .annotation-page-marker {
 	position: absolute;
@@ -310,7 +342,7 @@ textarea:not(.page-canvas *):focus-visible {
 	padding: 0 9px;
 	border: 2px solid white;
 	border-radius: 999px;
-	background: var(--color-warning, #f59e0b);
+	background: var(--color-accent);
 	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
 	color: white;
 	font: 700 13px/1 system-ui, sans-serif;
@@ -318,14 +350,14 @@ textarea:not(.page-canvas *):focus-visible {
 .page-canvas [data-id][data-maket-message-target],
 .page-canvas[data-maket-message-target],
 [data-doc][data-maket-message-target] {
-	outline: 5px solid var(--color-warning, #f59e0b) !important;
+	outline: 5px solid var(--color-accent) !important;
 	outline-offset: 5px !important;
-	box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-warning, #f59e0b) 28%, transparent) !important;
+	box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-accent) 28%, transparent) !important;
 	animation: maket-message-target-pulse 700ms ease-in-out infinite alternate;
 }
 @keyframes maket-message-target-pulse {
 	to {
-		box-shadow: 0 0 0 18px color-mix(in srgb, var(--color-warning, #f59e0b) 10%, transparent);
+		box-shadow: 0 0 0 18px color-mix(in srgb, var(--color-accent) 10%, transparent);
 	}
 }
 @media (prefers-reduced-motion: reduce) {
@@ -334,6 +366,37 @@ textarea:not(.page-canvas *):focus-visible {
 	[data-doc][data-maket-message-target] {
 		animation: none;
 	}
+}
+
+/* Collection data grid: the library owns navigation and virtualization while
+   Maket owns the visual tokens and selected-preview semantics. */
+.maket-collection-grid {
+  --rdg-selection-color: var(--color-accent);
+  --rdg-font-size: var(--text-xs);
+  --rdg-border-width: 1px;
+  --rdg-color: var(--color-text-1);
+  --rdg-border-color: var(--color-border);
+  --rdg-background-color: var(--color-panel);
+  --rdg-header-background-color: color-mix(
+    in srgb,
+    var(--color-input) 45%,
+    var(--color-panel)
+  );
+  --rdg-header-draggable-background-color: var(--color-input);
+  --rdg-row-hover-background-color: color-mix(
+    in srgb,
+    var(--color-input) 55%,
+    transparent
+  );
+  --rdg-row-selected-background-color: var(--color-accent-soft);
+  --rdg-row-selected-hover-background-color: var(--color-accent-soft);
+  --rdg-checkbox-focus-color: var(--color-accent);
+  border: 0;
+  font-family: inherit;
+}
+
+.maket-collection-grid .maket-collection-grid-row-active {
+  background: var(--color-accent-soft);
 }
 
 [data-reader-appearance="app"] .page-canvas.reader-page {

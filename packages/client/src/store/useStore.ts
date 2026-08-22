@@ -7,14 +7,22 @@ import {
 } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
-import { applyColorScheme } from "../lib/colorScheme";
+import {
+	applyAccentColor,
+	applyColorScheme,
+	DEFAULT_ACCENT_COLOR,
+	normalizeAccentColor,
+	resolveDarkMode,
+	type ThemeMode,
+} from "../lib/colorScheme";
 import type { DocSummary, Document } from "./types";
 import {
 	type AnnotationCreateOutcome,
 	sendAnnotationCreate,
+	sendLoadDoc,
 	wsSend,
 } from "./ws";
-import { cancelFitForWorkspaceRemoval } from "./zoomBridge";
+import { cancelFitForWorkspaceRemoval, requestFit } from "./zoomBridge";
 
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
@@ -52,10 +60,8 @@ export interface PendingMessage {
 
 interface CollectionSlice {
 	focusedCollectionName: string | null;
-	/** Pinned data view: survives reloads (name + flag in localStorage) and
-	 * is surfaced in the toolbar. */
-	dataViewPinned: boolean;
-	toggleDataViewPinned: () => void;
+	dataDockMode: "split" | "expanded";
+	setDataDockMode: (mode: "split" | "expanded") => void;
 	/** Server-owned page↔collection cursors, mirrored wholesale from `state`
 	 * pushes and `collection_cursors` signals. Keyed by collectionCursorKey. */
 	collectionCursors: Record<string, PageCollectionCursor>;
@@ -94,6 +100,7 @@ interface CollectionSlice {
 interface DocumentStateSlice {
 	documentStates: Record<string, DocumentStateClientView>;
 	stateCanvasModes: Record<string, StateCanvasMode>;
+	stateDockOpen: boolean;
 	statePatchPending: Record<string, string>;
 	statePatchRequests: Record<string, string>;
 	statePatchErrors: Record<string, string>;
@@ -108,6 +115,7 @@ interface DocumentStateSlice {
 		docList: DocSummary[],
 	) => void;
 	setStateCanvasMode: (docName: string, mode: StateCanvasMode) => void;
+	setStateDockOpen: (open: boolean) => void;
 	beginStatePatch: (
 		docName: string,
 		pointer: string,
@@ -128,10 +136,34 @@ interface DocumentIdentitySlice {
 	) => void;
 }
 
+interface ShellSlice {
+	libraryView: "chartes" | "photos" | "docs" | "collections" | "exchange";
+	libraryOpen: boolean;
+	settingsOpen: boolean;
+	documentCategoryFilterRequest: { path: string } | null;
+	workspaceView: WorkspaceView;
+	themeMode: ThemeMode;
+	darkMode: boolean;
+	accentColor: string;
+	setLibraryView: (view: ShellSlice["libraryView"]) => void;
+	filterDocumentsByCategory: (path: string) => void;
+	clearDocumentCategoryFilterRequest: () => void;
+	toggleLibrary: () => void;
+	closeLastPanel: () => void;
+	toggleSettings: () => void;
+	closeSettings: () => void;
+	setWorkspaceView: (view: WorkspaceView) => void;
+	setThemeMode: (mode: ThemeMode) => void;
+	setDarkMode: (value: boolean) => void;
+	toggleDarkMode: () => void;
+	setAccentColor: (value: string) => void;
+}
+
 interface AppState
 	extends CollectionSlice,
 		DocumentStateSlice,
-		DocumentIdentitySlice {
+		DocumentIdentitySlice,
+		ShellSlice {
 	// Connection
 	connected: boolean;
 
@@ -152,16 +184,6 @@ interface AppState
 	selectedIds: string[];
 	editingElementId: string | null;
 	showPopover: boolean;
-	activePanel:
-		| "chartes"
-		| "photos"
-		| "docs"
-		| "collections"
-		| "exchange"
-		| null;
-	barPosition: "top" | "bottom";
-	workspaceView: WorkspaceView;
-	darkMode: boolean;
 	locked: boolean;
 	zoom: number;
 	autoFocusFit: boolean;
@@ -180,21 +202,12 @@ interface AppState
 		explicitFocus?: boolean,
 	) => void;
 	addDocToWorkspace: (docName: string) => void;
-	removeDocFromWorkspace: (docName: string) => void;
+	closeWorkspaceDocuments: (docNames: string[]) => void;
+	openWorkspaceDocument: (docName: string) => void;
 	setFocusedDoc: (docName: string | null) => void;
 	setFocusedPage: (docName: string, pageIndex: number) => void;
 	selectElement: (id: string | null, toggle?: boolean) => void;
 	setEditingElement: (id: string | null) => void;
-	setActivePanel: (
-		v: "chartes" | "photos" | "docs" | "collections" | "exchange" | null,
-	) => void;
-	togglePanel: (
-		panel: "chartes" | "photos" | "docs" | "collections" | "exchange",
-	) => void;
-	setBarPosition: (v: "top" | "bottom") => void;
-	setWorkspaceView: (view: WorkspaceView) => void;
-	setDarkMode: (v: boolean) => void;
-	toggleDarkMode: () => void;
 	setLocked: (v: boolean) => void;
 	setZoom: (v: number) => void;
 	toggleAutoFocusFit: () => void;
@@ -239,14 +252,17 @@ function saveFocusedDoc(name: string) {
 	localStorage.setItem("maket-focused-doc", name);
 }
 
-function persistDataViewPin(pinned: boolean, collectionName: string | null) {
-	if (useStore.getState().readOnly) return;
-	localStorage.setItem("maket-data-view-pinned", String(pinned));
-	if (pinned && collectionName) {
-		localStorage.setItem("maket-data-view-collection", collectionName);
-	} else {
-		localStorage.removeItem("maket-data-view-collection");
+function loadThemeMode(): ThemeMode {
+	const saved = localStorage.getItem("maket-theme-mode");
+	if (saved === "system" || saved === "light" || saved === "dark") return saved;
+	const legacy = localStorage.getItem("dark-mode");
+	if (legacy === "true" || legacy === "false") {
+		const migrated = legacy === "true" ? "dark" : "light";
+		localStorage.setItem("maket-theme-mode", migrated);
+		localStorage.removeItem("dark-mode");
+		return migrated;
 	}
+	return "system";
 }
 
 function reconcileCollectionDrafts(
@@ -314,7 +330,9 @@ export function sortedCollectionMembers(
 
 /**
  * Effective cursor of a bound page: the server mirror when present, else the
- * same default the server would lazily create (template mode, first row).
+ * same default the server would lazily create (single-row render, first row).
+ * An empty collection remains in template mode because there is no row to
+ * render yet.
  * Returns null when the page has no collection binding.
  */
 export function cursorForPage(
@@ -338,7 +356,7 @@ export function cursorForPage(
 		docName,
 		pageIndex,
 		collection: collectionName,
-		mode: "template",
+		mode: collection?.members.length ? "rendered" : "template",
 		memberId: sortedCollectionMembers(collection)[0]?.id ?? null,
 	};
 }
@@ -392,31 +410,78 @@ function preservePageIndex(
 		: clampPageIndex(nextDoc, nextDoc?.activePage ?? 0);
 }
 
+function resolveWorkspaceFocus(
+	workspaceDocNames: readonly string[],
+	requestedDocName: string | null,
+	currentDocName: string | null,
+	loadedDocs?: ReadonlyMap<string, unknown>,
+): string | null {
+	if (requestedDocName && workspaceDocNames.includes(requestedDocName)) {
+		return requestedDocName;
+	}
+	if (currentDocName && workspaceDocNames.includes(currentDocName)) {
+		return currentDocName;
+	}
+	if (loadedDocs) {
+		for (let index = workspaceDocNames.length - 1; index >= 0; index -= 1) {
+			const name = workspaceDocNames[index];
+			if (name && loadedDocs.has(name)) return name;
+		}
+	}
+	return workspaceDocNames[workspaceDocNames.length - 1] ?? null;
+}
+
+function collectionDockForFocus(
+	state: Pick<AppState, "docs" | "dataDockMode" | "focusedCollectionName">,
+	docName: string | null,
+	pageIndex: number,
+): Pick<AppState, "dataDockMode" | "focusedCollectionName"> {
+	const collectionName = docName
+		? state.docs.get(docName)?.pages[pageIndex]?.collection?.name
+		: null;
+	if (!collectionName) {
+		return { dataDockMode: "split", focusedCollectionName: null };
+	}
+	if (state.focusedCollectionName === null) {
+		return { dataDockMode: "split", focusedCollectionName: null };
+	}
+	return {
+		dataDockMode: "split",
+		focusedCollectionName: collectionName,
+	};
+}
+
+function stateDockForFocus(
+	state: Pick<AppState, "docs" | "stateDockOpen">,
+	docName: string | null,
+): Pick<AppState, "stateDockOpen"> {
+	const document = docName ? state.docs.get(docName) : null;
+	return {
+		stateDockOpen: state.stateDockOpen && document?.dataModel === "state",
+	};
+}
+
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
-const _savedDataViewPinned =
-	localStorage.getItem("maket-data-view-pinned") === "true";
-const _savedDataViewCollection = _savedDataViewPinned
-	? localStorage.getItem("maket-data-view-collection")
-	: null;
-
+const _savedThemeMode = loadThemeMode();
+const _savedAccentColor = normalizeAccentColor(
+	localStorage.getItem("maket-accent-color") || DEFAULT_ACCENT_COLOR,
+);
 export const useStore = create<AppState>((set, get) => ({
 	connected: false,
 	docs: new Map(),
 	workspaceDocNames: _savedWorkspace,
-	focusedDocName:
-		_savedFocused && _savedWorkspace.includes(_savedFocused)
-			? _savedFocused
-			: null,
+	focusedDocName: resolveWorkspaceFocus(_savedWorkspace, _savedFocused, null),
 	focusedPageIndex: 0,
-	focusedCollectionName: _savedDataViewCollection,
-	dataViewPinned: _savedDataViewPinned,
+	focusedCollectionName: null,
+	dataDockMode: "split",
 	collectionCursors: {},
 	draftCursorOverrides: {},
 	collectionDrafts: {},
 	docList: [],
 	documentStates: {},
 	stateCanvasModes: {},
+	stateDockOpen: false,
 	statePatchPending: {},
 	statePatchRequests: {},
 	statePatchErrors: {},
@@ -428,16 +493,23 @@ export const useStore = create<AppState>((set, get) => ({
 	editingElementId: null,
 	showPopover: false,
 	pending: [],
-	activePanel: null,
-	barPosition:
-		(localStorage.getItem("bar-position") as "top" | "bottom") || "bottom",
+	libraryView:
+		(localStorage.getItem("maket-library-view") as
+			| "chartes"
+			| "photos"
+			| "docs"
+			| "collections"
+			| "exchange") || "docs",
+	libraryOpen: localStorage.getItem("maket-library-open") !== "false",
+	settingsOpen: false,
+	documentCategoryFilterRequest: null,
 	workspaceView:
 		localStorage.getItem("maket-workspace-view") === "reading"
 			? "reading"
 			: "canvas",
-	darkMode:
-		localStorage.getItem("dark-mode") === "true" ||
-		window.matchMedia("(prefers-color-scheme: dark)").matches,
+	themeMode: _savedThemeMode,
+	darkMode: resolveDarkMode(_savedThemeMode),
+	accentColor: _savedAccentColor,
 	locked: false,
 	zoom: 100,
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
@@ -475,6 +547,7 @@ export const useStore = create<AppState>((set, get) => ({
 			return {
 				documentStates,
 				stateCanvasModes,
+				stateDockOpen: s.focusedDocName === docName ? false : s.stateDockOpen,
 				statePatchPending,
 				statePatchRequests,
 				statePatchErrors,
@@ -509,6 +582,14 @@ export const useStore = create<AppState>((set, get) => ({
 			selectedIds: [],
 			editingElementId: null,
 		})),
+	setStateDockOpen: (stateDockOpen) =>
+		set({
+			stateDockOpen,
+			focusedCollectionName: stateDockOpen ? null : get().focusedCollectionName,
+			dataDockMode: stateDockOpen ? "split" : get().dataDockMode,
+			selectedIds: [],
+			editingElementId: null,
+		}),
 	beginStatePatch: (docName, pointer, requestId) =>
 		set((s) => {
 			const key = statePatchKey(docName, pointer);
@@ -603,18 +684,12 @@ export const useStore = create<AppState>((set, get) => ({
 			),
 		}),
 	setFocusedCollection: (focusedCollectionName) =>
-		set((s) => {
-			// Closing a pinned view means "don't bring it back": unpin.
-			const dataViewPinned = focusedCollectionName ? s.dataViewPinned : false;
-			persistDataViewPin(dataViewPinned, focusedCollectionName);
-			return { focusedCollectionName, dataViewPinned, selectedIds: [] };
+		set({
+			focusedCollectionName,
+			stateDockOpen: focusedCollectionName ? false : get().stateDockOpen,
+			selectedIds: [],
 		}),
-	toggleDataViewPinned: () =>
-		set((s) => {
-			const dataViewPinned = !s.dataViewPinned;
-			persistDataViewPin(dataViewPinned, s.focusedCollectionName);
-			return { dataViewPinned };
-		}),
+	setDataDockMode: (dataDockMode) => set({ dataDockMode }),
 	setCollectionDraft: (collection) =>
 		set((s) => ({
 			collectionDrafts: {
@@ -747,8 +822,7 @@ export const useStore = create<AppState>((set, get) => ({
 			} else if (!inWorkspace && addToWorkspace && !s.focusedDocName) {
 				focusedDocName = doc.name;
 			} else {
-				focusedDocName =
-					s.focusedDocName ?? (workspaceDocNames.length > 0 ? doc.name : null);
+				focusedDocName = s.focusedDocName ?? (inWorkspace ? doc.name : null);
 			}
 			const focusedPageIndex =
 				focusedDocName === doc.name &&
@@ -764,11 +838,29 @@ export const useStore = create<AppState>((set, get) => ({
 			saveWorkspace(workspaceDocNames);
 			syncWorkspace();
 			if (focusedDocName) saveFocusedDoc(focusedDocName);
+			const focusChanged =
+				focusedDocName !== s.focusedDocName ||
+				focusedPageIndex !== s.focusedPageIndex;
+			const collectionDock = focusChanged
+				? collectionDockForFocus(
+						{ ...s, docs },
+						focusedDocName,
+						focusedPageIndex,
+					)
+				: {
+						dataDockMode: s.dataDockMode,
+						focusedCollectionName: s.focusedCollectionName,
+					};
+			const stateDock = focusChanged
+				? stateDockForFocus({ ...s, docs }, focusedDocName)
+				: { stateDockOpen: s.stateDockOpen };
 			return {
 				docs,
 				workspaceDocNames,
 				focusedDocName,
 				focusedPageIndex,
+				...collectionDock,
+				...stateDock,
 				docList,
 				chartesCss,
 			};
@@ -821,26 +913,58 @@ export const useStore = create<AppState>((set, get) => ({
 		set((s) => {
 			if (s.workspaceDocNames.includes(docName)) return {};
 			const workspaceDocNames = [...s.workspaceDocNames, docName];
+			const focusedDocName = resolveWorkspaceFocus(
+				workspaceDocNames,
+				s.focusedDocName,
+				null,
+			);
+			const focusChanged = focusedDocName !== s.focusedDocName;
+			const focusedPageIndex = focusChanged
+				? clampPageIndex(
+						s.docs.get(focusedDocName ?? ""),
+						s.docs.get(focusedDocName ?? "")?.activePage ?? 0,
+					)
+				: s.focusedPageIndex;
 			saveWorkspace(workspaceDocNames);
-			return { workspaceDocNames };
+			if (focusChanged) saveFocusedDoc(focusedDocName ?? "");
+			return {
+				workspaceDocNames,
+				focusedDocName,
+				focusedPageIndex,
+				selectedIds: focusChanged ? [] : s.selectedIds,
+				...(focusChanged
+					? collectionDockForFocus(s, focusedDocName, focusedPageIndex)
+					: {}),
+			};
 		}),
 
-	removeDocFromWorkspace: (docName) => {
-		if (get().workspaceDocNames.includes(docName)) {
-			cancelFitForWorkspaceRemoval();
-		}
+	closeWorkspaceDocuments: (docNames) => {
+		const names = new Set(docNames);
+		if (names.size === 0) return;
+		const current = get();
+		const closesWorkspace = current.workspaceDocNames.some((name) =>
+			names.has(name),
+		);
+		const closesLoadedDocument = [...names].some((name) =>
+			current.docs.has(name),
+		);
+		if (!closesWorkspace && !closesLoadedDocument) return;
+		if (closesWorkspace) cancelFitForWorkspaceRemoval();
 		set((s) => {
 			const workspaceDocNames = s.workspaceDocNames.filter(
-				(n) => n !== docName,
+				(name) => !names.has(name),
 			);
 			saveWorkspace(workspaceDocNames);
-			syncWorkspace();
 			const docs = new Map(s.docs);
-			docs.delete(docName);
-			const focusedDocName =
-				s.focusedDocName === docName
-					? (workspaceDocNames[workspaceDocNames.length - 1] ?? null)
-					: s.focusedDocName;
+			for (const name of names) docs.delete(name);
+			const focusedDocName = resolveWorkspaceFocus(
+				workspaceDocNames,
+				s.focusedDocName && !names.has(s.focusedDocName)
+					? s.focusedDocName
+					: null,
+				null,
+				docs,
+			);
 			const focusChanged = focusedDocName !== s.focusedDocName;
 			const focusedPageIndex = clampPageIndex(
 				docs.get(focusedDocName ?? ""),
@@ -854,26 +978,79 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedDocName,
 				focusedPageIndex,
 				selectedIds: focusChanged ? [] : s.selectedIds,
+				...collectionDockForFocus(
+					{ ...s, docs },
+					focusedDocName,
+					focusedPageIndex,
+				),
 			};
 		});
+		if (closesWorkspace) {
+			syncWorkspace();
+			const next = get();
+			saveFocusedDoc(next.focusedDocName ?? "");
+			if (next.focusedDocName) {
+				if (!next.docs.has(next.focusedDocName)) {
+					wsSend({ type: "load_document", name: next.focusedDocName });
+				}
+				if (next.workspaceView === "canvas") {
+					requestFit({
+						docName: next.focusedDocName,
+						pageIndex: next.focusedPageIndex,
+					});
+				}
+			}
+		}
+	},
+
+	openWorkspaceDocument: (docName) => {
+		const state = get();
+		if (!state.workspaceDocNames.includes(docName)) {
+			sendLoadDoc(docName);
+			return;
+		}
+		state.setFocusedDoc(docName);
+		if (state.workspaceView === "canvas") requestFit({ docName });
 	},
 
 	setFocusedDoc: (docName) =>
 		set((s) => {
-			if (s.focusedDocName === docName) return {};
-			saveFocusedDoc(docName ?? "");
+			const focusedDocName = resolveWorkspaceFocus(
+				s.workspaceDocNames,
+				docName,
+				s.focusedDocName,
+			);
+			const focusedPageIndex = clampPageIndex(
+				s.docs.get(focusedDocName ?? ""),
+				s.docs.get(focusedDocName ?? "")?.activePage ?? 0,
+			);
+			const collectionDock = collectionDockForFocus(
+				s,
+				focusedDocName,
+				focusedPageIndex,
+			);
+			const stateDock = stateDockForFocus(s, focusedDocName);
+			if (
+				s.focusedDocName === focusedDocName &&
+				s.focusedPageIndex === focusedPageIndex &&
+				s.dataDockMode === collectionDock.dataDockMode &&
+				s.focusedCollectionName === collectionDock.focusedCollectionName &&
+				s.stateDockOpen === stateDock.stateDockOpen
+			)
+				return {};
+			saveFocusedDoc(focusedDocName ?? "");
 			return {
-				focusedDocName: docName,
-				focusedPageIndex: clampPageIndex(
-					s.docs.get(docName ?? ""),
-					s.docs.get(docName ?? "")?.activePage ?? 0,
-				),
-				selectedIds: [],
+				focusedDocName,
+				focusedPageIndex,
+				selectedIds: s.focusedDocName === focusedDocName ? s.selectedIds : [],
+				...collectionDock,
+				...stateDock,
 			};
 		}),
 
 	setFocusedPage: (docName, pageIndex) =>
 		set((s) => {
+			if (!s.workspaceDocNames.includes(docName)) return {};
 			const focusedPageIndex = clampPageIndex(s.docs.get(docName), pageIndex);
 			if (
 				s.focusedDocName === docName &&
@@ -886,6 +1063,8 @@ export const useStore = create<AppState>((set, get) => ({
 				focusedDocName: docName,
 				focusedPageIndex,
 				selectedIds: [],
+				...collectionDockForFocus(s, docName, focusedPageIndex),
+				...stateDockForFocus(s, docName),
 			};
 		}),
 
@@ -906,27 +1085,76 @@ export const useStore = create<AppState>((set, get) => ({
 
 	setEditingElement: (id) => set({ editingElementId: id }),
 
-	setActivePanel: (activePanel) => set({ activePanel }),
-	togglePanel: (panel) =>
-		set((s) => ({ activePanel: s.activePanel === panel ? null : panel })),
-	setBarPosition: (barPosition) => {
-		localStorage.setItem("bar-position", barPosition);
-		set({ barPosition });
+	setLibraryView: (libraryView) => {
+		localStorage.setItem("maket-library-view", libraryView);
+		localStorage.setItem("maket-library-open", "true");
+		set({ libraryView, libraryOpen: true, settingsOpen: false });
 	},
+	filterDocumentsByCategory: (path) => {
+		localStorage.setItem("maket-library-view", "docs");
+		localStorage.setItem("maket-library-open", "true");
+		set({
+			libraryView: "docs",
+			libraryOpen: true,
+			settingsOpen: false,
+			documentCategoryFilterRequest: { path },
+		});
+	},
+	clearDocumentCategoryFilterRequest: () =>
+		set({ documentCategoryFilterRequest: null }),
+	toggleLibrary: () =>
+		set((s) => {
+			const libraryOpen = s.settingsOpen ? true : !s.libraryOpen;
+			localStorage.setItem("maket-library-open", String(libraryOpen));
+			return { libraryOpen, settingsOpen: false };
+		}),
+	closeLastPanel: () =>
+		set((s) => {
+			if (s.settingsOpen) return { settingsOpen: false };
+			if (s.libraryOpen) {
+				localStorage.setItem("maket-library-open", "false");
+				return { libraryOpen: false };
+			}
+			return {};
+		}),
+	toggleSettings: () =>
+		set((s) => {
+			const settingsOpen = !s.settingsOpen;
+			if (settingsOpen) localStorage.setItem("maket-library-open", "false");
+			return {
+				settingsOpen,
+				libraryOpen: settingsOpen ? false : s.libraryOpen,
+			};
+		}),
+	closeSettings: () => set({ settingsOpen: false }),
 	setWorkspaceView: (workspaceView) => {
 		localStorage.setItem("maket-workspace-view", workspaceView);
-		set({ workspaceView });
+		set({ workspaceView, settingsOpen: false });
+	},
+	setThemeMode: (themeMode) => {
+		const darkMode = resolveDarkMode(themeMode);
+		localStorage.setItem("maket-theme-mode", themeMode);
+		applyColorScheme(darkMode);
+		set({ themeMode, darkMode });
 	},
 	setDarkMode: (darkMode) => {
-		localStorage.setItem("dark-mode", String(darkMode));
+		const themeMode = darkMode ? "dark" : "light";
+		localStorage.setItem("maket-theme-mode", themeMode);
 		applyColorScheme(darkMode);
-		set({ darkMode });
+		set({ themeMode, darkMode });
 	},
 	toggleDarkMode: () => {
 		const next = !get().darkMode;
-		localStorage.setItem("dark-mode", String(next));
+		const themeMode = next ? "dark" : "light";
+		localStorage.setItem("maket-theme-mode", themeMode);
 		applyColorScheme(next);
-		set({ darkMode: next });
+		set({ themeMode, darkMode: next });
+	},
+	setAccentColor: (value) => {
+		const accentColor = normalizeAccentColor(value);
+		localStorage.setItem("maket-accent-color", accentColor);
+		applyAccentColor(accentColor);
+		set({ accentColor });
 	},
 	setLocked: (locked) => set({ locked }),
 	setZoom: (zoom) => set({ zoom }),
@@ -954,7 +1182,7 @@ export const useStore = create<AppState>((set, get) => ({
 
 // ---- Selectors ----
 
-/** The focused document (what BottomBar, Layers, Exchange operate on) */
+/** The focused document (what the workspace header, canvas and exchanges operate on) */
 export const useFocusedDoc = () =>
 	useStore(
 		useShallow((s) =>

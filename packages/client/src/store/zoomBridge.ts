@@ -1,4 +1,4 @@
-/** Bridge between the zoom slider (BottomBar) and d3-zoom (Workspace). */
+/** Bridge between workspace zoom controls and d3-zoom (Workspace). */
 let _zoomTo: ((pct: number) => void) | null = null;
 let _fitToView: (() => void) | null = null;
 let _fitToDoc: ((docName: string, pageIndex?: number) => void) | null = null;

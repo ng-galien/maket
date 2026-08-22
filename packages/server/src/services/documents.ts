@@ -58,6 +58,19 @@ function lightweightElements(elements: unknown[]): unknown[] {
 	});
 }
 
+function collectionBindings(
+	pages: Document["pages"],
+): Array<{ name: string; pageCount: number }> {
+	const pageCounts = new Map<string, number>();
+	for (const page of pages) {
+		const name = page.collection?.name;
+		if (name) pageCounts.set(name, (pageCounts.get(name) ?? 0) + 1);
+	}
+	return [...pageCounts]
+		.map(([name, pageCount]) => ({ name, pageCount }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export function createDocuments({ store }: DocumentsDeps): Documents {
 	const cache = new Map<string, Document>();
 
@@ -140,8 +153,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 					0,
 				),
 				charte: d.meta?.charte,
-				collection: d.pages.find((page) => page.collection)?.collection,
-				collectionCount: d.pages.filter((page) => page.collection).length,
+				collectionBindings: collectionBindings(d.pages),
 				locked: d.meta?.locked === true,
 				updatedAt: timestamps.get(d.name),
 				charteColor: resolveCharteColor(d.meta?.charte),

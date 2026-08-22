@@ -1,7 +1,13 @@
-import { LayoutGrid, List, Search, Upload } from "lucide-react";
+import { Upload } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
+import { LibrarySearchField } from "../shared/LibrarySearchField";
+import {
+	LibraryToolbarActions,
+	LibraryToolbarRow,
+} from "../shared/LibraryToolbar";
+import { LibraryViewToggle } from "../shared/LibraryViewToggle";
 import {
 	applySearchSuggestion,
 	buildQueryChips,
@@ -71,9 +77,10 @@ function handleImportDrop(
 }
 
 export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
+	const t = useT();
 	return (
-		<div className="px-1 flex flex-col gap-1.5">
-			<div className="flex items-center gap-1.5">
+		<div className="flex flex-col gap-1.5">
+			<LibraryToolbarRow>
 				<DocsSearch model={model} />
 				<input
 					ref={model.importInputRef}
@@ -82,9 +89,16 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					className="hidden"
 					onChange={model.handleImportInput}
 				/>
-				<ImportButton model={model} />
-				<ViewToggle view={model.view} setView={model.setView} />
-			</div>
+				<LibraryToolbarActions>
+					<ImportButton model={model} />
+					<LibraryViewToggle
+						view={model.view}
+						onChange={model.setView}
+						listLabel={t("view_list")}
+						gridLabel={t("view_grid")}
+					/>
+				</LibraryToolbarActions>
+			</LibraryToolbarRow>
 			{model.importError && (
 				<button
 					type="button"
@@ -119,13 +133,8 @@ function DocsSearch({ model }: { model: DocsToolbarModel }) {
 		requestAnimationFrame(() => inputRef.current?.focus());
 	};
 	return (
-		<div className="relative flex-1 min-w-0">
-			<Search
-				size={12}
-				aria-hidden
-				className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
-			/>
-			<input
+		<>
+			<LibrarySearchField
 				ref={inputRef}
 				value={model.search}
 				onChange={(event) => {
@@ -133,28 +142,34 @@ function DocsSearch({ model }: { model: DocsToolbarModel }) {
 					setActiveIndex(0);
 					setDismissedSearch(null);
 				}}
-				onFocus={() => setDismissedSearch(null)}
-				onBlur={() => setDismissedSearch(model.search)}
-				onKeyDown={(event) =>
-					handleSearchKeyDown(event, {
-						open,
-						suggestions,
-						activeIndex,
-						setActiveIndex,
-						commit,
-						dismiss: () => setDismissedSearch(model.search),
-					})
-				}
+				onClear={() => {
+					model.setSearch("");
+					setActiveIndex(0);
+					setDismissedSearch(null);
+					inputRef.current?.focus();
+				}}
 				placeholder={t("search_hint")}
-				role="combobox"
-				aria-autocomplete="list"
-				aria-expanded={open}
-				aria-controls="docs-search-suggestions"
-				aria-activedescendant={
-					open ? `docs-search-suggestion-${activeIndex}` : undefined
-				}
-				autoComplete="off"
-				className="w-full min-w-0 h-7 pl-8 pr-3 bg-input rounded-md text-sm outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
+				inputProps={{
+					onFocus: () => setDismissedSearch(null),
+					onBlur: () => setDismissedSearch(model.search),
+					onKeyDown: (event) =>
+						handleSearchKeyDown(event, {
+							open,
+							suggestions,
+							activeIndex,
+							setActiveIndex,
+							commit,
+							dismiss: () => setDismissedSearch(model.search),
+						}),
+					role: "combobox",
+					"aria-autocomplete": "list",
+					"aria-expanded": open,
+					"aria-controls": "docs-search-suggestions",
+					"aria-activedescendant": open
+						? `docs-search-suggestion-${activeIndex}`
+						: undefined,
+					autoComplete: "off",
+				}}
 			/>
 			{open && position
 				? createPortal(
@@ -168,7 +183,7 @@ function DocsSearch({ model }: { model: DocsToolbarModel }) {
 						document.body,
 					)
 				: null}
-		</div>
+		</>
 	);
 }
 
@@ -319,67 +334,13 @@ function ImportButton({ model }: { model: DocsToolbarModel }) {
 			onDrop={model.handleImportDrop}
 			aria-label={t("import_maket")}
 			title={t("import_maket")}
-			className={`w-7 h-7 rounded-md flex items-center justify-center transition ${
+			className={`flex h-8 w-8 items-center justify-center rounded-md transition ${
 				model.importDrag
 					? "bg-accent-soft text-accent ring-2 ring-accent/40"
 					: "bg-input text-text-3 hover:text-text-1"
 			}`}
 		>
 			<Upload size={13} />
-		</button>
-	);
-}
-
-function ViewToggle({
-	view,
-	setView,
-}: {
-	view: View;
-	setView: (view: View) => void;
-}) {
-	const t = useT();
-	return (
-		<div className="flex rounded-md bg-input p-0.5">
-			<ViewToggleButton
-				active={view === "list"}
-				label={t("view_list")}
-				onClick={() => setView("list")}
-				icon={<List size={13} />}
-			/>
-			<ViewToggleButton
-				active={view === "grid"}
-				label={t("view_grid")}
-				onClick={() => setView("grid")}
-				icon={<LayoutGrid size={13} />}
-			/>
-		</div>
-	);
-}
-
-function ViewToggleButton({
-	active,
-	label,
-	onClick,
-	icon,
-}: {
-	active: boolean;
-	label: string;
-	onClick: () => void;
-	icon: React.ReactNode;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={label}
-			title={label}
-			className={`w-7 h-7 rounded-[5px] flex items-center justify-center transition ${
-				active
-					? "bg-panel shadow-sm text-text-1"
-					: "text-text-3 hover:text-text-1"
-			}`}
-		>
-			{icon}
 		</button>
 	);
 }
@@ -393,7 +354,7 @@ function QueryChips({ chips }: { chips: QueryChip[] }) {
 					key={chip.key}
 					type="button"
 					onClick={chip.onRemove}
-					className="group flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/10 text-accent text-2xs font-semibold hover:bg-accent/15 transition"
+					className="group flex min-h-6 items-center gap-1.5 rounded-full bg-accent/10 px-2.5 py-1 text-xs font-semibold leading-none text-accent transition hover:bg-accent/15"
 				>
 					<span>{chip.label}</span>
 					<span

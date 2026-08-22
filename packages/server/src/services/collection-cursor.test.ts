@@ -52,14 +52,33 @@ function makeDeps() {
 }
 
 describe("CollectionCursors service", () => {
-	it("defaults a bound page to template mode on the first row", () => {
+	it("defaults a bound page to single-row mode on the first row", () => {
 		const { store, cursors } = makeDeps();
 		expect(cursors.resolve("poster", 0)).toEqual({
 			docName: "poster",
 			pageIndex: 0,
 			collection: "clients",
-			mode: "template",
+			mode: "rendered",
 			memberId: "member_1",
+		});
+		store.close();
+	});
+
+	it("restores the page render mode and row after recreating the service", () => {
+		const { store, cursors } = makeDeps();
+		cursors.set("poster", 0, { mode: "all", memberId: "member_2" });
+
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		documents.loadAll();
+		const restored = createCollectionCursors({ bus, documents, store });
+
+		expect(restored.resolve("poster", 0)).toEqual({
+			docName: "poster",
+			pageIndex: 0,
+			collection: "clients",
+			mode: "all",
+			memberId: "member_2",
 		});
 		store.close();
 	});
@@ -76,13 +95,13 @@ describe("CollectionCursors service", () => {
 		const changed = vi.fn();
 		bus.on("collection-cursor:changed", changed);
 
-		const moved = cursors.set("poster", 0, { mode: "rendered" });
-		expect(moved.mode).toBe("rendered");
+		const moved = cursors.set("poster", 0, { mode: "all" });
+		expect(moved.mode).toBe("all");
 		expect(moved.memberId).toBe("member_1");
 		expect(changed).toHaveBeenCalledTimes(1);
 
 		const onRow = cursors.set("poster", 0, { memberId: "member_2" });
-		expect(onRow.mode).toBe("rendered");
+		expect(onRow.mode).toBe("all");
 		expect(onRow.memberId).toBe("member_2");
 		expect(changed).toHaveBeenCalledTimes(2);
 
@@ -132,7 +151,7 @@ describe("CollectionCursors service", () => {
 		documents.loadAll();
 
 		cursors.set("poster", 0, { mode: "rendered", memberId: "member_2" });
-		expect(cursors.resolve("flyer", 0)?.mode).toBe("template");
+		expect(cursors.resolve("flyer", 0)?.mode).toBe("rendered");
 		expect(cursors.resolve("flyer", 0)?.memberId).toBe("member_1");
 		expect(cursors.resolve("poster", 0)?.memberId).toBe("member_2");
 		store.close();
@@ -238,7 +257,7 @@ describe("CollectionCursors service", () => {
 		expect(cursors.resolve("poster", 0)).toEqual(
 			expect.objectContaining({
 				collection: "products",
-				mode: "template",
+				mode: "rendered",
 				memberId: "p_1",
 			}),
 		);

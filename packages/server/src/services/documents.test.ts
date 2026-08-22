@@ -124,6 +124,23 @@ describe("documents service", () => {
 	it("list produces summaries for every cached document", () => {
 		const store = createSQLiteStore(":memory:");
 		const a = makeDoc("a", "poster");
+		const firstPage = a.pages[0];
+		if (!firstPage) throw new Error("Fixture page missing.");
+		firstPage.collection = { name: "clients" };
+		a.pages.push(
+			{
+				...firstPage,
+				id: "a-page-2",
+				name: "Clients 2",
+				collection: { name: "clients" },
+			},
+			{
+				...firstPage,
+				id: "a-page-3",
+				name: "Offers",
+				collection: { name: "offers" },
+			},
+		);
 		const b = makeDoc("b", "flyer");
 		store.saveDocs([a, b]);
 
@@ -138,6 +155,10 @@ describe("documents service", () => {
 		const summaryA = docs.list().find((s) => s.name === "a");
 		expect(summaryA?.category).toBe("poster");
 		expect(summaryA?.format).toBe("A4");
+		expect(summaryA?.collectionBindings).toEqual([
+			{ name: "clients", pageCount: 2 },
+			{ name: "offers", pageCount: 1 },
+		]);
 		store.close();
 	});
 });

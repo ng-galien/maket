@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================
-// PACK-NPM — Stage Maket for `npm publish` under @ng-galien/maket
+// PACK-NPM — Stage Maket Server for `npm publish` under @ng-galien/maket-server
 // ============================================================
 //
 // Usage:
@@ -12,7 +12,7 @@
 // Output: dist/npm/ (ready-to-publish package directory).
 //
 // Installation contract for users:
-//   npm install -g @ng-galien/maket   # global binary: `maket`
+//   npm install -g @ng-galien/maket-server   # global binary: `maket-server`
 // ============================================================
 
 import { execFileSync, execSync } from "node:child_process";
@@ -84,7 +84,7 @@ function stage(): void {
   const { "@maket/shared": _shared, ...runtimeDeps } = serverPkg.dependencies ?? {};
 
   const npmPkg = {
-    name: "@ng-galien/maket",
+    name: "@ng-galien/maket-server",
     version: rootPkg.version,
     mcpName: rootPkg.mcpName,
     description: rootPkg.description,
@@ -96,7 +96,7 @@ function stage(): void {
     author: rootPkg.author,
     type: "module",
     main: "server.js",
-    bin: { maket: "index.js" },
+    bin: { "maket-server": "index.js" },
     files: ["index.js", "server.js", "manifest.json", "public/**", "README.md", "LICENSE"],
     engines: { node: ">=22.0.0" },
     dependencies: runtimeDeps,

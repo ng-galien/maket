@@ -16,7 +16,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const rootPackage = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
-const defaultTarball = join(ROOT, "dist", `ng-galien-maket-${rootPackage.version}.tgz`);
+const defaultTarball = join(ROOT, "dist", `ng-galien-maket-server-${rootPackage.version}.tgz`);
 const tarball = process.argv[2] ? join(process.cwd(), process.argv[2]) : defaultTarball;
 if (!existsSync(tarball)) throw new Error(`npm tarball not found: ${tarball}`);
 
@@ -25,7 +25,7 @@ const prefix = join(scratch, "install");
 const dataDir = join(scratch, "data");
 const puppeteerCacheDir = join(scratch, "puppeteer-cache");
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-const bin = process.platform === "win32" ? join(prefix, "maket.cmd") : join(prefix, "bin", "maket");
+const bin = process.platform === "win32" ? join(prefix, "maket-server.cmd") : join(prefix, "bin", "maket-server");
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -90,7 +90,7 @@ try {
     ...(process.platform === "win32" ? [] : ["lib"]),
     "node_modules",
     "@ng-galien",
-    "maket",
+    "maket-server",
   );
   if (lstatSync(installedPackage).isSymbolicLink()) {
     throw new Error("installed package is a symlink, expected an autonomous copy");

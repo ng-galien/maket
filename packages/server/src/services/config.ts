@@ -44,6 +44,10 @@ export interface Config {
 export interface ConfigInputs {
 	env?: Record<string, string | undefined>;
 	homedir?: () => string;
+	/** Read-only runtime assets root. Electron supplies process.resourcesPath. */
+	packageDir?: string;
+	/** Explicit packaged-runtime marker for hosts that embed the server. */
+	packaged?: boolean;
 }
 
 const DEFAULT_PORT = 24842;
@@ -55,13 +59,13 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const __dirname = dirname(fileURLToPath(import.meta.url));
 	const projectRoot = resolve(__dirname, "../../../..");
 	const COMPILED = false;
-	const PACKAGED = !COMPILED && !existsSync(join(projectRoot, "packages"));
+	const PACKAGED =
+		inputs.packaged ??
+		(!COMPILED && !existsSync(join(projectRoot, "packages")));
 
-	const PACKAGE_DIR = COMPILED
-		? dirname(process.execPath)
-		: PACKAGED
-			? __dirname
-			: projectRoot;
+	const PACKAGE_DIR =
+		inputs.packageDir ??
+		(COMPILED ? dirname(process.execPath) : PACKAGED ? __dirname : projectRoot);
 
 	const explicitData = env.MAKET_DATA_DIR;
 	const DATA_DIR = explicitData ? explicitData : join(homedir(), ".maket");

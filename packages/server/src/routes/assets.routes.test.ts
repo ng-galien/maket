@@ -6,7 +6,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startTestApp } from "../../tests/helpers.js";
@@ -30,7 +30,11 @@ describe("assets routes", () => {
 		bus = createBus();
 		assets = createAssetsService({ assetsDir });
 		vi.spyOn(assets, "optimize").mockResolvedValue(null);
-		const config = { ASSETS_DIR: assetsDir } as Config;
+		// Runtime workspaces may provide a relative data path. Asset variants must
+		// still resolve to an absolute path before Express sends them.
+		const config = {
+			ASSETS_DIR: relative(process.cwd(), assetsDir),
+		} as Config;
 		const app = express();
 		app.use(createAssetsRouter({ config, store, bus, assets }));
 		({ baseUrl, close } = await startTestApp(app));

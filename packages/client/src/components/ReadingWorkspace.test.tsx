@@ -171,21 +171,16 @@ describe("ReadingWorkspace", () => {
 		}
 	});
 
-	it("reserves toolbar clearance on the toolbar side", () => {
+	it("reserves clearance for the stable top reading controls", () => {
 		const doc = makeDoc("report");
 		useStore.setState({
 			docs: new Map([[doc.name, doc]]),
 			workspaceDocNames: [doc.name],
 			focusedDocName: doc.name,
 			workspaceView: "reading",
-			barPosition: "bottom",
 		});
 		const { container } = render(<ReadingWorkspace />);
 		const workspace = container.querySelector("[data-reading-workspace]");
-		expect(workspace).toHaveClass("pb-20");
-		expect(workspace).toHaveAttribute("data-bar-position", "bottom");
-
-		act(() => useStore.getState().setBarPosition("top"));
 		expect(workspace).toHaveClass("pt-20");
 		expect(workspace).toHaveAttribute("data-bar-position", "top");
 	});

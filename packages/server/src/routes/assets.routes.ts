@@ -145,7 +145,7 @@ function sendCachedAsset(
 ): void {
 	if (contentType) res.setHeader("Content-Type", contentType);
 	res.setHeader("Cache-Control", "public, max-age=86400");
-	res.sendFile(file);
+	res.sendFile(resolve(file));
 }
 
 async function renderVariantBuffer(

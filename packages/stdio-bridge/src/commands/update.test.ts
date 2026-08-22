@@ -32,7 +32,7 @@ describe("updateInstallArgs", () => {
 			"install",
 			"-g",
 			"--allow-scripts=puppeteer",
-			"@ng-galien/maket@1.4.6",
+			"@ng-galien/maket-server@1.4.6",
 		]);
 	});
 });

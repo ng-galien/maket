@@ -4,10 +4,8 @@ import {
 	Copy,
 	ImagePlus,
 	MoreVertical,
-	Search,
 	Trash2,
 	Upload,
-	X,
 } from "lucide-react";
 import {
 	useCallback,
@@ -23,10 +21,25 @@ import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { copyToClipboard } from "../utils";
 import { HoldToDelete } from "./shared/HoldToDelete";
+import { LibrarySearchField } from "./shared/LibrarySearchField";
+import {
+	LibraryToolbar,
+	LibraryToolbarActions,
+	LibraryToolbarRow,
+} from "./shared/LibraryToolbar";
 
 type ImageAsset = AssetsListItem;
 
 type RowMode = { kind: "idle" } | { kind: "confirm-delete" };
+
+function focusedWorkspaceDocumentName(
+	state: ReturnType<typeof useStore.getState>,
+): string | null {
+	const name = state.focusedDocName;
+	return name && state.workspaceDocNames.includes(name) && state.docs.has(name)
+		? name
+		: null;
+}
 
 export function PhotosTab() {
 	const model = usePhotosTabModel();
@@ -224,6 +237,7 @@ function usePhotoRequests(t: ReturnType<typeof useT>) {
 
 function usePhotosTabModel() {
 	const t = useT();
+	const focusedDocName = useStore(focusedWorkspaceDocumentName);
 	const requests = usePhotoRequests(t);
 	const assets = usePhotoAssets();
 	const upload = usePhotoUpload(
@@ -252,7 +266,6 @@ function usePhotosTabModel() {
 		return () => document.removeEventListener("keydown", onKey);
 	}, [checked.size]);
 
-	const barPosition = useStore((s) => s.barPosition);
 	const filters = usePhotoFilters(assets.images, search);
 	const flatOrder = filters.filtered.map((i) => i.file);
 
@@ -318,7 +331,7 @@ function usePhotosTabModel() {
 		},
 	});
 
-	const insertSelected = useStore.getState().focusedDocName
+	const insertSelected = focusedDocName
 		? async (file: string) => {
 				const created = await requests.insertImage(file);
 				if (!created) return;
@@ -348,7 +361,6 @@ function usePhotosTabModel() {
 		uploadInputRef: upload.uploadInputRef,
 		handleUpload: upload.handleUpload,
 		openFilePicker: upload.openFilePicker,
-		barPosition,
 		categories: filters.categories,
 		filtered: filters.filtered,
 		checked,
@@ -381,7 +393,6 @@ function PhotosTabView({
 		uploadInputRef,
 		handleUpload,
 		openFilePicker,
-		barPosition,
 		categories,
 		filtered,
 		checked,
@@ -392,71 +403,76 @@ function PhotosTabView({
 	} = model;
 
 	return (
-		<div
-			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-3 p-3`}
-		>
-			<PhotoToolbar
-				model={{
-					search,
-					setSearch,
-					uploadInputRef,
-					uploadBtnDrag,
-					setUploadBtnDrag,
-					uploading,
-					handleUpload,
-					openFilePicker,
-				}}
-			/>
-
-			{annotationError && (
-				<p className="text-xs font-medium text-danger" role="alert">
-					{annotationError}
-				</p>
-			)}
-
-			{categories.length > 1 && (
-				<div className="flex gap-1.5 flex-wrap">
-					{categories.map((f) => (
-						<button
-							key={f}
-							type="button"
-							onClick={() => setActiveFilter(f)}
-							className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
-								activeFilter === f
-									? "bg-accent/15 text-accent ring-1 ring-accent/20"
-									: "bg-input text-text-3 hover:text-text-1"
-							}`}
-						>
-							{f}
-						</button>
-					))}
-				</div>
-			)}
-
-			<PhotoContent
-				model={{
-					loading,
-					images,
-					filtered,
-					dragOver,
-					setDragOver,
-					openFilePicker,
-					handleUpload,
-					photoItemFor,
-				}}
-			/>
-
-			{dragOver && images.length > 0 && (
-				<div className="fixed inset-0 bg-accent/10 pointer-events-none z-50 ring-4 ring-accent/40 ring-inset" />
-			)}
-
-			{checked.size > 0 && (
-				<BulkBar
-					count={checked.size}
-					onClear={clearChecked}
-					onDelete={bulkDelete}
+		<div className="flex h-full min-h-0 flex-col overflow-hidden">
+			<LibraryToolbar>
+				<PhotoToolbar
+					model={{
+						search,
+						setSearch,
+						uploadInputRef,
+						uploadBtnDrag,
+						setUploadBtnDrag,
+						uploading,
+						handleUpload,
+						openFilePicker,
+					}}
 				/>
-			)}
+			</LibraryToolbar>
+
+			<div
+				data-photos-scroll
+				className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
+			>
+				{annotationError && (
+					<p className="text-xs font-medium text-danger" role="alert">
+						{annotationError}
+					</p>
+				)}
+
+				{categories.length > 1 && (
+					<div className="flex gap-1.5 flex-wrap">
+						{categories.map((f) => (
+							<button
+								key={f}
+								type="button"
+								onClick={() => setActiveFilter(f)}
+								className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
+									activeFilter === f
+										? "bg-accent/15 text-accent ring-1 ring-accent/20"
+										: "bg-input text-text-3 hover:text-text-1"
+								}`}
+							>
+								{f}
+							</button>
+						))}
+					</div>
+				)}
+
+				<PhotoContent
+					model={{
+						loading,
+						images,
+						filtered,
+						dragOver,
+						setDragOver,
+						openFilePicker,
+						handleUpload,
+						photoItemFor,
+					}}
+				/>
+
+				{dragOver && images.length > 0 && (
+					<div className="fixed inset-0 bg-accent/10 pointer-events-none z-50 ring-4 ring-accent/40 ring-inset" />
+				)}
+
+				{checked.size > 0 && (
+					<BulkBar
+						count={checked.size}
+						onClear={clearChecked}
+						onDelete={bulkDelete}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }
@@ -486,37 +502,23 @@ function PhotoToolbar({ model }: { model: PhotoToolbarModel }) {
 	const t = useT();
 	return (
 		<>
-			<div className="flex items-center gap-1.5">
-				<div className="relative flex-1 min-w-0">
-					<Search
-						size={13}
-						className="absolute left-3 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
-					/>
-					<input
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-						placeholder={t("photo_search_hint")}
-						className="w-full pl-8 pr-8 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
-					/>
-					{search && (
-						<button
-							type="button"
-							onClick={() => setSearch("")}
-							aria-label="Clear"
-							className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
-						>
-							<X size={12} />
-						</button>
-					)}
-				</div>
-				<UploadButton
-					inputRef={uploadInputRef}
-					dragging={uploadBtnDrag}
-					setDragging={setUploadBtnDrag}
-					handleUpload={handleUpload}
-					openFilePicker={openFilePicker}
+			<LibraryToolbarRow>
+				<LibrarySearchField
+					value={search}
+					onChange={(event) => setSearch(event.target.value)}
+					onClear={() => setSearch("")}
+					placeholder={t("photo_search_hint")}
 				/>
-			</div>
+				<LibraryToolbarActions>
+					<UploadButton
+						inputRef={uploadInputRef}
+						dragging={uploadBtnDrag}
+						setDragging={setUploadBtnDrag}
+						handleUpload={handleUpload}
+						openFilePicker={openFilePicker}
+					/>
+				</LibraryToolbarActions>
+			</LibraryToolbarRow>
 			{uploading && <UploadProgress uploading={uploading} />}
 		</>
 	);
@@ -749,11 +751,11 @@ function PhotoTile({ model, actions }: PhotoTileProps) {
 	const t = useT();
 	const menuBtnRef = useRef<HTMLButtonElement>(null);
 	const confirming = mode.kind === "confirm-delete";
-	const hasDoc = useStore((s) => s.focusedDocName !== null);
+	const hasDoc = useStore(focusedWorkspaceDocumentName) !== null;
 	const [inserting, setInserting] = useState(false);
 
 	const onInsert = async (): Promise<boolean> => {
-		const focused = useStore.getState().focusedDocName;
+		const focused = focusedWorkspaceDocumentName(useStore.getState());
 		if (!focused || inserting) return false;
 		setInserting(true);
 		const created = await actions.insert(img.file);
@@ -775,6 +777,12 @@ function PhotoTile({ model, actions }: PhotoTileProps) {
 				<img
 					src={`/assets/thumb/${img.file}`}
 					alt={img.title || img.file}
+					onError={(event) => {
+						const fallback = `/assets/${encodeURIComponent(img.file)}`;
+						if (event.currentTarget.getAttribute("src") !== fallback) {
+							event.currentTarget.src = fallback;
+						}
+					}}
 					className="w-full h-full object-cover"
 					loading="lazy"
 					decoding="async"
@@ -942,16 +950,16 @@ function PhotoMenu({
 			className="fixed z-[210] bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
 			style={{ top: pos.top, left: pos.left, width: 200 }}
 		>
-			{hasDoc && (
-				<MenuItem
-					icon={<ImagePlus size={13} />}
-					onClick={async () => {
-						if (await onInsert()) onClose();
-					}}
-				>
-					{t("insert_in_doc")}
-				</MenuItem>
-			)}
+			<MenuItem
+				icon={<ImagePlus size={13} />}
+				disabled={!hasDoc}
+				title={!hasDoc ? t("insert_requires_document") : undefined}
+				onClick={async () => {
+					if (await onInsert()) onClose();
+				}}
+			>
+				{t("insert_in_doc")}
+			</MenuItem>
 			<MenuItem icon={<Copy size={13} />} onClick={handleCopy}>
 				{t("photo_copy_filename")}
 			</MenuItem>
@@ -969,17 +977,30 @@ interface MenuItemProps {
 	children: React.ReactNode;
 	onClick: () => void | Promise<void>;
 	danger?: boolean;
+	disabled?: boolean;
+	title?: string;
 }
 
-function MenuItem({ icon, children, onClick, danger }: MenuItemProps) {
+function MenuItem({
+	icon,
+	children,
+	onClick,
+	danger,
+	disabled = false,
+	title,
+}: MenuItemProps) {
 	return (
 		<button
 			type="button"
 			onClick={onClick}
+			disabled={disabled}
+			title={title}
 			className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-left transition ${
-				danger
-					? "text-danger hover:bg-danger-soft"
-					: "text-text-1 hover:bg-black/[0.05]"
+				disabled
+					? "cursor-not-allowed text-text-3 opacity-55"
+					: danger
+						? "text-danger hover:bg-danger-soft"
+						: "text-text-1 hover:bg-black/[0.05]"
 			}`}
 		>
 			<span className="flex-shrink-0">{icon}</span>
@@ -1134,23 +1155,22 @@ function ImageDetail({
 				/>
 			) : (
 				<div className="flex gap-2">
-					{onInsert && (
-						<button
-							type="button"
-							onClick={async () => {
-								if (inserting) return;
-								setInserting(true);
-								await onInsert(img.file);
-								setInserting(false);
-							}}
-							disabled={inserting}
-							aria-busy={inserting}
-							className="flex-1 py-2.5 rounded-xl text-base font-semibold bg-accent text-white hover:brightness-110 transition flex items-center justify-center gap-2"
-						>
-							<ImagePlus size={16} />
-							{t("insert_in_doc")}
-						</button>
-					)}
+					<button
+						type="button"
+						onClick={async () => {
+							if (!onInsert || inserting) return;
+							setInserting(true);
+							await onInsert(img.file);
+							setInserting(false);
+						}}
+						disabled={!onInsert || inserting}
+						aria-busy={inserting}
+						title={!onInsert ? t("insert_requires_document") : undefined}
+						className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-accent py-2.5 text-base font-semibold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:bg-input disabled:text-text-3 disabled:hover:brightness-100"
+					>
+						<ImagePlus size={16} />
+						{t("insert_in_doc")}
+					</button>
 					<button
 						type="button"
 						onClick={() => setConfirming(true)}

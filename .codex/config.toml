@@ -1,0 +1,12 @@
+[shell_environment_policy]
+inherit = "core"
+
+[shell_environment_policy.set]
+ESAC_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3NTU3NzU5Mi02Y2RiLTQzNzItODMwOC0wZDBlMmZhYmJmOGIiLCJyb2xlIjoibWFzdGVyIiwiaWF0IjoxNzc3NjUzNTk4LCJleHAiOjE3ODAyNDU1OTgsInJlcG9zIjpbIm1jcC1tYWtldCJdLCJ2aWV3IjpbInN5bWJvbCIsInRlc3QiLCJjb2RlLWNvbW1lbnRlZCJdfQ.vwnjTeYoGi3bie96aYRaukeMvO5d-AwVrgPLNjLl0JI"
+
+[mcp_servers.esac]
+url = "http://localhost:3200/mcp"
+bearer_token_env_var = "ESAC_TOKEN"
+
+[mcp_servers.maket]
+url = "http://127.0.0.1:24842/mcp"

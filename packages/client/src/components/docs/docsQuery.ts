@@ -20,15 +20,16 @@ interface ParseQueryOptions {
  *   #unlocked  — only unlocked docs
  *   :N         — rating ≥ N (1–5)
  *   <rest>     — fuzzy substring on name
- * Tokens accumulate (AND), so `@flyer #locked :4 summer` means
- * "flyer AND locked AND rating≥4 AND name contains summer".
+ * Tokens accumulate. Categories combine as OR; the other criteria combine as
+ * AND. `@flyer @poster #locked :4 summer` means
+ * "(flyer OR poster) AND locked AND rating≥4 AND name contains summer".
  */
 export function parseQuery(
 	raw: string,
 	options: ParseQueryOptions = {},
 ): Query {
 	const tokens = tokenizeSearch(raw);
-	let category: string | null = null;
+	const categories: string[] = [];
 	let locked: boolean | null = null;
 	let minRating = 0;
 	const text: string[] = [];
@@ -42,7 +43,8 @@ export function parseQuery(
 			!token.quoted;
 		if (deferred) continue;
 		if (tok.startsWith("@") && tok.length > 1) {
-			category = normalizeCategoryPath(tok.slice(1)).toLowerCase();
+			const category = normalizeCategoryPath(tok.slice(1)).toLowerCase();
+			if (category && !categories.includes(category)) categories.push(category);
 		} else if (tok === "#locked") {
 			locked = true;
 		} else if (tok === "#unlocked") {
@@ -54,11 +56,20 @@ export function parseQuery(
 			text.push(tok);
 		}
 	}
-	return { category, locked, minRating, text: foldSearchText(text.join(" ")) };
+	return {
+		categories,
+		locked,
+		minRating,
+		text: foldSearchText(text.join(" ")),
+	};
 }
 
 export function matchesQuery(d: DocSummary, q: Query): boolean {
-	if (q.category && !categoryPathContains(d.category, q.category)) return false;
+	if (
+		q.categories.length > 0 &&
+		!q.categories.some((category) => categoryPathContains(d.category, category))
+	)
+		return false;
 	if (q.locked !== null && (d.locked === true) !== q.locked) return false;
 	if (q.minRating > 0 && (d.rating ?? 0) < q.minRating) return false;
 	if (q.text && !foldSearchText(d.name).includes(q.text)) return false;
@@ -185,21 +196,41 @@ function quoteSearchToken(token: string): string {
 	return `"${token.replace(/["\\]/g, "\\$&")}"`;
 }
 
+function committedSearch(raw: string): string {
+	const search = raw.trim();
+	return search ? `${search} ` : "";
+}
+
+export function addCategoryFilter(search: string, path: string): string {
+	if (!path.trim()) {
+		return stripToken(search, (token) => token.startsWith("@"));
+	}
+	const category = normalizeCategoryPath(path);
+	const token = `@${category}`;
+	const alreadyPresent = tokenizeSearch(search).some(
+		(item) => item.value.toLowerCase() === token.toLowerCase(),
+	);
+	if (alreadyPresent) return search;
+	return `${[search.trim(), quoteSearchToken(token)].filter(Boolean).join(" ")} `;
+}
+
 export function buildQueryChips(
 	query: Query,
 	search: string,
 	setSearch: (value: string) => void,
 ): QueryChip[] {
 	const chips: QueryChip[] = [];
-	if (query.category) {
+	for (const category of query.categories) {
 		chips.push({
-			key: "cat",
-			label: `@${query.category}`,
+			key: `cat:${category}`,
+			label: `@${category}`,
 			onRemove: () =>
 				setSearch(
-					stripToken(
-						search,
-						(token) => token.toLowerCase() === `@${query.category}`,
+					committedSearch(
+						stripToken(
+							search,
+							(token) => token.toLowerCase() === `@${category}`,
+						),
 					),
 				),
 		});
@@ -209,7 +240,10 @@ export function buildQueryChips(
 		chips.push({
 			key: "lock",
 			label: token,
-			onRemove: () => setSearch(stripToken(search, (item) => item === token)),
+			onRemove: () =>
+				setSearch(
+					committedSearch(stripToken(search, (item) => item === token)),
+				),
 		});
 	}
 	if (query.minRating > 0) {
@@ -217,7 +251,11 @@ export function buildQueryChips(
 			key: "rating",
 			label: `≥ ${"★".repeat(query.minRating)}`,
 			onRemove: () =>
-				setSearch(stripToken(search, (token) => /^:[1-5]$/.test(token))),
+				setSearch(
+					committedSearch(
+						stripToken(search, (token) => /^:[1-5]$/.test(token)),
+					),
+				),
 		});
 	}
 	return chips;

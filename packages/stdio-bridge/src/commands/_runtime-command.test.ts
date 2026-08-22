@@ -3,11 +3,12 @@ import { resolveMaketRuntime } from "./_runtime-command.ts";
 
 describe("resolveMaketRuntime", () => {
 	it("uses absolute Node and package entry paths for an installed bundle", () => {
-		const entry = "/prefix/bin/maket";
-		const realEntry = "/prefix/lib/node_modules/@ng-galien/maket/index.js";
+		const entry = "/prefix/bin/maket-server";
+		const realEntry =
+			"/prefix/lib/node_modules/@ng-galien/maket-server/index.js";
 		const present = new Set([
 			realEntry,
-			"/prefix/lib/node_modules/@ng-galien/maket/server.js",
+			"/prefix/lib/node_modules/@ng-galien/maket-server/server.js",
 		]);
 
 		expect(
@@ -28,6 +29,6 @@ describe("resolveMaketRuntime", () => {
 				realpath: (path) => path,
 				exists: (path) => path.endsWith("index.ts"),
 			}),
-		).toEqual({ command: "maket", args: [] });
+		).toEqual({ command: "maket-server", args: [] });
 	});
 });

@@ -199,6 +199,14 @@ export interface UpdateDocumentMetadataCommand {
 	category?: string;
 }
 
+export interface MoveCategoryCommand {
+	type: "move_category";
+	/** Existing category path whose documents and descendants move together. */
+	source: string;
+	/** Complete destination path, including the category's final leaf name. */
+	destination: string;
+}
+
 export interface DeleteAssetCommand {
 	type: "delete_asset";
 	filename: string;
@@ -342,6 +350,7 @@ export type WorkspaceCommand =
 	| LockDocumentCommand
 	| OpenOnboardingCommand
 	| UpdateDocumentMetadataCommand
+	| MoveCategoryCommand
 	| DeleteAssetCommand
 	| SaveCharteCommand
 	| SaveCollectionCommand

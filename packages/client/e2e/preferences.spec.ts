@@ -1,4 +1,5 @@
 import { expect, test } from "./isolated-test";
+import { closeLibrary, openLibraryView } from "./workspace-test";
 
 // Verifies that UI preferences persist to localStorage and are restored
 // on reload — the Zustand store's init path runs against a real browser.
@@ -22,17 +23,25 @@ test.describe("Preferences persistence", () => {
 		await expect(page.getByTitle(/^light mode$/i)).toBeVisible();
 	});
 
-	test("bar position toggle survives a reload", async ({ page }) => {
+	test("library selection and visibility survive a reload", async ({
+		page,
+	}) => {
 		await page.goto("/");
-		await page.evaluate(() => localStorage.setItem("bar-position", "bottom"));
-		await page.reload();
-
-		await page.getByTitle(/move to top/i).click();
+		await openLibraryView(page, "chartes");
 		expect(
-			await page.evaluate(() => localStorage.getItem("bar-position")),
-		).toBe("top");
+			await page.evaluate(() => localStorage.getItem("maket-library-view")),
+		).toBe("chartes");
+		await closeLibrary(page);
+		expect(
+			await page.evaluate(() => localStorage.getItem("maket-library-open")),
+		).toBe("false");
 
 		await page.reload();
-		await expect(page.getByTitle(/move to bottom/i)).toBeVisible();
+		await expect(page.locator("[data-library-panel]")).toHaveAttribute(
+			"data-library-mode",
+			"compact",
+		);
+		const panel = await openLibraryView(page, "chartes");
+		await expect(panel).toHaveAttribute("data-library-view", "chartes");
 	});
 });

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * @ng-galien/maket — bin entry.
+ * @ng-galien/maket-server — bin entry.
  *
  * Two roles in one binary:
  *
@@ -107,13 +107,13 @@ function handleUninstall(
 
 function unsupportedClient(command: string, client: string): void {
 	process.stderr.write(
-		`maket ${command}: client must be "claude", "codex", or "gemini" (got "${client}")\n`,
+		`maket-server ${command}: client must be "claude", "codex", or "gemini" (got "${client}")\n`,
 	);
 	process.exitCode = 1;
 }
 
 function buildCli(): CAC {
-	const cli = cac("maket");
+	const cli = cac("maket-server");
 
 	cli.option(
 		"--data-dir <path>",
@@ -137,7 +137,7 @@ function buildCli(): CAC {
 		});
 
 	cli
-		.command("stop", "Stop a server started by 'maket start'")
+		.command("stop", "Stop a server started by 'maket-server start'")
 		.action(async (opts: GlobalOpts) => {
 			await runStop(envOverrides(opts));
 		});
@@ -240,7 +240,7 @@ async function main(argv: string[]): Promise<void> {
 		return;
 	}
 
-	cli.parse(["node", "maket", ...argv]);
+	cli.parse(["node", "maket-server", ...argv]);
 
 	if (cli.options.help || cli.options.version) return;
 
@@ -248,7 +248,7 @@ async function main(argv: string[]): Promise<void> {
 	const hasUnknown =
 		!cli.matchedCommand && firstArg !== undefined && !firstArg.startsWith("-");
 	if (hasUnknown) {
-		process.stderr.write(`maket: unknown command "${firstArg}"\n\n`);
+		process.stderr.write(`maket-server: unknown command "${firstArg}"\n\n`);
 		cli.outputHelp();
 		process.exitCode = 1;
 	}
@@ -260,6 +260,6 @@ main(process.argv.slice(2)).catch((e) => {
 		error instanceof CliUsageError || error.name === "CACError"
 			? error.message
 			: (error.stack ?? error.message);
-	process.stderr.write(`maket: ${detail}\n`);
+	process.stderr.write(`maket-server: ${detail}\n`);
 	process.exit(1);
 });

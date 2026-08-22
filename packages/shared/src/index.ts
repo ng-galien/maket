@@ -11,6 +11,7 @@ export * from "./category-path.js";
 export * from "./charte.js";
 export * from "./collection-cursor.js";
 export * from "./collections.js";
+export * from "./desktop.js";
 export * from "./document-state.js";
 export * from "./formats.js";
 export * from "./http.js";

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 const ENTRY = fileURLToPath(new URL("./index.ts", import.meta.url));
 const REPO_ROOT = dirname(dirname(dirname(dirname(ENTRY))));
 
-describe("maket CLI global options", () => {
+describe("maket-server CLI global options", () => {
 	let dataDir: string;
 
 	beforeEach(() => {
@@ -86,7 +86,7 @@ describe("maket CLI global options", () => {
 			expect(result.status).toBe(1);
 			expect(result.stdout).toBe("");
 			expect(result.stderr).toBe(
-				"maket: --port must be an integer between 1 and 65535\n",
+				"maket-server: --port must be an integer between 1 and 65535\n",
 			);
 		},
 	);
@@ -109,6 +109,6 @@ describe("maket CLI global options", () => {
 
 		expect(result.status).toBe(1);
 		expect(result.stdout).toBe("");
-		expect(result.stderr).toBe("maket: Unknown option `-1`\n");
+		expect(result.stderr).toBe("maket-server: Unknown option `-1`\n");
 	});
 });

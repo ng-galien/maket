@@ -1,4 +1,3 @@
-import { normalizeCategoryPath } from "@maket/shared";
 import {
 	Copy,
 	Download,
@@ -18,7 +17,6 @@ import {
 	sendDuplicateDoc,
 	sendLockDoc,
 	sendRenameDoc,
-	wsSend,
 } from "../../store/ws";
 import { copyToClipboard } from "../../utils";
 import { HoldToDelete } from "../shared/HoldToDelete";
@@ -117,26 +115,6 @@ export function DocInlineNameEditor({ model, actions }: DocItemProps) {
 	);
 }
 
-export function DocInlineCategoryEditor({ model, actions }: DocItemProps) {
-	const t = useT();
-	return (
-		<InlineNameEditor
-			initial={model.doc.category || "general"}
-			placeholder={t("doc_move_category_prompt")}
-			onCommit={(value) => {
-				const raw = value.trim();
-				actions.changeMode({ kind: "idle" });
-				if (!raw) return;
-				const category = normalizeCategoryPath(raw);
-				if (category !== normalizeCategoryPath(model.doc.category)) {
-					wsSend({ type: "update_meta", docName: model.doc.name, category });
-				}
-			}}
-			onCancel={() => actions.changeMode({ kind: "idle" })}
-		/>
-	);
-}
-
 function commitDocName(
 	value: string,
 	model: DocItemModel,
@@ -184,7 +162,10 @@ export function DocItemMenu({
 				close: actions.closeMenu,
 				rename: () => changeDocMenuMode(actions, "rename"),
 				duplicate: () => changeDocMenuMode(actions, "duplicate"),
-				moveCategory: () => changeDocMenuMode(actions, "move-category"),
+				moveCategory: () => {
+					actions.closeMenu();
+					actions.moveCategory();
+				},
 				requestDelete: () => changeDocMenuMode(actions, "confirm-delete"),
 			}}
 			anchorRef={anchorRef}

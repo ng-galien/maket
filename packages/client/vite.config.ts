@@ -30,6 +30,9 @@ export default defineConfig(({ mode }) => {
 		build: {
 			sourcemap: process.env.E2E_COVERAGE === "1",
 			minify: process.env.E2E_COVERAGE === "1" ? false : undefined,
+			// react-data-grid uses CSS `light-dark()`; Vite 8's Lightning CSS
+			// minifier currently rewrites it incorrectly.
+			cssMinify: "esbuild",
 			// The shared hydration runtime is ~530 kB minified (~160 kB gzip).
 			// Keep the warning budget aligned with the shipped transfer size.
 			chunkSizeWarningLimit: 600,

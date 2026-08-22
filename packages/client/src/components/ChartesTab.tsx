@@ -7,8 +7,6 @@ import {
 	ArrowLeft,
 	Check,
 	Copy,
-	LayoutGrid,
-	List,
 	MoreVertical,
 	Pencil,
 	Search,
@@ -22,6 +20,13 @@ import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { copyToClipboard } from "../utils";
 import { CharteEditModal } from "./CharteEditModal";
+import { LibrarySearchField } from "./shared/LibrarySearchField";
+import {
+	LibraryToolbar,
+	LibraryToolbarActions,
+	LibraryToolbarRow,
+} from "./shared/LibraryToolbar";
+import { LibraryViewToggle } from "./shared/LibraryViewToggle";
 
 /** Shared envelope (`{ name }`) plus the fields this panel actually renders. */
 interface Charte extends ChartesListItem {
@@ -78,7 +83,6 @@ export function ChartesTab() {
 					charte={model.preview}
 					onBack={() => model.setPreview(null)}
 					onEdit={() => model.setEditing(model.preview)}
-					barPosition={model.barPosition}
 				/>
 				{model.editModal}
 			</>
@@ -108,7 +112,6 @@ function useChartesTabModel() {
 		const doc = s.focusedDocName ? s.docs.get(s.focusedDocName) : null;
 		return doc?.meta?.charte as string | undefined;
 	});
-	const barPosition = useStore((s) => s.barPosition);
 	const chartesVersion = useStore((s) => s.chartesVersion);
 
 	useEffect(() => {
@@ -198,7 +201,6 @@ function useChartesTabModel() {
 		setSearch,
 		view,
 		setViewAndPersist,
-		barPosition,
 		activeCharte,
 		restCharte,
 		filtered,
@@ -220,7 +222,6 @@ function ChartesTabView({
 		setSearch,
 		view,
 		setViewAndPersist,
-		barPosition,
 		activeCharte,
 		restCharte,
 		filtered,
@@ -229,108 +230,77 @@ function ChartesTabView({
 	} = model;
 	return (
 		<>
-			<div
-				className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} gap-2 p-3`}
-			>
-				<div className="px-1 flex items-center gap-1.5">
-					<div className="relative flex-1 min-w-0">
-						<Search
-							size={13}
-							className="absolute left-3 top-1/2 -translate-y-1/2 text-text-3 pointer-events-none"
-						/>
-						<input
+			<div className="flex h-full min-h-0 flex-col overflow-hidden">
+				<LibraryToolbar>
+					<LibraryToolbarRow>
+						<LibrarySearchField
 							value={search}
-							onChange={(e) => setSearch(e.target.value)}
+							onChange={(event) => setSearch(event.target.value)}
+							onClear={() => setSearch("")}
 							placeholder={t("charte_search_hint")}
-							className="w-full pl-8 pr-8 py-2 bg-input rounded-lg text-base outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20"
 						/>
-						{search && (
-							<button
-								type="button"
-								onClick={() => setSearch("")}
-								aria-label="Clear"
-								className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 rounded-md flex items-center justify-center text-text-3 hover:text-text-1 hover:bg-black/[0.06] transition"
-							>
-								<X size={12} />
-							</button>
-						)}
-					</div>
-					<div className="flex rounded-lg bg-input p-0.5">
-						<button
-							type="button"
-							onClick={() => setViewAndPersist("list")}
-							aria-label={t("view_list")}
-							title={t("view_list")}
-							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-								view === "list"
-									? "bg-panel shadow-sm text-text-1"
-									: "text-text-3 hover:text-text-1"
-							}`}
-						>
-							<List size={14} />
-						</button>
-						<button
-							type="button"
-							onClick={() => setViewAndPersist("grid")}
-							aria-label={t("view_grid")}
-							title={t("view_grid")}
-							className={`w-8 h-8 rounded-md flex items-center justify-center transition ${
-								view === "grid"
-									? "bg-panel shadow-sm text-text-1"
-									: "text-text-3 hover:text-text-1"
-							}`}
-						>
-							<LayoutGrid size={14} />
-						</button>
-					</div>
-				</div>
+						<LibraryToolbarActions>
+							<LibraryViewToggle
+								view={view}
+								onChange={setViewAndPersist}
+								listLabel={t("view_list")}
+								gridLabel={t("view_grid")}
+							/>
+						</LibraryToolbarActions>
+					</LibraryToolbarRow>
+				</LibraryToolbar>
 
-				{loading ? (
-					<div className="text-center text-text-3 text-xs py-6">
-						{t("loading")}
-					</div>
-				) : chartes.length === 0 ? (
-					<EmptyState />
-				) : filtered.length === 0 ? (
-					<div className="px-4 py-6 text-center text-base text-text-3">
-						{t("charte_no_match")}
-					</div>
-				) : (
-					<>
-						{activeCharte && (
-							<section className="flex flex-col gap-1.5">
-								<div className="flex items-center gap-2 px-1">
-									<span
-										className="w-1.5 h-1.5 rounded-full bg-accent"
-										aria-hidden
-									/>
-									<span className="text-2xs font-bold uppercase tracking-wider text-accent">
-										{t("charte_active_section")}
-									</span>
+				<div
+					data-chartes-scroll
+					className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+				>
+					{loading ? (
+						<div className="text-center text-text-3 text-xs py-6">
+							{t("loading")}
+						</div>
+					) : chartes.length === 0 ? (
+						<EmptyState />
+					) : filtered.length === 0 ? (
+						<div className="px-4 py-6 text-center text-base text-text-3">
+							{t("charte_no_match")}
+						</div>
+					) : (
+						<>
+							{activeCharte && (
+								<section className="flex flex-col gap-1.5">
+									<div className="flex items-center gap-2 px-1">
+										<span
+											className="w-1.5 h-1.5 rounded-full bg-accent"
+											aria-hidden
+										/>
+										<span className="text-2xs font-bold uppercase tracking-wider text-accent">
+											{t("charte_active_section")}
+										</span>
+									</div>
+									{view === "grid" ? (
+										<CharteCard {...charteItemFor(activeCharte, true)} />
+									) : (
+										<CharteRow {...charteItemFor(activeCharte, true)} />
+									)}
+									<div className="h-px bg-black/[0.06] my-1" />
+								</section>
+							)}
+							{view === "grid" ? (
+								<div className="grid grid-cols-1 gap-2">
+									{restCharte.map((c) => (
+										<CharteCard key={c.name} {...charteItemFor(c, false)} />
+									))}
 								</div>
-								{view === "grid" ? (
-									<CharteCard {...charteItemFor(activeCharte, true)} />
-								) : (
-									<CharteRow {...charteItemFor(activeCharte, true)} />
-								)}
-								<div className="h-px bg-black/[0.06] my-1" />
-							</section>
-						)}
-						{view === "grid" ? (
-							<div className="grid grid-cols-1 gap-2">
-								{restCharte.map((c) => (
-									<CharteCard key={c.name} {...charteItemFor(c, false)} />
-								))}
-							</div>
-						) : (
-							<div className="flex flex-col gap-1">
-								{restCharte.map((c) => (
-									<CharteRow key={c.name} {...charteItemFor(c, false)} />
-								))}
-							</div>
-						)}
-					</>
-				)}
+							) : (
+								<div className="flex flex-col gap-1">
+									{restCharte.map((c) => (
+										<CharteRow key={c.name} {...charteItemFor(c, false)} />
+									))}
+								</div>
+							)}
+						</>
+					)}
+				</div>
 			</div>
 			{editModal}
 		</>
@@ -773,12 +743,10 @@ function ChartePreviewInline({
 	charte,
 	onBack,
 	onEdit,
-	barPosition,
 }: {
 	charte: Charte;
 	onBack: () => void;
 	onEdit: () => void;
-	barPosition: "top" | "bottom";
 }) {
 	const colors = charte.tokens?.color
 		? Object.entries(charte.tokens.color)
@@ -791,9 +759,7 @@ function ChartePreviewInline({
 	const rules = parseCharteRules(charte.rules);
 
 	return (
-		<div
-			className={`flex ${barPosition === "bottom" ? "flex-col-reverse" : "flex-col"} p-3 gap-4`}
-		>
+		<div className="flex flex-col gap-4 p-3">
 			<ChartePreviewHeader charte={charte} onBack={onBack} onEdit={onEdit} />
 			<CharteColorsSection colors={colors} />
 			<CharteFontsSection fonts={fonts} />

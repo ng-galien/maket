@@ -131,8 +131,6 @@ function spawnBubble(text: string, icon?: string) {
 	if (!text.trim()) return;
 	const state = useStore.getState();
 	if (state.workspaceView === "reading") return;
-	const barPos = state.barPosition;
-	const isTop = barPos === "top";
 	const bubble = document.createElement("div");
 	bubble.dataset.maketActivity = "";
 	bubble.setAttribute("role", "status");
@@ -146,8 +144,8 @@ function spawnBubble(text: string, icon?: string) {
 	bubble.appendChild(label);
 	Object.assign(bubble.style, {
 		position: "fixed",
-		[isTop ? "top" : "bottom"]: "80px",
-		right: "24px",
+		top: "64px",
+		right: "72px",
 		background: "var(--color-accent, #10B981)",
 		color: "white",
 		fontSize: "13px",
@@ -158,9 +156,7 @@ function spawnBubble(text: string, icon?: string) {
 		zIndex: "9999",
 		whiteSpace: "nowrap",
 		boxShadow: "0 4px 16px rgba(16,185,129,0.35)",
-		animation: isTop
-			? "bubbleDown 2.5s ease-out forwards"
-			: "bubbleUp 2.5s ease-out forwards",
+		animation: "bubbleDown 2.5s ease-out forwards",
 		display: "flex",
 		alignItems: "center",
 		gap: "8px",
@@ -178,12 +174,11 @@ function spawnToast(text: string, level: string, duration: number): void {
 		region.id = "maket-toast-region";
 		document.body.appendChild(region);
 	}
-	const isTop = useStore.getState().barPosition === "top";
 	Object.assign(region.style, {
 		position: "fixed",
-		[isTop ? "top" : "bottom"]: "80px",
-		[isTop ? "bottom" : "top"]: "auto",
-		right: "24px",
+		top: "64px",
+		bottom: "auto",
+		right: "72px",
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
@@ -357,7 +352,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			useStore.setState((state) => ({
 				docList: state.docList.filter((doc) => doc.name !== msg.name),
 			}));
-			useStore.getState().removeDocFromWorkspace(msg.name);
+			useStore.getState().closeWorkspaceDocuments([msg.name]);
 			break;
 		case "doc_renamed":
 			applyRenamedDocument(msg);
@@ -403,6 +398,9 @@ function reportUnhandledSignal(msg: never): void {
 	console.error("[ws] unhandled server signal", msg);
 }
 
+// code-moniker: ignore[smell-feature-envy-local]
+// The state signal handler is the single wire-to-store reconciliation boundary;
+// touching several store slices here avoids parallel client orchestration paths.
 function applyStateMessage(
 	msg: Extract<WorkspaceSignal, { type: "state" }>,
 ): void {
@@ -434,6 +432,9 @@ function applyStateMessage(
 	if (!initialStateReceived)
 		applyInitialState(doc, docList, msg.charteCss || "");
 	else {
+		const fillsFocusedPlaceholder =
+			useStore.getState().focusedDocName === doc.name &&
+			!useStore.getState().docs.has(doc.name);
 		const explicitFocus = pendingLoadDoc === doc.name;
 		const backgroundLoad = backgroundLoadDocs.delete(doc.name);
 		useStore
@@ -446,6 +447,15 @@ function applyStateMessage(
 				backgroundLoad && !explicitFocus ? false : (msg.focus ?? false),
 				explicitFocus,
 			);
+		if (
+			fillsFocusedPlaceholder &&
+			useStore.getState().workspaceView === "canvas"
+		) {
+			requestFit({
+				docName: doc.name,
+				pageIndex: useStore.getState().focusedPageIndex,
+			});
+		}
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
 }

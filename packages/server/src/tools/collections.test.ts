@@ -199,7 +199,7 @@ describe("maket_collection — action=cursor", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		expect(body(res)).toMatch(/mode template/);
+		expect(body(res)).toMatch(/mode rendered/);
 		expect(body(res)).toMatch(/row 1\/2/);
 		cleanup();
 	});

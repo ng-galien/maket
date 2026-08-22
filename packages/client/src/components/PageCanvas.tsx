@@ -146,6 +146,7 @@ interface AnnotationMarkerBounds extends AnnotationTarget {
 	top: number;
 	width: number;
 	height: number;
+	inset: boolean;
 }
 
 const AuthoredPageHtml = memo(
@@ -179,7 +180,8 @@ function sameAnnotationMarkers(
 				marker.left === candidate.left &&
 				marker.top === candidate.top &&
 				marker.width === candidate.width &&
-				marker.height === candidate.height
+				marker.height === candidate.height &&
+				marker.inset === candidate.inset
 			);
 		})
 	);
@@ -377,6 +379,7 @@ export const PageCanvas = memo(function PageCanvas({
 			);
 			if (!target) return [];
 			const rect = target.getBoundingClientRect();
+			const edgeTolerance = 1;
 			return [
 				{
 					...annotation,
@@ -384,6 +387,11 @@ export const PageCanvas = memo(function PageCanvas({
 					top: (rect.top - pageRect.top) * scaleY,
 					width: rect.width * scaleX,
 					height: rect.height * scaleY,
+					inset:
+						rect.left <= pageRect.left + edgeTolerance ||
+						rect.top <= pageRect.top + edgeTolerance ||
+						rect.right >= pageRect.right - edgeTolerance ||
+						rect.bottom >= pageRect.bottom - edgeTolerance,
 				},
 			];
 		});
@@ -1063,7 +1071,7 @@ export const PageCanvas = memo(function PageCanvas({
 					{annotationMarkers.map((marker) => (
 						<div
 							key={marker.elementId}
-							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}`}
+							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}${marker.inset ? " annotation-marker-inset" : ""}`}
 							data-annotation-marker={marker.elementId}
 							style={{
 								left: marker.left,

@@ -22,9 +22,10 @@ import { createSQLiteStore } from "./store.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
-function makeDoc(name: string) {
+function makeDoc(name: string, category = "general") {
 	return createDocument({
 		name,
+		category,
 		canvas: {
 			format: "A4",
 			orientation: "portrait",
@@ -681,6 +682,66 @@ describe("ws-handler — file and document mutations", () => {
 		expect(created).toHaveBeenCalledWith({ docName: "copy" });
 		dispose();
 	});
+
+	it("moves a category subtree while preserving descendant paths", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
+		store.saveDoc(makeDoc("root", "Products/Workbench"));
+		store.saveDoc(makeDoc("child", "Products/Workbench/Prototypes"));
+		store.saveDoc(makeDoc("other", "Products/Other"));
+		documents.loadAll();
+		const updated = vi.fn();
+		bus.on("meta:updated", updated);
+
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Lab/Workbench",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("root")?.category).toBe("Lab/Workbench");
+		expect(documents.resolve("child")?.category).toBe(
+			"Lab/Workbench/Prototypes",
+		);
+		expect(documents.resolve("other")?.category).toBe("Products/Other");
+		expect(store.loadOne("child")?.category).toBe("Lab/Workbench/Prototypes");
+		expect(updated).toHaveBeenCalledTimes(2);
+		dispose();
+	});
+
+	it("refuses self-descendant moves and moves containing locked documents", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const child = makeDoc("locked", "Products/Workbench/Child");
+		child.meta = { locked: true };
+		store.saveDoc(makeDoc("root", "Products/Workbench"));
+		store.saveDoc(child);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Products/Workbench/Child/New",
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Lab/Workbench",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("root")?.category).toBe("Products/Workbench");
+		expect(documents.resolve("locked")?.category).toBe(
+			"Products/Workbench/Child",
+		);
+		dispose();
+	});
 });
 
 describe("ws-handler — text editing", () => {
@@ -993,7 +1054,7 @@ describe("ws-handler — collection cursor", () => {
 			} as never,
 			STUB_WS,
 		);
-		expect(collectionCursors.resolve("poster", 0)?.mode).toBe("template");
+		expect(collectionCursors.resolve("poster", 0)?.mode).toBe("rendered");
 
 		handler(
 			{

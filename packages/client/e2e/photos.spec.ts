@@ -1,6 +1,12 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { Locator, Page } from "@playwright/test";
-import { createDocument, expect, openWorkspace, test } from "./workspace-test";
+import {
+	createDocument,
+	expect,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 const PNG_1PX = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -64,7 +70,7 @@ test("a rejected image request stays actionable and reports the failure", async 
 		});
 		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
 
-		await page.getByRole("button", { name: /^photos$/i }).click();
+		await openLibraryView(page, "photos");
 		await page.getByRole("button", { name: filename }).click();
 		const detailImage = page.getByRole("img", { name: filename });
 		await expect
@@ -124,8 +130,7 @@ test("uploads an asset in the UI and lets the agent use it in the document", asy
 		doc: docName,
 		page: 1,
 	});
-	await page.getByRole("button", { name: /^photos$/i }).click();
-	const photos = page.getByRole("complementary", { name: /^photos$/i });
+	const photos = await openLibraryView(page, "photos");
 	await photos.locator('input[type="file"]').setInputFiles({
 		name: filename,
 		mimeType: "image/png",
@@ -205,8 +210,7 @@ test("deletes an uploaded asset through the hold control in every open window", 
 }) => {
 	const filename = "shared-delete.png";
 	await openWorkspace(page);
-	await page.getByRole("button", { name: /^photos$/i }).click();
-	const firstLibrary = page.getByRole("complementary", { name: /^photos$/i });
+	const firstLibrary = await openLibraryView(page, "photos");
 	await firstLibrary.locator('input[type="file"]').setInputFiles({
 		name: filename,
 		mimeType: "image/png",
@@ -216,10 +220,7 @@ test("deletes an uploaded asset through the hold control in every open window", 
 
 	const secondPage = await page.context().newPage();
 	await openWorkspace(secondPage);
-	await secondPage.getByRole("button", { name: /^photos$/i }).click();
-	const secondLibrary = secondPage.getByRole("complementary", {
-		name: /^photos$/i,
-	});
+	const secondLibrary = await openLibraryView(secondPage, "photos");
 	await expect(
 		secondLibrary.getByRole("img", { name: filename }),
 	).toBeVisible();

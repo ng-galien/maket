@@ -14,6 +14,7 @@ function doc(name: string, category: string): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 	};
 }
 

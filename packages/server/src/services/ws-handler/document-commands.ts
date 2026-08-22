@@ -65,6 +65,48 @@ export function handleUpdateMeta(
 	ctx.bus.emit("meta:updated", { docName: d.name });
 }
 
+export function handleMoveCategory(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "move_category" }>,
+): void {
+	const source = normalizeCategoryPath(msg.source);
+	const destination = normalizeCategoryPath(msg.destination);
+	if (source === destination) return;
+	if (destination.startsWith(`${source}/`)) {
+		ctx.bus.emit("toast", {
+			text: "A category cannot be moved inside itself",
+			level: "error",
+		});
+		return;
+	}
+
+	const affected = [...ctx.documents.all().values()].filter(
+		(doc) => doc.category === source || doc.category.startsWith(`${source}/`),
+	);
+	if (affected.length === 0) return;
+	const locked = affected.find((doc) => doc.meta?.locked === true);
+	if (locked) {
+		ctx.bus.emit("toast", {
+			text: `"${locked.name}" is locked — unlock it before moving this category`,
+			level: "info",
+		});
+		return;
+	}
+
+	for (const doc of affected) {
+		const suffix = doc.category.slice(source.length);
+		doc.category = `${destination}${suffix}`;
+		ctx.documents.persist(doc.name);
+	}
+	for (const doc of affected) {
+		ctx.bus.emit("meta:updated", { docName: doc.name });
+	}
+	ctx.bus.emit("toast", {
+		text: `Category "${source}" moved to "${destination}"`,
+		level: "success",
+	});
+}
+
 export function handleDeleteDocument(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "delete_document" }>,

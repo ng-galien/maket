@@ -1,5 +1,6 @@
 import { expect, test } from "./isolated-test";
 import { McpTestClient } from "./mcp-test-client";
+import { closeLibrary, openLibraryView } from "./workspace-test";
 
 const NOTE_TEXT = "Make this title more prominent";
 const DOCUMENT_NOTE_TEXT = "Review the overall document hierarchy";
@@ -114,15 +115,8 @@ test.describe("Document annotations", () => {
 				name: /^(exchanges|échanges)$/i,
 			});
 			await expect(messagesButton).toHaveAttribute("aria-expanded", "false");
-			await expect(page.locator("#panel-exchange")).toHaveAttribute(
-				"aria-hidden",
-				"true",
-			);
-			await expect(page.locator("#panel-exchange")).toHaveAttribute(
-				"hidden",
-				"",
-			);
-			await expect(page.locator("#panel-docs")).toHaveAttribute("inert", "");
+			await expect(page.locator("#panel-exchange")).toHaveCount(0);
+			await expect(page.locator("[data-library-panel]")).toBeVisible();
 			await expect(messagesButton.locator("span")).toHaveText("1");
 			await expect(marker).toBeVisible();
 			await expect(otherMarker).toHaveCount(0);
@@ -168,15 +162,13 @@ test.describe("Document annotations", () => {
 
 			// A message remains actionable after its document has been removed from
 			// the workspace: View reopens it, focuses the page, and reveals the target.
-			await page.getByRole("button", { name: /^(documents)$/i }).click();
+			await openLibraryView(page, "docs");
 			await page
-				.getByText(docName, { exact: true })
-				.locator("xpath=ancestor::button[1]")
+				.locator("[data-library-panel]")
+				.getByRole("button", { name: docName, exact: true })
 				.click();
 			await expect(title).toHaveCount(0);
-			await page
-				.getByRole("button", { name: /close documents|fermer documents/i })
-				.click();
+			await closeLibrary(page);
 			await messagesButton.click();
 			await messageCard.getByRole("button", { name: /^(view|voir)$/i }).click();
 			await expect(title).toBeVisible();
@@ -222,7 +214,7 @@ test.describe("Document annotations", () => {
 				name: /^(exchanges|échanges)$/i,
 			});
 			await expect(secondMessagesButton.locator("span")).toHaveText("1");
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(NOTE_TEXT)).toBeVisible();
 
 			await secondPage.reload();
@@ -233,7 +225,7 @@ test.describe("Document annotations", () => {
 				page: 1,
 			});
 			await expect(secondMarker).toBeVisible();
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(NOTE_TEXT)).toBeVisible();
 
 			const messages = await mcp.callJson<Array<{ id: string; text?: string }>>(
@@ -335,7 +327,7 @@ test.describe("Document annotations", () => {
 					`[data-doc="${docName}"] [data-annotation-page-marker]`,
 				),
 			).toBeVisible();
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
 
 			await secondPage.reload();
@@ -345,7 +337,7 @@ test.describe("Document annotations", () => {
 				doc: docName,
 				page: 1,
 			});
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
 
 			const messages = await mcp.callJson<

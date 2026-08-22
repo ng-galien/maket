@@ -76,6 +76,7 @@ function summary(name: string): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 	};
 }
 
@@ -107,7 +108,10 @@ async function freshWsModule() {
 async function freshWsModuleWithZoomSpies() {
 	vi.resetModules();
 	const requestFit = vi.fn();
-	vi.doMock("./zoomBridge", () => ({ requestFit }));
+	vi.doMock("./zoomBridge", async (importOriginal) => ({
+		...(await importOriginal<typeof import("./zoomBridge")>()),
+		requestFit,
+	}));
 	const store = await import("./useStore");
 	const ws = await import("./ws");
 	return { ...ws, useStore: store.useStore, requestFit };
@@ -160,6 +164,42 @@ describe("initWs + onopen", () => {
 });
 
 describe("state message", () => {
+	it("reframes a focused workspace placeholder once its document arrives", async () => {
+		const { initWs, requestFit, useStore } = await freshWsModuleWithZoomSpies();
+		useStore.setState({ workspaceDocNames: [] });
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+		useStore.setState({
+			docs: new Map(),
+			workspaceDocNames: ["beta"],
+			focusedDocName: "beta",
+			workspaceView: "canvas",
+		});
+		requestFit.mockClear();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+			addToWorkspace: false,
+			focus: false,
+		});
+
+		expect(useStore.getState().docs.has("beta")).toBe(true);
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(requestFit).toHaveBeenCalledExactlyOnceWith({
+			docName: "beta",
+			pageIndex: 0,
+		});
+	});
+
 	it("first state stores the doc without adding to workspace when the saved workspace is empty", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		// Empty saved workspace — the client must NOT adopt the server's active
@@ -198,6 +238,35 @@ describe("state message", () => {
 		const s = useStore.getState();
 		expect(s.focusedDocName).toBe("alpha");
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
+	});
+
+	it("never focuses the server active document when it is outside the saved workspace", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({
+			docs: new Map(),
+			workspaceDocNames: ["beta"],
+			focusedDocName: null,
+		});
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+		expect(useStore.getState().focusedDocName).toBeNull();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+			addToWorkspace: false,
+			focus: false,
+		});
+		expect(useStore.getState().focusedDocName).toBe("beta");
 	});
 
 	it("first state issues load_document for every saved workspace doc other than the active one", async () => {

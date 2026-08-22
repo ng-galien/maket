@@ -1,6 +1,13 @@
 import { gzipSync } from "node:zlib";
 import type { Locator } from "@playwright/test";
-import { createDocument, expect, openWorkspace, test } from "./workspace-test";
+import {
+	closeLibrary,
+	createDocument,
+	expect,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 test.describe("Brand guides", () => {
 	test("rejects an unread or non-compliant brand composition and renders the compliant one", async ({
@@ -117,8 +124,7 @@ test.describe("Brand guides", () => {
 			page: 1,
 		});
 		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
-		await page.getByRole("button", { name: /^(Brand|Chartes)$/i }).click();
-		const panel = page.getByRole("complementary", { name: /Brand|Chartes/i });
+		const panel = await openLibraryView(page, "chartes");
 		await expect(panel).toBeVisible();
 		await panel
 			.getByPlaceholder(/Search brand|Rechercher une charte/i)
@@ -222,18 +228,16 @@ test.describe("Brand guides", () => {
 		);
 
 		await openWorkspace(page);
-		await page.getByRole("button", { name: /^documents$/i }).click();
-		const documents = page.getByRole("complementary", { name: /^documents$/i });
+		const documents = await openLibraryView(page, "docs");
 		await documents.locator('input[type="file"]').setInputFiles({
 			name: "historical-rules.maket",
 			mimeType: "application/gzip",
 			buffer: bundle,
 		});
 		await expect(documents.getByText(docName, { exact: true })).toBeVisible();
-		await page.getByRole("button", { name: /close documents/i }).click();
+		await closeLibrary(page);
 
-		await page.getByRole("button", { name: /^(brand|chartes)$/i }).click();
-		const panel = page.getByRole("complementary", { name: /brand|chartes/i });
+		const panel = await openLibraryView(page, "chartes");
 		await panel.getByText(charteName, { exact: true }).click();
 		await expect(
 			panel.getByText("Keep the historical title rule"),

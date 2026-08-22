@@ -8,7 +8,6 @@ import { useStore } from "../../store/useStore";
 import { DraftPill } from "../shared/DraftPill";
 import {
 	DocDeleteHold,
-	DocInlineCategoryEditor,
 	DocInlineNameEditor,
 	DocItemMenu,
 	DocMenuButton,
@@ -50,6 +49,7 @@ export interface DocItemFactoryArgs {
 	setDraggingName: React.Dispatch<React.SetStateAction<string | null>>;
 	setDragOverCat: React.Dispatch<React.SetStateAction<string | null>>;
 	rowClick: (name: string, event: React.MouseEvent) => void;
+	requestMoveCategory: (doc: DocSummary) => void;
 }
 
 export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
@@ -75,6 +75,7 @@ export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
 			closeMenu: () => args.setMenuFor(null),
 			changeMode: (mode) =>
 				args.setModeFor(mode.kind === "idle" ? null : { name: doc.name, mode }),
+			moveCategory: () => args.requestMoveCategory(doc),
 			dragStart: (event) => {
 				event.dataTransfer.effectAllowed = "move";
 				event.dataTransfer.setData(DRAG_MIME, doc.name);
@@ -199,10 +200,7 @@ export function DocRow({ model, actions }: DocItemProps) {
 function useDocItemMeta(model: DocItemModel): DocItemMeta {
 	return {
 		locked: model.doc.locked === true,
-		editing:
-			model.mode.kind === "rename" ||
-			model.mode.kind === "duplicate" ||
-			model.mode.kind === "move-category",
+		editing: model.mode.kind === "rename" || model.mode.kind === "duplicate",
 		confirming: model.mode.kind === "confirm-delete",
 		dragEnabled: model.mode.kind === "idle",
 	};
@@ -229,7 +227,7 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 		<button
 			type="button"
 			onClick={actions.click}
-			className={`relative block w-full overflow-hidden rounded-xl border transition bg-white ${cardBorderClass(model)}`}
+			className={`relative block w-full overflow-hidden rounded-md border transition bg-white ${cardBorderClass(model)}`}
 			style={{ aspectRatio: `1 / ${docAspectRatio(doc)}` }}
 		>
 			<img
@@ -304,11 +302,7 @@ export function DocCardFooter({
 	if (meta.editing) {
 		return (
 			<div className="mt-1">
-				{model.mode.kind === "move-category" ? (
-					<DocInlineCategoryEditor model={model} actions={actions} />
-				) : (
-					<DocInlineNameEditor model={model} actions={actions} />
-				)}
+				<DocInlineNameEditor model={model} actions={actions} />
 			</div>
 		);
 	}
@@ -379,8 +373,6 @@ export function DocCardMetadata({ doc }: { doc: DocSummary }) {
 }
 
 export function DocRowMain({ model, meta, actions }: DocItemRenderProps) {
-	if (model.mode.kind === "move-category")
-		return <DocInlineCategoryEditor model={model} actions={actions} />;
 	if (meta.editing)
 		return <DocInlineNameEditor model={model} actions={actions} />;
 	if (meta.confirming) return <DocDeleteHold model={model} actions={actions} />;

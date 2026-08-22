@@ -1,99 +1,76 @@
 import { useEffect } from "react";
-import { Board } from "./components/Board";
-import { BottomBar } from "./components/BottomBar";
-import { ChartesTab } from "./components/ChartesTab";
-import { CollectionsTab } from "./components/CollectionsTab";
-import { CollectionWorkspace } from "./components/CollectionWorkspace";
-import { DocsTab } from "./components/DocsTab";
-import { MessagesPanel } from "./components/MessagesPanel";
-import { PhotosTab } from "./components/PhotosTab";
-import { Popover } from "./components/Popover";
+import { AppShell } from "./components/AppShell";
 import { ReadingWorkspace } from "./components/ReadingWorkspace";
-import { SidePanel } from "./components/SidePanel";
-import { useT } from "./i18n/useT";
-import { applyColorScheme } from "./lib/colorScheme";
+import { installDesktopCommands } from "./desktopCommands";
+import {
+	applyAccentColor,
+	applyColorScheme,
+	resolveDarkMode,
+} from "./lib/colorScheme";
 import { useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
+// code-moniker: ignore[smell-feature-envy-local]
+// The application root is deliberately the composition boundary for the
+// workspace selectors and lifecycle effects it coordinates.
 export default function App() {
-	const t = useT();
-	const activePanel = useStore((s) => s.activePanel);
 	const locked = useStore((s) => s.locked);
 	const workspaceView = useStore((s) => s.workspaceView);
+	const workspaceDocNames = useStore((s) => s.workspaceDocNames);
+	const focusedDocName = useStore((s) => s.focusedDocName);
+	const docs = useStore((s) => s.docs);
+	const setFocusedDoc = useStore((s) => s.setFocusedDoc);
 	const hasFocusedDoc = useStore((s) =>
 		s.focusedDocName ? s.docs.has(s.focusedDocName) : false,
 	);
-	const closePanel = () => useStore.getState().setActivePanel(null);
-
-	const darkMode = useStore((s) => s.darkMode);
+	const themeMode = useStore((s) => s.themeMode);
+	const accentColor = useStore((s) => s.accentColor);
 
 	useEffect(() => {
 		initWs();
-		applyColorScheme(useStore.getState().darkMode);
+		return installDesktopCommands();
 	}, []);
 
 	useEffect(() => {
-		applyColorScheme(darkMode);
-	}, [darkMode]);
+		const media = window.matchMedia("(prefers-color-scheme: dark)");
+		const apply = () => {
+			const darkMode = resolveDarkMode(themeMode, media.matches);
+			applyColorScheme(darkMode);
+			useStore.setState({ darkMode });
+		};
+		apply();
+		media.addEventListener("change", apply);
+		return () => media.removeEventListener("change", apply);
+	}, [themeMode]);
+
+	useEffect(() => applyAccentColor(accentColor), [accentColor]);
+
+	useEffect(() => {
+		if (workspaceDocNames.length === 0) {
+			if (focusedDocName) setFocusedDoc(null);
+			return;
+		}
+		if (
+			focusedDocName &&
+			workspaceDocNames.includes(focusedDocName) &&
+			docs.has(focusedDocName)
+		) {
+			return;
+		}
+		const loadedDocName = [...workspaceDocNames]
+			.reverse()
+			.find((name) => docs.has(name));
+		setFocusedDoc(
+			loadedDocName ?? workspaceDocNames[workspaceDocNames.length - 1] ?? null,
+		);
+	}, [docs, focusedDocName, setFocusedDoc, workspaceDocNames]);
 
 	return (
-		<div className="relative h-full w-full">
+		<div className="h-full w-full">
 			{workspaceView === "reading" && hasFocusedDoc ? (
 				<ReadingWorkspace />
 			) : (
-				<>
-					<Board locked={locked} />
-					<BottomBar />
-
-					<SidePanel
-						id="panel-chartes"
-						label={t("chartes")}
-						closeLabel={t("close_panel", { panel: t("chartes") })}
-						open={activePanel === "chartes"}
-						onClose={closePanel}
-						side="left"
-					>
-						<ChartesTab />
-					</SidePanel>
-
-					<SidePanel
-						id="panel-photos"
-						label={t("photos")}
-						closeLabel={t("close_panel", { panel: t("photos") })}
-						open={activePanel === "photos"}
-						onClose={closePanel}
-						side="left"
-					>
-						<PhotosTab />
-					</SidePanel>
-
-					<SidePanel
-						id="panel-docs"
-						label={t("documents")}
-						closeLabel={t("close_panel", { panel: t("documents") })}
-						open={activePanel === "docs"}
-						onClose={closePanel}
-						side="left"
-						resizable
-					>
-						<DocsTab />
-					</SidePanel>
-
-					<SidePanel
-						id="panel-collections"
-						label={t("collections")}
-						closeLabel={t("close_panel", { panel: t("collections") })}
-						open={activePanel === "collections"}
-						onClose={closePanel}
-						side="left"
-					>
-						<CollectionsTab />
-					</SidePanel>
-
-					<Popover />
-					<MessagesPanel />
-					<CollectionWorkspace />
-				</>
+				<AppShell locked={locked} />
 			)}
 		</div>
 	);

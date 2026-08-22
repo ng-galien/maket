@@ -319,8 +319,13 @@ function ViewerBar({
 	const darkMode = useStore((s) => s.darkMode);
 	const focusedDocName = useStore((s) => s.focusedDocName);
 	const documentNames = useStore((s) => s.workspaceDocNames);
+	const docs = useStore((s) => s.docs);
 	const setFocusedDoc = useStore((s) => s.setFocusedDoc);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const documents = documentNames.flatMap((name) => {
+		const doc = docs.get(name);
+		return doc ? [{ name: doc.name, category: doc.category }] : [];
+	});
 
 	return (
 		<div
@@ -328,7 +333,7 @@ function ViewerBar({
 			className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-50 flex h-14 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:right-auto sm:left-1/2 sm:w-auto sm:-translate-x-1/2"
 		>
 			<ReaderDocumentPicker
-				documentNames={documentNames}
+				documents={documents}
 				docName={focusedDocName ?? ""}
 				position="bottom"
 				onDocumentChange={setFocusedDoc}

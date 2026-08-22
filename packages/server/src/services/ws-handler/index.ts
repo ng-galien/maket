@@ -33,6 +33,7 @@ import {
 	handleDuplicateDocument,
 	handleLoadDocument,
 	handleLockDocument,
+	handleMoveCategory,
 	handleRenameDocument,
 	handleUpdateMeta,
 } from "./document-commands.js";
@@ -102,6 +103,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "update_meta":
 			handleUpdateMeta(ctx, msg);
+			break;
+		case "move_category":
+			handleMoveCategory(ctx, msg);
 			break;
 		case "charte_save":
 			handleCharteSave(ctx, msg);

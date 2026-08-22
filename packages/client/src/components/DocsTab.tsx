@@ -1,9 +1,10 @@
+import { normalizeCategoryPath } from "@maket/shared";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
-import { sendLoadDoc } from "../store/ws";
-import { requestFit } from "../store/zoomBridge";
+import { wsSend } from "../store/ws";
 import { BulkActionBar } from "./docs/BulkActionBar";
+import { CategoryPicker } from "./docs/CategoryPicker";
 import {
 	buildCategoryTree,
 	categoryPathsForDocs,
@@ -13,10 +14,16 @@ import { createDocItemProps } from "./docs/DocItem";
 import { buildCategoryModels, DocsCategory } from "./docs/DocsCategory";
 import { createToolbarModel, DocsToolbar } from "./docs/DocsToolbar";
 import { importMaketBundle } from "./docs/docsImportExport";
-import { matchesQuery, parseQuery } from "./docs/docsQuery";
+import { addCategoryFilter, matchesQuery, parseQuery } from "./docs/docsQuery";
 import { createBulkActions, handleDocSelection } from "./docs/docsSelection";
-import type { DocsTabModel, RowMode, View } from "./docs/types";
+import type {
+	CategoryMoveTarget,
+	DocsTabModel,
+	RowMode,
+	View,
+} from "./docs/types";
 import { COLLAPSED_KEY, VIEW_KEY } from "./docs/types";
+import { LibraryToolbar } from "./shared/LibraryToolbar";
 
 function loadCollapsed(): Set<string> {
 	try {
@@ -49,10 +56,18 @@ function useDocsTabModel(): DocsTabModel {
 	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
 	const focusedDocName = useStore((state) => state.focusedDocName);
-	const barPosition = useStore((state) => state.barPosition);
-	const removeDoc = useStore((state) => state.removeDocFromWorkspace);
+	const closeWorkspaceDocuments = useStore(
+		(state) => state.closeWorkspaceDocuments,
+	);
+	const openWorkspaceDocument = useStore(
+		(state) => state.openWorkspaceDocument,
+	);
 	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
+	const [categoryMenuFor, setCategoryMenuFor] = useState<string | null>(null);
+	const [categoryRenameFor, setCategoryRenameFor] = useState<string | null>(
+		null,
+	);
 	const [modeFor, setModeFor] = useState<{
 		name: string;
 		mode: RowMode;
@@ -65,27 +80,35 @@ function useDocsTabModel(): DocsTabModel {
 	const [view, setView] = usePersistedDocsView();
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [lastClicked, setLastClicked] = useState<string | null>(null);
+	const categoryFilterRequest = useStore(
+		(state) => state.documentCategoryFilterRequest,
+	);
+	const clearCategoryFilterRequest = useStore(
+		(state) => state.clearDocumentCategoryFilterRequest,
+	);
 	const importState = useMaketImport(t);
 	useClearSelectionOnEscape(selected.size, () => setSelected(new Set()));
+	useApplyDocumentCategoryFilter({
+		request: categoryFilterRequest,
+		clearRequest: clearCategoryFilterRequest,
+		setSearch,
+	});
 
 	const searching = search.trim().length > 0;
 	const query = parseQuery(search, { deferLastFilterToken: true });
 	const filtered = docList.filter((doc) => matchesQuery(doc, query));
 	const categoryTree = buildCategoryTree(filtered);
+	const categoryPaths = categoryPathsForDocs(docList);
+	const categoryMove = useCategoryMovePicker(categoryPaths);
 	const openDocNames = new Set(workspaceDocNames);
 	const flatOrder = visibleDocOrder(categoryTree, searching, collapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
-		if (isOnWorkspace(name)) removeDoc(name);
-		else sendLoadDoc(name);
+		if (isOnWorkspace(name)) closeWorkspaceDocuments([name]);
+		else openWorkspaceDocument(name);
 	};
-	const focusDoc = (name: string) => {
-		const state = useStore.getState();
-		state.setFocusedDoc(name);
-		state.setActivePanel(null);
-		requestFit({ docName: name });
-	};
+	const focusDoc = openWorkspaceDocument;
 
 	const selection = {
 		selected,
@@ -101,11 +124,10 @@ function useDocsTabModel(): DocsTabModel {
 
 	const bulkActions = createBulkActions(docList, selected, clearSelection);
 	return {
-		barPosition,
 		toolbar: createToolbarModel({
 			search,
 			setSearch,
-			categories: categoryPathsForDocs(docList),
+			categories: categoryPaths,
 			query,
 			view,
 			setView,
@@ -119,6 +141,12 @@ function useDocsTabModel(): DocsTabModel {
 			dragOverCat,
 			setDragOverCat,
 			setDraggingName,
+			categoryMenuFor,
+			setCategoryMenuFor,
+			categoryRenameFor,
+			setCategoryRenameFor,
+			requestCategoryMove: categoryMove.requestCategoryMove,
+			renameCategory: moveCategoryLeaf,
 			docList,
 			openDocNames,
 			view,
@@ -138,6 +166,7 @@ function useDocsTabModel(): DocsTabModel {
 					setDraggingName,
 					setDragOverCat,
 					rowClick,
+					requestMoveCategory: categoryMove.requestDocumentMove,
 				}),
 		}),
 		empty: filtered.length === 0,
@@ -146,7 +175,81 @@ function useDocsTabModel(): DocsTabModel {
 			model: { selected, docList },
 			actions: bulkActions,
 		},
+		movePicker: categoryMove.model,
 	};
+}
+
+function useCategoryMovePicker(categories: string[]) {
+	const [target, setTarget] = useState<CategoryMoveTarget | null>(null);
+	return {
+		model: {
+			target,
+			categories,
+			close: () => setTarget(null),
+			moveTo: (path: string) => {
+				if (!target) return;
+				if (target.kind === "document") {
+					const category = normalizeCategoryPath(path);
+					if (category !== normalizeCategoryPath(target.category)) {
+						wsSend({
+							type: "update_meta",
+							docName: target.name,
+							category,
+						});
+					}
+				} else {
+					moveCategoryUnder(target.path, path);
+				}
+				setTarget(null);
+			},
+		},
+		requestDocumentMove: (document: { name: string; category: string }) =>
+			setTarget({
+				kind: "document",
+				name: document.name,
+				category: document.category,
+			}),
+		requestCategoryMove: (path: string) =>
+			setTarget({ kind: "category", path }),
+	};
+}
+
+function moveCategoryLeaf(source: string, nextName: string) {
+	const normalizedName = normalizeCategoryPath(nextName);
+	const leaf = normalizedName.split("/").at(-1);
+	if (!leaf) return;
+	const parent = source.split("/").slice(0, -1).join("/");
+	const destination = parent ? `${parent}/${leaf}` : leaf;
+	moveCategory(source, destination);
+}
+
+function moveCategoryUnder(source: string, parent: string) {
+	const leaf = source.split("/").at(-1);
+	if (!leaf) return;
+	const normalizedParent = parent ? normalizeCategoryPath(parent) : "";
+	const destination = normalizedParent ? `${normalizedParent}/${leaf}` : leaf;
+	moveCategory(source, destination);
+}
+
+function moveCategory(source: string, destination: string) {
+	if (destination === source) return;
+	wsSend({ type: "move_category", source, destination });
+}
+
+function useApplyDocumentCategoryFilter({
+	request,
+	clearRequest,
+	setSearch,
+}: {
+	request: { path: string } | null;
+	clearRequest: () => void;
+	setSearch: React.Dispatch<React.SetStateAction<string>>;
+}) {
+	useEffect(() => {
+		if (!request) return;
+		setSearch((current) => addCategoryFilter(current, request.path));
+		clearRequest();
+	}, [clearRequest, request, setSearch]);
 }
 
 function usePersistedDocsView() {
@@ -212,20 +315,12 @@ function toggleCollapsedCategory(
 
 function DocsTabView({ model }: { model: DocsTabModel }) {
 	const t = useT();
-	const toolbar = (
-		<div
-			className={`shrink-0 bg-panel px-2.5 py-2 ${
-				model.barPosition === "bottom"
-					? "border-t border-border"
-					: "border-b border-border"
-			}`}
-		>
-			<DocsToolbar model={model.toolbar} />
-		</div>
-	);
 	return (
-		<div className="h-[calc(100vh-76px)] max-h-full min-h-0 flex flex-col overflow-hidden">
-			{model.barPosition === "top" && toolbar}
+		<div className="h-full min-h-0 flex flex-col overflow-hidden">
+			<CategoryPicker model={model.movePicker} />
+			<LibraryToolbar>
+				<DocsToolbar model={model.toolbar} />
+			</LibraryToolbar>
 			<div
 				data-documents-scroll
 				className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-2.5"
@@ -244,7 +339,6 @@ function DocsTabView({ model }: { model: DocsTabModel }) {
 					<BulkActionBar {...model.bulk} />
 				</div>
 			)}
-			{model.barPosition === "bottom" && toolbar}
 		</div>
 	);
 }

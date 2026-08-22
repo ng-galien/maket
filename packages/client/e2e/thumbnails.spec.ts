@@ -1,5 +1,5 @@
 import type { Locator } from "@playwright/test";
-import { expect, openWorkspace, test } from "./workspace-test";
+import { expect, openLibraryView, openWorkspace, test } from "./workspace-test";
 
 test.describe("Document thumbnails", () => {
 	test("refreshes a rendered thumbnail when the agent changes its charte", async ({
@@ -44,8 +44,7 @@ test.describe("Document thumbnails", () => {
 			doc: docName,
 			page: 1,
 		});
-		await page.getByRole("button", { name: /^documents$/i }).click();
-		const panel = page.getByRole("complementary", { name: /^documents$/i });
+		const panel = await openLibraryView(page, "docs");
 		await panel
 			.getByRole("button", { name: /grid view|vue vignettes/i })
 			.click();

@@ -1,8 +1,11 @@
 {
 	"name": "@maket/server",
-	"version": "1.7.4",
+	"version": "2.0.0",
 	"type": "module",
-	"main": "index.ts",
+	"main": "src/server.ts",
+	"exports": {
+		".": "./src/server.ts"
+	},
 	"license": "MIT",
 	"private": true,
 	"dependencies": {

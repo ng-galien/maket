@@ -41,9 +41,23 @@ function toDocSummary(doc: Document): DocSummary {
 		format: doc.canvas?.format ?? `${doc.canvas?.w}×${doc.canvas?.h}mm`,
 		pageCount: doc.pages.length,
 		elementCount: doc.pages.reduce((n, p) => n + (p.elements?.length ?? 0), 0),
+		collectionBindings: summarizeCollectionBindings(doc),
 		orientation: doc.canvas?.orientation,
 		charte: doc.meta?.charte,
 	};
+}
+
+function summarizeCollectionBindings(
+	doc: Document,
+): DocSummary["collectionBindings"] {
+	const pageCounts = new Map<string, number>();
+	for (const page of doc.pages) {
+		const name = page.collection?.name;
+		if (name) pageCounts.set(name, (pageCounts.get(name) ?? 0) + 1);
+	}
+	return [...pageCounts]
+		.map(([name, pageCount]) => ({ name, pageCount }))
+		.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function hydrateDocuments(

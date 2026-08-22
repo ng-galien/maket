@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { expect, openWorkspace, test } from "./workspace-test";
+import { expect, openLibraryView, openWorkspace, test } from "./workspace-test";
 
 test.describe("Collection workspace", () => {
 	test("requires a completed hold before deleting a persisted collection", async ({
@@ -17,13 +17,8 @@ test.describe("Collection workspace", () => {
 			},
 		});
 		await openWorkspace(page);
-		await page.getByRole("button", { name: /^(Collections)$/i }).click();
-		const library = page.getByRole("complementary", {
-			name: /^(Collections)$/i,
-		});
-		const card = library
-			.getByText(name, { exact: true })
-			.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
+		const library = await openLibraryView(page, "collections");
+		const card = library.locator(`[data-collection-row="${name}"]`);
 		await expect(card).toBeVisible();
 		await card.getByRole("button", { name: /^(Delete|Supprimer)$/i }).click();
 		const hold = card.getByRole("button", {
@@ -138,20 +133,18 @@ test.describe("Collection workspace", () => {
 				name: /agent_clients · (All rows|Toutes les lignes)/i,
 			})
 			.click();
-		const sourceDialog = page.getByRole("dialog", {
-			name: /Data source|Source de données/i,
-		});
-		await sourceDialog
+		const dataDock = page.locator("[data-collection-dock]");
+		await expect(dataDock).toBeVisible();
+		await expect(
+			page.getByRole("dialog", { name: /Data source|Source de données/i }),
+		).toHaveCount(0);
+		await dataDock
 			.getByRole("button", {
 				name: /Current row render|Rendu ligne courante/i,
 			})
 			.click();
 		await expect(document.locator(".page-canvas")).toHaveCount(1);
-		await sourceDialog
-			.getByRole("button", {
-				name: /Previous row|Ligne précédente/i,
-			})
-			.click();
+		await dataDock.getByText("Acme", { exact: true }).click();
 		await expect(document.getByText("Acme", { exact: true })).toBeVisible();
 		await expect(document.getByText("Globex", { exact: true })).toHaveCount(0);
 
@@ -164,15 +157,97 @@ test.describe("Collection workspace", () => {
 		expect(cursor).toContain("row 1/2 (acme");
 	});
 
+	test("opens linked data with a document preview and autonomous data without one", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Collection shell document";
+		const linkedName = "linked_shell_data";
+		const autonomousName = "autonomous_shell_data";
+		await openWorkspace(page);
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: docName,
+			format: "A4",
+			orientation: "portrait",
+		});
+		await mcp.call("maket_html", {
+			action: "set",
+			doc: docName,
+			page: 1,
+			html: '<main data-id="page"><h1 data-id="title">{{ label }}</h1></main>',
+		});
+		for (const name of [linkedName, autonomousName]) {
+			await mcp.call("maket_collection", {
+				action: "create",
+				name,
+				schema: {
+					type: "object",
+					properties: { label: { type: "string" } },
+					required: ["label"],
+				},
+			});
+		}
+		await mcp.call("maket_collection", {
+			action: "add_row",
+			name: linkedName,
+			row: "linked-row",
+			data: { label: "Linked" },
+		});
+		await mcp.call("maket_collection", {
+			action: "bind",
+			name: linkedName,
+			doc: docName,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
+		const library = await openLibraryView(page, "collections");
+
+		await library.getByText(linkedName, { exact: true }).click();
+		const dock = page.locator("[data-collection-dock]");
+		await expect(dock).toHaveAttribute(
+			"data-collection-layout",
+			"expanded-linked",
+		);
+		await expect(page.locator("[data-document-preview]")).toHaveAttribute(
+			"data-document-preview",
+			"true",
+		);
+		await page
+			.getByRole("button", {
+				name: /Active document · return to split|Document actif · revenir au partage/i,
+			})
+			.click();
+		await expect(dock).toHaveAttribute("data-collection-layout", "split");
+
+		await library.getByText(autonomousName, { exact: true }).click();
+		await expect(dock).toHaveAttribute(
+			"data-collection-layout",
+			"expanded-data",
+		);
+		await expect(page.locator("[data-document-preview]")).toHaveCount(0);
+
+		await library
+			.getByRole("button", {
+				name: new RegExp(`^(Open|Ouvrir) ${docName}$`, "i"),
+			})
+			.click();
+		await expect(dock).toHaveAttribute("data-collection-layout", "split");
+		await expect(dock.getByText(linkedName, { exact: true })).toBeVisible();
+		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
+	});
+
 	test("creates a collection, pastes tabular data and persists the draft", async ({
 		mcp,
 		page,
 	}) => {
 		await openWorkspace(page);
-		await page.getByRole("button", { name: /^(Collections)$/i }).click();
-		const library = page.getByRole("complementary", {
-			name: /^(Collections)$/i,
-		});
+		const library = await openLibraryView(page, "collections");
 		await expect(library).toBeVisible();
 		await library
 			.getByRole("button", { name: /New collection|Nouvelle collection/i })
@@ -188,13 +263,27 @@ test.describe("Collection workspace", () => {
 
 		const editor = collectionEditor(page, "launch_metrics");
 		await expect(editor).toBeVisible();
+		const emptyCollection = await mcp.callText("maket_collection", {
+			action: "view",
+			name: "launch_metrics",
+		});
+		expect(emptyCollection).not.toContain("client_name");
 		await editor.getByPlaceholder(/Description/i).fill("Launch pipeline");
+		await editor
+			.getByPlaceholder(/new_field|nouveau_champ/i)
+			.fill("client_name");
+		await editor
+			.getByRole("button", { name: /Add field|Ajouter un champ/i })
+			.click();
 		await editor.getByPlaceholder(/new_field|nouveau_champ/i).fill("budget");
 		await editor
 			.getByRole("combobox", { name: /Field type|Type/i })
 			.selectOption("number");
 		await editor
 			.getByRole("button", { name: /Add field|Ajouter un champ/i })
+			.click();
+		await editor
+			.getByRole("button", { name: /Add row|Ajouter une ligne/i })
 			.click();
 
 		const firstCell = editor
@@ -230,11 +319,7 @@ test.describe("Collection workspace", () => {
 });
 
 function collectionEditor(page: Page, name: string): Locator {
-	return page
-		.getByText(name, { exact: true })
-		.locator(
-			"xpath=ancestor::div[contains(@class,'fixed') and contains(@class,'right-4')][1]",
-		);
+	return page.locator("[data-collection-dock]", { hasText: name });
 }
 
 async function pasteTable(locator: Locator, text: string): Promise<void> {
