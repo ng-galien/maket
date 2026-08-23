@@ -11,30 +11,31 @@
 import { writeFileSync } from "node:fs";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
-import puppeteer from "puppeteer";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import {
-	CHROMIUM_HEADLESS,
-	shouldDisableSandbox,
-} from "../lib/chromium-sandbox.js";
+import { cursorRenderOptions } from "../lib/collection-render.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { AssetsService } from "../services/assets.js";
+import type { BrowserPool } from "../services/browser-pool.js";
+import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Config } from "../services/config.js";
 import type { DocumentRenderer } from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
+import type { Document } from "../types.js";
 import { text } from "./_helpers.js";
 
 export interface PreviewDeps {
 	documents: Documents;
 	config: Config;
 	assets: AssetsService;
-	documentRenderer?: Pick<DocumentRenderer, "render">;
+	browserPool: BrowserPool;
+	documentRenderer: Pick<DocumentRenderer, "render">;
+	collectionCursors: Pick<CollectionCursors, "resolve">;
 }
 
 function safeFilename(name: string): string {
@@ -68,10 +69,14 @@ const DESCRIPTION = [
 ].join("\n");
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
-	const { documents, config, assets } = deps;
-	const documentRenderer = deps.documentRenderer ?? {
-		render: (doc: import("../types.js").Document) => doc,
-	};
+	const {
+		documents,
+		config,
+		assets,
+		browserPool,
+		documentRenderer,
+		collectionCursors,
+	} = deps;
 	return {
 		metadata: {
 			name: "maket_preview",
@@ -81,7 +86,14 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 		handler: async (rawArgs) => {
 			const args = MaketPreviewSchema.parse(rawArgs);
 			if (args.action === "open") return runOpen(config);
-			return runSnapshot(args, documents, config, assets, documentRenderer);
+			return runSnapshot(args, {
+				documents,
+				config,
+				assets,
+				documentRenderer,
+				collectionCursors,
+				browserPool,
+			});
 		},
 	};
 }
@@ -102,21 +114,43 @@ async function runOpen(config: Config): Promise<CallToolResult> {
 	return text(`Opened ${previewUrl} in browser`);
 }
 
+function renderSnapshotDocument(
+	document: Document,
+	{
+		documentRenderer,
+		collectionCursors,
+	}: Pick<PreviewDeps, "documentRenderer" | "collectionCursors">,
+): Document {
+	return documentRenderer.render(document, {
+		collection: cursorRenderOptions(document, (docName, pageIndex) =>
+			collectionCursors.resolve(docName, pageIndex),
+		),
+	});
+}
+
 // code-moniker: ignore[smell-feature-envy-local]
 // Snapshot is an adapter workflow that coordinates document resolution, preview rendering, filesystem output, and MCP response shaping.
 async function runSnapshot(
 	args: Args,
-	documents: Documents,
-	config: Config,
-	assets: AssetsService,
-	documentRenderer: Pick<DocumentRenderer, "render">,
+	deps: PreviewDeps,
 ): Promise<CallToolResult> {
+	const {
+		documents,
+		config,
+		assets,
+		documentRenderer,
+		collectionCursors,
+		browserPool,
+	} = deps;
 	if (!args.doc) return text("doc is required for action=snapshot", true);
 	if (args.page == null)
 		return text("page is required for action=snapshot", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	const rendered = documentRenderer.render(d);
+	const rendered = renderSnapshotDocument(d, {
+		documentRenderer,
+		collectionCursors,
+	});
 	const pageIdx = args.page - 1;
 	const page = rendered.pages[pageIdx];
 	if (!page)
@@ -144,12 +178,9 @@ async function runSnapshot(
 	});
 
 	const scale = 3.78;
-	const browser = await puppeteer.launch({
-		headless: CHROMIUM_HEADLESS,
-		args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
-	});
+	const browser = await browserPool.get();
+	const p = await browser.newPage();
 	try {
-		const p = await browser.newPage();
 		await installNetworkGuard(p, "offline");
 		await p.setViewport({
 			width: Math.ceil(w * scale),
@@ -180,14 +211,21 @@ async function runSnapshot(
 			],
 		};
 	} finally {
-		await browser.close();
+		await p.close();
 	}
 }
 
 export const previewPack: ToolPack = {
 	id: "preview",
 	name: "Preview",
-	requires: ["documents", "config", "assets", "documentRenderer"],
+	requires: [
+		"documents",
+		"config",
+		"assets",
+		"documentRenderer",
+		"collectionCursors",
+		"browserPool",
+	],
 	declaresTools: ["maket_preview"],
 	register(container) {
 		container.register({

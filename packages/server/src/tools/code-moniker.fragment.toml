@@ -1,0 +1,41 @@
+fragment = "server-preview-rendering"
+
+# Snapshot rendering is a public export surface. It must resolve the same
+# server-owned collection cursor as the live canvas, print, and PDF paths.
+
+[aliases]
+snapshot_function = "moniker ~ '**/dir:packages/dir:server/dir:src/dir:tools/module:preview/function:runSnapshot**'"
+snapshot_render_helper = "moniker ~ '**/dir:packages/dir:server/dir:src/dir:tools/module:preview/function:renderSnapshotDocument**'"
+snapshot_render_helper_call = "kind = 'calls' AND target ~ '**/dir:packages/dir:server/dir:src/dir:tools/module:preview/function:renderSnapshotDocument'"
+snapshot_cursor_options_call = "kind = 'calls' AND target ~ '**/dir:packages/dir:server/dir:src/dir:lib/module:collection-render/function:cursorRenderOptions'"
+snapshot_cursor_resolution_call = "kind = 'calls' AND target ~ '**/dir:packages/dir:server/dir:src/dir:tools/module:preview/path:collectionCursors/method:resolve'"
+snapshot_document_render_call = "kind = 'calls' AND target ~ '**/dir:packages/dir:server/dir:src/dir:tools/module:preview/path:documentRenderer/method:render'"
+
+[[ts.function.where]]
+id        = "snapshot-uses-render-helper-exclusively"
+severity  = "error"
+rationale = "Keeping cursor resolution and document rendering behind one helper prevents the snapshot workflow from growing a parallel render path."
+expr      = """
+	NOT $snapshot_function
+	OR (
+		count(out_refs, $snapshot_render_helper_call) = 1
+		AND count(out_refs, $snapshot_cursor_options_call) = 0
+		AND count(out_refs, $snapshot_cursor_resolution_call) = 0
+		AND count(out_refs, $snapshot_document_render_call) = 0
+	)
+"""
+message   = "`runSnapshot` must render exclusively through `renderSnapshotDocument`."
+
+[[ts.function.where]]
+id        = "snapshot-render-helper-follows-collection-cursor"
+severity  = "error"
+rationale = "A snapshot that bypasses cursorRenderOptions exposes raw collection placeholders while the canvas and other exports show the selected business row."
+expr      = """
+	NOT $snapshot_render_helper
+	OR (
+		count(out_refs, $snapshot_cursor_options_call) = 1
+		AND count(out_refs, $snapshot_cursor_resolution_call) = 1
+		AND count(out_refs, $snapshot_document_render_call) = 1
+	)
+"""
+message   = "`renderSnapshotDocument` must resolve the active cursor, build cursor render options, and render the document exactly once."
