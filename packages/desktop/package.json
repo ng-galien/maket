@@ -21,7 +21,6 @@
     "@maket/runtime": "*",
     "@maket/server": "*",
     "@maket/shared": "*",
-    "electron-squirrel-startup": "^1.0.1",
     "update-electron-app": "^3.3.0"
   },
   "devDependencies": {
@@ -34,7 +33,6 @@
     "@electron-forge/plugin-auto-unpack-natives": "^7.11.2",
     "@electron-forge/publisher-github": "^7.11.2",
     "@electron/asar": "^3.4.1",
-    "@types/electron-squirrel-startup": "^1.0.2",
     "@types/node": "^26.1.2",
     "electron": "^43.4.1",
     "typescript": "^7.0.2"

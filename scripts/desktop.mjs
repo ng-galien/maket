@@ -146,6 +146,9 @@ async function buildDesktop({ sourcemap = false } = {}) {
       format: "esm",
       target: "node22",
       external: ["electron", "@resvg/resvg-js-*"],
+      banner: {
+        js: 'import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);',
+      },
       sourcemap,
       metafile: true,
     }),

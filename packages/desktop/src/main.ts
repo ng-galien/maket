@@ -21,7 +21,6 @@ import {
   Menu,
   shell,
 } from "electron";
-import squirrelStartup from "electron-squirrel-startup";
 import { inspectClaudeDesktop } from "./claude-desktop.js";
 import { applyDesktopOnboarding, validateOnboardingSelection } from "./configuration-install.js";
 import { createElectronBrowserPool } from "./electron-browser-pool.js";
@@ -29,6 +28,7 @@ import { buildApplicationMenuTemplate } from "./menu.js";
 import { printWithNativeDialog } from "./native-print.js";
 import { isTrustedIpcSender, isTrustedRendererUrl, shouldOpenInExternalBrowser } from "./renderer-security.js";
 import { DesktopSetupPreferences } from "./setup-preferences.js";
+import { handleSquirrelStartup } from "./squirrel-startup.js";
 import { UpdateController } from "./update-controller.js";
 import { installDesktopUpdate } from "./update-install.js";
 import { UpdatePreferences } from "./update-preferences.js";
@@ -514,7 +514,14 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-if (squirrelStartup) {
+if (
+  handleSquirrelStartup({
+    platform: process.platform,
+    command: process.argv[1],
+    execPath: process.execPath,
+    quit: () => app.quit(),
+  })
+) {
   app.quit();
 } else {
   const hasLock = app.requestSingleInstanceLock();
