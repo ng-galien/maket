@@ -2,6 +2,7 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
+	ToastKey,
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
@@ -17,17 +18,34 @@ import {
 } from "./useStore";
 import { requestFit } from "./zoomBridge";
 
-const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
+const BUBBLE_LANGS: Record<string, Record<ActivityKey | ToastKey, string>> = {
+	fr,
+	en,
+};
 
 export function translateBubble(
 	key: ActivityKey,
+	params?: Record<string, string>,
+): string {
+	return translateSignal(key, params);
+}
+
+export function translateToast(
+	key: ToastKey,
+	params?: Record<string, string>,
+): string {
+	return translateSignal(key, params);
+}
+
+function translateSignal(
+	key: ActivityKey | ToastKey,
 	params?: Record<string, string>,
 ): string {
 	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
 	let text = dict[key];
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
-			text = text.replace(`{${k}}`, v);
+			text = text.replaceAll(`{${k}}`, v);
 		}
 	}
 	return text;
@@ -340,7 +358,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			}
 			break;
 		case "toast":
-			spawnToast(msg.text, msg.level, msg.duration);
+			spawnToast(translateToast(msg.key, msg.params), msg.level, msg.duration);
 			break;
 		case "charte_updated":
 			applyCharteUpdated(msg.name, msg.css);

@@ -360,7 +360,10 @@ describe("ws-handler — lock guards", () => {
 		expect(documents.resolve("locked")).not.toBeNull();
 		expect(store.loadOne("locked")).not.toBeNull();
 		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ text: expect.stringMatching(/locked/i) }),
+			expect.objectContaining({
+				key: "toast_document_locked_delete",
+				params: { doc: "locked" },
+			}),
 		);
 		dispose();
 	});
@@ -719,7 +722,10 @@ describe("ws-handler — file and document mutations", () => {
 			docName: "new",
 		});
 		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ text: expect.stringMatching(/old.*new/i) }),
+			expect.objectContaining({
+				key: "toast_document_renamed",
+				params: { from: "old", to: "new" },
+			}),
 		);
 		dispose();
 	});
@@ -1151,7 +1157,9 @@ describe("ws-handler — collection cursor", () => {
 	it("rejects invalid modes and toasts on unknown rows", () => {
 		const { bus, handler, collectionCursors, dispose } = cursorFixture();
 		const toasts: string[] = [];
-		bus.on("toast", ({ text }) => toasts.push(text));
+		bus.on("toast", ({ key, params }) =>
+			toasts.push(key === "toast_detail" ? (params?.detail ?? "") : key),
+		);
 
 		handler(
 			{

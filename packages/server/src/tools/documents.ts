@@ -267,7 +267,8 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 		: "";
 	bus.emit("document:created", { docName: args.doc });
 	bus.emit("toast", {
-		text: `New document "${args.doc}" (${fmt} ${orient})`,
+		key: "toast_document_created",
+		params: { doc: String(args.doc), format: fmt, orientation: orient },
 		level: "success",
 	});
 	const next = newDoc.meta.charte
@@ -367,7 +368,8 @@ function runDelete(args: Args, documents: Documents, bus: Bus) {
 	documents.delete(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
-		text: `Document "${args.doc}" deleted`,
+		key: "toast_document_deleted",
+		params: { doc: String(args.doc) },
 		level: "info",
 	});
 	return text(`Deleted "${args.doc}"`);
@@ -406,7 +408,8 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		: "";
 	bus.emit("document:created", { docName: clone.name });
 	bus.emit("toast", {
-		text: `Document "${args.doc}" cloned → "${clone.name}"`,
+		key: "toast_document_cloned",
+		params: { doc: String(args.doc), clone: clone.name },
 		level: "success",
 	});
 	return text(
@@ -454,7 +457,8 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	documents.rename(oldName, args.name);
 	bus.emit("document:renamed", { oldName, docName: args.name });
 	bus.emit("toast", {
-		text: `"${oldName}" → "${args.name}"`,
+		key: "toast_document_renamed",
+		params: { from: oldName, to: String(args.name) },
 		level: "success",
 	});
 	return text(`Renamed "${oldName}" → "${args.name}"`);

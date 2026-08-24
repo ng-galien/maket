@@ -68,7 +68,13 @@ function restoreBundle(
 	const assets = writeBundleAssets(bundle.assets, deps.config.ASSETS_DIR);
 	if (assets.written > 0) deps.bus.emit("assets:changed", {});
 	deps.bus.emit("toast", {
-		text: `Imported ${imported.documents.length} document(s)${chartes.added.length ? ` + ${chartes.added.length} charte(s)` : ""}${collections.added.length ? ` + ${collections.added.length} collection(s)` : ""}${assets.written ? ` + ${assets.written} asset(s)` : ""}`,
+		key: "toast_bundle_imported",
+		params: {
+			documents: String(imported.documents.length),
+			chartes: String(chartes.added.length),
+			collections: String(collections.added.length),
+			assets: String(assets.written),
+		},
 		level: "success",
 	});
 	return {

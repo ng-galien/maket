@@ -976,13 +976,14 @@ describe("activity", () => {
 
 		MockWebSocket.last().emit({
 			type: "toast",
-			text: "Saved",
+			key: "toast_charte_saved",
+			params: { name: "brand" },
 			level: "success",
 			duration: 3000,
 		});
 
 		const toast = document.querySelector('[role="status"]');
-		expect(toast?.textContent).toBe("Saved");
+		expect(toast?.textContent).toBe('Charte "brand" saved');
 		expect(document.getElementById("maket-toast-region")).not.toBeNull();
 		document.getElementById("maket-toast-region")?.remove();
 	});

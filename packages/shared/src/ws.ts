@@ -1,5 +1,6 @@
 import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
+import type { ToastKey, ToastLevel } from "./toast.js";
 
 /**
  * WebSocket wire contract between the server and browser clients.
@@ -62,8 +63,9 @@ export interface StatePatchResultSignal {
 
 export interface ToastSignal {
 	type: "toast";
-	text: string;
-	level: string;
+	key: ToastKey;
+	params?: Record<string, string>;
+	level: ToastLevel;
 	duration: number;
 }
 

@@ -16,7 +16,7 @@ export function handleCollectionSave(
 ): void {
 	if (!isPlainObject(msg.collection)) {
 		ctx.bus.emit("toast", {
-			text: "Collection payload must be an object",
+			key: "toast_collection_payload_invalid",
 			level: "error",
 		});
 		return;
@@ -25,7 +25,10 @@ export function handleCollectionSave(
 		ctx.collections.save(msg.collection as unknown as Collection);
 	} catch (error) {
 		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
 			level: "error",
 		});
 	}
@@ -40,7 +43,10 @@ export function handleCollectionDelete(
 		ctx.collections.delete(msg.name);
 	} catch (error) {
 		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
 			level: "error",
 		});
 	}
@@ -59,7 +65,10 @@ export function handleCollectionBindPage(
 		ctx.broadcastState(doc);
 	} catch (error) {
 		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
 			level: "error",
 		});
 	}
@@ -74,7 +83,10 @@ export function handleCollectionClearPage(
 		ctx.broadcastState(doc);
 	} catch (error) {
 		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
 			level: "error",
 		});
 	}
@@ -92,7 +104,10 @@ export function handleCollectionCursorSet(
 		});
 	} catch (error) {
 		ctx.bus.emit("toast", {
-			text: error instanceof Error ? error.message : String(error),
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
 			level: "error",
 		});
 	}

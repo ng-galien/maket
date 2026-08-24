@@ -50,12 +50,26 @@ function createWaitingServer(state: ConnectOnlyState): McpServer {
 
 	const downstream: DownstreamServer = { server, proxiedTools: [] };
 	state.servers.add(downstream);
+	forgetOnClose(state, downstream);
 	downstream.proxiedTools = registerProxyTools(
 		server,
 		state.tools,
 		() => state.client,
 	);
 	return server;
+}
+
+/** Drop a closed session so refreshes stop walking servers nobody listens to. */
+function forgetOnClose(
+	state: ConnectOnlyState,
+	downstream: DownstreamServer,
+): void {
+	const protocol = downstream.server.server;
+	const previous = protocol.onclose;
+	protocol.onclose = () => {
+		state.servers.delete(downstream);
+		previous?.();
+	};
 }
 
 function refreshDownstreamServers(state: ConnectOnlyState): void {

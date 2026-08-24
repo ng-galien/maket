@@ -40,7 +40,7 @@ export function handleMoveAssetCategory(
 	if (!source || source === destination) return;
 	if (destination.startsWith(`${source}/`)) {
 		ctx.bus.emit("toast", {
-			text: "An image category cannot be moved inside itself",
+			key: "toast_asset_category_cycle",
 			level: "error",
 		});
 		return;

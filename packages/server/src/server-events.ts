@@ -164,12 +164,13 @@ export function registerServerEvents({
 		});
 	});
 
-	bus.on("toast", ({ text, level, duration }) => {
+	bus.on("toast", ({ key, params, level, duration }) => {
 		wsRegistry.broadcast({
 			type: "toast",
-			text,
-			level: level || "info",
-			duration: duration || 3000,
+			key,
+			params,
+			level: level ?? "info",
+			duration: duration ?? 3000,
 		});
 	});
 	bus.on("document:deleted", ({ docName }) => {

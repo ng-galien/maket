@@ -48,7 +48,8 @@ export function handleUpdateMeta(
 	if (!d) return;
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
-			text: `"${d.name}" is locked — unlock it to edit metadata`,
+			key: "toast_document_locked_meta",
+			params: { doc: d.name },
 			level: "info",
 		});
 		return;
@@ -74,7 +75,7 @@ export function handleMoveCategory(
 	if (!source || source === destination) return;
 	if (destination.startsWith(`${source}/`)) {
 		ctx.bus.emit("toast", {
-			text: "A category cannot be moved inside itself",
+			key: "toast_category_cycle",
 			level: "error",
 		});
 		return;
@@ -83,7 +84,8 @@ export function handleMoveCategory(
 	const result = ctx.documents.moveCategory(source, destination);
 	if (result.lockedDocName) {
 		ctx.bus.emit("toast", {
-			text: `"${result.lockedDocName}" is locked — unlock it before moving this category`,
+			key: "toast_category_locked_document",
+			params: { doc: result.lockedDocName },
 			level: "info",
 		});
 		return;
@@ -92,7 +94,8 @@ export function handleMoveCategory(
 	if (!snapshotDoc) return;
 	ctx.bus.emit("meta:updated", { docName: snapshotDoc.name });
 	ctx.bus.emit("toast", {
-		text: `Category "${source}" moved to "${destination}"`,
+		key: "toast_category_moved",
+		params: { source, destination },
 		level: "success",
 	});
 }
@@ -106,7 +109,8 @@ export function handleDeleteDocument(
 	if (!name || !d || ctx.documents.all().size <= 1) return;
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
-			text: `"${name}" is locked — unlock it to delete`,
+			key: "toast_document_locked_delete",
+			params: { doc: name },
 			level: "info",
 		});
 		return;
@@ -125,14 +129,16 @@ export function handleRenameDocument(
 	if (!d) return;
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
-			text: `"${name}" is locked — unlock it to rename`,
+			key: "toast_document_locked_rename",
+			params: { doc: name },
 			level: "info",
 		});
 		return;
 	}
 	if (ctx.documents.all().has(newName)) {
 		ctx.bus.emit("toast", {
-			text: `Name "${newName}" already exists`,
+			key: "toast_document_name_taken",
+			params: { name: newName },
 			level: "error",
 		});
 		return;
@@ -140,7 +146,8 @@ export function handleRenameDocument(
 	ctx.documents.rename(name, newName);
 	ctx.bus.emit("document:renamed", { oldName: name, docName: newName });
 	ctx.bus.emit("toast", {
-		text: `"${name}" → "${newName}"`,
+		key: "toast_document_renamed",
+		params: { from: name, to: newName },
 		level: "success",
 	});
 }
@@ -155,7 +162,8 @@ export function handleDuplicateDocument(
 	if (!src) return;
 	if (ctx.documents.all().has(newName)) {
 		ctx.bus.emit("toast", {
-			text: `Name "${newName}" already exists`,
+			key: "toast_document_name_taken",
+			params: { name: newName },
 			level: "error",
 		});
 		return;
@@ -175,7 +183,8 @@ export function handleDuplicateDocument(
 	ctx.documents.persist(clone.name);
 	ctx.bus.emit("document:created", { docName: clone.name });
 	ctx.bus.emit("toast", {
-		text: `"${name}" cloned → "${clone.name}"`,
+		key: "toast_document_cloned",
+		params: { doc: name, clone: clone.name },
 		level: "success",
 	});
 }
@@ -193,7 +202,8 @@ export function handleLockDocument(
 	ctx.documents.persist(d.name);
 	ctx.bus.emit("meta:updated", { docName: d.name });
 	ctx.bus.emit("toast", {
-		text: locked ? `"${d.name}" locked` : `"${d.name}" unlocked`,
+		key: locked ? "toast_document_locked" : "toast_document_unlocked",
+		params: { doc: d.name },
 		level: "info",
 	});
 }

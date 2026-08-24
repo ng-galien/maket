@@ -118,7 +118,8 @@ function persistCollection(
 	store.saveCollection(collection);
 	bus.emit("collection:saved", { name: collection.name });
 	bus.emit("toast", {
-		text: `Collection "${collection.name}" saved`,
+		key: "toast_collection_saved",
+		params: { name: collection.name },
 		level: "success",
 	});
 }
@@ -225,7 +226,8 @@ function deleteCollection(
 	if (deleted) {
 		bus.emit("collection:deleted", { name });
 		bus.emit("toast", {
-			text: `Collection "${name}" deleted`,
+			key: "toast_collection_deleted",
+			params: { name },
 			level: "success",
 		});
 	}

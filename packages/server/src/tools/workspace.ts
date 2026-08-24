@@ -193,9 +193,8 @@ function runLock(args: Args, documents: Documents, bus: Bus) {
 	documents.persist(d.name);
 	bus.emit("meta:updated", { docName: d.name });
 	bus.emit("toast", {
-		text: next
-			? `Document "${d.name}" locked`
-			: `Document "${d.name}" unlocked`,
+		key: next ? "toast_document_locked" : "toast_document_unlocked",
+		params: { doc: d.name },
 		level: "info",
 	});
 	return text(
