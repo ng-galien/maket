@@ -41,7 +41,7 @@ export function useModalFocusTrap({
 	}, [containerRef, initialFocusRef, open]);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This function is the deliberate keyboard-to-DOM adapter for the modal boundary.
 function handleModalKeyDown(
 	event: KeyboardEvent,

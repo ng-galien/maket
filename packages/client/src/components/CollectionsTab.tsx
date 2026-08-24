@@ -14,8 +14,8 @@ import {
 } from "./shared/LibraryToolbar";
 import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
-// code-moniker: ignore[smell-feature-envy-local]
-// code-moniker: ignore[smell-long-callable]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// code-moniker: ignore[maket-hygiene-limits-callable-size]
 // Collections panel shell: coordinates store-backed library focus with the
 // overlay lifecycle so opening an editor also dismisses the blocking panel.
 export function CollectionsTab() {

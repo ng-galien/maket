@@ -439,7 +439,7 @@ function MessageComposer({
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MessagesPanel is an adapter over the pending queue: queue ownership stays in Zustand while the panel only renders and dispatches UI commands.
 export function MessagesPanel() {
 	const t = useT();

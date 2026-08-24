@@ -11,7 +11,7 @@ export interface ApplicationMenuActions {
 }
 
 // The native menu is declarative composition over injected lifecycle actions.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function buildApplicationMenuTemplate(
   state: DesktopRuntimeState,
   actions: ApplicationMenuActions,

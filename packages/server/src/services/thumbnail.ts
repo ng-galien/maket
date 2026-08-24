@@ -73,7 +73,7 @@ const DEFAULT_CACHE_ENTRIES = 64;
 const DEVICE_SCALE_FACTOR = 2; // retina-quality thumbs
 const MM_TO_PX = 96 / 25.4; // CSS px per mm at 96 DPI
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Export `defaultSnapshot`: orchestrates docs, assets, and headless render for a binary output.
 async function defaultSnapshot(
 	html: string,
@@ -98,7 +98,7 @@ async function defaultSnapshot(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Thumbnail render coordinates cache, charte CSS, image inlining, and headless snapshot.
 async function renderThumbnailDocument(ctx: {
 	doc: Document;

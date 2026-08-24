@@ -11,7 +11,7 @@ import { StateDockButton } from "./StateDataControls";
 
 /** Stable document toolbar composed from the existing commands. */
 // This shell adapter intentionally composes document controls owned by existing modules.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function WorkspaceHeader({
 	onDocumentLock = sendLockDoc,
 }: {

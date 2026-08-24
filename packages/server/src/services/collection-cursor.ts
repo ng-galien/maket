@@ -92,7 +92,7 @@ interface CursorContext extends CollectionCursorsDeps {
 
 /** Builds the context with an explicit field list — spreading the Awilix
  * PROXY would enumerate every container registration, this service included. */
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This factory is the intended composition boundary: it hydrates the cursor
 // repository once and wires domain events to the focused cursor service.
 export function createCollectionCursors({

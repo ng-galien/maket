@@ -49,7 +49,7 @@ interface LibraryOption {
 
 /** One persistent library pane replaces the four competing overlay panels. */
 // This shell adapter intentionally composes the existing domain panels and store selectors.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function LibraryPanel() {
 	const t = useT();
 	const open = useStore((state) => state.libraryOpen);

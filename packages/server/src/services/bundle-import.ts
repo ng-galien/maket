@@ -46,7 +46,7 @@ export function createBundleImportService(
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Bundle restoration intentionally coordinates each persisted portable dependency behind one shared owner.
 function restoreBundle(
 	deps: BundleImportServiceDeps,

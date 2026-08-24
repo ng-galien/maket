@@ -823,7 +823,7 @@ function findClosingSelect(
 	return null;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This local HTML tokenizer coordinates its own Map/Set validation state; it does not reach into another domain owner.
 function hydrateOptionTags(
 	html: string,

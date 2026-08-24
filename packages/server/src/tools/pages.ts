@@ -79,7 +79,7 @@ function resolvePageIndex(d: Document, pageArg: unknown): number {
 	return -1;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action handler for maket_page: routes actions over documents/bus.
 async function handleMaketPageTool(
 	rawArgs: unknown,
@@ -120,7 +120,7 @@ export function createMaketPageTool(deps: PagesDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketPageSchema>;
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Page creation is MCP adapter orchestration across normalization, guarded
 // persistence, and the post-commit bus notification.
 function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {

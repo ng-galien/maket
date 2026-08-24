@@ -148,7 +148,7 @@ function createServerLog(config: Config, override?: ServerLog): ServerLog {
 }
 
 // The composition root resolves one typed view of the Awilix service graph.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function resolveRuntimeServices(container: AppContainer): RuntimeServices {
 	return {
 		assets: container.resolve<AssetsService>("assets"),
@@ -280,7 +280,7 @@ function createWebSocketServer(http: HttpServer): WebSocketServer {
 }
 
 // WebSocket connection setup is the intentional adapter between wire state and domain services.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function handleWebSocketConnection(
 	ws: WebSocket,
 	services: RuntimeServices,
@@ -418,7 +418,7 @@ function installHttpErrorLogging(http: HttpServer, log: ServerLog): void {
 }
 
 // Server startup is the composition root and therefore intentionally coordinates independent owners.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export async function startMaketServer(
 	options: StartMaketServerOptions = {},
 ): Promise<MaketServer> {

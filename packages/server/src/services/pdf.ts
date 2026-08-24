@@ -74,7 +74,7 @@ export interface PdfServiceOptions {
 	browserLaunch?: () => Promise<import("puppeteer").Browser>;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // PDF render orchestrates collections, cursors, asset inlining, and browser pool.
 async function renderPdfDocument(
 	ctx: {

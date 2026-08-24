@@ -32,7 +32,7 @@ export interface Store
 	close(): void;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Store composition intentionally assembles every focused SQLite repository.
 export function createSQLiteStore(dbPath: string): Store {
 	const db = new DatabaseSync(dbPath);

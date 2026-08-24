@@ -580,7 +580,7 @@ function FieldTypeSelect({
 
 type CollectionMember = Collection["members"][number];
 
-// code-moniker: ignore[smell-long-callable]
+// code-moniker: ignore[maket-hygiene-limits-callable-size]
 // The grid columns, keyboard clipboard contract, and editable cell renderers
 // stay together because react-data-grid exposes them as one cohesive adapter.
 function CollectionGrid({

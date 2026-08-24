@@ -18,7 +18,7 @@ export interface ThumbnailRouterDeps {
 	thumbnailService: ThumbnailService;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler for GET /api/thumb: resolves doc + delegates to ThumbnailService.
 async function handleThumbRequest(
 	deps: ThumbnailRouterDeps,

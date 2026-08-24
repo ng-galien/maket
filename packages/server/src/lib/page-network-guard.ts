@@ -94,7 +94,7 @@ export async function installNetworkGuard(
 	});
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Request allow/deny policy for headless pages; coordinates URL checks and puppeteer request API.
 function handleGuardedRequest(req: HTTPRequest, mode: NetworkGuardMode): void {
 	const url = req.url();

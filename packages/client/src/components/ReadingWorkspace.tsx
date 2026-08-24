@@ -75,7 +75,7 @@ interface ConnectedReaderModel {
 	bar: ReaderBarModel;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This hook is the connected Reader shell adapter: it composes Zustand selectors and navigation commands while ReaderSurface owns presentation.
 function useConnectedReaderModel(): ConnectedReaderModel | null {
 	const doc = useFocusedDoc();

@@ -27,7 +27,7 @@ interface FieldState {
  * Header status and quick access only. Collection editing and preview controls
  * deliberately live in the bottom data workspace so there is one controller.
  */
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This header adapter intentionally derives one compact status from the
 // collection, document, cursor, and dock slices owned by the store.
 export function CollectionDockButton() {
@@ -119,7 +119,7 @@ export function CollectionDockButton() {
 
 /** Rendering modes belong to the dock's first toolbar. Collection selection
  * and page binding stay in the Collections library, where sources live. */
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This dock adapter intentionally projects the active page binding and cursor
 // into the three render-mode actions without duplicating domain state.
 export function CollectionRenderControls() {

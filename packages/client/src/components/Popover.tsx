@@ -57,7 +57,7 @@ function usePopoverPosition({
 	return position;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This hook is a DOM positioning adapter for the popover shell; it coordinates browser events and local UI state rather than domain behavior.
 function usePopoverModel() {
 	const t = useT();

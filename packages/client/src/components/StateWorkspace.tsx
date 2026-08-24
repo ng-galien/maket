@@ -25,7 +25,7 @@ interface StateField {
 
 /** Composes the persistent state model with the shared bottom-dock controls. */
 // Store selectors and render controls intentionally meet at this shell boundary.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function StateWorkspace() {
 	const t = useT();
 	const focusedDoc = useFocusedDoc();

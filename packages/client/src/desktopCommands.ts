@@ -20,7 +20,7 @@ const desktopCommandDependencies: DesktopCommandDependencies = {
 };
 
 // Native commands are a routing adapter over the same renderer-owned actions.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function handleDesktopCommand(
 	command: DesktopCommand,
 	dependencies: DesktopCommandDependencies = desktopCommandDependencies,

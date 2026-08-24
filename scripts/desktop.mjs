@@ -24,8 +24,13 @@ const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 const FORBIDDEN_RUNTIME_PACKAGES = [
   "@playwright",
   "@puppeteer",
+  "@sparticuz/chromium",
+  "@sparticuz/chromium-min",
+  "chrome-aws-lambda",
+  "chromium",
   "chromium-bidi",
   "playwright",
+  "playwright-chromium",
   "playwright-core",
   "puppeteer",
   "puppeteer-core",

@@ -74,7 +74,7 @@ const DESCRIPTION = [
 
 type CanvasArgs = z.infer<typeof MaketCanvasSchema>;
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Canvas setup intentionally coordinates document mutation, persistence, and the post-commit bus notification.
 function runCanvasSetup(
 	args: CanvasArgs,

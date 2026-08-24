@@ -19,7 +19,7 @@ export interface ServerEventDeps {
 type BroadcastDeps = Omit<ServerEventDeps, "bus">;
 
 // State broadcasts deliberately assemble one wire snapshot from domain-owned services.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function broadcastDoc(
 	deps: BroadcastDeps,
 	docName: string,
@@ -51,7 +51,7 @@ function broadcastDoc(
 }
 
 // Rename broadcasts use the same authoritative snapshot plus the old identity.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function broadcastRenamedDoc(
 	deps: BroadcastDeps,
 	oldName: string,
@@ -81,7 +81,7 @@ function broadcastRenamedDoc(
 }
 
 // This listener adapter is the intentional fan-out boundary between the bus and WebSocket clients.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function registerServerEvents({
 	bus,
 	collections,

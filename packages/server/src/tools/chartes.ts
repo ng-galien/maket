@@ -135,7 +135,7 @@ function runList(store: Store) {
 	return text(`Chartes (${chartes.length}):\n${lines.join("\n")}`);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runView`: edge adapter over services/store/bus, not domain ownership.
 function runView(args: Args, store: Store, assets: AssetsService) {
 	if (!args.name) return text("name is required for action=view", true);
@@ -195,7 +195,7 @@ function runView(args: Args, store: Store, assets: AssetsService) {
 	return text(lines.join("\n"), next ? { next } : undefined);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runSet`: edge adapter over services/store/bus, not domain ownership.
 function runSet(args: Args, store: Store, bus: Bus) {
 	if (!args.name) return text("name is required for action=set", true);

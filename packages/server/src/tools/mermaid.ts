@@ -130,7 +130,7 @@ interface MermaidToolDeps {
 	bus: Bus;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP Mermaid insertion is an adapter workflow over rendering, HTML parsing, document persistence, and bus notification.
 async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 	const args = MermaidSchema.parse(rawArgs);

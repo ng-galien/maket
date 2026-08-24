@@ -157,7 +157,7 @@ function layoutControlOpError(op: PatchOp, el: DomEl | null): string | null {
 	return null;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `mergeStyles`: edge adapter over services/store/bus, not domain ownership.
 function mergeStyles(existing: string, newStyles: string): string {
 	const map = new Map<string, string>();
@@ -314,7 +314,7 @@ function charteCheckHtml(
 	return true;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `applyOp`: edge adapter over services/store/bus, not domain ownership.
 function applyOp(op: PatchOp, root: DomEl, charte: Charte | null): string {
 	const el = root.querySelector(`[data-id="${cssEscape(op.id)}"]`);
@@ -475,7 +475,7 @@ interface MaketHtmlToolDeps {
 	assets: AssetsService;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP handlers are adapter boundaries: this one resolves the document/page contract and delegates HTML actions to the owning services.
 async function handleMaketHtmlTool(rawArgs: unknown, deps: MaketHtmlToolDeps) {
 	const args = MaketHtmlSchema.parse(rawArgs);
@@ -520,7 +520,7 @@ interface HtmlSetContext {
 	assets: AssetsService;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runSet`: edge adapter over services/store/bus, not domain ownership.
 async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	const { args, doc, page, pageIdx, documents, store, layout, assets } =
@@ -576,7 +576,7 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP patch orchestration intentionally coordinates DOM, state validation,
 // persistence, and layout at this adapter boundary.
 async function runPatch(

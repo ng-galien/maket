@@ -423,7 +423,7 @@ function reportUnhandledSignal(msg: never): void {
 	console.error("[ws] unhandled server signal", msg);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // The state signal handler is the single wire-to-store reconciliation boundary;
 // touching several store slices here avoids parallel client orchestration paths.
 function applyStateMessage(

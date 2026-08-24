@@ -1,0 +1,29 @@
+fragment = "desktop-runtime"
+
+# Maket App renders documents through Electron's own BrowserWindow runtime.
+# The standalone server keeps its Puppeteer implementation, but none of that
+# headless-browser runtime may cross into the Desktop application graph.
+
+[aliases]
+desktop_source = "source ~ '**/dir:packages/dir:desktop/dir:src/**'"
+desktop_headless_browser_runtime_target = """
+  target ~ '**/external_pkg:/^@playwright\\/.+$/**'
+  OR target ~ '**/external_pkg:/^@puppeteer\\/.+$/**'
+  OR target ~ '**/external_pkg:/^@sparticuz\\/(chromium|chromium-min)$/**'
+  OR target ~ '**/external_pkg:chrome-aws-lambda/**'
+  OR target ~ '**/external_pkg:chromium/**'
+  OR target ~ '**/external_pkg:chromium-bidi/**'
+  OR target ~ '**/external_pkg:playwright/**'
+  OR target ~ '**/external_pkg:playwright-chromium/**'
+  OR target ~ '**/external_pkg:playwright-core/**'
+  OR target ~ '**/external_pkg:puppeteer/**'
+  OR target ~ '**/external_pkg:puppeteer-core/**'
+  OR target ~ '**/dir:packages/dir:server/dir:src/dir:services/module:browser-pool/**'
+"""
+
+[[refs.where]]
+id        = "desktop-dependency-excludes-headless-browser-runtime"
+severity  = "error"
+rationale = "Maket App renders through Electron BrowserWindow and must not acquire a second browser runtime. The standalone server legitimately owns Puppeteer; this source boundary complements the packaged ASAR verification in scripts/desktop.mjs."
+expr      = "$desktop_source AND $dependency_import_ref => NOT $desktop_headless_browser_runtime_target"
+message   = "`packages/desktop` must use Electron rendering, not Puppeteer, Playwright, Chromium packages, or the server headless browser pool."

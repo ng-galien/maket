@@ -35,7 +35,7 @@ interface OnboardingViewState {
 }
 
 // This root composes the configuration store, async actions, and dedicated view components.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function DesktopOnboarding() {
 	const t = useT();
 	const configuration = useDesktopConfiguration();
@@ -346,7 +346,7 @@ function ActionResult({
 }
 
 // Translation calls are intentionally localized in the action-model adapter.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function onboardingActions(
 	plan: DesktopConfigurationPlan | null,
 	t: ReturnType<typeof useT>,

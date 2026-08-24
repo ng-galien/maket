@@ -63,7 +63,7 @@ function createStdioServer(client: Client, tools: Tool[]): McpServer {
 	return server;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Process-level composition intentionally coordinates the server lifecycle and both SDK transports.
 export async function runBridge(
 	overrides: MaketEnvOverrides = {},

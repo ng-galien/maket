@@ -18,7 +18,7 @@ import {
 import { useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // The application root is deliberately the composition boundary for the
 // workspace selectors and lifecycle effects it coordinates.
 export default function App() {

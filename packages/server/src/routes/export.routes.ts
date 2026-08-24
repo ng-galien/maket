@@ -77,7 +77,7 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 	return router;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler `handlePrint`: request/response adapter over services, not envied domain logic.
 function handlePrint(
 	req: Request,
@@ -169,7 +169,7 @@ function singleQueryValue(value: unknown): string | null {
 	return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler `handlePdfExport`: request/response adapter over services, not envied domain logic.
 async function handlePdfExport(
 	req: Request,
@@ -201,7 +201,7 @@ async function handlePdfExport(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler `handleMaketExport`: request/response adapter over services, not envied domain logic.
 async function handleMaketExport(
 	req: Request,

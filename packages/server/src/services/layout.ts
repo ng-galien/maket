@@ -113,7 +113,7 @@ function errorMessage(error: unknown): string {
  * them at the container level.
  */
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Headless layout path coordinates browser, network guard, and DOM measure.
 async function runHeadlessLayoutCheck(ctx: {
 	doc: Document;
@@ -316,7 +316,7 @@ function parseMm(value: string | undefined): number | null {
 	return m ? Number.parseFloat(m[1] ?? "0") : null;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `serverLayoutCheck`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function serverLayoutCheck(
 	html: string,
@@ -440,7 +440,7 @@ export function serverLayoutCheck(
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
@@ -570,9 +570,9 @@ export function formatLayoutReport(
 // `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
 // declaring its own measurement zone. Falls back to firstElementChild for
 // legacy / non-canonical content.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
-// code-moniker: ignore[smell-long-callable]
+// code-moniker: ignore[maket-hygiene-limits-callable-size]
 // Puppeteer serializes this function alone, so browser helpers must stay inside its body.
 function measureInBrowser(
 	pageSelector: string,

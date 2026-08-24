@@ -90,7 +90,7 @@ type DocumentStateStatements = {
 	documentTouch: StatementSync;
 };
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite transaction adapter: statement fan-out is the repository boundary.
 function initializeState(
 	db: DatabaseSync,
@@ -120,7 +120,7 @@ function initializeState(
 	return requiredRevision(statements.revisionSelect.get(documentId, 1));
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite transaction adapter: optimistic append must coordinate its statements.
 function appendRevision(
 	db: DatabaseSync,
@@ -160,7 +160,7 @@ function appendRevision(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Schema and data form one revision and must commit with the current-schema pointer.
 function replaceSchema(
 	db: DatabaseSync,
@@ -204,7 +204,7 @@ function replaceSchema(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Preparing SQL statements is database-adapter setup, not domain ownership.
 function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 	return {

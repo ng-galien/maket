@@ -136,7 +136,7 @@ function extractCredentials(raw: unknown): {
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler for Gmail OAuth client JSON upload into the data dir.
 function handleGmailCredentialsPost(
 	config: GmailRouterDeps["config"],

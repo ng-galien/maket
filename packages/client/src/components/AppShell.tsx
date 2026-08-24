@@ -13,7 +13,7 @@ import { StateWorkspace } from "./StateWorkspace";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 
 // Shell composition intentionally coordinates the independently owned UI zones.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function AppShell({ locked }: { locked: boolean }) {
 	const t = useT();
 	const canvasRef = useRef<HTMLDivElement>(null);
