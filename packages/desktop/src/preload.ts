@@ -3,6 +3,7 @@ import {
   DESKTOP_CHANNELS,
   type DesktopApi,
   type DesktopCommand,
+  type DesktopUpdateChannel,
   type DesktopUpdateState,
 } from "@maket/shared";
 import { contextBridge, ipcRenderer } from "electron";
@@ -28,9 +29,21 @@ const api: DesktopApi = {
   },
   mcp: {
     diagnose: () => ipcRenderer.invoke(DESKTOP_CHANNELS.mcpDiagnose),
+    install: (client) => ipcRenderer.invoke(DESKTOP_CHANNELS.mcpInstall, client),
+    uninstall: (client) => ipcRenderer.invoke(DESKTOP_CHANNELS.mcpUninstall, client),
+  },
+  configuration: {
+    getPlan: () => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationPlan),
+    applyOnboarding: (selection) => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationApplyOnboarding, selection),
+    verifyOnboarding: () => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationVerifyOnboarding),
+    activateRuntime: () => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationActivateRuntime),
+    installClaudeDesktop: () => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationInstallClaudeDesktop),
+    acknowledgeRestarts: () => ipcRenderer.invoke(DESKTOP_CHANNELS.configurationAcknowledgeRestarts),
   },
   updates: {
     getState: () => ipcRenderer.invoke(DESKTOP_CHANNELS.updateState),
+    getChannel: () => ipcRenderer.invoke(DESKTOP_CHANNELS.updateChannel),
+    setChannel: (channel: DesktopUpdateChannel) => ipcRenderer.invoke(DESKTOP_CHANNELS.updateSetChannel, channel),
     check: () => ipcRenderer.invoke(DESKTOP_CHANNELS.updateCheck),
     install: () => ipcRenderer.invoke(DESKTOP_CHANNELS.updateInstall),
     onState(listener) {

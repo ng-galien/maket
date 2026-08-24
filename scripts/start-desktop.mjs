@@ -70,6 +70,6 @@ if (process.platform !== "darwin") {
   cpSync(join(root, "manifest.json"), join(resourcesDir, "manifest.json"));
   cpSync(join(desktopDir, "assets", "icon.png"), join(resourcesDir, "icon.png"));
   cpSync(join(desktopDir, "assets", "icon.icns"), join(resourcesDir, "icon.icns"));
-  writeFileSync(join(resourcesDir, "development-host"), "Maket development host\n");
+  writeFileSync(join(resourcesDir, "development-host"), `${root}\n`);
   run(join(appPath, "Contents", "MacOS", "Maket"), []);
 }

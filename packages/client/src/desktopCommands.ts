@@ -1,5 +1,6 @@
 import type { DesktopCommand } from "@maket/shared";
 import { getLang, toggleLang } from "./i18n/useT";
+import { enterReadingSession } from "./store/readingSession";
 import { useStore } from "./store/useStore";
 import { clearActivityBubbles, sendLockDoc, wsSend } from "./store/ws";
 import { fitToView } from "./store/zoomBridge";
@@ -78,16 +79,8 @@ export function handleDesktopCommand(
 }
 
 export function openReadingView(): void {
-	const state = useStore.getState();
-	if (!state.focusedDocName) return;
-	state.setFocusedCollection(null);
-	useStore.setState({
-		selectedIds: [],
-		editingElementId: null,
-		showPopover: false,
-	});
+	if (!enterReadingSession()) return;
 	clearActivityBubbles();
-	state.setWorkspaceView("reading");
 }
 
 export function toggleFocusedDocumentLock(

@@ -8,6 +8,7 @@ export default defineConfig({
       "packages/shared",
       "packages/stdio-bridge",
       "packages/runtime",
+      "packages/agent-setup",
       "packages/desktop",
     ],
     coverage: {

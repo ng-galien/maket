@@ -567,9 +567,28 @@ describe("export routes — .maket bundle", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("text/html");
 		const html = await res.text();
-		expect(html).toContain("window.print()");
+		expect(html).toContain('<script src="/print-autostart.js"></script>');
+		expect(html).not.toMatch(/<script>[^<]*window\.print/);
+
+		const script = await fetch(`${baseUrl}/print-autostart.js`);
+		expect(script.status).toBe(200);
+		expect(script.headers.get("content-type")).toContain(
+			"application/javascript",
+		);
+		expect(await script.text()).toContain("window.print()");
 		expect(html).toContain('data-id="e0"');
 		expect(html).toContain("poster");
+	});
+
+	it("GET /print lets Electron own the native print dialog", async () => {
+		store.saveDoc(makeDoc("poster"));
+		documents.loadAll();
+
+		const res = await fetch(`${baseUrl}/print?name=poster&auto_print=false`);
+		const html = await res.text();
+
+		expect(res.status).toBe(200);
+		expect(html).not.toContain("window.print()");
 	});
 
 	it("GET /print follows the selected collection row", async () => {

@@ -1,10 +1,13 @@
-import { normalizeCategoryPath } from "@maket/shared";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { BulkActionBar } from "./docs/BulkActionBar";
 import { CategoryPicker } from "./docs/CategoryPicker";
+import {
+	categoryRenameDestination,
+	useCategoryMove,
+} from "./docs/categoryMove";
 import {
 	buildCategoryTree,
 	categoryPathsForDocs,
@@ -16,14 +19,10 @@ import { createToolbarModel, DocsToolbar } from "./docs/DocsToolbar";
 import { importMaketBundle } from "./docs/docsImportExport";
 import { addCategoryFilter, matchesQuery, parseQuery } from "./docs/docsQuery";
 import { createBulkActions, handleDocSelection } from "./docs/docsSelection";
-import type {
-	CategoryMoveTarget,
-	DocsTabModel,
-	RowMode,
-	View,
-} from "./docs/types";
+import type { DocsTabModel, RowMode, View } from "./docs/types";
 import { COLLAPSED_KEY, VIEW_KEY } from "./docs/types";
 import { LibraryToolbar } from "./shared/LibraryToolbar";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
 function loadCollapsed(): Set<string> {
 	try {
@@ -94,14 +93,20 @@ function useDocsTabModel(): DocsTabModel {
 		setSearch,
 	});
 
-	const searching = search.trim().length > 0;
 	const query = parseQuery(search, { deferLastFilterToken: true });
 	const filtered = docList.filter((doc) => matchesQuery(doc, query));
 	const categoryTree = buildCategoryTree(filtered);
 	const categoryPaths = categoryPathsForDocs(docList);
-	const categoryMove = useCategoryMovePicker(categoryPaths);
+	const categoryMove = useCategoryMove(
+		categoryPaths,
+		(target, category) => {
+			if (target.kind !== "document") return;
+			wsSend({ type: "update_meta", docName: target.name, category });
+		},
+		sendCategoryMove,
+	);
 	const openDocNames = new Set(workspaceDocNames);
-	const flatOrder = visibleDocOrder(categoryTree, searching, collapsed);
+	const flatOrder = visibleDocOrder(categoryTree, collapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
@@ -135,7 +140,6 @@ function useDocsTabModel(): DocsTabModel {
 		}),
 		categories: buildCategoryModels({
 			nodes: categoryTree,
-			searching,
 			collapsed,
 			toggleCategory: (cat) => toggleCollapsedCategory(cat, setCollapsed),
 			dragOverCat,
@@ -146,7 +150,10 @@ function useDocsTabModel(): DocsTabModel {
 			categoryRenameFor,
 			setCategoryRenameFor,
 			requestCategoryMove: categoryMove.requestCategoryMove,
-			renameCategory: moveCategoryLeaf,
+			renameCategory: (source, nextName) => {
+				const destination = categoryRenameDestination(source, nextName);
+				if (destination) sendCategoryMove(source, destination);
+			},
 			docList,
 			openDocNames,
 			view,
@@ -166,7 +173,12 @@ function useDocsTabModel(): DocsTabModel {
 					setDraggingName,
 					setDragOverCat,
 					rowClick,
-					requestMoveCategory: categoryMove.requestDocumentMove,
+					requestMoveCategory: (doc) =>
+						categoryMove.requestItemMove({
+							kind: "document",
+							name: doc.name,
+							category: doc.category,
+						}),
 				}),
 		}),
 		empty: filtered.length === 0,
@@ -179,59 +191,7 @@ function useDocsTabModel(): DocsTabModel {
 	};
 }
 
-function useCategoryMovePicker(categories: string[]) {
-	const [target, setTarget] = useState<CategoryMoveTarget | null>(null);
-	return {
-		model: {
-			target,
-			categories,
-			close: () => setTarget(null),
-			moveTo: (path: string) => {
-				if (!target) return;
-				if (target.kind === "document") {
-					const category = normalizeCategoryPath(path);
-					if (category !== normalizeCategoryPath(target.category)) {
-						wsSend({
-							type: "update_meta",
-							docName: target.name,
-							category,
-						});
-					}
-				} else {
-					moveCategoryUnder(target.path, path);
-				}
-				setTarget(null);
-			},
-		},
-		requestDocumentMove: (document: { name: string; category: string }) =>
-			setTarget({
-				kind: "document",
-				name: document.name,
-				category: document.category,
-			}),
-		requestCategoryMove: (path: string) =>
-			setTarget({ kind: "category", path }),
-	};
-}
-
-function moveCategoryLeaf(source: string, nextName: string) {
-	const normalizedName = normalizeCategoryPath(nextName);
-	const leaf = normalizedName.split("/").at(-1);
-	if (!leaf) return;
-	const parent = source.split("/").slice(0, -1).join("/");
-	const destination = parent ? `${parent}/${leaf}` : leaf;
-	moveCategory(source, destination);
-}
-
-function moveCategoryUnder(source: string, parent: string) {
-	const leaf = source.split("/").at(-1);
-	if (!leaf) return;
-	const normalizedParent = parent ? normalizeCategoryPath(parent) : "";
-	const destination = normalizedParent ? `${normalizedParent}/${leaf}` : leaf;
-	moveCategory(source, destination);
-}
-
-function moveCategory(source: string, destination: string) {
+function sendCategoryMove(source: string, destination: string) {
 	if (destination === source) return;
 	wsSend({ type: "move_category", source, destination });
 }
@@ -323,7 +283,8 @@ function DocsTabView({ model }: { model: DocsTabModel }) {
 			</LibraryToolbar>
 			<div
 				data-documents-scroll
-				className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-2.5"
+				onScroll={showLibraryScrollActivity}
+				className="library-scroll-area flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-2.5"
 			>
 				{model.categories.map((category) => (
 					<DocsCategory key={category.path} model={category} />

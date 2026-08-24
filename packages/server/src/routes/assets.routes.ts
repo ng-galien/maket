@@ -3,7 +3,13 @@
  * upload. Background optimization runs after writes via `assets.optimize`.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	createReadStream,
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	writeFileSync,
+} from "node:fs";
 // SQLite `assets` table is the single source of truth for image metadata.
 // The legacy `${ASSETS_DIR}/metadata.json` sidecar was append-only and never
 // read at runtime — removed.
@@ -13,7 +19,10 @@ import type { Request, Response } from "express";
 import express, { Router as createRouter, type Router } from "express";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import { rasterizeSvg } from "../lib/svg-rasterize.js";
-import type { AssetsService } from "../services/assets.js";
+import {
+	type AssetsService,
+	assetThumbnailFilename,
+} from "../services/assets.js";
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Store } from "../services/store.js";
@@ -70,9 +79,46 @@ export function createAssetsRouter({
 	router.use("/assets", express.static(ASSETS_DIR, { maxAge: 0, etag: true }));
 
 	router.get("/api/assets", (_req, res) => listAssets(res, store, assets));
-	router.post("/api/upload", (req, res) => handleUpload(req, res, assets, bus));
+	router.post("/api/upload", parseUploadJson, (req, res) =>
+		handleUpload(req, res, assets, bus),
+	);
 
 	return router;
+}
+
+const uploadJsonParser = express.json({ limit: MAX_UPLOAD_BYTES });
+
+function parseUploadJson(
+	req: Request,
+	res: Response<UploadResponse>,
+	next: import("express").NextFunction,
+): void {
+	if (req.body !== undefined) {
+		next();
+		return;
+	}
+	if (!req.is("application/json")) {
+		next();
+		return;
+	}
+	uploadJsonParser(req, res, (error?: unknown) => {
+		if (!error) {
+			next();
+			return;
+		}
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"type" in error &&
+			error.type === "entity.too.large"
+		) {
+			res
+				.status(413)
+				.json({ error: `Request body exceeds ${MAX_UPLOAD_BYTES} bytes` });
+			return;
+		}
+		res.status(400).json({ error: "Invalid JSON" });
+	});
 }
 
 async function handleAssetVariant(
@@ -112,7 +158,9 @@ async function sendAssetVariant(
 	const contentType = isSvg ? "image/png" : "image/jpeg";
 	const cached = join(
 		cacheDir,
-		file.replace(/\.[^.]+$/, isSvg ? ".png" : ".jpg"),
+		variant === "thumb"
+			? assetThumbnailFilename(file)
+			: file.replace(/\.[^.]+$/, isSvg ? ".png" : ".jpg"),
 	);
 	if (existsSync(cached)) {
 		sendCachedAsset(res, cached, contentType);
@@ -143,9 +191,17 @@ function sendCachedAsset(
 	file: string,
 	contentType: string,
 ): void {
-	if (contentType) res.setHeader("Content-Type", contentType);
+	res.type(contentType || file);
 	res.setHeader("Cache-Control", "public, max-age=86400");
-	res.sendFile(resolve(file));
+	const stream = createReadStream(resolve(file));
+	stream.on("error", (error) => {
+		if (!res.headersSent) {
+			res.status(500).end();
+			return;
+		}
+		res.destroy(error);
+	});
+	stream.pipe(res);
 }
 
 async function renderVariantBuffer(
@@ -293,22 +349,21 @@ async function readJsonUpload(
 	req: Request,
 	res: Response<UploadResponse>,
 ): Promise<{ cleanName: string; buf: Buffer } | null> {
-	const bodyBuf = await readBoundedUploadBody(req, res);
-	if (!bodyBuf) return null;
-	let jsonBody: any;
-	try {
-		jsonBody = JSON.parse(bodyBuf.toString("utf-8"));
-	} catch {
-		res.status(400).json({ error: "Invalid JSON" });
-		return null;
-	}
-	if (!jsonBody.filename || !jsonBody.data) {
+	const jsonBody = req.body as unknown;
+	if (
+		!jsonBody ||
+		typeof jsonBody !== "object" ||
+		Array.isArray(jsonBody) ||
+		typeof (jsonBody as Record<string, unknown>).filename !== "string" ||
+		typeof (jsonBody as Record<string, unknown>).data !== "string"
+	) {
 		res.status(400).json({ error: "filename and data required" });
 		return null;
 	}
+	const { filename, data } = jsonBody as { filename: string; data: string };
 	return {
-		cleanName: jsonBody.filename.replace(/[^a-zA-Z0-9._-]/g, "_"),
-		buf: Buffer.from(jsonBody.data, "base64"),
+		cleanName: filename.replace(/[^a-zA-Z0-9._-]/g, "_"),
+		buf: Buffer.from(data, "base64"),
 	};
 }
 

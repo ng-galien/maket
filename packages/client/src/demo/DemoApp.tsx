@@ -190,7 +190,7 @@ function DemoCaption({
 							onClick={() => onPickScenario(candidate.id)}
 							className={`rounded-full px-2.5 py-1 text-2xs font-semibold transition-colors ${
 								candidate.id === scenario.id
-									? "bg-accent text-white"
+									? "bg-accent text-accent-contrast"
 									: "bg-input text-text-2 hover:text-text-1"
 							}`}
 						>
@@ -262,7 +262,7 @@ function PlaybackBar({
 				title={playing ? "Pause" : "Play"}
 				aria-label={playing ? "Pause" : "Play"}
 				onClick={onTogglePlaying}
-				className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white"
+				className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-contrast"
 			>
 				{playing ? <Pause size={14} /> : <Play size={14} />}
 			</button>
@@ -292,7 +292,7 @@ function PlaybackBar({
 			<button
 				type="button"
 				onClick={onDownload}
-				className="ml-1 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white"
+				className="ml-1 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast"
 			>
 				<Download size={13} />
 				<span className="hidden min-[360px]:inline">.maket</span>

@@ -59,6 +59,7 @@
 
   /* ---------- Accent (emerald) ---------- */
   --color-accent: #10b981;
+  --color-accent-contrast: #000000;
   --color-accent-soft: color-mix(in srgb, var(--color-accent) 10%, transparent);
   --color-accent-border: color-mix(in srgb, var(--color-accent) 24%, transparent);
 
@@ -97,6 +98,8 @@
   --shadow-md: 0 4px 16px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.25));
   --shadow-lg: 0 8px 40px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.3));
   --shadow-xl: 0 20px 60px light-dark(rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.4));
+  --shadow-accent-soft: 0 8px 24px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  --shadow-accent: 0 8px 24px color-mix(in srgb, var(--color-accent) 18%, transparent);
   --shadow-canvas: 0 8px 40px light-dark(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.3)),
     0 2px 8px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.2));
 
@@ -174,6 +177,44 @@ input:not(.page-canvas *):focus-visible,
 textarea:not(.page-canvas *):focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+button[data-library-pin]:focus-visible {
+  outline-width: 1px;
+  outline-offset: -2px;
+}
+
+/* Main library surfaces use a transient scrollbar. macOS can be configured to
+   show scrollbars permanently; keeping the native thumb transparent until the
+   user scrolls avoids a constant grey rail without disabling scrolling. */
+.library-scroll-area {
+  scrollbar-color: transparent transparent;
+  scrollbar-width: thin;
+}
+
+.library-scroll-area::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.library-scroll-area::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.library-scroll-area::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+
+.library-scroll-area[data-scrolling="true"] {
+  scrollbar-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border-hover)) transparent;
+}
+
+.library-scroll-area[data-scrolling="true"]::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-accent) 42%, var(--color-border-hover));
+  background-clip: padding-box;
 }
 
 .category-picker-search-input:focus-visible {
@@ -315,15 +356,18 @@ textarea:not(.page-canvas *):focus-visible {
 	display: block;
 	width: 28px;
 	height: 28px;
-	border: 2px solid white;
+	border: 2px solid var(--color-accent-contrast);
 	border-radius: 999px;
 	background-color: var(--color-accent);
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z'/%3E%3C/svg%3E");
-	background-position: center;
-	background-repeat: no-repeat;
-	background-size: 16px 16px;
 	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
 	pointer-events: none;
+}
+.annotation-marker-badge::after {
+	position: absolute;
+	inset: 4px;
+	background: var(--color-accent-contrast);
+	content: "";
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 .annotation-marker-inset .annotation-marker-badge {
 	top: 8px;
@@ -340,11 +384,11 @@ textarea:not(.page-canvas *):focus-visible {
 	justify-content: center;
 	gap: 5px;
 	padding: 0 9px;
-	border: 2px solid white;
+	border: 2px solid var(--color-accent-contrast);
 	border-radius: 999px;
 	background: var(--color-accent);
 	box-shadow: 0 3px 10px rgb(0 0 0 / 0.28);
-	color: white;
+	color: var(--color-accent-contrast);
 	font: 700 13px/1 system-ui, sans-serif;
 }
 .page-canvas [data-id][data-maket-message-target],

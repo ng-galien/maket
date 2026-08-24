@@ -20,6 +20,7 @@ import {
 	LibraryToolbarActions,
 	LibraryToolbarRow,
 } from "./shared/LibraryToolbar";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
 function messageElement(msg: PendingMessage): HTMLElement | null {
 	if (!msg.elementId || !msg.docName || typeof msg.pageIndex !== "number")
@@ -226,6 +227,12 @@ function MessageCard({
 	const canOpen = Boolean(msg.docName);
 	const [busy, setBusy] = useState<"opening" | "deleting" | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	useEffect(
+		() => () => {
+			highlightElement(msg, false);
+		},
+		[msg],
+	);
 	useEffect(() => {
 		if (busy !== "deleting") return;
 		const timeout = window.setTimeout(() => {
@@ -403,7 +410,7 @@ function MessageComposer({
 					title={t("pending_send_note")}
 					className={`w-9 h-9 rounded-lg flex items-center justify-center transition flex-shrink-0 ${
 						note.trim() && !saving
-							? "bg-accent text-white hover:brightness-110"
+							? "bg-accent text-accent-contrast hover:brightness-110"
 							: "bg-input text-text-3 cursor-not-allowed"
 					}`}
 				>
@@ -444,6 +451,14 @@ export function MessagesPanel() {
 	const pending = useStore((s) => s.pending);
 	const addPending = useStore((s) => s.addPending);
 	const removePending = useStore((s) => s.removePending);
+	useEffect(() => {
+		if (pending.length > 0) return;
+		for (const target of document.querySelectorAll<HTMLElement>(
+			"[data-maket-message-target]",
+		)) {
+			target.removeAttribute("data-maket-message-target");
+		}
+	}, [pending.length]);
 	const filteredPending = useMemo(() => {
 		const query = search.trim().toLocaleLowerCase();
 		if (!query) return pending;
@@ -508,7 +523,8 @@ export function MessagesPanel() {
 			</LibraryToolbar>
 			<div
 				data-messages-scroll
-				className="flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3 scrollbar-thin"
+				onScroll={showLibraryScrollActivity}
+				className="library-scroll-area flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3"
 			>
 				{pending.length === 0 ? (
 					<div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 text-sm text-center px-4">

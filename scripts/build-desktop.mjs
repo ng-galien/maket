@@ -2,26 +2,13 @@ import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { desktopRuntimeDependencies } from "./desktop-runtime-deps.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const output = join(root, "packages", "desktop", ".desktop");
 mkdirSync(output, { recursive: true });
 
-const serverExternals = [
-  "@modelcontextprotocol/node",
-  "@modelcontextprotocol/server",
-  "@resvg/resvg-js",
-  "awilix",
-  "beautiful-mermaid",
-  "electron",
-  "express",
-  "jimp",
-  "linkedom",
-  "puppeteer",
-  "update-electron-app",
-  "ws",
-  "zod",
-];
+const serverExternals = ["electron", ...desktopRuntimeDependencies];
 
 await Promise.all([
   build({

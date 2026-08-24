@@ -50,6 +50,9 @@ jobs:
       - name: Build Pages artifact
         run: npm run build:pages
 
+      - name: Preserve candidate update feed
+        run: npx tsx scripts/preserve-candidate-update-feed.ts docs/updates/candidate
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:

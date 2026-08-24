@@ -13,13 +13,14 @@ import {
 	Sparkles,
 	X,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { copyToClipboard } from "../utils";
 import { CharteEditModal } from "./CharteEditModal";
+import { AnchoredMenu, AnchoredMenuItem } from "./shared/AnchoredMenu";
+import { LibraryListDivider } from "./shared/LibraryListDivider";
 import { LibrarySearchField } from "./shared/LibrarySearchField";
 import {
 	LibraryToolbar,
@@ -27,6 +28,7 @@ import {
 	LibraryToolbarRow,
 } from "./shared/LibraryToolbar";
 import { LibraryViewToggle } from "./shared/LibraryViewToggle";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
 /** Shared envelope (`{ name }`) plus the fields this panel actually renders. */
 interface Charte extends ChartesListItem {
@@ -252,7 +254,8 @@ function ChartesTabView({
 
 				<div
 					data-chartes-scroll
-					className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+					onScroll={showLibraryScrollActivity}
+					className={`library-scroll-area flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto py-3 ${view === "grid" ? "px-3" : ""}`}
 				>
 					{loading ? (
 						<div className="text-center text-text-3 text-xs py-6">
@@ -267,8 +270,8 @@ function ChartesTabView({
 					) : (
 						<>
 							{activeCharte && (
-								<section className="flex flex-col gap-1.5">
-									<div className="flex items-center gap-2 px-1">
+								<section className="flex flex-col">
+									<div className="mb-1.5 flex items-center gap-2 px-3">
 										<span
 											className="w-1.5 h-1.5 rounded-full bg-accent"
 											aria-hidden
@@ -282,7 +285,7 @@ function ChartesTabView({
 									) : (
 										<CharteRow {...charteItemFor(activeCharte, true)} />
 									)}
-									<div className="h-px bg-black/[0.06] my-1" />
+									{restCharte.length > 0 && <LibraryListDivider />}
 								</section>
 							)}
 							{view === "grid" ? (
@@ -292,9 +295,12 @@ function ChartesTabView({
 									))}
 								</div>
 							) : (
-								<div className="flex flex-col gap-1">
-									{restCharte.map((c) => (
-										<CharteRow key={c.name} {...charteItemFor(c, false)} />
+								<div className="flex flex-col">
+									{restCharte.map((c, index) => (
+										<Fragment key={c.name}>
+											<CharteRow {...charteItemFor(c, false)} />
+											{index < restCharte.length - 1 && <LibraryListDivider />}
+										</Fragment>
 									))}
 								</div>
 							)}
@@ -344,7 +350,7 @@ interface CharteItemProps {
 }
 
 function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
-	const { charte, isActive, hasDoc } = model;
+	const { charte, isActive } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -356,10 +362,10 @@ function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
 			<button
 				type="button"
 				onClick={actions.open}
-				className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all ${
+				className={`flex w-full items-center gap-2.5 py-2.5 pl-3 pr-10 text-left transition-colors ${
 					isActive
-						? "bg-accent/10 ring-2 ring-accent/30"
-						: "bg-panel hover:bg-black/[0.03]"
+						? "bg-accent/10 ring-1 ring-inset ring-accent/30"
+						: "bg-panel hover:bg-input/70"
 				}`}
 			>
 				<div
@@ -414,39 +420,21 @@ function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
 						)}
 					</div>
 				</div>
-				{hasDoc && !isActive && (
-					<span
-						onClick={(e) => {
-							e.stopPropagation();
-							actions.apply();
-						}}
-						onKeyDown={(e) => {
-							if (e.key === "Enter" || e.key === " ") {
-								e.stopPropagation();
-								e.preventDefault();
-								actions.apply();
-							}
-						}}
-						role="button"
-						tabIndex={0}
-						className="mr-6 px-2.5 py-1 rounded-md text-xs font-semibold bg-accent text-white hover:brightness-110 transition cursor-pointer"
-					>
-						{t("apply")}
-					</span>
-				)}
 			</button>
 			<button
 				ref={menuBtnRef}
 				type="button"
 				aria-label={t("charte_menu")}
+				aria-haspopup="menu"
+				aria-expanded={menuOpen}
 				onClick={(e) => {
 					e.stopPropagation();
 					if (menuOpen) actions.closeMenu();
 					else actions.openMenu();
 				}}
-				className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
+				className={`absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-md flex items-center justify-center text-text-3 hover:bg-input hover:text-text-1 transition ${
 					menuOpen
-						? "bg-black/[0.06]"
+						? "bg-input text-text-1"
 						: "opacity-0 group-hover:opacity-100 focus:opacity-100"
 				}`}
 			>
@@ -460,7 +448,7 @@ function CharteRow({ model, actions, menuOpen }: CharteItemProps) {
 }
 
 function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
-	const { charte, isActive, hasDoc } = model;
+	const { charte, isActive } = model;
 	const t = useT();
 	const colors = colorsOf(charte);
 	const font = displayFontOf(charte);
@@ -474,10 +462,10 @@ function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
 			<button
 				type="button"
 				onClick={actions.open}
-				className={`w-full rounded-xl overflow-hidden border text-left transition ${
+				className={`w-full overflow-hidden rounded-lg border text-left transition-[border-color,box-shadow] ${
 					isActive
-						? "border-accent ring-4 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.15)]"
-						: "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)] bg-panel"
+						? "border-accent ring-2 ring-accent/20 shadow-sm"
+						: "border-border/70 bg-panel shadow-sm hover:border-accent/40 hover:ring-1 hover:ring-accent/30"
 				}`}
 			>
 				<div
@@ -497,7 +485,7 @@ function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
 						Aa
 					</span>
 					{isActive && (
-						<span className="absolute top-2 right-2 w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center">
+						<span className="absolute top-2 right-2 w-5 h-5 rounded-md bg-accent text-accent-contrast flex items-center justify-center">
 							<Check size={11} />
 						</span>
 					)}
@@ -511,7 +499,7 @@ function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
 					</div>
 				)}
 
-				<div className="p-3 flex items-start gap-2">
+				<div className="flex items-start gap-2 p-3">
 					<div className="flex-1 min-w-0">
 						<div
 							className={`truncate text-base ${isActive ? "font-bold text-accent" : "font-bold text-text-1"}`}
@@ -529,39 +517,20 @@ function CharteCard({ model, actions, menuOpen }: CharteItemProps) {
 							</div>
 						)}
 					</div>
-					{hasDoc && !isActive && (
-						<span
-							onClick={(e) => {
-								e.stopPropagation();
-								actions.apply();
-							}}
-							onKeyDown={(e) => {
-								if (e.key === "Enter" || e.key === " ") {
-									e.stopPropagation();
-									e.preventDefault();
-									actions.apply();
-								}
-							}}
-							role="button"
-							tabIndex={0}
-							className="flex-shrink-0 px-2.5 py-1 rounded-md text-xs font-semibold bg-accent text-white hover:brightness-110 transition cursor-pointer"
-						>
-							{t("apply")}
-						</span>
-					)}
 				</div>
 			</button>
-
 			<button
 				ref={menuBtnRef}
 				type="button"
 				aria-label={t("charte_menu")}
+				aria-haspopup="menu"
+				aria-expanded={menuOpen}
 				onClick={(e) => {
 					e.stopPropagation();
 					if (menuOpen) actions.closeMenu();
 					else actions.openMenu();
 				}}
-				className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-md flex items-center justify-center transition backdrop-blur-sm ${
+				className={`absolute top-1.5 left-1.5 w-7 h-7 rounded-md flex items-center justify-center transition-colors backdrop-blur-sm ${
 					menuOpen
 						? "bg-black/40 text-white"
 						: "bg-black/20 text-white/90 hover:bg-black/40 opacity-0 group-hover/card:opacity-100"
@@ -585,59 +554,20 @@ interface CharteMenuProps {
 function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
 	const { charte, isActive, hasDoc } = model;
 	const t = useT();
-	const ref = useRef<HTMLDivElement>(null);
-	const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-
-	useLayoutEffect(() => {
-		const a = anchorRef.current;
-		if (!a) return;
-		const rect = a.getBoundingClientRect();
-		const MENU_W = 200;
-		const GAP = 4;
-		const top = rect.bottom + GAP;
-		const left = Math.max(
-			8,
-			Math.min(rect.left, window.innerWidth - MENU_W - 8),
-		);
-		setPos({ top, left });
-	}, [anchorRef]);
-
-	useEffect(() => {
-		const onDocClick = (e: MouseEvent) => {
-			if (ref.current?.contains(e.target as Node)) return;
-			if (anchorRef.current?.contains(e.target as Node)) return;
-			actions.closeMenu();
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") actions.closeMenu();
-		};
-		const onScroll = () => actions.closeMenu();
-		document.addEventListener("mousedown", onDocClick);
-		document.addEventListener("keydown", onKey);
-		window.addEventListener("scroll", onScroll, true);
-		window.addEventListener("resize", onScroll);
-		return () => {
-			document.removeEventListener("mousedown", onDocClick);
-			document.removeEventListener("keydown", onKey);
-			window.removeEventListener("scroll", onScroll, true);
-			window.removeEventListener("resize", onScroll);
-		};
-	}, [actions, anchorRef]);
-
-	if (!pos) return null;
-
 	const handleCopyName = async () => {
 		await copyToClipboard(charte.name);
 		actions.closeMenu();
 	};
 
-	return createPortal(
-		<div
-			ref={ref}
-			className="fixed z-[210] w-50 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
-			style={{ top: pos.top, left: pos.left, width: 200 }}
+	return (
+		<AnchoredMenu
+			anchorRef={anchorRef}
+			onClose={actions.closeMenu}
+			align="start"
+			className="w-[200px]"
+			ariaLabel={t("charte_menu")}
 		>
-			<MenuItem
+			<AnchoredMenuItem
 				icon={<Search size={13} />}
 				onClick={() => {
 					actions.open();
@@ -645,18 +575,9 @@ function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
 				}}
 			>
 				{t("charte_details")}
-			</MenuItem>
-			<MenuItem
-				icon={<Pencil size={13} />}
-				onClick={() => {
-					actions.edit();
-					actions.closeMenu();
-				}}
-			>
-				{t("charte_edit")}
-			</MenuItem>
+			</AnchoredMenuItem>
 			{hasDoc && !isActive && (
-				<MenuItem
+				<AnchoredMenuItem
 					icon={<Check size={13} />}
 					onClick={() => {
 						actions.apply();
@@ -664,10 +585,19 @@ function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
 					}}
 				>
 					{t("apply")}
-				</MenuItem>
+				</AnchoredMenuItem>
 			)}
+			<AnchoredMenuItem
+				icon={<Pencil size={13} />}
+				onClick={() => {
+					actions.edit();
+					actions.closeMenu();
+				}}
+			>
+				{t("charte_edit")}
+			</AnchoredMenuItem>
 			{hasDoc && isActive && (
-				<MenuItem
+				<AnchoredMenuItem
 					icon={<X size={13} />}
 					onClick={() => {
 						actions.unapply();
@@ -675,47 +605,12 @@ function CharteMenu({ model, actions, anchorRef }: CharteMenuProps) {
 					}}
 				>
 					{t("charte_unapply")}
-				</MenuItem>
+				</AnchoredMenuItem>
 			)}
-			<MenuItem icon={<Copy size={13} />} onClick={handleCopyName}>
+			<AnchoredMenuItem icon={<Copy size={13} />} onClick={handleCopyName}>
 				{t("charte_copy_name")}
-			</MenuItem>
-		</div>,
-		document.body,
-	);
-}
-
-interface MenuItemProps {
-	icon: React.ReactNode;
-	children: React.ReactNode;
-	onClick: () => void;
-	disabled?: boolean;
-	danger?: boolean;
-}
-
-function MenuItem({
-	icon,
-	children,
-	onClick,
-	disabled,
-	danger,
-}: MenuItemProps) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-left transition ${
-				disabled
-					? "text-text-3 cursor-not-allowed"
-					: danger
-						? "text-danger hover:bg-danger-soft"
-						: "text-text-1 hover:bg-black/[0.05]"
-			}`}
-		>
-			<span className="flex-shrink-0">{icon}</span>
-			<span className="flex-1 truncate">{children}</span>
-		</button>
+			</AnchoredMenuItem>
+		</AnchoredMenu>
 	);
 }
 

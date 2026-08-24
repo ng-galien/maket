@@ -41,6 +41,7 @@ export interface AssetRow {
 
 export interface AssetRepository {
 	saveAsset(a: AssetInput): void;
+	saveAssets(assets: AssetInput[]): void;
 	loadAllAssets(): AssetRow[];
 	loadAsset(filename: string): AssetRow | null;
 	deleteAsset(filename: string): boolean;
@@ -48,24 +49,39 @@ export interface AssetRepository {
 
 export function createAssetRepository(db: DatabaseSync): AssetRepository {
 	const statements = prepareAssetStatements(db);
+	const saveAsset = (asset: AssetInput) => {
+		const tagsSet = asset.tags !== undefined ? 1 : 0;
+		const tagsValue =
+			typeof asset.tags === "string"
+				? asset.tags
+				: JSON.stringify(asset.tags ?? []);
+		statements.assetUpsert.run({
+			filename: asset.filename,
+			title: asset.title ?? null,
+			description: asset.description ?? null,
+			category: asset.category ?? null,
+			tags: tagsValue,
+			tags_set: tagsSet,
+			credit: asset.credit ?? null,
+			width: asset.width ?? null,
+			height: asset.height ?? null,
+			orientation: asset.orientation ?? null,
+		});
+	};
 
 	return {
 		saveAsset(a) {
-			const tagsSet = a.tags !== undefined ? 1 : 0;
-			const tagsValue =
-				typeof a.tags === "string" ? a.tags : JSON.stringify(a.tags ?? []);
-			statements.assetUpsert.run({
-				filename: a.filename,
-				title: a.title ?? null,
-				description: a.description ?? null,
-				category: a.category ?? null,
-				tags: tagsValue,
-				tags_set: tagsSet,
-				credit: a.credit ?? null,
-				width: a.width ?? null,
-				height: a.height ?? null,
-				orientation: a.orientation ?? null,
-			});
+			saveAsset(a);
+		},
+		saveAssets(assets) {
+			db.exec("BEGIN");
+			try {
+				for (const asset of assets) saveAsset(asset);
+				db.exec("COMMIT");
+			} catch (error) {
+				db.exec("ROLLBACK");
+				throw error;
+			}
 		},
 		loadAllAssets() {
 			return (statements.assetSelectAll.all() as any[]).map(assetFromStorage);

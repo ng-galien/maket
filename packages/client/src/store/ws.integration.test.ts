@@ -891,16 +891,43 @@ describe("doc_removed", () => {
 });
 
 describe("assets_changed", () => {
-	it("dispatches a window `assets-changed` event", async () => {
-		const { initWs } = await freshWsModule();
+	it("applies category deltas to the Zustand asset mirror", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		useStore.setState({
+			assets: [
+				{ file: "hero.png", category: "Archive" },
+				{ file: "logo.png", category: "Brand" },
+			],
+			assetsLoaded: true,
+		});
+		MockWebSocket.last().emit({
+			type: "assets_changed",
+			categoryUpdates: [{ filename: "hero.png", category: "Campaigns" }],
+		});
+		expect(useStore.getState().assets).toEqual([
+			{ file: "hero.png", category: "Campaigns" },
+			{ file: "logo.png", category: "Brand" },
+		]);
+	});
+
+	it("refreshes the Zustand asset mirror when the signal has no delta", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			json: async () => ({ images: [{ file: "new-upload.png" }] }),
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { initWs, useStore } = await freshWsModule();
 		initWs();
 		MockWebSocket.last().open();
 
-		const listener = vi.fn();
-		window.addEventListener("assets-changed", listener);
 		MockWebSocket.last().emit({ type: "assets_changed" });
-		window.removeEventListener("assets-changed", listener);
-		expect(listener).toHaveBeenCalledTimes(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchMock).toHaveBeenCalledWith("/api/assets");
+		expect(useStore.getState().assets).toEqual([{ file: "new-upload.png" }]);
+		expect(useStore.getState().assetsLoaded).toBe(true);
 	});
 });
 

@@ -188,7 +188,7 @@ export function registerServerEvents({
 			annotations: pending.all(),
 		});
 	});
-	bus.on("assets:changed", () =>
-		wsRegistry.broadcast({ type: "assets_changed" }),
+	bus.on("assets:changed", ({ categoryUpdates }) =>
+		wsRegistry.broadcast({ type: "assets_changed", categoryUpdates }),
 	);
 }

@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import type { AssetCategoryUpdate } from "@maket/shared";
 
 export interface BusEvents {
 	"document:created": { docName: string };
@@ -19,7 +20,7 @@ export interface BusEvents {
 	"document:deleted": { docName: string };
 	"canvas:changed": { docName: string };
 	"element:updated": { docName: string; id: string };
-	"assets:changed": Record<string, never>;
+	"assets:changed": { categoryUpdates?: AssetCategoryUpdate[] };
 	"meta:updated": { docName: string };
 	"charte:updated": { name: string; css: string };
 	"charte:removed": { name: string };

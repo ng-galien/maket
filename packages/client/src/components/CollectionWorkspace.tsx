@@ -15,7 +15,14 @@ import {
 	Trash2,
 	X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	type Column,
 	DataGrid,
@@ -28,13 +35,26 @@ import {
 	applyPastedTable,
 	parseTabularClipboard,
 } from "../lib/tabular-clipboard";
+import {
+	addCollectionField,
+	addCollectionRow,
+	type CollectionFieldType,
+	collectionHasChanged,
+	collectionSchemaProperties,
+	duplicateCollectionRow,
+	removeCollectionField,
+	removeCollectionRow,
+	sortedCollectionMembers,
+	withCollectionFieldRequired,
+	withoutCollectionKey,
+} from "../store/collectionDraft";
 import { previewCursorForPage, useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
-import { BottomDockResizeHandle, useBottomDockHeight } from "./BottomDock";
+import { BottomDock, useBottomDockHeight } from "./BottomDock";
 import { CollectionRenderControls } from "./CollectionDataControls";
 
-const fieldKeyPattern = /^[a-z][a-z0-9_]*$/;
 type SetCollectionDraft = React.Dispatch<React.SetStateAction<Collection>>;
+type CollectionEditorView = "data" | "schema";
 export type StoreState = ReturnType<typeof useStore.getState>;
 export type CollectionWorkspaceLayout =
 	| "closed"
@@ -48,13 +68,8 @@ const DOCK_HEIGHT_KEYS = {
 } as const;
 
 /** Field types the schema toolbar can create; cells render by declared type. */
-type FieldType = "string" | "number" | "boolean";
+type FieldType = CollectionFieldType;
 const fieldTypes: readonly FieldType[] = ["string", "number", "boolean"];
-
-interface FieldMessages {
-	invalid: string;
-	duplicate: string;
-}
 
 /** The table drives the focused page's cursor when that page is bound to
  * this collection — clicking a row moves the shared preview cursor. */
@@ -78,6 +93,7 @@ function selectCollectionWorkspaceState(state: StoreState) {
 		cursorPageIndex: state.focusedPageIndex,
 		readOnly: state.readOnly,
 		dataDockMode: state.dataDockMode,
+		libraryOpen: state.libraryOpen,
 		setFocusedCollection: state.setFocusedCollection,
 		setCursorMember: state.setCursorMember,
 		setDraftCursorOverride: state.setDraftCursorOverride,
@@ -119,6 +135,7 @@ export function CollectionWorkspace({
 		cursorPageIndex,
 		readOnly,
 		dataDockMode,
+		libraryOpen,
 		setFocusedCollection,
 		setCursorMember,
 		setDraftCursorOverride,
@@ -130,8 +147,34 @@ export function CollectionWorkspace({
 		dockStorageKey,
 		dataDockMode === "expanded" ? expandedDockHeight() : splitDockHeight(),
 	);
+	const [editorView, setEditorView] = useState<{
+		collectionName: string | null;
+		view: CollectionEditorView;
+	}>({ collectionName: null, view: "data" });
+	const [manuallySizedDockKey, setManuallySizedDockKey] = useState<
+		string | null
+	>(() =>
+		localStorage.getItem(dockStorageKey) !== null ? dockStorageKey : null,
+	);
+	useEffect(() => {
+		setManuallySizedDockKey(
+			localStorage.getItem(dockStorageKey) !== null ? dockStorageKey : null,
+		);
+	}, [dockStorageKey]);
 
 	if (!collection || readOnly || layout === "closed") return null;
+	const activeView =
+		editorView.collectionName === collection.name ? editorView.view : "data";
+	const visibleDraft = collectionDraft ?? collection;
+	const naturalHeight = collectionDockNaturalHeight(activeView, visibleDraft);
+	const dockHeight =
+		manuallySizedDockKey === dockStorageKey
+			? height
+			: Math.min(height, naturalHeight);
+	const resizeDock = (nextHeight: number) => {
+		setManuallySizedDockKey(dockStorageKey);
+		setHeight(nextHeight);
+	};
 	const selectMember = (memberId: string) => {
 		if (!cursorDocName) return;
 		if (isSavedRow(collection, memberId)) {
@@ -143,33 +186,44 @@ export function CollectionWorkspace({
 	};
 
 	return (
-		<section
+		<BottomDock
 			data-collection-dock
 			data-collection-layout={layout}
-			style={{ height: layout === "expanded-data" ? "100%" : height }}
-			className={`relative z-[var(--z-panel)] flex w-full flex-col overflow-hidden border-t border-border bg-panel shadow-[0_-8px_24px_rgba(0,0,0,0.08)] ${layout === "expanded-data" ? "min-h-0 flex-1" : "shrink-0"}`}
+			height={layout === "expanded-data" ? "100%" : dockHeight}
+			style={
+				{
+					"--collection-header-leading-clearance":
+						layout === "expanded-data" && libraryOpen ? "2rem" : "0rem",
+				} as CSSProperties
+			}
+			resize={
+				layout === "expanded-data"
+					? undefined
+					: {
+							height: dockHeight,
+							setHeight: resizeDock,
+							storageKey: dockStorageKey,
+							label: t("resize_collection_panel"),
+						}
+			}
+			className={layout === "expanded-data" ? "min-h-0 flex-1" : "shrink-0"}
 		>
-			{layout !== "expanded-data" && (
-				<BottomDockResizeHandle
-					height={height}
-					setHeight={setHeight}
-					storageKey={dockStorageKey}
-					label={t("resize_collection_panel")}
-				/>
-			)}
 			<CollectionEditor
 				key={collection.name}
 				model={{
 					collection,
-					initialDraft: collectionDraft ?? collection,
+					initialDraft: visibleDraft,
 					previewMemberId,
+					activeView,
 				}}
 				actions={{
 					close: () => setFocusedCollection(null),
 					selectMember,
+					setView: (view) =>
+						setEditorView({ collectionName: collection.name, view }),
 				}}
 			/>
-		</section>
+		</BottomDock>
 	);
 }
 
@@ -181,25 +235,37 @@ function expandedDockHeight(): number {
 	return Math.max(360, Math.min(620, Math.round(window.innerHeight * 0.68)));
 }
 
+function collectionDockNaturalHeight(
+	view: CollectionEditorView,
+	collection: Collection,
+): number {
+	const fixedChromeHeight = 88;
+	const issueHeight = validateCollection(collection).length > 0 ? 36 : 0;
+	const contentHeight =
+		view === "data"
+			? 32 + Math.max(1, collection.members.length) * 32
+			: 76 + Math.max(1, listCollectionFields(collection).length) * 48;
+	return Math.max(180, fixedChromeHeight + issueHeight + contentHeight);
+}
+
 interface CollectionEditorProps {
 	model: {
 		collection: Collection;
 		initialDraft: Collection;
 		previewMemberId: string | null;
+		activeView: CollectionEditorView;
 	};
 	actions: {
 		close: () => void;
 		selectMember: (memberId: string) => void;
+		setView: (view: CollectionEditorView) => void;
 	};
 }
 
 function CollectionEditor(props: CollectionEditorProps) {
-	const { collection, initialDraft, previewMemberId } = props.model;
-	const { close, selectMember } = props.actions;
+	const { collection, initialDraft, previewMemberId, activeView } = props.model;
+	const { close, selectMember, setView } = props.actions;
 	const [draft, setDraftState] = useState(initialDraft);
-	const [activeView, setActiveView] = useState<"data" | "schema">("data");
-	const [fieldName, setFieldName] = useState("");
-	const [fieldError, setFieldError] = useState("");
 	const setCollectionDraft = useStore((s) => s.setCollectionDraft);
 	const clearCollectionDraft = useStore((s) => s.clearCollectionDraft);
 	const setDraft = useCallback<SetCollectionDraft>(
@@ -213,22 +279,20 @@ function CollectionEditor(props: CollectionEditorProps) {
 		[setCollectionDraft],
 	);
 	const fields = useMemo(() => listCollectionFields(draft), [draft]);
-	const members = useMemo(() => sortedMembers(draft), [draft]);
+	const members = useMemo(() => sortedCollectionMembers(draft), [draft]);
 	const savedMemberIds = useMemo(
 		() => new Set(collection.members.map((member) => member.id)),
 		[collection],
 	);
 	const issues = useMemo(() => validateCollection(draft), [draft]);
 	const dirty = useMemo(
-		() => hasChanged(collection, draft),
+		() => collectionHasChanged(collection, draft),
 		[collection, draft],
 	);
 	const canSave = dirty && issues.length === 0;
 
 	useEffect(() => {
 		setDraftState(initialDraft);
-		setFieldName("");
-		setFieldError("");
 	}, [initialDraft]);
 
 	return (
@@ -238,8 +302,8 @@ function CollectionEditor(props: CollectionEditorProps) {
 			<CollectionEditorToolbar
 				model={{ draft, dirty, canSave, activeView }}
 				actions={{
-					setView: setActiveView,
-					addRow: () => addRow(draft, fields, setDraft),
+					setView,
+					addRow: () => setDraft(addCollectionRow(draft, fields)),
 					reset: () => {
 						clearCollectionDraft(collection.name);
 						setDraftState(collection);
@@ -258,14 +322,7 @@ function CollectionEditor(props: CollectionEditorProps) {
 				/>
 			) : (
 				<div className="flex min-h-0 flex-1 flex-col">
-					<SchemaToolbar
-						draft={draft}
-						fieldName={fieldName}
-						fieldError={fieldError}
-						setDraft={setDraft}
-						setFieldName={setFieldName}
-						setFieldError={setFieldError}
-					/>
+					<SchemaToolbar draft={draft} setDraft={setDraft} />
 					<SchemaFieldList draft={draft} fields={fields} setDraft={setDraft} />
 				</div>
 			)}
@@ -282,7 +339,14 @@ function CollectionEditorHeader({
 }) {
 	const t = useT();
 	return (
-		<header className="flex h-10 items-center gap-3 border-b border-border px-3">
+		<header
+			data-collection-editor-header
+			className="flex h-12 items-center gap-3 border-b border-border pr-3"
+			style={{
+				paddingInlineStart:
+					"calc(0.75rem + var(--collection-header-leading-clearance, 0rem))",
+			}}
+		>
 			<span
 				className="text-sm font-bold text-text-1 truncate shrink-0 max-w-44"
 				title={draft.name}
@@ -373,7 +437,7 @@ function CollectionEditorToolbar({
 				aria-label={t("save")}
 				disabled={!canSave}
 				onClick={() => wsSend({ type: "collection_save", collection: draft })}
-				className="flex h-7 items-center gap-1.5 rounded-sm bg-accent px-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-30"
+				className="flex h-7 items-center gap-1.5 rounded-sm bg-accent px-2 text-xs font-semibold text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-30"
 			>
 				<Save size={13} />
 				<span>{t("save")}</span>
@@ -415,34 +479,30 @@ function EditorViewButton({
 
 function SchemaToolbar({
 	draft,
-	fieldName,
-	fieldError,
 	setDraft,
-	setFieldName,
-	setFieldError,
 }: {
 	draft: Collection;
-	fieldName: string;
-	fieldError: string;
 	setDraft: SetCollectionDraft;
-	setFieldName: (name: string) => void;
-	setFieldError: (message: string) => void;
 }) {
 	const t = useT();
+	const [fieldName, setFieldName] = useState("");
+	const [fieldError, setFieldError] = useState("");
 	const [fieldType, setFieldType] = useState<FieldType>("string");
-	const submitField = () =>
-		addField(
-			fieldName,
-			fieldType,
-			draft,
-			{
-				invalid: t("collection_field_invalid"),
-				duplicate: t("collection_field_duplicate"),
-			},
-			setDraft,
-			setFieldError,
-			setFieldName,
-		);
+	useEffect(() => setFieldError(""), [draft.schema.properties]);
+	const submitField = () => {
+		const result = addCollectionField(draft, fieldName, fieldType);
+		if (!result.ok) {
+			setFieldError(
+				result.reason === "invalid"
+					? t("collection_field_invalid")
+					: t("collection_field_duplicate"),
+			);
+			return;
+		}
+		setDraft(result.collection);
+		setFieldName("");
+		setFieldError("");
+	};
 	return (
 		<div className="flex items-center gap-2 border-b border-border bg-input/20 px-3 py-2">
 			<input
@@ -564,7 +624,7 @@ function CollectionGrid({
 						onClick={() => onSelectMember(row.id)}
 						className={`mx-auto flex h-5 min-w-5 items-center justify-center rounded px-1 text-2xs font-bold ${
 							row.id === previewMemberId
-								? "bg-accent text-white"
+								? "bg-accent text-accent-contrast"
 								: savedMemberIds.has(row.id)
 									? "bg-input text-text-3"
 									: "border border-dashed border-accent text-accent"
@@ -804,13 +864,13 @@ function withMemberValue(
 		...member,
 		data:
 			value === undefined
-				? withoutKey(member.data, key)
+				? withoutCollectionKey(member.data, key)
 				: { ...member.data, [key]: value },
 	};
 }
 
 function enumOptions(collection: Collection, key: string): string[] | null {
-	const property = schemaProperties(collection)[key];
+	const property = collectionSchemaProperties(collection)[key];
 	if (!property || typeof property !== "object") return null;
 	const values = (property as { enum?: unknown }).enum;
 	if (!Array.isArray(values)) return null;
@@ -858,7 +918,11 @@ function SchemaFieldList({
 									aria-label={`${t("collection_required")} ${field.key}`}
 									onChange={(event) =>
 										setDraft(
-											withRequired(draft, field.key, event.target.checked),
+											withCollectionFieldRequired(
+												draft,
+												field.key,
+												event.target.checked,
+											),
 										)
 									}
 									className="h-3.5 w-3.5 accent-accent"
@@ -869,7 +933,9 @@ function SchemaFieldList({
 									type="button"
 									title={`${t("collection_delete_field")} — ${field.key}`}
 									aria-label={`${t("collection_delete_field")} — ${field.key}`}
-									onClick={() => setDraft(removeField(draft, field.key))}
+									onClick={() =>
+										setDraft(removeCollectionField(draft, field.key))
+									}
 									className="inline-flex h-6 w-6 items-center justify-center rounded text-text-3 transition-colors hover:bg-input hover:text-danger"
 								>
 									<Trash2 size={12} />
@@ -968,199 +1034,10 @@ function updateDescription(
 	setDraft((current) => ({ ...current, description }));
 }
 
-function addField(
-	rawName: string,
-	type: FieldType,
-	draft: Collection,
-	messages: FieldMessages,
-	setDraft: SetCollectionDraft,
-	setFieldError: (message: string) => void,
-	setFieldName: (name: string) => void,
-): void {
-	const key = rawName.trim();
-	if (!fieldKeyPattern.test(key)) {
-		setFieldError(messages.invalid);
-		return;
-	}
-	if (schemaProperties(draft)[key]) {
-		setFieldError(messages.duplicate);
-		return;
-	}
-	setDraft(withOptionalSchemaField(draft, key, type));
-	setFieldName("");
-	setFieldError("");
-}
-
-function addRow(
-	draft: Collection,
-	fields: CollectionField[],
-	setDraft: SetCollectionDraft,
-): void {
-	const data: Record<string, unknown> = {};
-	for (const field of fields) {
-		const value = defaultValueFor(draft, field);
-		if (value !== undefined) data[field.key] = value;
-	}
-	setDraft({
-		...draft,
-		members: [
-			...draft.members,
-			{
-				id: nextMemberId(draft),
-				position: nextMemberPosition(draft),
-				data,
-			},
-		],
-	});
-}
-
-/** Schema-valid starting value for a new row: optional fields stay absent
- * (`undefined`); required fields get a value that validates — first enum
- * option, 0, false, or "". */
-function defaultValueFor(
-	collection: Collection,
-	field: CollectionField,
-): unknown {
-	if (!field.required) return undefined;
-	const options = enumOptions(collection, field.key);
-	if (options) return options[0] ?? "";
-	if (field.type === "number" || field.type === "integer") return 0;
-	if (field.type === "boolean") return false;
-	return "";
-}
-
 function removeRow(memberId: string, setDraft: SetCollectionDraft): void {
-	setDraft((current) => ({
-		...current,
-		members: current.members
-			.filter((member) => member.id !== memberId)
-			.map((member, position) => ({ ...member, position })),
-	}));
+	setDraft((current) => removeCollectionRow(current, memberId));
 }
 
 function duplicateRow(memberId: string, setDraft: SetCollectionDraft): void {
-	setDraft((current) => {
-		const sourceIndex = current.members.findIndex(
-			(member) => member.id === memberId,
-		);
-		if (sourceIndex < 0) return current;
-		const source = current.members[sourceIndex];
-		if (!source) return current;
-		const members = [...current.members];
-		members.splice(sourceIndex + 1, 0, {
-			...source,
-			id: nextMemberId(current),
-			data: { ...source.data },
-		});
-		return {
-			...current,
-			members: members.map((member, position) => ({ ...member, position })),
-		};
-	});
-}
-
-/** Adds a schema property without requiring it on existing rows. */
-function withOptionalSchemaField(
-	collection: Collection,
-	key: string,
-	type: FieldType,
-): Collection {
-	return {
-		...collection,
-		schema: {
-			...collection.schema,
-			type: "object",
-			properties: {
-				...schemaProperties(collection),
-				[key]: { type, title: fieldTitle(key) },
-			},
-		},
-	};
-}
-
-function removeField(collection: Collection, key: string): Collection {
-	const properties = { ...schemaProperties(collection) };
-	delete properties[key];
-	return {
-		...collection,
-		schema: {
-			...collection.schema,
-			properties,
-			required: requiredFields(collection).filter((field) => field !== key),
-		},
-		members: collection.members.map((member) => ({
-			...member,
-			data: withoutKey(member.data, key),
-		})),
-	};
-}
-
-function withRequired(
-	collection: Collection,
-	key: string,
-	required: boolean,
-): Collection {
-	const fields = new Set(requiredFields(collection));
-	if (required) fields.add(key);
-	else fields.delete(key);
-	return {
-		...collection,
-		schema: {
-			...collection.schema,
-			required: [...fields],
-		},
-	};
-}
-
-function schemaProperties(collection: Collection): Record<string, unknown> {
-	const properties = collection.schema.properties;
-	return properties && typeof properties === "object" ? properties : {};
-}
-
-function requiredFields(collection: Collection): string[] {
-	return Array.isArray(collection.schema.required)
-		? collection.schema.required.filter(
-				(field): field is string => typeof field === "string",
-			)
-		: [];
-}
-
-function withoutKey(
-	data: Record<string, unknown>,
-	key: string,
-): Record<string, unknown> {
-	const next = { ...data };
-	delete next[key];
-	return next;
-}
-
-function sortedMembers(collection: Collection): Collection["members"] {
-	return [...collection.members].sort((a, b) => a.position - b.position);
-}
-
-function nextMemberPosition(collection: Collection): number {
-	if (collection.members.length === 0) return 0;
-	return Math.max(...collection.members.map((member) => member.position)) + 1;
-}
-
-function nextMemberId(collection: Collection): string {
-	let index = collection.members.length + 1;
-	let id = `member_${index}`;
-	while (collection.members.some((member) => member.id === id)) {
-		index += 1;
-		id = `member_${index}`;
-	}
-	return id;
-}
-
-function fieldTitle(key: string): string {
-	return key
-		.split("_")
-		.filter(Boolean)
-		.map((part) => part[0]?.toUpperCase() + part.slice(1))
-		.join(" ");
-}
-
-function hasChanged(source: Collection, draft: Collection): boolean {
-	return JSON.stringify(source) !== JSON.stringify(draft);
+	setDraft((current) => duplicateCollectionRow(current, memberId));
 }

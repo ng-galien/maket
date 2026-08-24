@@ -18,6 +18,7 @@ export function AppShell({ locked }: { locked: boolean }) {
 	const t = useT();
 	const canvasRef = useRef<HTMLDivElement>(null);
 	const libraryOpen = useStore((state) => state.libraryOpen);
+	const libraryPinned = useStore((state) => state.libraryPinned);
 	const settingsOpen = useStore((state) => state.settingsOpen);
 	const closeLastPanel = useStore((state) => state.closeLastPanel);
 	const setDataDockMode = useStore((state) => state.setDataDockMode);
@@ -44,7 +45,7 @@ export function AppShell({ locked }: { locked: boolean }) {
 		>
 			<WorkspaceHeader />
 			<div data-shell-workarea className="relative flex min-h-0 flex-1">
-				{libraryOpen && (
+				{libraryOpen && !libraryPinned && (
 					<button
 						type="button"
 						aria-label={t("close_active_panel")}
@@ -53,7 +54,13 @@ export function AppShell({ locked }: { locked: boolean }) {
 					/>
 				)}
 				<LibraryPanel />
-				<section className="relative flex min-w-0 flex-1 flex-col">
+				<section
+					data-workspace-surface
+					onPointerDownCapture={() => {
+						if (libraryOpen && !libraryPinned) closeLastPanel();
+					}}
+					className="relative flex min-w-0 flex-1 flex-col"
+				>
 					{settingsOpen ? (
 						<SettingsPage />
 					) : (

@@ -1,0 +1,106 @@
+import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { prepareCandidateUpdateFeed } from "../../../scripts/prepare-candidate-update-feed.js";
+
+const temporaryDirectories: string[] = [];
+
+afterEach(async () => {
+  const { rm } = await import("node:fs/promises");
+  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+});
+
+describe("candidate update feed", () => {
+  it("publishes updater metadata and artifacts for every supported target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "maket-candidate-feed-"));
+    temporaryDirectories.push(root);
+    const artifacts = join(root, "artifacts");
+    const output = join(root, "output");
+    await Promise.all([
+      writeArtifact(artifacts, "maket-app-macos-x64", "Maket-darwin-x64-2.0.0-rc.1.zip", "x64"),
+      writeArtifact(artifacts, "maket-app-macos-arm64", "Maket-darwin-arm64-2.0.0-rc.1.zip", "arm64"),
+      writeArtifact(artifacts, "maket-app-windows-x64", "RELEASES", "release-index"),
+      writeArtifact(artifacts, "maket-app-windows-x64", "maket_app-2.0.0-rc1-full.nupkg", "package"),
+      writeArtifact(artifacts, "maket-app-windows-x64", "Maket-2.0.0-rc.1 Setup.exe", "installer"),
+    ]);
+
+    await prepareCandidateUpdateFeed({
+      artifactsDir: artifacts,
+      outputDir: output,
+      version: "2.0.0-rc.1",
+      publishedAt: new Date("2026-08-22T12:00:00.000Z"),
+    });
+
+    const armManifest = JSON.parse(await readFile(join(output, "darwin", "arm64", "RELEASES.json"), "utf8"));
+    expect(armManifest).toMatchObject({
+      currentRelease: "2.0.0-rc.1",
+      releases: [
+        {
+          version: "2.0.0-rc.1",
+          updateTo: {
+            url: "https://ng-galien.github.io/maket/updates/candidate/darwin/arm64/Maket-darwin-arm64-2.0.0-rc.1.zip",
+          },
+        },
+      ],
+    });
+    await expect(readFile(join(output, "darwin", "x64", "Maket-darwin-x64-2.0.0-rc.1.zip"), "utf8")).resolves.toBe(
+      "x64",
+    );
+    await expect(readFile(join(output, "win32", "x64", "RELEASES"), "utf8")).resolves.toBe("release-index");
+    await expect(readFile(join(output, "win32", "x64", "maket_app-2.0.0-rc1-full.nupkg"), "utf8")).resolves.toBe(
+      "package",
+    );
+  });
+
+  it("rejects stable versions and incomplete artifact sets", async () => {
+    const root = await mkdtemp(join(tmpdir(), "maket-candidate-feed-"));
+    temporaryDirectories.push(root);
+    const artifacts = join(root, "artifacts");
+    await writeArtifact(artifacts, "maket-app-macos-x64", "Maket.zip", "zip");
+
+    await expect(
+      prepareCandidateUpdateFeed({
+        artifactsDir: artifacts,
+        outputDir: join(root, "output"),
+        version: "2.0.0",
+      }),
+    ).rejects.toThrow("requires a prerelease version");
+    await expect(
+      prepareCandidateUpdateFeed({
+        artifactsDir: artifacts,
+        outputDir: join(root, "output"),
+        version: "2.0.0-rc.1",
+      }),
+    ).rejects.toThrow("Expected exactly one macOS arm64 ZIP");
+  });
+
+  it("keeps the release workflow explicit about prerelease channels and Pages feeds", async () => {
+    const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+    const pagesWorkflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/pages.yml"), "utf8");
+    expect(workflow).toContain("npm publish --access public --tag next");
+    expect(workflow).toContain("RELEASE_ARGS+=(--prerelease)");
+    expect(workflow).toContain("candidate-feed:");
+    expect(workflow).toContain("prepare-candidate-update-feed.ts");
+    expect(pagesWorkflow).toContain("preserve-candidate-update-feed.ts");
+  });
+
+  it("rejects desktop packaging outside Node 22", () => {
+    const guard = resolve(import.meta.dirname, "../../../scripts/assert-desktop-node.mjs");
+    const versionFile = resolve(import.meta.dirname, "../../../.desktop-node-version");
+    expect(readFileSync(versionFile, "utf8").trim()).toBe("22");
+    const result = spawnSync(process.execPath, [guard], { encoding: "utf8" });
+    const runningNode22 = process.versions.node.startsWith("22.");
+    expect(result.status).toBe(runningNode22 ? 0 : 1);
+    if (!runningNode22) expect(result.stderr).toContain("requires Node 22");
+  });
+});
+
+async function writeArtifact(root: string, directory: string, name: string, content: string): Promise<void> {
+  const { mkdir } = await import("node:fs/promises");
+  const target = join(root, directory);
+  await mkdir(target, { recursive: true });
+  await writeFile(join(target, name), content);
+}

@@ -1,15 +1,26 @@
 import { FolderInput, MoreVertical, Pencil } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
+import { AnchoredMenu, AnchoredMenuItem } from "../shared/AnchoredMenu";
 import { InlineNameEditor } from "./DocMenu";
-import type { DocsCategoryModel } from "./types";
+
+export interface CategoryActionModel {
+	name: string;
+	path: string;
+	depth: number;
+	menuOpen: boolean;
+	openMenu: () => void;
+	closeMenu: () => void;
+	startMove: () => void;
+	startRename: () => void;
+	cancelRename: () => void;
+	rename: (name: string) => void;
+}
 
 export function CategoryMenuButton({
 	model,
 	anchorRef,
 }: {
-	model: DocsCategoryModel;
+	model: CategoryActionModel;
 	anchorRef: React.RefObject<HTMLButtonElement | null>;
 }) {
 	const t = useT();
@@ -18,6 +29,8 @@ export function CategoryMenuButton({
 			ref={anchorRef}
 			type="button"
 			aria-label={t("category_menu", { category: model.path })}
+			aria-haspopup="menu"
+			aria-expanded={model.menuOpen}
 			onClick={(event) => {
 				event.stopPropagation();
 				if (model.menuOpen) model.closeMenu();
@@ -38,76 +51,35 @@ export function CategoryMenu({
 	model,
 	anchorRef,
 }: {
-	model: DocsCategoryModel;
+	model: CategoryActionModel;
 	anchorRef: React.RefObject<HTMLButtonElement | null>;
 }) {
 	const t = useT();
-	const menuRef = useRef<HTMLDivElement>(null);
-	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-
-	useLayoutEffect(() => {
-		if (!model.menuOpen || !anchorRef.current) return;
-		const rect = anchorRef.current.getBoundingClientRect();
-		const height = 86;
-		const top =
-			rect.bottom + 4 + height > window.innerHeight
-				? Math.max(8, rect.top - height - 4)
-				: rect.bottom + 4;
-		setPos({ top, right: Math.max(8, window.innerWidth - rect.right) });
-	}, [anchorRef, model.menuOpen]);
-
-	useEffect(() => {
-		if (!model.menuOpen) return;
-		const onPointerDown = (event: MouseEvent) => {
-			if (menuRef.current?.contains(event.target as Node)) return;
-			if (anchorRef.current?.contains(event.target as Node)) return;
-			model.closeMenu();
-		};
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") model.closeMenu();
-		};
-		const onScroll = () => model.closeMenu();
-		document.addEventListener("mousedown", onPointerDown);
-		document.addEventListener("keydown", onKeyDown);
-		window.addEventListener("scroll", onScroll, true);
-		window.addEventListener("resize", onScroll);
-		return () => {
-			document.removeEventListener("mousedown", onPointerDown);
-			document.removeEventListener("keydown", onKeyDown);
-			window.removeEventListener("scroll", onScroll, true);
-			window.removeEventListener("resize", onScroll);
-		};
-	}, [anchorRef, model]);
-
-	if (!model.menuOpen || !pos) return null;
-	return createPortal(
-		<div
-			ref={menuRef}
-			className="fixed z-[210] w-52 overflow-hidden rounded-md border border-border bg-panel py-1 shadow-[0_12px_40px_rgba(0,0,0,0.18)]"
-			style={pos}
+	if (!model.menuOpen) return null;
+	return (
+		<AnchoredMenu
+			anchorRef={anchorRef}
+			onClose={model.closeMenu}
+			ariaLabel={t("category_menu", { category: model.path })}
 		>
-			<button
-				type="button"
-				onClick={model.startRename}
-				className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-text-1 hover:bg-input"
-			>
-				<Pencil size={14} />
-				<span>{t("category_rename")}</span>
-			</button>
-			<button
-				type="button"
+			<AnchoredMenuItem icon={<Pencil size={14} />} onClick={model.startRename}>
+				{t("category_rename")}
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
+				icon={<FolderInput size={14} />}
 				onClick={model.startMove}
-				className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-text-1 hover:bg-input"
 			>
-				<FolderInput size={14} />
-				<span>{t("category_move")}</span>
-			</button>
-		</div>,
-		document.body,
+				{t("category_move")}
+			</AnchoredMenuItem>
+		</AnchoredMenu>
 	);
 }
 
-export function CategoryInlineRename({ model }: { model: DocsCategoryModel }) {
+export function CategoryInlineRename({
+	model,
+}: {
+	model: CategoryActionModel;
+}) {
 	const t = useT();
 	return (
 		<div

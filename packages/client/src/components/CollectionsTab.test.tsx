@@ -49,6 +49,12 @@ describe("CollectionsTab", () => {
 			screen.queryByRole("heading", { name: "Collections" }),
 		).not.toBeInTheDocument();
 		expect(container.querySelectorAll("[data-collection-row]")).toHaveLength(2);
+		expect(
+			container.querySelectorAll("[data-library-list-divider]"),
+		).toHaveLength(1);
+		expect(
+			container.querySelector("[data-collection-row]")?.className,
+		).not.toContain("border-b");
 
 		await user.click(screen.getByRole("button", { name: /Beta/ }));
 		expect(useStore.getState()).toMatchObject({

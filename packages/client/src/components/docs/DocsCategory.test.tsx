@@ -57,11 +57,33 @@ describe("DocsCategoryHeader", () => {
 		});
 
 		render(<DocsCategoryHeader model={model} />);
-		fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+		const trigger = screen.getByRole("button", {
+			name: "Actions for Produits/Workbench/Prototypes",
+		});
+		expect(trigger).toHaveAttribute("aria-haspopup", "menu");
+		expect(trigger).toHaveAttribute("aria-expanded", "true");
+		expect(screen.getByRole("menu")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("menuitem", { name: "Rename" }));
 		expect(startRename).toHaveBeenCalledOnce();
 
-		fireEvent.click(screen.getByRole("button", { name: "Move…" }));
+		fireEvent.click(screen.getByRole("menuitem", { name: "Move…" }));
 		expect(startMove).toHaveBeenCalledOnce();
+	});
+
+	it("keeps both document counts readable on an active drop target", () => {
+		const model = categoryModel({
+			openTotal: 2,
+			dropActive: true,
+			total: 5,
+		});
+
+		render(<DocsCategoryHeader model={model} />);
+
+		expect(screen.getByTitle("5 documents, 2 open")).toHaveClass(
+			"bg-accent",
+			"text-accent-contrast",
+		);
+		expect(screen.getByText("2")).toHaveClass("text-accent-contrast");
 	});
 });
 

@@ -19,7 +19,10 @@ import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAnnotations } from "./services/annotations.js";
 import { createAssetsService } from "./services/assets.js";
-import { createBrowserPool } from "./services/browser-pool.js";
+import {
+	type BrowserPool,
+	createBrowserPool,
+} from "./services/browser-pool.js";
 import { createBundleExportService } from "./services/bundle-export.js";
 import { createBundleImportService } from "./services/bundle-import.js";
 import { createBus } from "./services/bus.js";
@@ -60,6 +63,9 @@ export interface BootstrapInputs {
 	documents?: Documents;
 	/** Optional GmailClient override — tests inject a stub. */
 	gmailClient?: GmailClient;
+	/** Optional render-browser override — Electron supplies its embedded
+	 * Chromium while the standalone server uses Puppeteer. */
+	browserPool?: BrowserPool;
 }
 
 export function createAppContainer(
@@ -119,9 +125,11 @@ export function createAppContainer(
 
 		layout: asFunction(createLayoutService).singleton(),
 
-		browserPool: asFunction(createBrowserPool)
-			.singleton()
-			.disposer((p) => p.dispose()),
+		browserPool: inputs.browserPool
+			? asValue(inputs.browserPool)
+			: asFunction(createBrowserPool)
+					.singleton()
+					.disposer((p) => p.dispose()),
 
 		pdfService: asFunction(createPdfService).singleton(),
 

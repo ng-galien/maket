@@ -288,7 +288,7 @@ function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 							disabled={saving}
 							aria-busy={saving}
 							aria-label={t("pending_send_note")}
-							className="px-2.5 self-end py-1.5 bg-accent text-white text-xs font-semibold rounded-lg hover:brightness-110 transition"
+							className="px-2.5 self-end py-1.5 bg-accent text-accent-contrast text-xs font-semibold rounded-lg hover:brightness-110 transition"
 						>
 							{saving ? (
 								<LoaderCircle

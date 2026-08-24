@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
+
 interface LibraryToolbarProps {
-	children: React.ReactNode;
+	children: ReactNode;
 }
 
 /** Stable frame shared by every left-library control bar. */

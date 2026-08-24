@@ -1406,7 +1406,7 @@ function StateValueEditor({
 				</button>
 				<button
 					type="submit"
-					className="h-8 rounded-lg bg-accent px-3 text-xs font-semibold text-white hover:brightness-95"
+					className="h-8 rounded-lg bg-accent px-3 text-xs font-semibold text-accent-contrast hover:brightness-95"
 				>
 					{t("save")}
 				</button>

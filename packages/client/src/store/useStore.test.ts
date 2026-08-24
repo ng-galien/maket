@@ -1,5 +1,5 @@
 import type { Collection } from "@maket/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
 // Silence the syncPending/syncWorkspace setTimeout → wsSend(null) no-op chatter.
@@ -36,6 +36,9 @@ function resetStore() {
 			collectionCursors: {},
 			draftCursorOverrides: {},
 			collectionDrafts: {},
+			assets: [],
+			assetsLoaded: false,
+			assetsLoading: false,
 			selectedIds: [],
 			editingElementId: null,
 			showPopover: false,
@@ -108,6 +111,41 @@ beforeEach(() => {
 	consumePendingFit();
 	vi.mocked(wsSend).mockClear();
 	resetStore();
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("asset mirror", () => {
+	it("keeps a newer WS category delta when an older HTTP snapshot resolves", async () => {
+		let resolveJson: (value: {
+			images: Array<{ file: string; category: string }>;
+		}) => void = () => {};
+		const json = new Promise<{
+			images: Array<{ file: string; category: string }>;
+		}>((resolve) => {
+			resolveJson = resolve;
+		});
+		const fetchMock = vi.fn(async () => ({ json: () => json }));
+		vi.stubGlobal("fetch", fetchMock);
+		useStore.setState({
+			assets: [{ file: "hero.png", category: "Archive" }],
+			assetsLoaded: true,
+		});
+
+		const loading = useStore.getState().loadAssets(true);
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+		useStore
+			.getState()
+			.applyAssetCategoryUpdates([
+				{ filename: "hero.png", category: "Campaigns" },
+			]);
+		resolveJson({ images: [{ file: "hero.png", category: "Archive" }] });
+		await loading;
+
+		expect(useStore.getState().assets).toEqual([
+			{ file: "hero.png", category: "Campaigns" },
+		]);
+	});
 });
 
 describe("upsertDoc", () => {
@@ -678,6 +716,24 @@ describe("UI preferences", () => {
 		useStore.setState({ libraryOpen: true });
 		useStore.getState().toggleLibrary();
 		expect(useStore.getState().libraryOpen).toBe(false);
+		expect(localStorage.getItem("maket-library-open")).toBe("false");
+	});
+
+	it("toggles and persists whether the library is pinned", () => {
+		useStore.setState({ libraryOpen: true, libraryPinned: false });
+		useStore.getState().toggleLibraryPinned();
+		expect(useStore.getState()).toMatchObject({
+			libraryOpen: true,
+			libraryPinned: true,
+		});
+		expect(localStorage.getItem("maket-library-pinned")).toBe("true");
+
+		useStore.getState().toggleLibraryPinned();
+		expect(useStore.getState()).toMatchObject({
+			libraryOpen: false,
+			libraryPinned: false,
+		});
+		expect(localStorage.getItem("maket-library-pinned")).toBe("false");
 		expect(localStorage.getItem("maket-library-open")).toBe("false");
 	});
 

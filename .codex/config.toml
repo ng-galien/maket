@@ -9,4 +9,4 @@ url = "http://localhost:3200/mcp"
 bearer_token_env_var = "ESAC_TOKEN"
 
 [mcp_servers.maket]
-url = "http://127.0.0.1:24842/mcp"
+url = "http://127.0.0.1:24843/mcp"

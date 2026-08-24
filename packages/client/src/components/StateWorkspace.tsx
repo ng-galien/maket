@@ -9,7 +9,7 @@ import {
 	useStore,
 } from "../store/useStore";
 import { sendStateValuePatch } from "../store/ws";
-import { BottomDockResizeHandle, useBottomDockHeight } from "./BottomDock";
+import { BottomDock, useBottomDockHeight } from "./BottomDock";
 import { StateRenderControls } from "./StateDataControls";
 
 const STATE_DOCK_HEIGHT_KEY = "maket-state-height";
@@ -23,6 +23,9 @@ interface StateField {
 	schema: Record<string, unknown>;
 }
 
+/** Composes the persistent state model with the shared bottom-dock controls. */
+// Store selectors and render controls intentionally meet at this shell boundary.
+// code-moniker: ignore[smell-feature-envy-local]
 export function StateWorkspace() {
 	const t = useT();
 	const focusedDoc = useFocusedDoc();
@@ -49,17 +52,17 @@ export function StateWorkspace() {
 	);
 
 	return (
-		<section
+		<BottomDock
 			data-state-dock
-			style={{ height }}
-			className="relative z-[var(--z-panel)] flex w-full shrink-0 flex-col overflow-hidden border-t border-border bg-panel shadow-[0_-8px_24px_rgba(0,0,0,0.08)]"
+			height={height}
+			resize={{
+				height,
+				setHeight,
+				storageKey: STATE_DOCK_HEIGHT_KEY,
+				label: t("resize_state_panel"),
+			}}
+			className="shrink-0"
 		>
-			<BottomDockResizeHandle
-				height={height}
-				setHeight={setHeight}
-				storageKey={STATE_DOCK_HEIGHT_KEY}
-				label={t("resize_state_panel")}
-			/>
 			<header className="flex h-10 shrink-0 items-center gap-3 border-b border-border px-3">
 				<span className="truncate text-sm font-bold text-text-1">
 					{t("state_data_title")}
@@ -112,7 +115,7 @@ export function StateWorkspace() {
 					</tbody>
 				</table>
 			</div>
-		</section>
+		</BottomDock>
 	);
 }
 

@@ -147,7 +147,7 @@ function spawnBubble(text: string, icon?: string) {
 		top: "64px",
 		right: "72px",
 		background: "var(--color-accent, #10B981)",
-		color: "white",
+		color: "var(--color-accent-contrast, #000000)",
 		fontSize: "13px",
 		fontWeight: "600",
 		padding: "10px 18px",
@@ -155,7 +155,8 @@ function spawnBubble(text: string, icon?: string) {
 		pointerEvents: "none",
 		zIndex: "9999",
 		whiteSpace: "nowrap",
-		boxShadow: "0 4px 16px rgba(16,185,129,0.35)",
+		boxShadow:
+			"0 4px 16px color-mix(in srgb, var(--color-accent) 35%, transparent)",
 		animation: "bubbleDown 2.5s ease-out forwards",
 		display: "flex",
 		alignItems: "center",
@@ -361,7 +362,13 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			applyCharteUpdated(msg.name, "");
 			break;
 		case "assets_changed":
-			window.dispatchEvent(new Event("assets-changed"));
+			if (msg.categoryUpdates) {
+				const state = useStore.getState();
+				state.applyAssetCategoryUpdates(msg.categoryUpdates);
+				if (!state.assetsLoaded) void state.loadAssets(true);
+			} else {
+				void useStore.getState().loadAssets(true);
+			}
 			break;
 		case "collections_changed":
 			useStore
@@ -419,6 +426,7 @@ function applyStateMessage(
 	if (!doc) {
 		initialStateReceived = true;
 		useStore.setState({ docList });
+		updateWorkspaceHydration();
 		return;
 	}
 	if (msg.documentState !== undefined) {
@@ -458,6 +466,17 @@ function applyStateMessage(
 		}
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
+	updateWorkspaceHydration();
+}
+
+function updateWorkspaceHydration(): void {
+	if (!initialStateReceived) return;
+	const state = useStore.getState();
+	const available = new Set(state.docList.map((document) => document.name));
+	const expected = state.workspaceDocNames.filter((name) =>
+		available.has(name),
+	);
+	state.setWorkspaceHydrated(expected.every((name) => state.docs.has(name)));
 }
 
 function applyRenamedDocument(

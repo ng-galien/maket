@@ -276,7 +276,7 @@ function DropZone({
 					type="button"
 					disabled={busy}
 					onClick={() => inputRef.current?.click()}
-					className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+					className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-contrast disabled:opacity-50"
 				>
 					{busy ? "Opening…" : "Choose a file"}
 				</button>

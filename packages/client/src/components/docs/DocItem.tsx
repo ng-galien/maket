@@ -249,10 +249,10 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 
 function cardBorderClass(model: DocItemModel): string {
 	if (model.selected) {
-		return "border-accent ring-4 ring-accent/30 shadow-[0_8px_24px_rgba(16,185,129,0.18)]";
+		return "border-accent ring-4 ring-accent/30 shadow-accent";
 	}
 	if (model.onWs) {
-		return "border-accent/40 ring-2 ring-accent/20 shadow-[0_8px_24px_rgba(16,185,129,0.12)]";
+		return "border-accent/40 ring-2 ring-accent/20 shadow-accent-soft";
 	}
 	return "border-black/5 hover:border-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.08)]";
 }
@@ -260,7 +260,7 @@ function cardBorderClass(model: DocItemModel): string {
 function DocSelectedMark({ className }: { className: string }) {
 	return (
 		<span
-			className={`${className} w-5 h-5 rounded-md bg-accent text-white flex items-center justify-center text-2xs font-bold`}
+			className={`${className} w-5 h-5 rounded-md bg-accent text-accent-contrast flex items-center justify-center text-2xs font-bold`}
 		>
 			✓
 		</span>

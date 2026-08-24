@@ -1,0 +1,17 @@
+export const desktopRuntimeDependencies = [
+  "@modelcontextprotocol/node",
+  "@modelcontextprotocol/server",
+  "@resvg/resvg-js",
+  "ajv",
+  "awilix",
+  "beautiful-mermaid",
+  "electron-squirrel-startup",
+  "express",
+  "jimp",
+  "jszip",
+  "linkedom",
+  "puppeteer",
+  "update-electron-app",
+  "ws",
+  "zod",
+];

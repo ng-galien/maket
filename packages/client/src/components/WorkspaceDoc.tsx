@@ -416,7 +416,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 							/>
 						)}
 						{pendingCount > 0 && (
-							<span className="text-2xs font-bold text-white bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
+							<span className="text-2xs font-bold text-accent-contrast bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
 								{pendingCount}
 							</span>
 						)}

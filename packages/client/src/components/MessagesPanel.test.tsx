@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
@@ -102,6 +102,33 @@ describe("MessagesPanel", () => {
 			docName: "Alpha document",
 			pageIndex: 0,
 		});
+	});
+
+	it("clears a document highlight when its message disappears under the pointer", async () => {
+		const user = userEvent.setup();
+		const doc = document.createElement("div");
+		doc.dataset.doc = "Alpha document";
+		document.body.append(doc);
+
+		try {
+			render(<MessagesPanel />);
+			const card = screen
+				.getByText("Review the Alpha layout")
+				.closest("article");
+			expect(card).not.toBeNull();
+			await user.hover(card as HTMLElement);
+			expect(doc).toHaveAttribute("data-maket-message-target");
+
+			useStore.setState((state) => ({
+				pending: state.pending.filter((message) => message.id !== "alpha"),
+			}));
+
+			await waitFor(() =>
+				expect(doc).not.toHaveAttribute("data-maket-message-target"),
+			);
+		} finally {
+			doc.remove();
+		}
 	});
 
 	it("lets the board camera center the target without competing DOM scrolling", async () => {

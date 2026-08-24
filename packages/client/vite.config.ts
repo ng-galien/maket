@@ -20,7 +20,9 @@ export default defineConfig(({ mode }) => {
 				demo: path.resolve(import.meta.dirname, "demo.html"),
 			};
 	return {
-		base: pagesBuild ? "./" : undefined,
+		// Relative assets let Electron render the same shell from disk while an
+		// existing headless server waits for an explicit takeover decision.
+		base: "./",
 		plugins: [react(), tailwindcss()],
 		resolve: {
 			alias: {
@@ -40,7 +42,7 @@ export default defineConfig(({ mode }) => {
 				import.meta.dirname,
 				pagesBuild ? "../../docs/app" : "../../public",
 			),
-			emptyOutDir: pagesBuild,
+			emptyOutDir: true,
 			rollupOptions: {
 				input,
 			},

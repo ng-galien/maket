@@ -1,4 +1,7 @@
 import {
+	type AssetCategoryUpdate,
+	type AssetsListItem,
+	type AssetsListResponse,
 	type Collection,
 	type CollectionCursorMode,
 	collectionCursorKey,
@@ -15,6 +18,10 @@ import {
 	resolveDarkMode,
 	type ThemeMode,
 } from "../lib/colorScheme";
+import {
+	collectionHasChanged,
+	sortedCollectionMembers,
+} from "./collectionDraft";
 import type { DocSummary, Document } from "./types";
 import {
 	type AnnotationCreateOutcome,
@@ -97,6 +104,14 @@ interface CollectionSlice {
 	moveCursorMember: (docName: string, pageIndex: number, delta: number) => void;
 }
 
+interface AssetSlice {
+	assets: AssetsListItem[];
+	assetsLoaded: boolean;
+	assetsLoading: boolean;
+	loadAssets: (force?: boolean) => Promise<void>;
+	applyAssetCategoryUpdates: (updates: AssetCategoryUpdate[]) => void;
+}
+
 interface DocumentStateSlice {
 	documentStates: Record<string, DocumentStateClientView>;
 	stateCanvasModes: Record<string, StateCanvasMode>;
@@ -139,6 +154,7 @@ interface DocumentIdentitySlice {
 interface ShellSlice {
 	libraryView: "chartes" | "photos" | "docs" | "collections" | "exchange";
 	libraryOpen: boolean;
+	libraryPinned: boolean;
 	settingsOpen: boolean;
 	documentCategoryFilterRequest: { path: string } | null;
 	workspaceView: WorkspaceView;
@@ -149,6 +165,7 @@ interface ShellSlice {
 	filterDocumentsByCategory: (path: string) => void;
 	clearDocumentCategoryFilterRequest: () => void;
 	toggleLibrary: () => void;
+	toggleLibraryPinned: () => void;
 	closeLastPanel: () => void;
 	toggleSettings: () => void;
 	closeSettings: () => void;
@@ -160,12 +177,14 @@ interface ShellSlice {
 }
 
 interface AppState
-	extends CollectionSlice,
+	extends AssetSlice,
+		CollectionSlice,
 		DocumentStateSlice,
 		DocumentIdentitySlice,
 		ShellSlice {
 	// Connection
 	connected: boolean;
+	workspaceHydrated: boolean;
 
 	// Multi-doc workspace
 	docs: Map<string, Document>;
@@ -193,6 +212,7 @@ interface AppState
 
 	// Actions
 	setConnected: (v: boolean) => void;
+	setWorkspaceHydrated: (v: boolean) => void;
 	upsertDoc: (
 		doc: Document,
 		docList: DocSummary[],
@@ -273,16 +293,9 @@ function reconcileCollectionDrafts(
 	return Object.fromEntries(
 		Object.entries(current).filter(([name, draft]) => {
 			const saved = collections.find((collection) => collection.name === name);
-			return savedNames.has(name) && hasChangedCollection(saved, draft);
+			return savedNames.has(name) && collectionHasChanged(saved, draft);
 		}),
 	);
-}
-
-function hasChangedCollection(
-	source: Collection | undefined,
-	draft: Collection,
-): boolean {
-	return source ? JSON.stringify(source) !== JSON.stringify(draft) : true;
 }
 
 /**
@@ -320,13 +333,7 @@ function reconcileDraftCursorOverrides(
 	return { kept, promoted };
 }
 
-export function sortedCollectionMembers(
-	collection: Collection | undefined | null,
-) {
-	return collection
-		? [...collection.members].sort((a, b) => a.position - b.position)
-		: [];
-}
+export { sortedCollectionMembers } from "./collectionDraft";
 
 /**
  * Effective cursor of a bound page: the server mirror when present, else the
@@ -467,8 +474,30 @@ const _savedThemeMode = loadThemeMode();
 const _savedAccentColor = normalizeAccentColor(
 	localStorage.getItem("maket-accent-color") || DEFAULT_ACCENT_COLOR,
 );
+let assetLoadPromise: Promise<void> | null = null;
+let assetReloadQueued = false;
+let assetCategoryRevision = 0;
+const assetCategoryDeltas = new Map<
+	string,
+	{ revision: number; category: string }
+>();
+
+function withAssetCategoryUpdates(
+	assets: AssetsListItem[],
+	updates: AssetCategoryUpdate[],
+): AssetsListItem[] {
+	const categories = new Map(
+		updates.map((update) => [update.filename, update.category]),
+	);
+	return assets.map((asset) => {
+		const category = categories.get(asset.file);
+		return category === undefined ? asset : { ...asset, category };
+	});
+}
+
 export const useStore = create<AppState>((set, get) => ({
 	connected: false,
+	workspaceHydrated: false,
 	docs: new Map(),
 	workspaceDocNames: _savedWorkspace,
 	focusedDocName: resolveWorkspaceFocus(_savedWorkspace, _savedFocused, null),
@@ -478,6 +507,9 @@ export const useStore = create<AppState>((set, get) => ({
 	collectionCursors: {},
 	draftCursorOverrides: {},
 	collectionDrafts: {},
+	assets: [],
+	assetsLoaded: false,
+	assetsLoading: false,
 	docList: [],
 	documentStates: {},
 	stateCanvasModes: {},
@@ -501,6 +533,7 @@ export const useStore = create<AppState>((set, get) => ({
 			| "collections"
 			| "exchange") || "docs",
 	libraryOpen: localStorage.getItem("maket-library-open") !== "false",
+	libraryPinned: localStorage.getItem("maket-library-pinned") === "true",
 	settingsOpen: false,
 	documentCategoryFilterRequest: null,
 	workspaceView:
@@ -514,7 +547,67 @@ export const useStore = create<AppState>((set, get) => ({
 	zoom: 100,
 	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
 
-	setConnected: (connected) => set({ connected }),
+	setConnected: (connected) =>
+		set(connected ? { connected } : { connected, workspaceHydrated: false }),
+	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
+	loadAssets: async (force = false) => {
+		const current = get();
+		if (assetLoadPromise) {
+			if (force) assetReloadQueued = true;
+			await assetLoadPromise;
+			return;
+		}
+		if (!force && current.assetsLoaded) return;
+		set({ assetsLoading: true });
+		const requestRevision = assetCategoryRevision;
+		assetLoadPromise = (async () => {
+			try {
+				const response = await fetch("/api/assets");
+				const data = (await response.json()) as AssetsListResponse;
+				const responseRevision = assetCategoryRevision;
+				const interveningUpdates = Array.from(
+					assetCategoryDeltas,
+					([filename, delta]) => ({
+						filename,
+						...delta,
+					}),
+				).filter((delta) => delta.revision > requestRevision);
+				set({
+					assets: withAssetCategoryUpdates(
+						data.images ?? [],
+						interveningUpdates,
+					),
+					assetsLoaded: true,
+					assetsLoading: false,
+				});
+				for (const [filename, delta] of assetCategoryDeltas) {
+					if (delta.revision <= responseRevision)
+						assetCategoryDeltas.delete(filename);
+				}
+			} catch {
+				set({ assetsLoading: false });
+			} finally {
+				assetLoadPromise = null;
+				if (assetReloadQueued) {
+					assetReloadQueued = false;
+					await get().loadAssets(true);
+				}
+			}
+		})();
+		await assetLoadPromise;
+	},
+	applyAssetCategoryUpdates: (updates) => {
+		assetCategoryRevision += 1;
+		for (const update of updates) {
+			assetCategoryDeltas.set(update.filename, {
+				revision: assetCategoryRevision,
+				category: update.category,
+			});
+		}
+		set((state) => ({
+			assets: withAssetCategoryUpdates(state.assets, updates),
+		}));
+	},
 	setDocumentState: (docName, view) =>
 		set((s) => {
 			if (view) {
@@ -1107,6 +1200,14 @@ export const useStore = create<AppState>((set, get) => ({
 			const libraryOpen = s.settingsOpen ? true : !s.libraryOpen;
 			localStorage.setItem("maket-library-open", String(libraryOpen));
 			return { libraryOpen, settingsOpen: false };
+		}),
+	toggleLibraryPinned: () =>
+		set((s) => {
+			const libraryPinned = !s.libraryPinned;
+			const libraryOpen = s.libraryPinned ? false : s.libraryOpen;
+			localStorage.setItem("maket-library-pinned", String(libraryPinned));
+			localStorage.setItem("maket-library-open", String(libraryOpen));
+			return { libraryPinned, libraryOpen };
 		}),
 	closeLastPanel: () =>
 		set((s) => {

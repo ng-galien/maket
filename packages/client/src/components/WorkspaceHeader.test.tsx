@@ -77,18 +77,45 @@ describe("WorkspaceHeader", () => {
 			runtime: {} as never,
 			commands: {} as never,
 			mcp: {} as never,
+			configuration: {} as never,
 			updates: {} as never,
 		};
 		render(<WorkspaceHeader />);
 		const header = screen.getByRole("banner");
 		expect(header).toHaveAttribute("data-window-drag", "true");
-		expect(header).toHaveClass("pl-[86px]");
+		expect(header).toHaveClass("h-14", "pl-[86px]");
+	});
+
+	it("uses the enlarged header scale for document context and actions", () => {
+		const doc = makeDoc("header-scale");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+		});
+		render(<WorkspaceHeader />);
+
+		expect(screen.getByRole("banner")).toHaveClass("h-14");
+		expect(screen.getByRole("button", { name: "Reading view" })).toHaveClass(
+			"h-9",
+			"w-9",
+		);
+		expect(screen.getByRole("button", { name: "Fit to view" })).toHaveClass(
+			"h-9",
+			"w-9",
+		);
+		expect(
+			screen.getByRole("button", { name: "Lock (MCP read-only)" }),
+		).toHaveClass("h-9", "w-9");
 	});
 
 	it("opens the document library from the empty document context", async () => {
 		const user = userEvent.setup();
 		useStore.setState({ libraryOpen: false, libraryView: "collections" });
 		render(<WorkspaceHeader />);
+		expect(
+			screen.getByRole("button", { name: "Clear document category filters" }),
+		).toContainElement(document.querySelector("[data-maket-brand-mark]"));
 
 		await user.click(screen.getByRole("button", { name: "Open document" }));
 
@@ -101,13 +128,21 @@ describe("WorkspaceHeader", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("uses a settings context instead of document controls on the settings page", () => {
+	it("keeps the Maket brand as the settings home action", async () => {
+		const user = userEvent.setup();
 		useStore.setState({ settingsOpen: true });
 		render(<WorkspaceHeader />);
 
 		expect(screen.getByRole("banner")).toHaveAttribute("data-settings-header");
 		expect(screen.getByText("Settings")).toBeVisible();
+		const home = screen.getByRole("button", { name: "Close settings" });
+		expect(home).toContainElement(
+			document.querySelector("[data-maket-brand-mark]"),
+		);
 		expect(screen.queryByRole("button", { name: "Open document" })).toBeNull();
+
+		await user.click(home);
+		expect(useStore.getState().settingsOpen).toBe(false);
 	});
 
 	it("leaves navigation collapse to the panel edge control", () => {
@@ -132,6 +167,18 @@ describe("WorkspaceHeader", () => {
 			documentCategoryFilterRequest: null,
 		});
 		render(<WorkspaceHeader />);
+		const breadcrumb = screen.getByRole("navigation", {
+			name: "Document location",
+		});
+		expect(breadcrumb.querySelector("[data-maket-brand-mark]")).toHaveAttribute(
+			"src",
+			"/favicon.svg?v=4",
+		);
+		const rootCrumb = screen.getByRole("button", {
+			name: "Clear document category filters",
+		});
+		expect(rootCrumb).toBeVisible();
+		expect(rootCrumb).toHaveTextContent("");
 
 		await user.click(
 			screen.getByRole("button", {

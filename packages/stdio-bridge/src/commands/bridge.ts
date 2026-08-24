@@ -14,12 +14,14 @@ import {
 	StreamableHTTPClientTransport,
 	type Tool,
 } from "@modelcontextprotocol/client";
-import {
-	fromJsonSchema,
-	type JsonSchemaType,
-	McpServer,
-} from "@modelcontextprotocol/server";
+import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { runConnectOnlyBridge } from "../connect-only.ts";
+import {
+	listAllTools,
+	registerProxyTools,
+	waitForStdioClose,
+} from "../proxy-tools.ts";
 import { ensureServer } from "../spawn.ts";
 import { type MaketEnvOverrides, readEnv } from "./_env.ts";
 import { readVersion } from "./_version.ts";
@@ -50,73 +52,15 @@ function resolveServerCmd(): string[] | undefined {
 	return [process.execPath, entry];
 }
 
-async function listAllTools(client: Client): Promise<Tool[]> {
-	const tools: Tool[] = [];
-	let cursor: string | undefined;
-	do {
-		const page = await client.listTools(cursor ? { cursor } : undefined);
-		tools.push(...page.tools);
-		cursor = page.nextCursor;
-	} while (cursor !== undefined);
-	return tools;
-}
-
 function createStdioServer(client: Client, tools: Tool[]): McpServer {
 	const server = new McpServer(
 		{ name: "maket", version: readVersion() },
 		{ capabilities: { tools: {} } },
 	);
 
-	for (const tool of tools) {
-		server.registerTool(
-			tool.name,
-			{
-				title: tool.title,
-				description: tool.description,
-				inputSchema: fromJsonSchema<Record<string, unknown>>(
-					tool.inputSchema as JsonSchemaType,
-				),
-				...(tool.outputSchema
-					? {
-							outputSchema: fromJsonSchema(tool.outputSchema as JsonSchemaType),
-						}
-					: {}),
-				annotations: tool.annotations,
-				icons: tool.icons,
-				_meta: tool._meta,
-			},
-			async (args, ctx) =>
-				client.callTool(
-					{
-						name: tool.name,
-						arguments: args,
-					},
-					{ signal: ctx.mcpReq.signal },
-				),
-		);
-	}
+	registerProxyTools(server, tools, () => client);
 
 	return server;
-}
-
-async function waitForStdioClose(close: () => Promise<void>): Promise<void> {
-	return new Promise((resolve, reject) => {
-		let stopping = false;
-		const stop = () => {
-			if (stopping) return;
-			stopping = true;
-			process.off("SIGINT", stop);
-			process.off("SIGTERM", stop);
-			process.stdin.off("close", stop);
-			process.stdin.off("end", stop);
-			close().then(resolve, reject);
-		};
-
-		process.once("SIGINT", stop);
-		process.once("SIGTERM", stop);
-		process.stdin.once("close", stop);
-		process.stdin.once("end", stop);
-	});
 }
 
 // code-moniker: ignore[smell-feature-envy-local]
@@ -139,6 +83,10 @@ export async function runBridge(
 	log(
 		`boot pid=${process.pid} port=${port} host=${host} dataDir=${dataDir} cmd=${cmd ? JSON.stringify(cmd) : "(default)"}`,
 	);
+	if (process.env.MAKET_CONNECT_ONLY === "1") {
+		await runConnectOnlyBridge(port, host, log);
+		return;
+	}
 
 	try {
 		const { started, alreadyRunning } = await ensureServer({

@@ -1,4 +1,12 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../../i18n/useT";
 import { CategoryPicker } from "./CategoryPicker";
@@ -64,6 +72,8 @@ describe("CategoryPicker", () => {
 		);
 
 		expect(moveTo).toHaveBeenCalledWith("Clients/Archive");
+		expect(screen.getByText("Archive")).toBeInTheDocument();
+		expect(screen.queryByText("Clients/Archive")).not.toBeInTheDocument();
 		expect(screen.queryByText("Blog/Interne")).not.toBeInTheDocument();
 	});
 
@@ -121,4 +131,87 @@ describe("CategoryPicker", () => {
 
 		expect(moveTo).toHaveBeenCalledWith("Archive");
 	});
+
+	it("always shows the root destination and disables it only when already current", () => {
+		const moveTo = vi.fn();
+		const { rerender } = render(
+			<CategoryPicker
+				model={{
+					target: {
+						kind: "asset",
+						name: "landscape.jpg",
+						category: "Nature",
+					},
+					categories: ["Nature", "Archive"],
+					close: vi.fn(),
+					moveTo,
+				}}
+			/>,
+		);
+
+		expect(screen.getByRole("option", { name: "Root" })).toBeEnabled();
+		fireEvent.click(screen.getByRole("option", { name: "Root" }));
+		fireEvent.click(screen.getByRole("button", { name: "Move to Root" }));
+		expect(moveTo).toHaveBeenCalledWith("");
+
+		rerender(
+			<CategoryPicker
+				model={{
+					target: {
+						kind: "document",
+						name: "Loose document",
+						category: "general",
+					},
+					categories: ["Nature", "Archive"],
+					close: vi.fn(),
+					moveTo: vi.fn(),
+				}}
+			/>,
+		);
+
+		expect(screen.getByRole("option", { name: "Root" })).toBeDisabled();
+	});
+
+	it("traps focus and returns it to the opener after Escape", async () => {
+		const user = userEvent.setup();
+		render(<PickerHarness />);
+		const opener = screen.getByRole("button", { name: "Move document" });
+
+		await user.click(opener);
+		await waitFor(() => expect(screen.getByRole("combobox")).toHaveFocus());
+
+		const close = screen.getByRole("button", { name: "Close" });
+		close.focus();
+		await user.tab({ shift: true });
+		expect(screen.getByRole("option", { name: "Archive" })).toHaveFocus();
+
+		await user.keyboard("{Escape}");
+		expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+		expect(opener).toHaveFocus();
+	});
 });
+
+function PickerHarness() {
+	const [open, setOpen] = useState(false);
+	return (
+		<>
+			<button type="button" onClick={() => setOpen(true)}>
+				Move document
+			</button>
+			<CategoryPicker
+				model={{
+					target: open
+						? {
+								kind: "document",
+								name: "Proposal",
+								category: "Clients/Current",
+							}
+						: null,
+					categories: ["Archive"],
+					close: () => setOpen(false),
+					moveTo: vi.fn(),
+				}}
+			/>
+		</>
+	);
+}

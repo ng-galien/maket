@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
+import { registerServerEvents } from "../server-events.js";
 import { createDocument, type Document } from "../types.js";
 import { createAnnotations } from "./annotations.js";
 import { createAssetsService } from "./assets.js";
@@ -49,12 +50,13 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const documentStates = createDocumentStates({ store, documents, bus });
 	const pending = createAnnotations({ bus, store });
 	const wsRegistry = createWsRegistry();
+	const documentRenderer = opts.documentRenderer ?? rendererStub();
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
 		assets,
 		bus,
-		documentRenderer: opts.documentRenderer ?? rendererStub(),
+		documentRenderer,
 		documentStates,
 		documents,
 		pending,
@@ -67,6 +69,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documents,
 		documentStates,
 		pending,
+		documentRenderer,
 		handler,
 		wsRegistry,
 		assetsDir,
@@ -534,7 +537,6 @@ describe("ws-handler — document and canvas flows", () => {
 		documents.loadAll();
 		const updated = vi.fn();
 		bus.on("meta:updated", updated);
-
 		handler(
 			{
 				type: "update_meta",
@@ -604,6 +606,76 @@ describe("ws-handler — file and document mutations", () => {
 		expect(existsSync(join(thumbsDir, "hero.png.thumb.jpg"))).toBe(false);
 		expect(store.loadAsset("hero.png")).toBeNull();
 		expect(changed).toHaveBeenCalledWith({});
+		dispose();
+	});
+
+	it("moves one image to another category and emits assets:changed", () => {
+		const { store, bus, handler, assetsDir, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "hero");
+		store.saveAsset({
+			filename: "hero.png",
+			title: "Hero",
+			category: "Products/Heroes",
+		});
+		const changed = vi.fn();
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_category",
+				filename: "hero.png",
+				category: " Campaigns / Summer ",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadAsset("hero.png")).toMatchObject({
+			title: "Hero",
+			category: "Campaigns/Summer",
+		});
+		expect(changed).toHaveBeenCalledWith({
+			categoryUpdates: [{ filename: "hero.png", category: "Campaigns/Summer" }],
+		});
+		dispose();
+	});
+
+	it("moves an image category subtree while preserving descendants", () => {
+		const { store, bus, handler, dispose } = fixture();
+		store.saveAsset({ filename: "root.png", category: "Products/Heroes" });
+		store.saveAsset({
+			filename: "child.png",
+			category: "Products/Heroes/Portraits",
+		});
+		store.saveAsset({ filename: "other.png", category: "Products/Other" });
+		const changed = vi.fn();
+		const saveAssets = vi.spyOn(store, "saveAssets");
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "move_asset_category",
+				source: "Products/Heroes",
+				destination: "Campaigns/Heroes",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadAsset("root.png")?.category).toBe("Campaigns/Heroes");
+		expect(store.loadAsset("child.png")?.category).toBe(
+			"Campaigns/Heroes/Portraits",
+		);
+		expect(store.loadAsset("other.png")?.category).toBe("Products/Other");
+		expect(changed).toHaveBeenCalledTimes(1);
+		expect(saveAssets).toHaveBeenCalledOnce();
+		expect(changed).toHaveBeenCalledWith({
+			categoryUpdates: [
+				{ filename: "root.png", category: "Campaigns/Heroes" },
+				{
+					filename: "child.png",
+					category: "Campaigns/Heroes/Portraits",
+				},
+			],
+		});
 		dispose();
 	});
 
@@ -684,13 +756,35 @@ describe("ws-handler — file and document mutations", () => {
 	});
 
 	it("moves a category subtree while preserving descendant paths", () => {
-		const { store, documents, bus, handler, dispose } = fixture();
+		const {
+			store,
+			documents,
+			bus,
+			handler,
+			pending,
+			documentRenderer,
+			wsRegistry,
+			dispose,
+		} = fixture();
 		store.saveDoc(makeDoc("root", "Products/Workbench"));
 		store.saveDoc(makeDoc("child", "Products/Workbench/Prototypes"));
 		store.saveDoc(makeDoc("other", "Products/Other"));
 		documents.loadAll();
 		const updated = vi.fn();
+		const saveDocs = vi.spyOn(store, "saveDocs");
 		bus.on("meta:updated", updated);
+		const send = vi.fn();
+		wsRegistry.add({ readyState: 1, send });
+		const collections = createCollections({ bus, documents, store });
+		registerServerEvents({
+			bus,
+			collections,
+			collectionCursors: createCollectionCursors({ bus, documents, store }),
+			documents,
+			documentRenderer,
+			wsRegistry,
+			pending,
+		});
 
 		handler(
 			{
@@ -707,7 +801,21 @@ describe("ws-handler — file and document mutations", () => {
 		);
 		expect(documents.resolve("other")?.category).toBe("Products/Other");
 		expect(store.loadOne("child")?.category).toBe("Lab/Workbench/Prototypes");
-		expect(updated).toHaveBeenCalledTimes(2);
+		expect(updated).toHaveBeenCalledOnce();
+		expect(saveDocs).toHaveBeenCalledOnce();
+		expect(updated).toHaveBeenCalledWith({ docName: "root" });
+		const signals = send.mock.calls.map(([payload]) => JSON.parse(payload));
+		expect(signals.filter((signal) => signal.type === "state")).toHaveLength(1);
+		const snapshot = signals.find((signal) => signal.type === "state") ?? {};
+		expect(snapshot.docList).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: "root", category: "Lab/Workbench" }),
+				expect.objectContaining({
+					name: "child",
+					category: "Lab/Workbench/Prototypes",
+				}),
+			]),
+		);
 		dispose();
 	});
 

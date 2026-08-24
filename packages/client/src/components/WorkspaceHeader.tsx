@@ -28,14 +28,15 @@ export function WorkspaceHeader({
 	);
 	const setLibraryView = useStore((state) => state.setLibraryView);
 	const settingsOpen = useStore((state) => state.settingsOpen);
+	const closeSettings = useStore((state) => state.closeSettings);
 	const macDesktop = window.maketDesktop?.platform === "darwin";
 	const openDocumentNames = workspaceDocNames.filter((name) => docs.has(name));
 	const openDocuments = openDocumentNames.flatMap((name) => {
 		const doc = docs.get(name);
 		return doc ? [{ name: doc.name, category: doc.category }] : [];
 	});
-	const headerClassName = `flex h-13 min-w-0 shrink-0 items-center gap-2 border-b border-border bg-panel pr-2.5 ${
-		macDesktop ? "pl-[86px]" : "pl-2.5"
+	const headerClassName = `flex h-14 min-w-0 shrink-0 items-center gap-2.5 border-b border-border bg-panel pr-3 ${
+		macDesktop ? "pl-[86px]" : "pl-3"
 	}`;
 
 	if (settingsOpen) {
@@ -56,9 +57,22 @@ export function WorkspaceHeader({
 						connected ? "bg-accent" : "bg-danger animate-pulse"
 					}`}
 				/>
-				<span className="text-base font-semibold text-text-1">
-					{t("settings")}
-				</span>
+				<nav
+					aria-label={t("document_location")}
+					title={`Maket / ${t("settings")}`}
+					className="flex min-w-0 items-center gap-1.5 text-base font-medium text-text-2"
+				>
+					<MaketBrandButton
+						onClick={closeSettings}
+						ariaLabel={t("close_settings")}
+					/>
+					<span aria-hidden="true" className="text-text-3/70">
+						/
+					</span>
+					<span className="text-base font-semibold text-text-1">
+						{t("settings")}
+					</span>
+				</nav>
 			</header>
 		);
 	}
@@ -84,12 +98,10 @@ export function WorkspaceHeader({
 					data-document-context
 					className="flex min-w-0 flex-1 items-center gap-2"
 				>
-					{focusedDoc && <DocumentBreadcrumb category={focusedDoc.category} />}
-					{focusedDoc && (
-						<span aria-hidden="true" className="shrink-0 text-text-3/70">
-							/
-						</span>
-					)}
+					<DocumentBreadcrumb category={focusedDoc?.category} />
+					<span aria-hidden="true" className="shrink-0 text-text-3/70">
+						/
+					</span>
 					{focusedDoc ? (
 						<ReaderDocumentPicker
 							documents={openDocuments}
@@ -128,10 +140,10 @@ export function WorkspaceHeader({
 	);
 }
 
-function DocumentBreadcrumb({ category }: { category: string }) {
+function DocumentBreadcrumb({ category }: { category?: string }) {
 	const t = useT();
 	const filterByCategory = useStore((state) => state.filterDocumentsByCategory);
-	const categorySegments = category.split("/").filter(Boolean);
+	const categorySegments = category?.split("/").filter(Boolean) ?? [];
 	const crumbs = [
 		{ segment: "Maket", path: "" },
 		...categorySegments.map((segment, index) => ({
@@ -144,7 +156,7 @@ function DocumentBreadcrumb({ category }: { category: string }) {
 		<nav
 			aria-label={t("document_location")}
 			title={label}
-			className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-md font-medium text-text-2"
+			className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-base font-medium text-text-2"
 		>
 			{crumbs.map(({ segment, path }, index) => (
 				<span key={path || "maket"} className="contents">
@@ -153,21 +165,52 @@ function DocumentBreadcrumb({ category }: { category: string }) {
 							/
 						</span>
 					)}
-					<button
-						type="button"
-						onClick={() => filterByCategory(path)}
-						aria-label={
-							path
-								? t("filter_documents_by_category", { category: path })
-								: t("clear_document_category_filters")
-						}
-						className="min-w-0 truncate rounded-sm transition-colors duration-100 hover:text-text-1 hover:underline hover:underline-offset-2"
-					>
-						{segment}
-					</button>
+					{index === 0 ? (
+						<MaketBrandButton
+							onClick={() => filterByCategory(path)}
+							ariaLabel={t("clear_document_category_filters")}
+						/>
+					) : (
+						<button
+							type="button"
+							onClick={() => filterByCategory(path)}
+							aria-label={t("filter_documents_by_category", {
+								category: path,
+							})}
+							className="min-w-0 truncate rounded-sm transition-colors duration-100 hover:text-text-1 hover:underline hover:underline-offset-2"
+						>
+							{segment}
+						</button>
+					)}
 				</span>
 			))}
 		</nav>
+	);
+}
+
+function MaketBrandButton({
+	onClick,
+	ariaLabel,
+}: {
+	onClick: () => void;
+	ariaLabel: string;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			title="Maket"
+			aria-label={ariaLabel}
+			className="shrink-0 rounded-sm opacity-90 transition-opacity duration-100 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+		>
+			<img
+				src="/favicon.svg?v=4"
+				alt=""
+				aria-hidden="true"
+				data-maket-brand-mark
+				className="h-5 w-5 rounded-[3px]"
+			/>
+		</button>
 	);
 }
 
@@ -180,9 +223,9 @@ function ReadingButton({ doc }: { doc: Document }) {
 			title={t("reading_view")}
 			aria-label={t("reading_view")}
 			data-doc-name={doc.name}
-			className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
+			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
 		>
-			<BookOpen size={16} />
+			<BookOpen size={19} strokeWidth={1.8} />
 		</button>
 	);
 }
@@ -195,9 +238,9 @@ function FitButton() {
 			onClick={fitToView}
 			title={t("fit")}
 			aria-label={t("fit")}
-			className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
+			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
 		>
-			<Maximize size={16} />
+			<Maximize size={19} strokeWidth={1.8} />
 		</button>
 	);
 }
@@ -219,13 +262,17 @@ function DocumentLockButton({
 			title={label}
 			aria-label={label}
 			aria-pressed={locked}
-			className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${
+			className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
 				locked
 					? "bg-accent-soft text-accent"
 					: "text-text-2 hover:bg-input hover:text-text-1"
 			}`}
 		>
-			{locked ? <Unlock size={16} /> : <Lock size={16} />}
+			{locked ? (
+				<Unlock size={19} strokeWidth={1.8} />
+			) : (
+				<Lock size={19} strokeWidth={1.8} />
+			)}
 		</button>
 	);
 }
@@ -238,9 +285,9 @@ function PrintLink({ href, label }: { href: string; label: string }) {
 				onClick={() => void printFocusedDocument()}
 				title={label}
 				aria-label={label}
-				className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
+				className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
 			>
-				<Printer size={16} />
+				<Printer size={19} strokeWidth={1.8} />
 			</button>
 		);
 	}
@@ -251,9 +298,9 @@ function PrintLink({ href, label }: { href: string; label: string }) {
 			rel="noopener"
 			title={label}
 			aria-label={label}
-			className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 no-underline transition-colors hover:bg-input hover:text-text-1"
+			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 no-underline transition-colors hover:bg-input hover:text-text-1"
 		>
-			<Printer size={16} />
+			<Printer size={19} strokeWidth={1.8} />
 		</a>
 	);
 }

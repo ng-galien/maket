@@ -21,11 +21,11 @@
  *     images; the second ensures we sample after that frame has committed.
  */
 
-import type { Page } from "puppeteer";
+import type { RenderPage } from "../services/browser-pool.js";
 
 export const PAGE_BLOCK_SELECTOR = '[data-id="page"]';
 
-export async function waitForPageStable(page: Page): Promise<void> {
+export async function waitForPageStable(page: RenderPage): Promise<void> {
 	await page.waitForNetworkIdle();
 	await page.evaluate(async () => {
 		await Promise.all([

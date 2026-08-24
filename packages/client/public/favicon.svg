@@ -1,1 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><title>Maket</title><rect width="100" height="100" rx="14" fill="#0D1B2A"/><text x="50%" y="50%" dy=".32em" text-anchor="middle" font-family="Newsreader, 'Newsreader Display', Georgia, serif" font-size="70" fill="#fff" font-weight="400">M<tspan fill="#00A8B5">.</tspan></text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220">
+  <title>Maket</title>
+  <rect width="220" height="220" rx="45" fill="#0D1B2A"/>
+  <path d="M48 165Q44 165 44 161V62Q44 56 50 56H63Q68 56 71 61L106 107Q110 112 114 107L149 61Q152 56 157 56H170Q176 56 176 62V161Q176 165 172 165H152Q148 165 148 161V98L121 145Q110 158 99 145L72 98V161Q72 165 68 165Z" fill="#F8FAFC"/>
+  <circle cx="197" cy="176" r="8" fill="#00A8B5"/>
+</svg>

@@ -128,9 +128,16 @@ export interface ActivitySignal {
 	icon: string;
 }
 
-/** Signals the browser that `/api/assets` should be re-fetched. */
+export interface AssetCategoryUpdate {
+	filename: string;
+	category: string;
+}
+
+/** Signals the browser that assets changed. Category-only mutations carry a
+ * delta so the photo library can update without re-fetching every asset. */
 export interface AssetsChangedSignal {
 	type: "assets_changed";
+	categoryUpdates?: AssetCategoryUpdate[];
 }
 
 export interface CollectionsChangedSignal {
@@ -210,6 +217,20 @@ export interface MoveCategoryCommand {
 export interface DeleteAssetCommand {
 	type: "delete_asset";
 	filename: string;
+}
+
+export interface UpdateAssetCategoryCommand {
+	type: "update_asset_category";
+	filename: string;
+	category: string;
+}
+
+export interface MoveAssetCategoryCommand {
+	type: "move_asset_category";
+	/** Existing image category path whose assets and descendants move together. */
+	source: string;
+	/** Complete destination path, including the category's final leaf name. */
+	destination: string;
 }
 
 /**
@@ -352,6 +373,8 @@ export type WorkspaceCommand =
 	| UpdateDocumentMetadataCommand
 	| MoveCategoryCommand
 	| DeleteAssetCommand
+	| UpdateAssetCategoryCommand
+	| MoveAssetCategoryCommand
 	| SaveCharteCommand
 	| SaveCollectionCommand
 	| DeleteCollectionCommand

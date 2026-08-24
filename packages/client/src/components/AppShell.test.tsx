@@ -1,12 +1,19 @@
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { AppShell } from "./AppShell";
 
+const shellSpies = vi.hoisted(() => ({ collectionAction: vi.fn() }));
+
 vi.mock("./Board", () => ({ Board: () => null }));
 vi.mock("./CollectionWorkspace", () => ({
-	CollectionWorkspace: () => null,
+	CollectionWorkspace: () => (
+		<button type="button" onClick={shellSpies.collectionAction}>
+			Collection cell
+		</button>
+	),
 	selectCollectionWorkspaceLayout: () => "closed",
 }));
 vi.mock("./LibraryPanel", () => ({
@@ -21,6 +28,7 @@ vi.mock("./WorkspaceHeader", () => ({
 }));
 
 beforeEach(() => {
+	shellSpies.collectionAction.mockReset();
 	class ResizeObserverMock {
 		observe() {}
 		disconnect() {}
@@ -36,6 +44,7 @@ beforeEach(() => {
 		collections: [],
 		pending: [],
 		libraryOpen: true,
+		libraryPinned: false,
 		libraryView: "docs",
 		settingsOpen: false,
 	});
@@ -65,6 +74,37 @@ describe("AppShell interaction contract", () => {
 		await waitFor(() =>
 			expect(container.querySelector("[data-canvas-workspace]")).toHaveFocus(),
 		);
+	});
+
+	it("closes the library without swallowing the collection action", async () => {
+		const user = userEvent.setup();
+		const { container } = render(<AppShell locked={false} />);
+		const collectionCell = container.querySelector(
+			"[data-workspace-surface] button",
+		);
+		expect(collectionCell).not.toBeNull();
+		if (!collectionCell) throw new Error("collection cell fixture is missing");
+
+		await user.click(collectionCell);
+
+		expect(useStore.getState().libraryOpen).toBe(false);
+		expect(shellSpies.collectionAction).toHaveBeenCalledOnce();
+	});
+
+	it("keeps a pinned library open during workspace interaction", async () => {
+		const user = userEvent.setup();
+		useStore.setState({ libraryPinned: true });
+		const { container } = render(<AppShell locked={false} />);
+		const collectionCell = container.querySelector(
+			"[data-workspace-surface] button",
+		);
+		expect(collectionCell).not.toBeNull();
+		if (!collectionCell) throw new Error("collection cell fixture is missing");
+
+		await user.click(collectionCell);
+
+		expect(useStore.getState().libraryOpen).toBe(true);
+		expect(shellSpies.collectionAction).toHaveBeenCalledOnce();
 	});
 
 	it("keeps a single navigation surface beside the workspace", () => {

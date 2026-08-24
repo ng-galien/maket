@@ -80,27 +80,17 @@ export function handleMoveCategory(
 		return;
 	}
 
-	const affected = [...ctx.documents.all().values()].filter(
-		(doc) => doc.category === source || doc.category.startsWith(`${source}/`),
-	);
-	if (affected.length === 0) return;
-	const locked = affected.find((doc) => doc.meta?.locked === true);
-	if (locked) {
+	const result = ctx.documents.moveCategory(source, destination);
+	if (result.lockedDocName) {
 		ctx.bus.emit("toast", {
-			text: `"${locked.name}" is locked — unlock it before moving this category`,
+			text: `"${result.lockedDocName}" is locked — unlock it before moving this category`,
 			level: "info",
 		});
 		return;
 	}
-
-	for (const doc of affected) {
-		const suffix = doc.category.slice(source.length);
-		doc.category = `${destination}${suffix}`;
-		ctx.documents.persist(doc.name);
-	}
-	for (const doc of affected) {
-		ctx.bus.emit("meta:updated", { docName: doc.name });
-	}
+	const snapshotDoc = result.moved[0];
+	if (!snapshotDoc) return;
+	ctx.bus.emit("meta:updated", { docName: snapshotDoc.name });
 	ctx.bus.emit("toast", {
 		text: `Category "${source}" moved to "${destination}"`,
 		level: "success",

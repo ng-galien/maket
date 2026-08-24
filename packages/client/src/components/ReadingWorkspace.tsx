@@ -1,11 +1,4 @@
-import {
-	Check,
-	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
-	LayoutGrid,
-	X,
-} from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type {
 	FocusEvent as ReactFocusEvent,
 	KeyboardEvent as ReactKeyboardEvent,
@@ -22,9 +15,9 @@ import {
 	useState,
 } from "react";
 import { useT } from "../i18n/useT";
+import { exitReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
-import { requestFit } from "../store/zoomBridge";
 import type { PresentationDataSource } from "./presentation-policy";
 import {
 	collectionPageViews,
@@ -92,7 +85,6 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
 	const setFocusedPage = useStore((state) => state.setFocusedPage);
-	const setWorkspaceView = useStore((state) => state.setWorkspaceView);
 	const t = useT();
 	const pageLabel = t("page");
 	const rowLabel = t("collection_row_lower");
@@ -143,13 +135,8 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	);
 
 	const returnToCanvasView = useCallback(() => {
-		if (!doc) return;
-		returnToCanvas(
-			doc.name,
-			pageViews[readerPageIndex]?.pageIndex ?? focusedPageIndex,
-			setWorkspaceView,
-		);
-	}, [doc, focusedPageIndex, pageViews, readerPageIndex, setWorkspaceView]);
+		exitReadingSession();
+	}, []);
 	const handleVisiblePage = useCallback(
 		(logicalIndex: number, sourcePageIndex: number) => {
 			if (!doc) return;
@@ -244,8 +231,8 @@ export function ReaderSurface({
 
 	const toolbarClearance = barPosition
 		? barPosition === "top"
-			? "pt-20 pb-6 sm:pt-24 sm:pb-8"
-			: "pt-6 pb-20 sm:pt-8 sm:pb-24"
+			? "pt-16 pb-6 sm:pt-20 sm:pb-8"
+			: "pt-6 pb-16 sm:pt-8 sm:pb-20"
 		: embedded
 			? "py-0"
 			: "py-6 sm:py-8";
@@ -282,12 +269,8 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 	return (
 		<nav
 			aria-label={t("reader_navigation")}
-			className={`fixed left-1/2 z-[var(--z-bar)] flex h-14 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
+			className={`fixed left-1/2 z-[var(--z-bar)] flex h-12 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-0.5 rounded-lg border border-border/80 bg-panel/95 p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] backdrop-blur-lg sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
 		>
-			<ReaderButton label={t("canvas_view")} onClick={model.onExit}>
-				<LayoutGrid size={18} strokeWidth={1.8} />
-			</ReaderButton>
-			<div className="mx-1 hidden h-7 w-px shrink-0 bg-border sm:block" />
 			<ReaderButton
 				label={t("previous_document")}
 				disabled={documentIndex <= 0}
@@ -298,7 +281,7 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 					)
 				}
 			>
-				<ChevronLeft size={18} />
+				<ChevronLeft size={17} />
 			</ReaderButton>
 			<ReaderDocumentPicker
 				documents={model.documents}
@@ -319,15 +302,19 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				}
 				className="hidden sm:flex"
 			>
-				<ChevronRight size={18} />
+				<ChevronRight size={17} />
 			</ReaderButton>
-			<div className="mx-1 h-7 w-px shrink-0 bg-border" />
+			<div className="mx-0.5 h-6 w-px shrink-0 bg-border" />
 			<ReaderPageControls
 				pageIndex={model.pageIndex}
 				pageTotal={model.pageTotal}
 				pageLabel={model.pageLabel}
 				onPageChange={model.onPageChange}
 			/>
+			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
+			<ReaderButton label={t("close_reader")} onClick={model.onExit}>
+				<X size={17} strokeWidth={1.8} />
+			</ReaderButton>
 		</nav>
 	);
 }
@@ -378,13 +365,13 @@ export function ReaderDocumentPicker({
 				onKeyDown={model.onTriggerKeyDown}
 				className={
 					variant === "header"
-						? "group flex h-5 max-w-full min-w-0 items-center gap-1 rounded-sm text-left text-base font-semibold text-text-1 outline-none transition-colors duration-100 hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/30"
-						: "group flex h-10 w-full min-w-0 items-center gap-3 rounded-xl border border-transparent bg-input/70 px-3 text-left text-sm font-semibold text-text-1 outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border hover:bg-input focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/30"
+						? "group flex h-6 max-w-full min-w-0 items-center gap-1 rounded-sm text-left text-base font-semibold text-text-1 outline-none transition-colors duration-100 hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/30"
+						: "group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md border border-transparent bg-input/70 px-3 text-left text-sm font-semibold text-text-1 outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border hover:bg-input focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/30"
 				}
 			>
 				<span className="min-w-0 flex-1 truncate">{docName}</span>
 				<ChevronDown
-					size={variant === "header" ? 13 : 16}
+					size={variant === "header" ? 14 : 16}
 					strokeWidth={2}
 					className={`shrink-0 text-text-3 transition-transform duration-150 group-hover:text-text-2 ${model.open ? "rotate-180" : ""}`}
 				/>
@@ -694,13 +681,13 @@ export function ReaderPageControls({
 	const t = useT();
 	const current = pageTotal === 0 ? 0 : Math.min(pageIndex + 1, pageTotal);
 	return (
-		<div className="flex shrink-0 items-center rounded-xl bg-input/55 p-0.5">
+		<div className="flex shrink-0 items-center rounded-md bg-input/55 p-0.5">
 			<ReaderButton
 				label={`${t("previous_page")} — ${pageLabel}`}
 				disabled={pageIndex <= 0 || pageTotal === 0}
 				onClick={() => onPageChange(pageIndex - 1)}
 			>
-				<ChevronLeft size={17} />
+				<ChevronLeft size={16} />
 			</ReaderButton>
 			<span
 				role="status"
@@ -715,7 +702,7 @@ export function ReaderPageControls({
 				disabled={pageTotal === 0 || pageIndex >= pageTotal - 1}
 				onClick={() => onPageChange(pageIndex + 1)}
 			>
-				<ChevronRight size={17} />
+				<ChevronRight size={16} />
 			</ReaderButton>
 		</div>
 	);
@@ -755,7 +742,7 @@ function ReaderButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className={`size-10 shrink-0 items-center justify-center rounded-xl text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
+			className={`size-9 shrink-0 items-center justify-center rounded-md text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
 		>
 			{children}
 		</button>
@@ -896,13 +883,4 @@ export function preferredScroll(behavior: ScrollBehavior): ScrollBehavior {
 	return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 		? "auto"
 		: "smooth";
-}
-
-export function returnToCanvas(
-	docName: string,
-	pageIndex: number,
-	setWorkspaceView: (view: "canvas" | "reading") => void,
-): void {
-	setWorkspaceView("canvas");
-	requestFit({ docName, pageIndex });
 }

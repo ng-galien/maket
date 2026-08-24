@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createDocument } from "../types.js";
 import { createDocuments } from "./documents.js";
 import { createSQLiteStore } from "./store.js";
@@ -159,6 +159,28 @@ describe("documents service", () => {
 			{ name: "clients", pageCount: 2 },
 			{ name: "offers", pageCount: 1 },
 		]);
+		store.close();
+	});
+
+	it("restores cached categories when an atomic category move fails", () => {
+		const store = createSQLiteStore(":memory:");
+		store.saveDocs([
+			makeDoc("root", "Products/Heroes"),
+			makeDoc("child", "Products/Heroes/Portraits"),
+		]);
+		const docs = createDocuments({ store });
+		docs.loadAll();
+		vi.spyOn(store, "saveDocs").mockImplementationOnce(() => {
+			throw new Error("transaction failed");
+		});
+
+		expect(() =>
+			docs.moveCategory("Products/Heroes", "Campaigns/Heroes"),
+		).toThrow("transaction failed");
+
+		expect(docs.resolve("root")?.category).toBe("Products/Heroes");
+		expect(docs.resolve("child")?.category).toBe("Products/Heroes/Portraits");
+		expect(store.loadOne("root")?.category).toBe("Products/Heroes");
 		store.close();
 	});
 });

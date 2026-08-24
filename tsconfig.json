@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/shared" },
     { "path": "packages/runtime" },
+    { "path": "packages/agent-setup" },
     { "path": "packages/server" },
     { "path": "packages/client" },
     { "path": "packages/stdio-bridge" },

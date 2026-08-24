@@ -10,6 +10,7 @@ export type RowMode =
 
 export type CategoryMoveTarget =
 	| { kind: "document"; name: string; category: string }
+	| { kind: "asset"; name: string; category: string }
 	| { kind: "category"; path: string };
 
 export interface CategoryPickerModel {

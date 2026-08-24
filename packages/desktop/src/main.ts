@@ -1,20 +1,56 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { DesktopCommand, DesktopRuntimeState, McpConfigurationFinding } from "@maket/shared";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
+import type {
+  DesktopCommand,
+  DesktopConfigurationPlan,
+  DesktopOnboardingResult,
+  DesktopRuntimeState,
+  McpConfigurationFinding,
+} from "@maket/shared";
 import { DESKTOP_CHANNELS } from "@maket/shared";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  type Event as ElectronEvent,
+  type IpcMainInvokeEvent,
+  ipcMain,
+  Menu,
+  shell,
+} from "electron";
+import squirrelStartup from "electron-squirrel-startup";
+import { inspectClaudeDesktop } from "./claude-desktop.js";
+import { applyDesktopOnboarding, validateOnboardingSelection } from "./configuration-install.js";
+import { createElectronBrowserPool } from "./electron-browser-pool.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
+import { printWithNativeDialog } from "./native-print.js";
+import { isTrustedIpcSender, isTrustedRendererUrl, shouldOpenInExternalBrowser } from "./renderer-security.js";
+import { DesktopSetupPreferences } from "./setup-preferences.js";
 import { UpdateController } from "./update-controller.js";
-import { RuntimeOwnedError, WorkspaceController } from "./workspace-controller.js";
+import { installDesktopUpdate } from "./update-install.js";
+import { UpdatePreferences } from "./update-preferences.js";
+import { DESKTOP_SERVER_PORT, RuntimeOwnedError, WorkspaceController } from "./workspace-controller.js";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-const developmentRoot = resolve(moduleDir, "../../..");
+const developmentHostPath = join(process.resourcesPath, "development-host");
+const developmentRoot = existsSync(developmentHostPath)
+  ? readFileSync(developmentHostPath, "utf8").trim()
+  : resolve(moduleDir, "../../..");
 const preloadPath = join(moduleDir, "preload.cjs");
 const applicationIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(developmentRoot, "packages", "desktop", "assets", "icon.png");
-const isDevelopmentBuild = !app.isPackaged || existsSync(join(process.resourcesPath, "development-host"));
+const bundledMaketSkillPath = join(process.resourcesPath, "maket", "SKILL.md");
+const maketSkillPath =
+  app.isPackaged && existsSync(bundledMaketSkillPath)
+    ? bundledMaketSkillPath
+    : join(developmentRoot, "plugin", "codex", "skills", "maket", "SKILL.md");
+const isDevelopmentBuild = !app.isPackaged || existsSync(developmentHostPath);
+const isLocalInstallBuild = app.isPackaged && existsSync(join(process.resourcesPath, "local-install"));
+const desktopMcpEndpoint = `http://127.0.0.1:${DESKTOP_SERVER_PORT}/mcp`;
 
 app.setName("Maket");
 app.setAboutPanelOptions({
@@ -28,12 +64,22 @@ app.setAboutPanelOptions({
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
 let runtimeStopped = false;
+let runtimeReady = false;
+let agentSetup: AgentSetupService | null = null;
 
+const electronBrowserPool = createElectronBrowserPool();
 const runtime = new WorkspaceController({
   version: app.getVersion(),
   packageDir: app.isPackaged ? process.resourcesPath : developmentRoot,
+  port: DESKTOP_SERVER_PORT,
+  browserPool: electronBrowserPool,
 });
-const updates = new UpdateController(!isDevelopmentBuild);
+const updates = new UpdateController({
+  enabled: !isDevelopmentBuild && !isLocalInstallBuild && process.platform !== "linux",
+  disabledReason: isLocalInstallBuild ? "local-build" : "development-build",
+  preferences: new UpdatePreferences(join(app.getPath("userData"), "desktop-preferences.json")),
+});
+const setupPreferences = new DesktopSetupPreferences(join(app.getPath("userData"), "desktop-setup.json"));
 
 function logStartup(message: string): void {
   process.stderr.write(`[desktop] ${message}\n`);
@@ -114,14 +160,64 @@ async function openInBrowser(): Promise<void> {
 }
 
 async function printDocument(name: string): Promise<void> {
-  const url = new URL("/print", runtime.state().url);
-  url.searchParams.set("name", name);
-  await shell.openExternal(url.toString());
+  await printWithNativeDialog(
+    runtime.state().url,
+    name,
+    () =>
+      new BrowserWindow({
+        show: false,
+        parent: mainWindow ?? undefined,
+        webPreferences: {
+          contextIsolation: true,
+          nodeIntegration: false,
+          sandbox: true,
+        },
+      }),
+  );
 }
 
 function sendRendererCommand(command: DesktopCommand): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.webContents.send(DESKTOP_CHANNELS.command, command);
+}
+
+function setupRendererUrl(): string {
+  return pathToFileURL(join(app.isPackaged ? process.resourcesPath : developmentRoot, "public", "index.html")).href;
+}
+
+function trustedRendererUrls() {
+  return {
+    runtimeReady,
+    runtimeUrl: runtimeReady ? runtime.state().url : desktopMcpEndpoint,
+    setupUrl: setupRendererUrl(),
+  };
+}
+
+function assertTrustedIpcSender(event: IpcMainInvokeEvent): void {
+  const window = mainWindow;
+  const frame = event.senderFrame;
+  const trusted =
+    window &&
+    !window.isDestroyed() &&
+    isTrustedIpcSender({
+      sender: event.sender,
+      expectedSender: window.webContents,
+      senderFrame: frame,
+      mainFrame: event.sender.mainFrame,
+      senderFrameUrl: frame?.url ?? "",
+      ...trustedRendererUrls(),
+    });
+  if (!trusted) throw new Error("Desktop IPC is available only to the trusted Maket main frame");
+}
+
+function handleTrustedIpc<TArgs extends unknown[], TResult>(
+  channel: string,
+  handler: (...args: TArgs) => TResult,
+): void {
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedIpcSender(event);
+    return handler(...(args as TArgs));
+  });
 }
 
 function rebuildMenu(): void {
@@ -138,32 +234,186 @@ function rebuildMenu(): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeState, (): DesktopRuntimeState => runtime.state());
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeOpenHome, () => openWorkspace(runtime.home));
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeChooseWorkspace, () => chooseWorkspace());
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeOpenWorkspace, (_event, path: unknown) => {
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeState, (): DesktopRuntimeState => runtime.state());
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeOpenHome, () => openWorkspace(runtime.home));
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeChooseWorkspace, () => chooseWorkspace());
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeOpenWorkspace, (path: unknown) => {
     if (typeof path !== "string" || path.length === 0) {
       throw new TypeError("Workspace path must be a non-empty string");
     }
     return openWorkspace(path);
   });
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeOpenBrowser, () => openInBrowser());
-  ipcMain.handle(DESKTOP_CHANNELS.runtimeCopyUrl, () => {
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeOpenBrowser, () => openInBrowser());
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeCopyUrl, () => {
     clipboard.writeText(runtime.state().url);
   });
-  ipcMain.handle(DESKTOP_CHANNELS.runtimePrintDocument, (_event, name: unknown) => {
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimePrintDocument, (name: unknown) => {
     if (typeof name !== "string" || name.length === 0) {
       throw new TypeError("Document name must be a non-empty string");
     }
     return printDocument(name);
   });
-  ipcMain.handle(DESKTOP_CHANNELS.mcpDiagnose, (): McpConfigurationFinding[] => []);
-  ipcMain.handle(DESKTOP_CHANNELS.updateState, () => updates.getState());
-  ipcMain.handle(DESKTOP_CHANNELS.updateCheck, () => updates.check());
-  ipcMain.handle(DESKTOP_CHANNELS.updateInstall, () => updates.install());
+  handleTrustedIpc(DESKTOP_CHANNELS.mcpDiagnose, (): McpConfigurationFinding[] => {
+    if (!agentSetup) throw new Error("Agent setup is not initialized");
+    return agentSetup.diagnose();
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.mcpInstall, (client: unknown): McpConfigurationFinding[] => {
+    if (!agentSetup) throw new Error("Agent setup is not initialized");
+    if (!isAgentClient(client)) throw new TypeError("Agent client must be claude, codex, or gemini");
+    return agentSetup.install(client);
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.mcpUninstall, (client: unknown): McpConfigurationFinding[] => {
+    if (!agentSetup) throw new Error("Agent setup is not initialized");
+    if (!isAgentClient(client)) throw new TypeError("Agent client must be claude, codex, or gemini");
+    return agentSetup.uninstall(client);
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.configurationPlan, (): DesktopConfigurationPlan => configurationPlan());
+  handleTrustedIpc(
+    DESKTOP_CHANNELS.configurationApplyOnboarding,
+    async (value: unknown): Promise<DesktopOnboardingResult> => {
+      if (!agentSetup) throw new Error("Agent setup is not initialized");
+      const selection = validateOnboardingSelection(value);
+      const owner = runtimeReady ? null : runtime.inspectOwner();
+      if (owner?.owner === "electron") throw new RuntimeOwnedError(owner);
+      if (owner && !selection.actions.includes("runtime")) {
+        throw new Error("The embedded Maket server must be activated before setup can finish");
+      }
+      const execution = await applyDesktopOnboarding({
+        selection,
+        owner,
+        services: {
+          installAgent: (client) => agentSetup?.install(client),
+          openClaudeDesktop: openClaudeDesktopBundle,
+          takeControl: (target) => runtime.takeControl(target),
+          startRuntime: activateEmbeddedRuntime,
+          awaitClaudeDesktop: () => setupPreferences.awaitClaudeDesktop(),
+          complete: () => setupPreferences.complete(),
+          restartApplication,
+        },
+      });
+      return { plan: configurationPlan(), results: execution.results };
+    },
+  );
+  handleTrustedIpc(DESKTOP_CHANNELS.configurationVerifyOnboarding, (): DesktopConfigurationPlan => {
+    const plan = configurationPlan();
+    const claudeDesktop = plan.manualClients[0];
+    if (setupPreferences.isAwaitingClaudeDesktop() && claudeDesktop?.status === "valid") {
+      setupPreferences.complete();
+      return configurationPlan();
+    }
+    return plan;
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.configurationActivateRuntime, () => activateEmbeddedRuntime());
+  handleTrustedIpc(DESKTOP_CHANNELS.configurationInstallClaudeDesktop, async () => {
+    await openClaudeDesktopBundle();
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.configurationAcknowledgeRestarts, () => {
+    if (!agentSetup) throw new Error("Agent setup is not initialized");
+    agentSetup.acknowledgeRestarts();
+    return configurationPlan();
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.updateState, () => updates.getState());
+  handleTrustedIpc(DESKTOP_CHANNELS.updateChannel, () => updates.getChannel());
+  handleTrustedIpc(DESKTOP_CHANNELS.updateSetChannel, (channel: unknown) => {
+    if (channel !== "stable" && channel !== "candidate") {
+      throw new TypeError("Update channel must be stable or candidate");
+    }
+    return updates.setChannel(channel);
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.updateCheck, () => updates.check());
+  handleTrustedIpc(DESKTOP_CHANNELS.updateInstall, async () => {
+    await installDesktopUpdate({
+      prepareInstall: () => updates.prepareInstall(),
+      stopRuntime: async () => {
+        if (runtimeStopped) return;
+        await runtime.stop();
+        runtimeStopped = true;
+        runtimeReady = false;
+      },
+      startRuntime: async () => {
+        await runtime.start();
+        runtimeStopped = false;
+        runtimeReady = true;
+      },
+      setQuitting: (value) => {
+        quitting = value;
+      },
+    });
+  });
 }
 
-async function createWindow(): Promise<void> {
+function configurationPlan(): DesktopConfigurationPlan {
+  if (!agentSetup) throw new Error("Agent setup is not initialized");
+  const owner = runtimeReady ? null : runtime.inspectOwner();
+  if (owner?.owner === "electron") throw new RuntimeOwnedError(owner);
+  const claudeDesktopRoot = join(app.getPath("appData"), "Claude");
+  const claudeDesktopApplication =
+    process.platform === "darwin" &&
+    (existsSync("/Applications/Claude.app") || existsSync(join(app.getPath("home"), "Applications", "Claude.app")));
+  return {
+    endpoint: desktopMcpEndpoint,
+    onboardingRequired: setupPreferences.isRequired(),
+    awaitingClaudeDesktop: setupPreferences.isAwaitingClaudeDesktop(),
+    runtime: runtimeReady
+      ? { status: "ready" }
+      : {
+          status: "action-required",
+          owner: owner?.owner,
+          host: owner?.host,
+          port: owner?.port,
+        },
+    findings: agentSetup.diagnose(),
+    manualClients: [
+      inspectClaudeDesktop({
+        applicationDetected: claudeDesktopApplication,
+        bundlePath: claudeDesktopBundlePath(),
+        bundledVersion: app.getVersion(),
+        claudeRoot: claudeDesktopRoot,
+      }),
+    ],
+    restartClients: agentSetup.pendingRestartClients(),
+  };
+}
+
+async function openClaudeDesktopBundle(): Promise<void> {
+  const error = await shell.openPath(claudeDesktopBundlePath());
+  if (error) throw new Error(error);
+}
+
+function claudeDesktopBundlePath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "maket-claude-desktop.mcpb")
+    : join(developmentRoot, "packages", "desktop", "assets", "maket-claude-desktop.mcpb");
+}
+
+async function activateEmbeddedRuntime(): Promise<void> {
+  if (runtimeReady) return;
+  const owner = runtime.inspectOwner();
+  if (owner) {
+    if (owner.owner === "electron") throw new RuntimeOwnedError(owner);
+    logStartup(`stopping ${owner.owner} server ${owner.pid} after explicit configuration action`);
+    await runtime.takeControl(owner);
+    restartApplication();
+    return;
+  }
+  await runtime.start();
+  runtimeReady = true;
+  runtimeStopped = false;
+  rebuildMenu();
+  await mainWindow?.loadURL(runtime.state().url);
+}
+
+function restartApplication(): void {
+  quitting = true;
+  app.relaunch();
+  app.exit(0);
+}
+
+function isAgentClient(value: unknown): value is AgentClient {
+  return value === "claude" || value === "codex" || value === "gemini";
+}
+
+async function createWindow(url: string): Promise<void> {
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
@@ -184,14 +434,18 @@ async function createWindow(): Promise<void> {
   mainWindow = window;
   updates.attach(window);
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https://") || url.startsWith(runtime.state().url)) {
+    if (shouldOpenInExternalBrowser(url, runtimeReady ? runtime.state().url : null)) {
       void shell.openExternal(url);
     }
     return { action: "deny" };
   });
-  window.webContents.on("will-navigate", (event, url) => {
-    if (!url.startsWith(runtime.state().url)) event.preventDefault();
-  });
+  const guardNavigation = (event: ElectronEvent, url: string) => {
+    if (!isTrustedRendererUrl(url, trustedRendererUrls())) {
+      event.preventDefault();
+    }
+  };
+  window.webContents.on("will-navigate", guardNavigation);
+  window.webContents.on("will-redirect", guardNavigation);
   window.webContents.on("render-process-gone", (_event, details) => {
     if (quitting || details.reason === "clean-exit") return;
     logStartup(`renderer stopped unexpectedly: ${details.reason} (${details.exitCode})`);
@@ -214,49 +468,42 @@ async function createWindow(): Promise<void> {
       mainWindow = null;
     }
   });
-  await window.loadURL(runtime.state().url);
-}
-
-async function startRuntime(): Promise<boolean> {
-  for (;;) {
-    try {
-      await runtime.start();
-      return true;
-    } catch (error) {
-      if (!(error instanceof RuntimeOwnedError)) throw error;
-      const isDesktop = error.descriptor.owner === "electron";
-      const result = await dialog.showMessageBox({
-        type: "warning",
-        buttons: isDesktop ? ["Quit"] : ["Take Control", "Quit"],
-        defaultId: isDesktop ? 0 : 1,
-        cancelId: isDesktop ? 0 : 1,
-        message: isDesktop ? "Maket is already open." : "A Maket server is already running.",
-        detail: isDesktop
-          ? "Only one Maket desktop instance can use the Home workspace."
-          : `The server using ${error.descriptor.dataDir} must stop before the desktop application can use this workspace. Take control now?`,
-      });
-      if (isDesktop || result.response !== 0) return false;
-      await runtime.takeControl(error.descriptor);
-    }
-  }
+  await window.loadURL(url);
 }
 
 async function bootstrap(): Promise<void> {
   logStartup("waiting for Electron readiness");
   await app.whenReady();
   installApplicationIcon();
-  logStartup("Electron ready; starting embedded server");
+  agentSetup = createAgentSetupService({
+    homeDir: app.getPath("home"),
+    statePath: join(app.getPath("userData"), "agent-setup.json"),
+    endpoint: desktopMcpEndpoint,
+    skillContent: readFileSync(maketSkillPath, "utf8"),
+  });
+  logStartup("Electron ready; preparing embedded server");
   try {
-    if (!(await startRuntime())) {
-      logStartup("startup cancelled by user");
+    registerIpc();
+    const owner = runtime.inspectOwner();
+    if (owner?.owner === "electron") {
+      logStartup("another desktop runtime owns the workspace");
       app.quit();
       return;
     }
-    logStartup(`embedded server ready at ${runtime.state().url}`);
-    registerIpc();
-    await createWindow();
+    let initialUrl: string;
+    if (owner) {
+      logStartup(`${owner.owner} server detected; waiting for explicit configuration action`);
+      initialUrl = setupRendererUrl();
+    } else {
+      logStartup("starting embedded server");
+      await runtime.start();
+      runtimeReady = true;
+      initialUrl = runtime.state().url;
+      logStartup(`embedded server ready at ${initialUrl}`);
+    }
+    await createWindow(initialUrl);
     logStartup("main window created");
-    rebuildMenu();
+    if (runtimeReady) rebuildMenu();
     updates.start();
   } catch (error) {
     process.stderr.write(
@@ -267,22 +514,26 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-const hasLock = app.requestSingleInstanceLock();
-logStartup(`single-instance lock: ${hasLock ? "acquired" : "already owned"}`);
-if (!hasLock) {
+if (squirrelStartup) {
   app.quit();
 } else {
-  app.on("second-instance", showWindow);
-  app.on("activate", showWindow);
-  app.on("window-all-closed", () => app.quit());
-  app.on("before-quit", (event) => {
-    quitting = true;
-    if (runtimeStopped) return;
-    event.preventDefault();
-    void runtime.stop().finally(() => {
-      runtimeStopped = true;
-      app.quit();
+  const hasLock = app.requestSingleInstanceLock();
+  logStartup(`single-instance lock: ${hasLock ? "acquired" : "already owned"}`);
+  if (!hasLock) {
+    app.quit();
+  } else {
+    app.on("second-instance", showWindow);
+    app.on("activate", showWindow);
+    app.on("window-all-closed", () => app.quit());
+    app.on("before-quit", (event) => {
+      quitting = true;
+      if (runtimeStopped) return;
+      event.preventDefault();
+      void runtime.stop().finally(() => {
+        runtimeStopped = true;
+        app.quit();
+      });
     });
-  });
-  void bootstrap();
+    void bootstrap();
+  }
 }

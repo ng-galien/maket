@@ -4,17 +4,22 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   isProcessAlive,
+  RUNTIME_DESCRIPTOR_FILE,
   readRuntimeDescriptor,
   removeRuntimeDescriptor,
   waitForProcessExit,
   writeRuntimeDescriptor,
 } from "@maket/runtime";
-import { createConfig, type MaketServer, startMaketServer } from "@maket/server";
+import { type BrowserPool, createConfig, type MaketServer, startMaketServer } from "@maket/server";
+
+export const DESKTOP_SERVER_PORT = 24843;
+const HEADLESS_SERVER_PORT = 24842;
 
 export interface WorkspaceControllerOptions {
   version: string;
   packageDir: string;
   port?: number;
+  browserPool?: BrowserPool;
 }
 
 export interface RuntimeOwner {
@@ -48,6 +53,25 @@ export class WorkspaceController {
 
   constructor(private readonly options: WorkspaceControllerOptions) {}
 
+  inspectOwner(workspace = this.home): RuntimeOwner | null {
+    const dataDir = resolve(workspace);
+    const descriptor = readRuntimeDescriptor(dataDir);
+    if (descriptor && descriptor.pid !== process.pid && isProcessAlive(descriptor.pid)) {
+      return descriptor;
+    }
+    const legacyPid = readLegacyPid(dataDir);
+    if (legacyPid && legacyPid !== process.pid && isProcessAlive(legacyPid)) {
+      return {
+        owner: "legacy",
+        pid: legacyPid,
+        host: "127.0.0.1",
+        port: HEADLESS_SERVER_PORT,
+        dataDir,
+      };
+    }
+    return null;
+  }
+
   state() {
     if (!this.server) throw new Error("Maket runtime is not started");
     return {
@@ -75,7 +99,7 @@ export class WorkspaceController {
           owner: "legacy",
           pid: legacyPid,
           host: "127.0.0.1",
-          port: this.options.port ?? 24842,
+          port: HEADLESS_SERVER_PORT,
           dataDir,
         });
       }
@@ -84,7 +108,7 @@ export class WorkspaceController {
     const env = {
       ...process.env,
       MAKET_DATA_DIR: dataDir,
-      MAKET_PORT: String(this.options.port ?? 24842),
+      MAKET_PORT: String(this.options.port ?? DESKTOP_SERVER_PORT),
       MAKET_BIND_HOST: "127.0.0.1",
     };
     const config = createConfig({
@@ -94,23 +118,44 @@ export class WorkspaceController {
     });
     const server = await startMaketServer({
       config,
+      bootstrap: { browserPool: this.options.browserPool },
       loadEnvironment: false,
     });
     const instanceId = randomUUID();
-    writeRuntimeDescriptor({
-      schemaVersion: 1,
-      owner: "electron",
-      pid: process.pid,
-      host: config.HOST,
-      port: Number(new URL(server.url).port),
-      dataDir,
-      version: this.options.version,
-      instanceId,
-      startedAt: new Date().toISOString(),
-    });
     this.workspace = dataDir;
     this.instanceId = instanceId;
     this.server = server;
+    try {
+      writeRuntimeDescriptor({
+        schemaVersion: 1,
+        owner: "electron",
+        pid: process.pid,
+        host: config.HOST,
+        port: Number(new URL(server.url).port),
+        dataDir,
+        version: this.options.version,
+        instanceId,
+        startedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      let closeError: unknown;
+      let closeSucceeded = false;
+      try {
+        await server.close();
+        closeSucceeded = true;
+      } catch (caught) {
+        closeError = caught;
+      }
+      if (closeSucceeded || server.closed) {
+        this.server = null;
+        this.instanceId = null;
+      }
+      rmSync(join(dataDir, `${RUNTIME_DESCRIPTOR_FILE}.${instanceId}.tmp`), { force: true });
+      if (closeError) {
+        throw new AggregateError([error, closeError], "Failed to publish runtime ownership and close the server");
+      }
+      throw error;
+    }
   }
 
   async takeControl(owner: RuntimeOwner): Promise<void> {
@@ -151,20 +196,37 @@ export class WorkspaceController {
   async switchTo(workspace: string): Promise<void> {
     const target = resolve(workspace);
     if (target === this.workspace) return;
-    await this.stop();
-    await this.start(target);
+    const previous = this.workspace;
+    try {
+      await this.stop();
+      await this.start(target);
+    } catch (error) {
+      if (this.server) throw error;
+      try {
+        await this.start(previous);
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], `Failed to switch to ${target} and restore ${previous}`);
+      }
+      throw error;
+    }
   }
 
   async stop(): Promise<void> {
     const server = this.server;
     const instanceId = this.instanceId;
     const workspace = this.workspace;
-    this.server = null;
-    this.instanceId = null;
+    if (!server) return;
+    let closeError: unknown;
     try {
-      await server?.close();
-    } finally {
+      await server.close();
+    } catch (error) {
+      closeError = error;
+    }
+    if (!closeError || server.closed) {
+      this.server = null;
+      this.instanceId = null;
       if (instanceId) removeRuntimeDescriptor(workspace, instanceId);
     }
+    if (closeError) throw closeError;
   }
 }

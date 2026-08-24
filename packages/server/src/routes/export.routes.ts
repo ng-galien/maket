@@ -18,6 +18,8 @@ import { decodeBundle } from "../lib/maket-format.js";
 // Cap on `.maket` bundle uploads. v2 bundles carry asset binaries, so the
 // bound is looser than v1's. `decodeBundle` is the next layer of defence.
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
+const PRINT_AUTOSTART_SCRIPT =
+	"window.onafterprint=()=>window.close();window.addEventListener('load',()=>setTimeout(()=>window.print(),400));";
 
 import type { BundleExportService } from "../services/bundle-export.js";
 import type { BundleImportService } from "../services/bundle-import.js";
@@ -56,6 +58,9 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 
 	router.use(requireBrowserContextLoopback);
 
+	router.get("/print-autostart.js", (_req, res) => {
+		res.type("application/javascript").send(PRINT_AUTOSTART_SCRIPT);
+	});
 	router.get("/print", (req, res) =>
 		handlePrint(req, res, documents, documentRenderer, collectionCursors),
 	);
@@ -112,10 +117,13 @@ function handlePrint(
 			boxShadowToDropShadow(html, shadowVars),
 		);
 		const printHtml = buildPrintHtml(rendered, pageHtmls, charteCssStr);
-		const html = printHtml.replace(
-			"</body>",
-			"<script>window.onafterprint=()=>window.close();window.onload=()=>setTimeout(()=>window.print(),400)</script></body>",
-		);
+		const html =
+			req.query.auto_print === "false"
+				? printHtml
+				: printHtml.replace(
+						"</body>",
+						'<script src="/print-autostart.js"></script></body>',
+					);
 		res.setHeader("Content-Type", "text/html");
 		res.send(html);
 	} catch (error) {

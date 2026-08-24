@@ -22,7 +22,7 @@ export function StateDockButton() {
 					: "text-text-3 hover:bg-input/70 hover:text-text-1"
 			}`}
 		>
-			<History size={14} strokeWidth={1.6} />
+			<History size={15} strokeWidth={1.6} />
 		</button>
 	);
 }

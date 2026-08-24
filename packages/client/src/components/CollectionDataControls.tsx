@@ -109,7 +109,7 @@ export function CollectionDockButton() {
 					: "text-text-3 hover:bg-input/70 hover:text-text-1"
 			}`}
 		>
-			<Database size={14} strokeWidth={1.6} />
+			<Database size={15} strokeWidth={1.6} />
 			{warning && (
 				<span className="absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-danger ring-2 ring-panel" />
 			)}

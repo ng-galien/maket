@@ -14,7 +14,11 @@ import type { WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
 import { createCollectionCursors } from "../collection-cursor.js";
 import { createCollections } from "../collections.js";
-import { handleDeleteAsset } from "./asset-commands.js";
+import {
+	handleDeleteAsset,
+	handleMoveAssetCategory,
+	handleUpdateAssetCategory,
+} from "./asset-commands.js";
 import { handleCharteSave } from "./charte-commands.js";
 import {
 	handleCollectionBindPage,
@@ -127,6 +131,12 @@ function dispatchWorkspaceCommand(
 			break;
 		case "delete_asset":
 			handleDeleteAsset(ctx, msg);
+			break;
+		case "update_asset_category":
+			handleUpdateAssetCategory(ctx, msg);
+			break;
+		case "move_asset_category":
+			handleMoveAssetCategory(ctx, msg);
 			break;
 		case "delete_document":
 			handleDeleteDocument(ctx, msg);

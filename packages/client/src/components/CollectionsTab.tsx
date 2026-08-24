@@ -1,16 +1,18 @@
 import type { Collection } from "@maket/shared";
 import { Link2, Link2Off, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { HoldToDelete } from "./shared/HoldToDelete";
+import { LibraryListDivider } from "./shared/LibraryListDivider";
 import { LibrarySearchField } from "./shared/LibrarySearchField";
 import {
 	LibraryToolbar,
 	LibraryToolbarActions,
 	LibraryToolbarRow,
 } from "./shared/LibraryToolbar";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
 // code-moniker: ignore[smell-feature-envy-local]
 // code-moniker: ignore[smell-long-callable]
@@ -142,35 +144,41 @@ export function CollectionsTab() {
 					{t("collection_no_match")}
 				</div>
 			) : (
-				<div data-collections-scroll className="min-h-0 flex-1 overflow-y-auto">
-					{filteredCollections.map((collection) => (
-						<CollectionRow
-							key={collection.name}
-							collection={collection}
-							documents={documentsByCollection.get(collection.name) ?? []}
-							active={focusedCollectionName === collection.name}
-							deleting={deleting === collection.name}
-							focusedPageBinding={
-								focusedDoc && focusedPage
-									? focusedPageCollection === collection.name
-										? "linked"
-										: "available"
-									: null
-							}
-							onOpen={() => openCollection(collection.name)}
-							onOpenDocument={(documentName) =>
-								openCollectionDocument(collection.name, documentName)
-							}
-							onToggleFocusedPage={() =>
-								setFocusedPageCollection(
-									focusedPageCollection === collection.name
-										? null
-										: collection.name,
-								)
-							}
-							onAskDelete={() => setDeleting(collection.name)}
-							onCancelDelete={() => setDeleting(null)}
-						/>
+				<div
+					data-collections-scroll
+					onScroll={showLibraryScrollActivity}
+					className="library-scroll-area min-h-0 flex-1 overflow-y-auto"
+				>
+					{filteredCollections.map((collection, index) => (
+						<Fragment key={collection.name}>
+							<CollectionRow
+								collection={collection}
+								documents={documentsByCollection.get(collection.name) ?? []}
+								active={focusedCollectionName === collection.name}
+								deleting={deleting === collection.name}
+								focusedPageBinding={
+									focusedDoc && focusedPage
+										? focusedPageCollection === collection.name
+											? "linked"
+											: "available"
+										: null
+								}
+								onOpen={() => openCollection(collection.name)}
+								onOpenDocument={(documentName) =>
+									openCollectionDocument(collection.name, documentName)
+								}
+								onToggleFocusedPage={() =>
+									setFocusedPageCollection(
+										focusedPageCollection === collection.name
+											? null
+											: collection.name,
+									)
+								}
+								onAskDelete={() => setDeleting(collection.name)}
+								onCancelDelete={() => setDeleting(null)}
+							/>
+							{index < filteredCollections.length - 1 && <LibraryListDivider />}
+						</Fragment>
 					))}
 				</div>
 			)}
@@ -210,7 +218,7 @@ function CollectionRow(props: CollectionRowProps) {
 		<div
 			data-collection-row={collection.name}
 			data-active={active || undefined}
-			className={`group/collection relative border-b border-border transition-colors duration-100 ${
+			className={`group/collection relative transition-colors duration-100 ${
 				active ? "bg-accent-soft" : "hover:bg-input/70"
 			}`}
 		>
@@ -362,7 +370,7 @@ function NewCollectionForm({
 				type="button"
 				disabled={!valid}
 				onClick={create}
-				className="h-8 rounded-md bg-accent px-2.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-35"
+				className="h-8 rounded-md bg-accent px-2.5 text-xs font-bold text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-35"
 			>
 				{t("collection_new")}
 			</button>

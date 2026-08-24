@@ -44,11 +44,19 @@ import { previewPack } from "./tools/preview.js";
 import { statePack } from "./tools/state.js";
 import { workspacePack } from "./tools/workspace.js";
 
+export { isAllowedRenderRequest } from "./lib/page-network-guard.js";
+export type {
+	BrowserPool,
+	NetworkGuardMode,
+	RenderBrowser,
+	RenderPage,
+} from "./services/browser-pool.js";
 export { createConfig } from "./services/config.js";
 
 export interface MaketServer {
 	readonly config: Config;
 	readonly url: string;
+	readonly closed: boolean;
 	close(): Promise<void>;
 }
 
@@ -236,7 +244,14 @@ function contentSecurityPolicy(
 function createHttpApp(config: Config, container: AppContainer): Express {
 	const app = express();
 	app.disable("x-powered-by");
-	app.use(express.json({ limit: "5mb" }));
+	const parseJson = express.json({ limit: "5mb" });
+	app.use((req, res, next) => {
+		if (req.path === "/api/upload") {
+			next();
+			return;
+		}
+		parseJson(req, res, next);
+	});
 	app.use(localRequestGuard);
 	app.use(contentSecurityPolicy);
 	mountRoutes(app, container);
@@ -353,22 +368,53 @@ async function startTransports(
 ): Promise<RunningTransports> {
 	const app = createHttpApp(config, container);
 	const http = createServer(app);
+	const wss = configureWebSocketServer(http, services, log);
+	try {
+		const url = await listen(http, config);
+		log(`[boot] HTTP listening on ${new URL(url).host}`);
+		log(`Maket: ${url}`);
+		installHttpErrorLogging(http, log);
+		const publicWatcher = watchPublicFiles(config, services.wsRegistry, log);
+		return { http, wss, url, publicWatcher };
+	} catch (error) {
+		await closeFailedTransports(http, wss);
+		throw error;
+	}
+}
+
+async function closeFailedTransports(
+	http: HttpServer,
+	wss: WebSocketServer,
+): Promise<void> {
+	for (const client of wss.clients) client.terminate();
+	try {
+		wss.close();
+	} catch {}
+	http.closeAllConnections();
+	if (http.listening) await closeHttpServer(http).catch(() => {});
+}
+
+function configureWebSocketServer(
+	http: HttpServer,
+	services: RuntimeServices,
+	log: ServerLog,
+): WebSocketServer {
 	const wss = createWebSocketServer(http);
+	wss.on("error", (error) =>
+		log(
+			`WebSocket server error: ${error instanceof Error ? error.message : String(error)}`,
+		),
+	);
 	wss.on("connection", (ws) => handleWebSocketConnection(ws, services, log));
-	const url = await listen(http, config);
-	log(`[boot] HTTP listening on ${new URL(url).host}`);
-	log(`Maket: ${url}`);
+	return wss;
+}
+
+function installHttpErrorLogging(http: HttpServer, log: ServerLog): void {
 	http.on("error", (error) =>
 		log(
 			`[boot] HTTP error: ${(error as NodeJS.ErrnoException).code || error.message}`,
 		),
 	);
-	return {
-		http,
-		wss,
-		url,
-		publicWatcher: watchPublicFiles(config, services.wsRegistry, log),
-	};
 }
 
 // Server startup is the composition root and therefore intentionally coordinates independent owners.
@@ -381,32 +427,82 @@ export async function startMaketServer(
 	const log = createServerLog(config, options.log);
 	log("[boot] Building Awilix container...");
 	const container = createAppContainer({ ...options.bootstrap, config });
-	const services = resolveRuntimeServices(container);
-	prepareDocuments(services, log);
-	const registry = registerExecutableTools(container, log);
+	let services: RuntimeServices;
+	let transports: RunningTransports;
 	try {
+		services = resolveRuntimeServices(container);
+		prepareDocuments(services, log);
+		const registry = registerExecutableTools(container, log);
 		assertManifestMatchesRegistry(config, registry);
+		registerServerEvents({ ...services });
+		transports = await startTransports(config, container, services, log);
 	} catch (error) {
 		log(`[boot] ${error instanceof Error ? error.message : String(error)}`);
+		await container.dispose().catch((disposeError) => {
+			log(
+				`[boot] Cleanup failed: ${disposeError instanceof Error ? disposeError.message : String(disposeError)}`,
+			);
+		});
 		throw error;
 	}
-	registerServerEvents({ ...services });
-	const transports = await startTransports(config, container, services, log);
 	log("[boot] MCP endpoint ready at /mcp");
+	let watcherClosed = false;
+	let websocketClosed = false;
+	let httpClosed = !transports.http.listening;
+	let containerDisposeAttempted = false;
+	let containerDisposed = false;
+	let containerDisposeError: unknown;
 	let closed = false;
 	return {
 		config,
 		url: transports.url,
+		get closed() {
+			return closed;
+		},
 		async close() {
 			if (closed) return;
-			closed = true;
-			transports.publicWatcher?.close();
-			for (const client of transports.wss.clients) client.terminate();
-			transports.wss.close();
-			if (transports.http.listening) {
-				await closeHttpServer(transports.http);
+			const errors: unknown[] = [];
+			if (!watcherClosed) {
+				try {
+					transports.publicWatcher?.close();
+					watcherClosed = true;
+				} catch (error) {
+					errors.push(error);
+				}
 			}
-			await container.dispose();
+			if (!websocketClosed) {
+				try {
+					for (const client of transports.wss.clients) client.terminate();
+					transports.wss.close();
+					websocketClosed = true;
+				} catch (error) {
+					errors.push(error);
+				}
+			}
+			if (!httpClosed) {
+				try {
+					if (transports.http.listening) await closeHttpServer(transports.http);
+					httpClosed = !transports.http.listening;
+				} catch (error) {
+					httpClosed = !transports.http.listening;
+					errors.push(error);
+				}
+			}
+			if (!containerDisposeAttempted) {
+				containerDisposeAttempted = true;
+				try {
+					await container.dispose();
+					containerDisposed = true;
+				} catch (error) {
+					containerDisposeError = error;
+				}
+			}
+			if (containerDisposeError) errors.push(containerDisposeError);
+			closed =
+				watcherClosed && websocketClosed && httpClosed && containerDisposed;
+			if (errors.length === 1) throw errors[0];
+			if (errors.length > 1)
+				throw new AggregateError(errors, "Failed to close Maket server");
 		},
 	};
 }

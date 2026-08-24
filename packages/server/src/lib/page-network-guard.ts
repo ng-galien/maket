@@ -27,9 +27,10 @@
  * without widening the exfiltration surface — see `isAllowedFontRequest`.
  */
 
-import type { HTTPRequest, Page } from "puppeteer";
+import type { HTTPRequest } from "puppeteer";
+import type { NetworkGuardMode, RenderPage } from "../services/browser-pool.js";
 
-export type NetworkGuardMode = "offline" | "localhost-only";
+export type { NetworkGuardMode } from "../services/browser-pool.js";
 
 const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
 
@@ -62,12 +63,33 @@ function isAllowedFontRequest(u: URL, hostname: string): boolean {
 	return false;
 }
 
+export function isAllowedRenderRequest(
+	rawUrl: string,
+	mode: NetworkGuardMode,
+): boolean {
+	if (rawUrl.startsWith("data:") || rawUrl.startsWith("about:")) return true;
+	try {
+		const u = new URL(rawUrl);
+		if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+		const hostname = u.hostname.toLowerCase();
+		if (isAllowedFontRequest(u, hostname)) return true;
+		return mode === "localhost-only" && LOCAL_HOSTNAMES.has(hostname);
+	} catch {
+		return false;
+	}
+}
+
 export async function installNetworkGuard(
-	page: Page,
+	page: RenderPage,
 	mode: NetworkGuardMode,
 ): Promise<void> {
-	await page.setRequestInterception(true);
-	page.on("request", (req) => {
+	if (page.setNetworkGuard) {
+		await page.setNetworkGuard(mode);
+		return;
+	}
+	const puppeteerPage = page as unknown as import("puppeteer").Page;
+	await puppeteerPage.setRequestInterception(true);
+	puppeteerPage.on("request", (req) => {
 		handleGuardedRequest(req, mode);
 	});
 }
@@ -76,23 +98,9 @@ export async function installNetworkGuard(
 // Request allow/deny policy for headless pages; coordinates URL checks and puppeteer request API.
 function handleGuardedRequest(req: HTTPRequest, mode: NetworkGuardMode): void {
 	const url = req.url();
-	if (url.startsWith("data:") || url.startsWith("about:")) {
+	if (isAllowedRenderRequest(url, mode)) {
 		req.continue().catch(() => {});
 		return;
 	}
-	try {
-		const u = new URL(url);
-		if (u.protocol === "http:" || u.protocol === "https:") {
-			const hostname = u.hostname.toLowerCase();
-			if (isAllowedFontRequest(u, hostname)) {
-				req.continue().catch(() => {});
-				return;
-			}
-			if (mode === "localhost-only" && LOCAL_HOSTNAMES.has(hostname)) {
-				req.continue().catch(() => {});
-				return;
-			}
-		}
-	} catch {}
 	req.abort("blockedbyclient").catch(() => {});
 }

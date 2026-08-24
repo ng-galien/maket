@@ -1,14 +1,23 @@
 import { normalizeCategoryPath } from "@maket/shared";
-import { ChevronRight, MoveRight, Plus, Search, X } from "lucide-react";
+import {
+	ChevronRight,
+	ImageIcon,
+	MoveRight,
+	Plus,
+	Search,
+	X,
+} from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
+import { useModalFocusTrap } from "../shared/useModalFocusTrap";
 import type { CategoryPickerModel } from "./types";
 
 export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 	const t = useT();
 	const target = model.target;
 	const inputRef = useRef<HTMLInputElement>(null);
+	const dialogRef = useRef<HTMLElement>(null);
 	const listboxId = useId();
 	const [value, setValue] = useState("");
 	const [activeIndex, setActiveIndex] = useState(0);
@@ -19,29 +28,22 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 		setValue("");
 		setActiveIndex(0);
 		setSelectedPath(null);
-		requestAnimationFrame(() => inputRef.current?.focus());
 	}, [target]);
-
-	useEffect(() => {
-		if (!target) return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Escape") return;
-			event.preventDefault();
-			event.stopPropagation();
-			event.stopImmediatePropagation();
-			model.close();
-		};
-		window.addEventListener("keydown", onKeyDown, true);
-		return () => window.removeEventListener("keydown", onKeyDown, true);
-	}, [model, target]);
+	useModalFocusTrap({
+		open: Boolean(target),
+		containerRef: dialogRef,
+		initialFocusRef: inputRef,
+		onEscape: model.close,
+	});
 
 	const normalized = value.trim() ? normalizeCategoryPath(value) : "";
 	const options = useMemo(() => {
 		if (!target) return [];
+		const currentDestination = currentCategoryDestination(target);
 		const needle = value.trim().toLocaleLowerCase();
 		const existing = model.categories
 			.filter((path) => {
-				if (target.kind === "document") return path !== target.category;
+				if (target.kind !== "category") return path !== target.category;
 				return path !== target.path && !path.startsWith(`${target.path}/`);
 			})
 			.filter((path) => !needle || path.toLocaleLowerCase().includes(needle))
@@ -49,16 +51,23 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 				path,
 				depth: path.split("/").length - 1,
 				create: false,
+				disabled: path === currentDestination,
 			}));
 		const items = [...existing];
-		if (target.kind === "category" && !value.trim()) {
-			items.unshift({ path: "", depth: 0, create: false });
+		if (!value.trim()) {
+			items.unshift({
+				path: "",
+				depth: 0,
+				create: false,
+				disabled: rootIsCurrentDestination(target, currentDestination),
+			});
 		}
 		if (normalized && !existing.some((option) => option.path === normalized)) {
 			items.unshift({
 				path: normalized,
 				depth: normalized.split("/").length - 1,
 				create: true,
+				disabled: normalized === currentDestination,
 			});
 		}
 		return items;
@@ -66,14 +75,11 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 
 	if (!target) return null;
 
-	const title =
-		target.kind === "document"
-			? t("move_document_title", { name: target.name })
-			: t("move_category_title", { name: target.path });
+	const title = categoryPickerTitle(target, t);
 	const dialogWidth = categoryPickerWidth(model.categories);
 	const selectActiveOption = () => {
 		const active = options[activeIndex];
-		if (active) setSelectedPath(active.path);
+		if (active && !active.disabled) setSelectedPath(active.path);
 	};
 
 	return createPortal(
@@ -84,22 +90,32 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 			}}
 		>
 			<section
+				ref={dialogRef}
+				role="dialog"
+				aria-modal="true"
 				aria-label={title}
+				tabIndex={-1}
 				className="flex max-h-[min(68vh,620px)] flex-col overflow-hidden rounded-md border border-border bg-panel shadow-[0_18px_55px_rgba(0,0,0,0.22)]"
 				style={{ width: `min(92vw, ${dialogWidth}px)` }}
 			>
 				<header className="flex shrink-0 items-center gap-3 border-b border-accent/40 px-4 py-3">
 					<span className="grid h-8 w-8 shrink-0 place-items-center text-accent">
-						<MoveRight size={18} />
+						{target.kind === "asset" ? (
+							<ImageIcon size={17} />
+						) : (
+							<MoveRight size={18} />
+						)}
 					</span>
 					<div className="min-w-0 flex-1">
 						<h2 className="truncate text-lg font-semibold text-text-1">
 							{title}
 						</h2>
 						<p className="truncate text-sm text-text-3">
-							{target.kind === "category"
-								? t("move_category_parent_hint")
-								: t("move_document_hint")}
+							{target.kind === "asset"
+								? target.name
+								: target.kind === "category"
+									? t("move_category_parent_hint")
+									: t("move_document_hint")}
 						</p>
 					</div>
 					<button
@@ -171,13 +187,16 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 								type="button"
 								role="option"
 								aria-selected={selectedPath === option.path}
+								aria-disabled={option.disabled}
+								disabled={option.disabled}
+								aria-label={option.path || t("category_root")}
 								onPointerMove={() => setActiveIndex(index)}
 								onClick={() => setSelectedPath(option.path)}
 								className={`flex min-w-0 items-center gap-2 px-3 py-2 text-left text-base text-text-1 ${
 									selectedPath === option.path
 										? "max-w-[calc(100%-5.5rem)]"
 										: "flex-1"
-								}`}
+								} disabled:cursor-default disabled:text-text-3`}
 							>
 								<span
 									className="flex shrink-0 items-center text-text-3"
@@ -189,8 +208,11 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 										<ChevronRight size={14} />
 									)}
 								</span>
-								<span className="min-w-0 flex-1 truncate">
-									{option.path || t("category_root")}
+								<span
+									className="min-w-0 flex-1 truncate"
+									title={option.path || t("category_root")}
+								>
+									{categoryLeaf(option.path) || t("category_root")}
 								</span>
 							</button>
 							{selectedPath === option.path && (
@@ -198,7 +220,8 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 									type="button"
 									onClick={() => model.moveTo(option.path)}
 									aria-label={t("move_category_confirm", {
-										path: moveResultPath(target, option.path),
+										path:
+											moveResultPath(target, option.path) || t("category_root"),
 									})}
 									className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md px-1.5 text-sm font-medium text-accent hover:bg-accent/10"
 								>
@@ -220,6 +243,36 @@ export function CategoryPicker({ model }: { model: CategoryPickerModel }) {
 	);
 }
 
+function categoryLeaf(path: string): string {
+	return path.split("/").filter(Boolean).at(-1) ?? "";
+}
+
+function currentCategoryDestination(
+	target: NonNullable<CategoryPickerModel["target"]>,
+): string {
+	if (target.kind !== "category") return normalizeCategoryPath(target.category);
+	return target.path.split("/").slice(0, -1).join("/");
+}
+
+function rootIsCurrentDestination(
+	target: NonNullable<CategoryPickerModel["target"]>,
+	currentDestination: string,
+): boolean {
+	return target.kind === "category"
+		? currentDestination === ""
+		: currentDestination === normalizeCategoryPath("");
+}
+
+function categoryPickerTitle(
+	target: NonNullable<CategoryPickerModel["target"]>,
+	t: ReturnType<typeof useT>,
+): string {
+	if (target.kind === "category")
+		return t("move_category_title", { name: target.path });
+	if (target.kind === "asset") return t("move_photo_title");
+	return t("move_document_title", { name: target.name });
+}
+
 function categoryPickerWidth(categories: string[]) {
 	const longestPath = categories.reduce(
 		(longest, path) => Math.max(longest, path.length),
@@ -232,7 +285,7 @@ function moveResultPath(
 	target: NonNullable<CategoryPickerModel["target"]>,
 	destination: string,
 ) {
-	if (target.kind === "document") return destination;
+	if (target.kind !== "category") return destination;
 	const leaf = target.path.split("/").at(-1) ?? target.path;
 	return destination ? `${destination}/${leaf}` : leaf;
 }

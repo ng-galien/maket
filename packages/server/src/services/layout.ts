@@ -18,7 +18,7 @@
  */
 
 import { parseHTML } from "linkedom";
-import type { Browser, Page } from "puppeteer";
+import type { Browser } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
@@ -27,7 +27,7 @@ import {
 	waitForPageStable,
 } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
-import type { BrowserPool } from "./browser-pool.js";
+import type { BrowserPool, RenderBrowser, RenderPage } from "./browser-pool.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 
@@ -119,13 +119,13 @@ async function runHeadlessLayoutCheck(ctx: {
 	doc: Document;
 	pageHtml: string;
 	documents: Documents;
-	getBrowser: () => Promise<Browser>;
+	getBrowser: () => Promise<RenderBrowser>;
 	getAssetBaseUrl: () => string;
 	timeoutMs: number;
 }): Promise<HeadlessCheckResult> {
 	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl, timeoutMs } =
 		ctx;
-	let page: Page | undefined;
+	let page: RenderPage | undefined;
 	let expired = false;
 	let succeeded = false;
 	let closePromise: Promise<void> | undefined;
@@ -217,7 +217,9 @@ export function createLayoutService(
 	const getAssetBaseUrl =
 		opts.getAssetBaseUrl ??
 		(() => `http://localhost:${process.env.MAKET_PORT || "3333"}`);
-	const getBrowser = opts.browserLaunch ?? (() => browserPool.get());
+	const getBrowser = opts.browserLaunch
+		? async () => (await opts.browserLaunch?.()) as unknown as RenderBrowser
+		: () => browserPool.get();
 	const headlessTimeoutMs =
 		opts.headlessTimeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS;
 

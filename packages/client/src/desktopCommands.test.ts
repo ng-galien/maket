@@ -79,6 +79,7 @@ describe("desktop command parity", () => {
 				},
 			},
 			mcp: {} as never,
+			configuration: {} as never,
 			updates: {} as never,
 		};
 		const cleanup = installDesktopCommands();
@@ -159,6 +160,7 @@ describe("desktop command parity", () => {
 			runtime: { printDocument } as never,
 			commands: {} as never,
 			mcp: {} as never,
+			configuration: {} as never,
 			updates: {} as never,
 		};
 		await printFocusedDocument();

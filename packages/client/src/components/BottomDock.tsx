@@ -1,4 +1,43 @@
-import { useEffect, useRef, useState } from "react";
+import {
+	type CSSProperties,
+	type HTMLAttributes,
+	type ReactNode,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
+import { ResizeHandleFeedback } from "./shared/ResizeHandleFeedback";
+
+interface BottomDockProps extends HTMLAttributes<HTMLElement> {
+	height: CSSProperties["height"];
+	resize?: {
+		height: number;
+		setHeight: (height: number) => void;
+		storageKey: string;
+		label: string;
+	};
+	children: ReactNode;
+}
+
+export function BottomDock({
+	height,
+	resize,
+	children,
+	className = "",
+	style,
+	...props
+}: BottomDockProps) {
+	return (
+		<section
+			{...props}
+			style={{ ...style, height }}
+			className={`relative z-[var(--z-panel)] flex w-full flex-col overflow-hidden border-t border-border bg-panel shadow-[0_-8px_24px_rgba(0,0,0,0.08)] ${className}`}
+		>
+			{resize && <BottomDockResizeHandle {...resize} />}
+			{children}
+		</section>
+	);
+}
 
 export function useBottomDockHeight(
 	storageKey: string,
@@ -25,12 +64,14 @@ export function BottomDockResizeHandle({
 	label: string;
 }) {
 	const cancelResizeRef = useRef<(() => void) | null>(null);
+	const [resizing, setResizing] = useState(false);
 	useEffect(() => () => cancelResizeRef.current?.(), []);
 	const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
 		event.preventDefault();
 		const startY = event.clientY;
 		const startHeight = height;
 		let nextHeight = height;
+		setResizing(true);
 		document.body.style.cursor = "row-resize";
 		document.body.style.userSelect = "none";
 		const move = (moveEvent: PointerEvent) => {
@@ -41,6 +82,7 @@ export function BottomDockResizeHandle({
 		};
 		const stop = () => {
 			saveBottomDockHeight(storageKey, nextHeight);
+			setResizing(false);
 			document.body.style.cursor = "";
 			document.body.style.userSelect = "";
 			window.removeEventListener("pointermove", move);
@@ -65,6 +107,7 @@ export function BottomDockResizeHandle({
 			aria-valuemin={180}
 			aria-valuemax={Math.round(window.innerHeight * 0.78)}
 			aria-valuenow={Math.round(height)}
+			data-resizing={resizing || undefined}
 			onPointerDown={startResize}
 			onKeyDown={(event) => {
 				if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
@@ -75,9 +118,9 @@ export function BottomDockResizeHandle({
 				setHeight(nextHeight);
 				saveBottomDockHeight(storageKey, nextHeight);
 			}}
-			className="group/resize flex h-2 shrink-0 cursor-row-resize items-center justify-center bg-panel"
+			className="group/resize relative flex h-2 shrink-0 cursor-row-resize items-center justify-center bg-panel focus-visible:outline-none"
 		>
-			<span className="h-px w-12 rounded-full bg-border transition-all group-hover/resize:w-16 group-hover/resize:bg-text-3" />
+			<ResizeHandleFeedback orientation="horizontal" active={resizing} />
 		</div>
 	);
 }
