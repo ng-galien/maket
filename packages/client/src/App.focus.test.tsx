@@ -170,6 +170,42 @@ describe("workspace focus invariant", () => {
 		);
 	});
 
+	it("keeps the workspace when a configuration action fails after the plan loaded", async () => {
+		window.maketDesktop = {
+			version: 1,
+			platform: "darwin",
+			runtime: {} as never,
+			commands: {} as never,
+			mcp: {} as never,
+			configuration: {} as never,
+			updates: {} as never,
+		};
+		appMocks.configuration = {
+			status: "error",
+			plan: {
+				endpoint: "http://127.0.0.1:24843/mcp",
+				onboardingRequired: false,
+				awaitingClaudeDesktop: false,
+				runtime: { status: "ready" },
+				findings: [],
+				manualClients: [],
+				restartClients: [],
+			},
+			error: "Agent setup is not initialized",
+		};
+
+		const { container, queryByRole } = render(<App />);
+		act(() => useStore.setState({ workspaceHydrated: true }));
+
+		await waitFor(() =>
+			expect(container.querySelector("[data-app-shell]")).not.toBeNull(),
+		);
+		expect(
+			container.querySelector("[data-desktop-configuration-error]"),
+		).toBeNull();
+		expect(queryByRole("alert")).toBeNull();
+	});
+
 	it("does not gate the web workspace on Electron hydration", () => {
 		const { container } = render(<App />);
 

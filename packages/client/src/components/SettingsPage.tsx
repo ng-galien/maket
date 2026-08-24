@@ -600,9 +600,11 @@ function UpdateSettings() {
 				description={updateStatusText(update, t)}
 			>
 				<div className="flex items-center gap-3">
-					<span className="text-xs tabular-nums text-text-3">
-						v{update.currentVersion}
-					</span>
+					{update.currentVersion ? (
+						<span className="text-xs tabular-nums text-text-3">
+							v{update.currentVersion}
+						</span>
+					) : null}
 					{update.status === "ready" ? (
 						<UpdateActionButton onClick={() => void installDesktopUpdate()}>
 							<RotateCcw size={13} />

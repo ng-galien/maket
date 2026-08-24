@@ -63,20 +63,24 @@ describe("desktop updates state", () => {
 		expect(remove).toHaveBeenCalledOnce();
 	});
 
-	it("keeps stable and candidate selection usable in the web preview", async () => {
+	it("reports a translatable reason instead of an English message in the web preview", async () => {
 		initializeDesktopUpdates();
 		await selectDesktopUpdateChannel("candidate");
 		expect(getDesktopUpdateState()).toMatchObject({
 			channel: "candidate",
-			status: "idle",
-			currentVersion: "development",
+			status: "unavailable",
+			reason: "development-build",
+			currentVersion: "",
 		});
+		expect(getDesktopUpdateState().message).toBeUndefined();
 
 		await checkDesktopUpdates();
 		expect(getDesktopUpdateState()).toMatchObject({
-			status: "up-to-date",
-			message: "Development build",
+			status: "unavailable",
+			reason: "development-build",
+			channel: "candidate",
 		});
+		expect(getDesktopUpdateState().message).toBeUndefined();
 	});
 
 	it("keeps a downloaded update ready when a channel change is attempted", async () => {

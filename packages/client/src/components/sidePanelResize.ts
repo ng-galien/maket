@@ -7,16 +7,19 @@ const PANEL_WIDTH_KEYS: Record<ResizablePanel, string> = {
 	library: "maket-library-width",
 };
 
+/** Fit a width into the panel range. The minimum wins over the viewport so a
+ * degenerate measurement never pins the panel to nothing. */
 export function clampPanelWidth(
 	width: number,
 	viewportWidth = window.innerWidth,
 ): number {
-	const availableWidth = Math.max(0, viewportWidth - 16);
-	return Math.min(
-		MAX_PANEL_WIDTH,
-		availableWidth,
-		Math.max(MIN_PANEL_WIDTH, width),
-	);
+	const available = Number.isFinite(viewportWidth)
+		? Math.max(MIN_PANEL_WIDTH, viewportWidth - 16)
+		: MAX_PANEL_WIDTH;
+	const requested = Number.isFinite(width)
+		? Math.max(MIN_PANEL_WIDTH, width)
+		: MIN_PANEL_WIDTH;
+	return Math.min(MAX_PANEL_WIDTH, available, requested);
 }
 
 export function initialPanelWidth(viewportWidth = window.innerWidth): number {

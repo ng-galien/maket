@@ -1,11 +1,13 @@
 import type { DesktopUpdateChannel, DesktopUpdateState } from "@maket/shared";
 import { useSyncExternalStore } from "react";
 
+// Outside the desktop shell there is no updater at all: report it with the
+// translated reason instead of leaking an English message into the UI.
 const DEVELOPMENT_STATE: DesktopUpdateState = {
-	status: "idle",
+	status: "unavailable",
 	channel: "stable",
-	currentVersion: "development",
-	message: "Available in Maket App builds.",
+	currentVersion: "",
+	reason: "development-build",
 };
 
 let state = DEVELOPMENT_STATE;
@@ -49,6 +51,11 @@ export async function selectDesktopUpdateChannel(
 	) {
 		return;
 	}
+	const updates = window.maketDesktop?.updates;
+	if (!updates) {
+		publish({ ...DEVELOPMENT_STATE, channel });
+		return;
+	}
 	publish({
 		...state,
 		channel,
@@ -56,11 +63,6 @@ export async function selectDesktopUpdateChannel(
 		version: undefined,
 		progress: undefined,
 	});
-	const updates = window.maketDesktop?.updates;
-	if (!updates) {
-		publish({ ...state, message: "Available in Maket App builds." });
-		return;
-	}
 	try {
 		publish(await updates.setChannel(channel));
 	} catch (error) {
@@ -71,10 +73,15 @@ export async function selectDesktopUpdateChannel(
 export async function checkDesktopUpdates(): Promise<void> {
 	const updates = window.maketDesktop?.updates;
 	if (!updates) {
-		publish({ ...state, status: "up-to-date", message: "Development build" });
+		publish({ ...DEVELOPMENT_STATE, channel: state.channel });
 		return;
 	}
-	publish({ ...state, status: "checking", message: undefined });
+	publish({
+		...state,
+		status: "checking",
+		message: undefined,
+		reason: undefined,
+	});
 	try {
 		await updates.check();
 	} catch (error) {
@@ -108,6 +115,7 @@ function publishError(error: unknown): void {
 	publish({
 		...state,
 		status: "error",
+		reason: undefined,
 		message: error instanceof Error ? error.message : String(error),
 	});
 }

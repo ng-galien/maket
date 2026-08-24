@@ -10,7 +10,13 @@ import {
 	PanelLeftDashed,
 	Settings as SettingsIcon,
 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import {
 	configurationNoticeRequired,
@@ -59,7 +65,18 @@ export function LibraryPanel() {
 	const update = useDesktopUpdates();
 	const configuration = useDesktopConfiguration();
 	const [width, setWidth] = useState(() => loadPanelWidth("library"));
+	const preferredWidth = useRef(width);
 	const panelRef = useRef<HTMLElement>(null);
+	const resizePanel = useCallback((next: number) => {
+		preferredWidth.current = next;
+		setWidth(next);
+	}, []);
+	useEffect(() => {
+		const reclamp = () => setWidth(clampPanelWidth(preferredWidth.current));
+		reclamp();
+		window.addEventListener("resize", reclamp);
+		return () => window.removeEventListener("resize", reclamp);
+	}, []);
 
 	const options: LibraryOption[] = [
 		{
@@ -121,7 +138,7 @@ export function LibraryPanel() {
 					view={view}
 					pinned={pinned}
 					width={width}
-					setWidth={setWidth}
+					setWidth={resizePanel}
 					panelRef={panelRef}
 					onTogglePinned={toggleLibraryPinned}
 				/>
@@ -457,14 +474,19 @@ function UpdateRailTooltip({
 	const t = useT();
 	const active =
 		update.status === "checking" || update.status === "downloading";
-	const version = update.version ? ` → v${update.version}` : "";
+	const version = update.currentVersion
+		? ` · v${update.currentVersion}${update.version ? ` → v${update.version}` : ""}`
+		: "";
+	const reason = update.reason
+		? ` · ${t(`settings_update_reason_${update.reason}`)}`
+		: "";
 	return (
 		<div className="min-w-40 py-0.5">
 			<div>{t("settings")}</div>
 			<div className="mt-0.5 font-normal opacity-75">
-				{t(`settings_update_status_${update.status}`)} · v
-				{update.currentVersion}
+				{t(`settings_update_status_${update.status}`)}
 				{version}
+				{reason}
 			</div>
 			{active && (
 				<div className="mt-1.5 h-px overflow-hidden bg-panel/30">

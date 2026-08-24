@@ -26,7 +26,8 @@ export default function App() {
 	const configuration = useDesktopConfiguration();
 	const setupMode =
 		desktop && configuration.plan?.runtime.status === "action-required";
-	const configurationFailed = desktop && configuration.status === "error";
+	const configurationFailed =
+		desktop && configuration.status === "error" && configuration.plan === null;
 	const onboardingRequired =
 		desktop && configuration.plan?.onboardingRequired === true;
 	const t = useT();
@@ -56,14 +57,14 @@ export default function App() {
 		};
 	}, []);
 
+	const runtimeReachable =
+		!desktop ||
+		(configuration.plan !== null && !setupMode && !onboardingRequired);
+
 	useEffect(() => {
-		if (
-			desktop &&
-			(configuration.status !== "ready" || setupMode || onboardingRequired)
-		)
-			return;
+		if (!runtimeReachable) return;
 		initWs();
-	}, [configuration.status, desktop, onboardingRequired, setupMode]);
+	}, [runtimeReachable]);
 
 	useEffect(() => {
 		const media = window.matchMedia("(prefers-color-scheme: dark)");
