@@ -15,9 +15,35 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ### Added
 
+- **Your preferences now follow you.** Language, theme, accent colour,
+  automatic repositioning and the update channel are stored once in
+  `~/.maket/settings.json` instead of the browser's local storage. They no
+  longer depend on which port Maket is served from, they survive a workspace
+  switch, and Maket App and a browser tab pointed at the same server now agree
+  on them.
 - The Agent Journal is now available through discreet, consistently marked
   links in the README, the bilingual product site footer, and Maket's built-in
   Help document.
+
+### Fixed
+
+- **`npm install -g @ng-galien/maket` works again.** The published package
+  declared a private workspace dependency that does not exist on the registry,
+  so every global install failed. The package also kept its original name and
+  `maket` binary, which a refactor had renamed — existing installations would
+  otherwise have stopped receiving updates.
+- **Maket App no longer looks broken when a server is already running.** If a
+  Maket server owned your workspace, the application opened on a workspace that
+  could never load, with nothing explaining why. It now always offers to stop
+  that server and take over, whatever your setup history.
+- Maket reports its real version to AI clients instead of a hardcoded `1.0.0`.
+- The empty Documents panel showed a raw translation key.
+- `maket help` and `maket version` work as the CLI reference documents.
+
+### Changed
+
+- Automatic repositioning is now an On/Off control consistent with the other
+  settings instead of a coloured switch.
 
 ## [1.7.4] — 2026-08-14
 
