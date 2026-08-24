@@ -5,22 +5,31 @@ import { closeLibrary, openLibraryView } from "./workspace-test";
 // on reload — the Zustand store's init path runs against a real browser.
 
 test.describe("Preferences persistence", () => {
-	test("dark mode toggle survives a reload", async ({ page }) => {
+	test("theme selection survives a reload", async ({ page }) => {
 		await page.goto("/");
 		// Start from a known state so previous tests can't bleed in.
-		await page.evaluate(() => localStorage.setItem("dark-mode", "false"));
-		await page.reload();
-
-		const darkBtn = page.getByTitle(/^dark mode$/i);
-		await darkBtn.click();
-		// The store writes the flag synchronously.
-		expect(await page.evaluate(() => localStorage.getItem("dark-mode"))).toBe(
-			"true",
+		await page.evaluate(() =>
+			localStorage.setItem("maket-theme-mode", "light"),
 		);
+		await page.reload();
+
+		await page
+			.getByRole("button", { name: /^(Settings|Paramètres)$/i })
+			.click();
+		await page.getByRole("button", { name: /^(Dark|Sombre)$/i }).click();
+		// The store writes the flag synchronously.
+		expect(
+			await page.evaluate(() => localStorage.getItem("maket-theme-mode")),
+		).toBe("dark");
 
 		await page.reload();
-		// Button title flips to "Light mode" once dark is active.
-		await expect(page.getByTitle(/^light mode$/i)).toBeVisible();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+		await page
+			.getByRole("button", { name: /^(Settings|Paramètres)$/i })
+			.click();
+		await expect(
+			page.getByRole("button", { name: /^(Dark|Sombre)$/i }),
+		).toHaveAttribute("aria-pressed", "true");
 	});
 
 	test("library selection and visibility survive a reload", async ({

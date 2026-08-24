@@ -83,7 +83,7 @@ test("a rejected image request stays actionable and reports the failure", async 
 			)
 			.toBe(true);
 		const insert = page.getByRole("button", {
-			name: /insert into document|insérer dans le document/i,
+			name: /ask the agent to add this image|demander à l’agent d’ajouter cette image/i,
 		});
 		await expect(insert).toBeVisible();
 
@@ -161,7 +161,7 @@ test("uploads an asset in the UI and lets the agent use it in the document", asy
 
 	await photos.getByRole("img", { name: title }).click();
 	const insert = page.getByRole("button", {
-		name: /insert into document|insérer dans le document/i,
+		name: /ask the agent to add this image|demander à l’agent d’ajouter cette image/i,
 	});
 	await expect(insert).toBeVisible();
 	await insert.click();

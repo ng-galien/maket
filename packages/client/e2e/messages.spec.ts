@@ -1,6 +1,6 @@
 import { expect, test } from "./isolated-test";
 import { McpTestClient } from "./mcp-test-client";
-import { closeLibrary, openLibraryView } from "./workspace-test";
+import { closeLibrary, libraryBadge, openLibraryView } from "./workspace-test";
 
 const NOTE_TEXT = "Make this title more prominent";
 const DOCUMENT_NOTE_TEXT = "Review the overall document hierarchy";
@@ -117,7 +117,7 @@ test.describe("Document annotations", () => {
 			await expect(messagesButton).toHaveAttribute("aria-expanded", "false");
 			await expect(page.locator("#panel-exchange")).toHaveCount(0);
 			await expect(page.locator("[data-library-panel]")).toBeVisible();
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			await expect(marker).toBeVisible();
 			await expect(otherMarker).toHaveCount(0);
 			expect(
@@ -140,12 +140,12 @@ test.describe("Document annotations", () => {
 				.locator("xpath=ancestor::article[1]");
 			await expect(
 				messageCard.getByRole("button", {
-					name: /^(view|voir)$/i,
+					name: /Open target|Afficher la cible/i,
 				}),
 			).toBeVisible();
 			await expect(
 				messageCard.getByRole("button", {
-					name: /resolve and remove from the list|résoudre et retirer de la liste/i,
+					name: /Delete note|Supprimer la note/i,
 				}),
 			).toBeVisible();
 			await messageCard.hover();
@@ -170,9 +170,11 @@ test.describe("Document annotations", () => {
 			await expect(title).toHaveCount(0);
 			await closeLibrary(page);
 			await messagesButton.click();
-			await messageCard.getByRole("button", { name: /^(view|voir)$/i }).click();
+			await messageCard
+				.getByRole("button", { name: /Open target|Afficher la cible/i })
+				.click();
 			await expect(title).toBeVisible();
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			const reopenedMessages = await mcp.callJson<
 				Array<{
 					docName?: string;
@@ -213,7 +215,7 @@ test.describe("Document annotations", () => {
 			const secondMessagesButton = secondPage.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await expect(secondMessagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(secondMessagesButton)).toHaveText("1");
 			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(NOTE_TEXT)).toBeVisible();
 
@@ -247,9 +249,9 @@ test.describe("Document annotations", () => {
 			await expect(
 				page
 					.getByRole("button", { name: /^(exchanges|échanges)$/i })
-					.locator("span"),
+					.locator("span:not([data-library-rail-icon])"),
 			).toHaveCount(0);
-			await expect(secondMessagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(secondMessagesButton)).toHaveCount(0);
 			await expect(marker).toHaveCount(0);
 			await expect(secondMarker).toHaveCount(0);
 			await expect(secondPage.getByText(NOTE_TEXT)).toHaveCount(0);
@@ -291,7 +293,7 @@ test.describe("Document annotations", () => {
 				.getByPlaceholder(/Note sur le document|Note about the document/i)
 				.fill(DOCUMENT_NOTE_TEXT);
 			await page.keyboard.press("Enter");
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			await expect(
 				page.locator(`[data-doc="${docName}"] [data-annotation-page-marker]`),
 			).toBeVisible();
@@ -301,12 +303,12 @@ test.describe("Document annotations", () => {
 				.locator("xpath=ancestor::article[1]");
 			await expect(
 				documentMessage.getByRole("button", {
-					name: /^(view|voir)$/i,
+					name: /Open target|Afficher la cible/i,
 				}),
 			).toBeVisible();
 			await expect(
 				documentMessage.getByRole("button", {
-					name: /resolve and remove from the list|résoudre et retirer de la liste/i,
+					name: /Delete note|Supprimer la note/i,
 				}),
 			).toBeVisible();
 
@@ -321,7 +323,7 @@ test.describe("Document annotations", () => {
 			const secondMessagesButton = secondPage.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await expect(secondMessagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(secondMessagesButton)).toHaveText("1");
 			await expect(
 				secondPage.locator(
 					`[data-doc="${docName}"] [data-annotation-page-marker]`,
@@ -360,8 +362,8 @@ test.describe("Document annotations", () => {
 				ids: [annotation.id],
 			});
 
-			await expect(messagesButton.locator("span")).toHaveCount(0);
-			await expect(secondMessagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(messagesButton)).toHaveCount(0);
+			await expect(libraryBadge(secondMessagesButton)).toHaveCount(0);
 			await expect(
 				secondPage.locator(
 					`[data-doc="${docName}"] [data-annotation-page-marker]`,

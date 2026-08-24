@@ -51,8 +51,12 @@ export async function openLibraryView(
 export async function closeLibrary(page: Page): Promise<void> {
 	const panel = page.locator("[data-library-panel]");
 	if ((await panel.getAttribute("data-library-mode")) === "compact") return;
-	await page.locator("[data-library-toggle]").click();
+	await panel.locator('[data-library-rail-view][aria-current="page"]').click();
 	await expect(panel).toHaveAttribute("data-library-mode", "compact");
+}
+
+export function libraryBadge(button: Locator): Locator {
+	return button.locator("span:not([data-library-rail-icon])");
 }
 
 export async function createDocument(

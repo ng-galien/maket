@@ -225,14 +225,15 @@ test.describe("Collection workspace", () => {
 			.click();
 		await expect(dock).toHaveAttribute("data-collection-layout", "split");
 
-		await library.getByText(autonomousName, { exact: true }).click();
+		const reopenedLibrary = await openLibraryView(page, "collections");
+		await reopenedLibrary.getByText(autonomousName, { exact: true }).click();
 		await expect(dock).toHaveAttribute(
 			"data-collection-layout",
 			"expanded-data",
 		);
 		await expect(page.locator("[data-document-preview]")).toHaveCount(0);
 
-		await library
+		await reopenedLibrary
 			.getByRole("button", {
 				name: new RegExp(`^(Open|Ouvrir) ${docName}$`, "i"),
 			})
@@ -268,6 +269,7 @@ test.describe("Collection workspace", () => {
 			name: "launch_metrics",
 		});
 		expect(emptyCollection).not.toContain("client_name");
+		await editor.getByRole("tab", { name: /^(Schema|Schéma)$/i }).click();
 		await editor.getByPlaceholder(/Description/i).fill("Launch pipeline");
 		await editor
 			.getByPlaceholder(/new_field|nouveau_champ/i)
@@ -282,30 +284,48 @@ test.describe("Collection workspace", () => {
 		await editor
 			.getByRole("button", { name: /Add field|Ajouter un champ/i })
 			.click();
+		await editor.getByRole("tab", { name: /^(Data|Données)$/i }).click();
 		await editor
 			.getByRole("button", { name: /Add row|Ajouter une ligne/i })
 			.click();
 
 		const firstCell = editor
-			.locator("tbody input:not([type=checkbox])")
-			.first();
+			.getByRole("row")
+			.nth(1)
+			.getByRole("gridcell")
+			.nth(1);
+		await firstCell.click();
 		await pasteTable(firstCell, "Acme\t1200\nGlobex\t950");
 		await expect(editor.getByRole("row")).toHaveCount(3);
-		await expect(editor.locator('input[value="Acme"]')).toBeVisible();
-		await expect(editor.locator('input[value="1200"]')).toBeVisible();
-		await expect(editor.locator('input[value="Globex"]')).toBeVisible();
-		await expect(editor.locator('input[value="950"]')).toBeVisible();
+		await expect(editor.getByText("Acme", { exact: true })).toBeVisible();
+		await expect(editor.getByText("Globex", { exact: true })).toBeVisible();
+		await expect(
+			editor.getByRole("row").nth(1).getByRole("gridcell").nth(2),
+		).toHaveText("1200");
+		await expect(
+			editor.getByRole("row").nth(2).getByRole("gridcell").nth(2),
+		).toHaveText("950");
 
 		const save = editor.getByRole("button", { name: /^(Save|Enregistrer)$/i });
 		await expect(save).toBeDisabled();
-		const budgets = editor.locator('tbody input[type="number"]');
-		await budgets.nth(0).fill("");
-		await budgets.nth(0).fill("1200");
-		await budgets.nth(1).fill("");
-		await budgets.nth(1).fill("950");
+		for (const [rowIndex, value] of [
+			[1, "1200"],
+			[2, "950"],
+		] as const) {
+			const budgetCell = editor
+				.getByRole("row")
+				.nth(rowIndex)
+				.getByRole("gridcell")
+				.nth(2);
+			await budgetCell.dblclick();
+			const input = budgetCell.getByRole("spinbutton");
+			await input.fill("");
+			await input.fill(value);
+			await input.press("Enter");
+		}
 		await expect(save).toBeEnabled();
 		await save.click();
-		await expect(save).toHaveCount(0);
+		await expect(save).toBeDisabled();
 
 		const persisted = await mcp.callText("maket_collection", {
 			action: "view",
@@ -315,6 +335,7 @@ test.describe("Collection workspace", () => {
 		expect(persisted).toContain('"client_name":"Acme"');
 		expect(persisted).toContain('"budget":1200');
 		expect(persisted).toContain('"client_name":"Globex"');
+		expect(persisted).toContain('"budget":950');
 	});
 });
 

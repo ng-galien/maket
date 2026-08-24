@@ -130,7 +130,8 @@ test.describe("Brand guides", () => {
 			.getByPlaceholder(/Search brand|Rechercher une charte/i)
 			.fill("Acme");
 		const row = charteRow(panel, charteName);
-		await row.getByRole("button", { name: /^(Apply|Appliquer)$/i }).click();
+		await row.getByRole("button", { name: /^(Actions)$/i }).click();
+		await page.getByRole("menuitem", { name: /^(Apply|Appliquer)$/i }).click();
 
 		await expect(panel.getByText(/Applied|Appliquée/i)).toBeVisible();
 		const workspaceState = await mcp.callText("maket_workspace", {
@@ -142,7 +143,7 @@ test.describe("Brand guides", () => {
 		const activeRow = charteRow(panel, charteName);
 		await activeRow.hover();
 		await activeRow.getByRole("button", { name: /^(Actions)$/i }).click();
-		await page.getByRole("button", { name: /^(Edit|Modifier)$/i }).click();
+		await page.getByRole("menuitem", { name: /^(Edit|Modifier)$/i }).click();
 		const dialog = page.getByRole("dialog", {
 			name: /Edit brand|Modifier la charte/i,
 		});

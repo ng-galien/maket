@@ -6,6 +6,7 @@ import {
 	closeLibrary,
 	createDocument,
 	expect,
+	libraryBadge,
 	openLibraryView,
 	openWorkspace,
 	test,
@@ -209,10 +210,14 @@ test.describe("Document library", () => {
 					0,
 				);
 				await page
-					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.getByRole("button", {
+						name: /Close reader|Fermer la vue lecture/i,
+					})
 					.click();
 				await secondPage
-					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.getByRole("button", {
+						name: /Close reader|Fermer la vue lecture/i,
+					})
 					.click();
 			}
 
@@ -260,7 +265,7 @@ test.describe("Document library", () => {
 				action: "ack_messages",
 				ids: [annotation.id],
 			});
-			await expect(messagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(messagesButton)).toHaveCount(0);
 			await expect(
 				secondPage.locator(
 					`[data-doc="${newName}"] [data-annotation-page-marker]`,
@@ -285,7 +290,7 @@ test.describe("Document library", () => {
 		await expect(docRow(panel, "Acme invoice")).toHaveCount(0);
 
 		await openDocumentMenu(docRow(panel, "Acme proposal"));
-		await page.getByRole("button", { name: /^(Rename|Renommer)$/i }).click();
+		await page.getByRole("menuitem", { name: /^(Rename|Renommer)$/i }).click();
 		const rename = panel.getByPlaceholder(/New name|Nouveau nom/i);
 		await rename.fill("Acme launch proposal");
 		await rename.press("Enter");
@@ -294,7 +299,7 @@ test.describe("Document library", () => {
 		await search.fill("");
 		await openDocumentMenu(docRow(panel, "Acme launch proposal"));
 		await page
-			.getByRole("button", { name: /^(Duplicate|Dupliquer)$/i })
+			.getByRole("menuitem", { name: /^(Duplicate|Dupliquer)$/i })
 			.click();
 		const duplicate = panel.getByPlaceholder(/Copy name|Nom de la copie/i);
 		await duplicate.fill("Acme launch proposal v2");
@@ -352,19 +357,27 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await page
-			.getByRole("button", { name: /^(Copy name|Copier le nom)$/i })
+			.getByRole("menuitem", { name: /^(Copy name|Copier le nom)$/i })
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 			.toBe(docName);
 
 		await openDocumentMenu(row());
-		await page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }).click();
-		const category = row().getByPlaceholder(
-			/Category path|Chemin de catégorie/i,
-		);
+		await page.getByRole("menuitem", { name: /^(Move…|Déplacer…)$/i }).click();
+		const moveDialog = page.getByRole("dialog", {
+			name: /Move “Menu action proposal”|Déplacer « Menu action proposal »/i,
+		});
+		const category = moveDialog.getByRole("combobox", {
+			name: /Search or create a category|Rechercher ou créer une catégorie/i,
+		});
 		await category.fill("clients/moved");
 		await category.press("Enter");
+		await moveDialog
+			.getByRole("button", {
+				name: /Move to clients\/moved|Déplacer vers clients\/moved/i,
+			})
+			.click();
 		await expect(
 			panel
 				.locator('[data-category-documents="clients/moved"]')
@@ -373,7 +386,7 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await page
-			.getByRole("button", {
+			.getByRole("menuitem", {
 				name: /^(Lock \(MCP read-only\)|Verrouiller \(MCP en lecture seule\))$/i,
 			})
 			.click();
@@ -383,23 +396,23 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await expect(
-			page.getByRole("button", { name: /^(Rename|Renommer)$/i }),
+			page.getByRole("menuitem", { name: /^(Rename|Renommer)$/i }),
 		).toBeDisabled();
 		await expect(
-			page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }),
+			page.getByRole("menuitem", { name: /^(Move…|Déplacer…)$/i }),
 		).toBeDisabled();
 		await expect(
-			page.getByRole("button", { name: /^(Delete|Supprimer)$/i }),
+			page.getByRole("menuitem", { name: /^(Delete|Supprimer)$/i }),
 		).toBeDisabled();
 		await page
-			.getByRole("button", { name: /^(Unlock|Déverrouiller)$/i })
+			.getByRole("menuitem", { name: /^(Unlock|Déverrouiller)$/i })
 			.click();
 		await expect(
 			row().getByLabel(/Locked document|Document verrouillé/i),
 		).toHaveCount(0);
 
 		await openDocumentMenu(row());
-		const deleteAction = page.getByRole("button", {
+		const deleteAction = page.getByRole("menuitem", {
 			name: /^(Delete|Supprimer)$/i,
 		});
 		await expect(deleteAction).toBeEnabled();
@@ -548,7 +561,7 @@ test.describe("Document library", () => {
 		const countRadius = await categoryPart("clients", "count").evaluate(
 			(element) => Number.parseFloat(getComputedStyle(element).borderRadius),
 		);
-		expect(countRadius).toBe(8);
+		expect(countRadius).toBe(4);
 
 		for (const path of ["clients", "clients/acme", "clients/globex"]) {
 			const chevron = await categoryPart(path, "chevron").boundingBox();
@@ -874,7 +887,9 @@ test.describe("Document library", () => {
 			.getByRole("button", { name: /^(Close all|Tout fermer)$/i })
 			.click();
 		await expect(
-			page.getByText(/^(No document|Aucun document)$/i),
+			page.getByRole("button", {
+				name: /Open (?:a )?document|Ouvrir un document/i,
+			}),
 		).toBeVisible();
 		await expect(page.locator("[data-doc]")).toHaveCount(0);
 	});
@@ -895,7 +910,9 @@ test.describe("Document library", () => {
 		await openDocumentMenu(docRow(panel, docName));
 		const downloadPromise = page.waitForEvent("download");
 		await page
-			.getByRole("button", { name: /Export \(\.maket\)|Exporter \(\.maket\)/i })
+			.getByRole("menuitem", {
+				name: /Export \(\.maket\)|Exporter \(\.maket\)/i,
+			})
 			.click();
 		const download = await downloadPromise;
 		const bundlePath = await download.path();

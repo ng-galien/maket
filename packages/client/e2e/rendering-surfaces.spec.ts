@@ -333,7 +333,9 @@ async function expectLifecycleStage({
 		page.locator(`[data-doc="${docName}"] .margin-guide`),
 		`${stageName} Reader hides print guides`,
 	).toHaveCount(0);
-	await page.getByRole("button", { name: /Canvas view|Vue canevas/i }).click();
+	await page
+		.getByRole("button", { name: /Close reader|Fermer la vue lecture/i })
+		.click();
 
 	const snapshot = await mcp.call("maket_preview", {
 		action: "snapshot",

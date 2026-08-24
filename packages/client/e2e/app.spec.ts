@@ -12,15 +12,17 @@ test.describe("Workspace shell", () => {
 		expect(response?.status()).toBe(200);
 		await expect(page).toHaveTitle(/Maket/i);
 		await expect(
-			page.getByRole("button", { name: /dark mode|light mode/i }),
+			page.getByRole("button", { name: /^(Settings|Paramètres)$/i }),
 		).toBeVisible();
 		await expect(page.locator(".animate-pulse.bg-danger")).toHaveCount(0, {
 			timeout: 5_000,
 		});
-		const placeholder = page.locator(".truncate", {
-			hasText: /Aucun document|No document/i,
-		});
-		await expect(placeholder).toBeVisible();
+		await expect(page.locator("[data-canvas-workspace]")).toBeVisible();
+		await expect(
+			page.getByRole("button", {
+				name: /Open (?:a )?document|Ouvrir un document/i,
+			}),
+		).toBeVisible();
 	});
 
 	test("offers document selection instead of a disabled note composer", async ({
