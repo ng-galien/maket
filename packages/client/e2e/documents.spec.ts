@@ -175,13 +175,43 @@ test.describe("Document library", () => {
 				await expect(
 					secondPage.getByRole("button", { name: /^(Document)$/i }),
 				).toContainText(otherName);
-				await expect(
-					page
-						.getByRole("navigation", {
-							name: /Reader navigation|Navigation du lecteur/i,
-						})
-						.getByRole("status"),
-				).toHaveText(/2\/2/);
+				const readerNavigation = page.getByRole("navigation", {
+					name: /Reader navigation|Navigation du lecteur/i,
+				});
+				const readerStatus = readerNavigation.getByRole("status");
+				const previousPage = readerNavigation.getByRole("button", {
+					name: /^(Previous page|Page précédente)/i,
+				});
+				const nextPage = readerNavigation.getByRole("button", {
+					name: /^(Next page|Page suivante)/i,
+				});
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(previousPage).toBeVisible();
+				await expect(previousPage).toBeEnabled();
+				await expect(previousPage).toHaveCSS("opacity", "1");
+				await expect(nextPage).toBeVisible();
+				await expect(nextPage).toBeDisabled();
+				await expect(nextPage).toHaveCSS("opacity", "0.25");
+
+				await page.keyboard.press("ArrowRight");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(nextPage).toBeDisabled();
+				await page.keyboard.press("ArrowUp");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await expect(previousPage).toBeDisabled();
+				await expect(previousPage).toHaveCSS("opacity", "0.25");
+				await expect(nextPage).toBeEnabled();
+				await expect(nextPage).toHaveCSS("opacity", "1");
+				await page.keyboard.press("ArrowUp");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await expect(previousPage).toBeDisabled();
+				await page.keyboard.press("ArrowRight");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await page.keyboard.press("ArrowLeft");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await page.keyboard.press("ArrowDown");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(nextPage).toBeDisabled();
 			}
 
 			await mcp.call("maket_doc", {
