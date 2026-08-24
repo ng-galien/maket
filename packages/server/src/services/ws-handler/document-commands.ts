@@ -71,7 +71,7 @@ export function handleMoveCategory(
 ): void {
 	const source = normalizeCategoryPath(msg.source);
 	const destination = normalizeCategoryPath(msg.destination);
-	if (source === destination) return;
+	if (!source || source === destination) return;
 	if (destination.startsWith(`${source}/`)) {
 		ctx.bus.emit("toast", {
 			text: "A category cannot be moved inside itself",
