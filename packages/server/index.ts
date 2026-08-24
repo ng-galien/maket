@@ -3,6 +3,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+	publishRuntimeOwnership,
+	readPackageVersion,
+} from "./src/runtime-ownership.js";
 import { startMaketServer } from "./src/server.js";
 
 function crashLog(message: string): void {
@@ -31,6 +35,15 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const server = await startMaketServer();
+// Publish workspace ownership so the desktop application detects this server
+// instead of silently starting a second one on the same SQLite workspace.
+const ownership = publishRuntimeOwnership({
+	dataDir: server.config.DATA_DIR,
+	host: server.config.HOST,
+	port: Number(new URL(server.url).port) || server.config.PORT,
+	version: readPackageVersion(server.config.PACKAGE_DIR),
+});
+process.on("exit", () => ownership.release());
 let stopping = false;
 const stop = async (signal: NodeJS.Signals) => {
 	if (stopping) return;
@@ -38,6 +51,7 @@ const stop = async (signal: NodeJS.Signals) => {
 	process.stderr.write(`Received ${signal}, shutting down...\n`);
 	try {
 		await server.close();
+		ownership.release();
 		process.exit(0);
 	} catch (error) {
 		crashLog(

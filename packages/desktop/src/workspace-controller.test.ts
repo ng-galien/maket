@@ -43,6 +43,7 @@ describe("WorkspaceController legacy takeover", () => {
     const controller = new WorkspaceController({
       version: "test",
       packageDir: resolve(import.meta.dirname, "../../.."),
+      describeProcess: () => "node /usr/local/lib/node_modules/@ng-galien/maket/server.js",
     });
 
     expect(controller.inspectOwner(workspace)).toMatchObject({
@@ -70,6 +71,34 @@ describe("WorkspaceController legacy takeover", () => {
     await controller.takeControl(conflict.descriptor);
 
     expect(isProcessAlive(child.pid)).toBe(false);
+    expect(existsSync(join(workspace, "server.pid"))).toBe(false);
+  });
+
+  it("clears a stale pid record instead of killing a recycled process", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "maket-desktop-stale-"));
+    directories.push(workspace);
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      stdio: "ignore",
+    });
+    children.push(child);
+    await new Promise<void>((resolveSpawn, rejectSpawn) => {
+      child.once("spawn", resolveSpawn);
+      child.once("error", rejectSpawn);
+    });
+    if (!child.pid) throw new Error("Test process did not receive a PID");
+    writeFileSync(join(workspace, "server.pid"), `${child.pid}\n`, "utf8");
+
+    const controller = new WorkspaceController({
+      version: "test",
+      packageDir: resolve(import.meta.dirname, "../../.."),
+      describeProcess: () => "/Applications/SomeoneElse.app/Contents/MacOS/SomeoneElse",
+    });
+    const owner = controller.inspectOwner(workspace);
+    if (!owner) throw new Error("Expected a legacy owner record");
+
+    await controller.takeControl(owner);
+
+    expect(isProcessAlive(child.pid)).toBe(true);
     expect(existsSync(join(workspace, "server.pid"))).toBe(false);
   });
 

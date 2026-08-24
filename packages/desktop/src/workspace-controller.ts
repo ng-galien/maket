@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
@@ -20,6 +21,8 @@ export interface WorkspaceControllerOptions {
   packageDir: string;
   port?: number;
   browserPool?: BrowserPool;
+  /** Command line of a running process; tests substitute their own. */
+  describeProcess?: (pid: number) => string | null;
 }
 
 export interface RuntimeOwner {
@@ -36,6 +39,25 @@ export class RuntimeOwnedError extends Error {
       `Maket ${descriptor.owner} runtime already owns ${descriptor.dataDir} on ${descriptor.host}:${descriptor.port}`,
     );
   }
+}
+
+/** Command line of a live process, or null when it cannot be read. */
+function readProcessCommand(pid: number): string | null {
+  if (process.platform === "win32") return null;
+  try {
+    return execFileSync("/bin/ps", ["-o", "command=", "-p", String(pid)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/** PIDs are recycled: a stale ownership record can name an unrelated process.
+ * An unreadable command line stays trusted so takeover still works on Windows. */
+export function looksLikeMaketServer(command: string | null): boolean {
+  return command === null || command === "" || /maket/i.test(command);
 }
 
 function readLegacyPid(dataDir: string): number | null {
@@ -163,6 +185,11 @@ export class WorkspaceController {
       throw new Error("Another Maket desktop instance owns this workspace");
     }
     if (!isProcessAlive(owner.pid)) return;
+    const describeProcess = this.options.describeProcess ?? readProcessCommand;
+    if (!looksLikeMaketServer(describeProcess(owner.pid))) {
+      this.forgetOwnershipRecord(owner);
+      return;
+    }
 
     if (owner.owner === "legacy") {
       const currentPid = readLegacyPid(owner.dataDir);
@@ -181,15 +208,20 @@ export class WorkspaceController {
       throw new Error(`Maket server ${owner.pid} did not stop within five seconds`);
     }
 
+    this.forgetOwnershipRecord(owner);
+  }
+
+  /** Drop the record that named `owner`, leaving records owned by others alone. */
+  private forgetOwnershipRecord(owner: RuntimeOwner): void {
     if (owner.owner === "legacy") {
       if (readLegacyPid(owner.dataDir) === owner.pid) {
         rmSync(join(owner.dataDir, "server.pid"), { force: true });
       }
-    } else {
-      const current = readRuntimeDescriptor(owner.dataDir);
-      if (current && current.pid === owner.pid) {
-        removeRuntimeDescriptor(owner.dataDir, current.instanceId);
-      }
+      return;
+    }
+    const current = readRuntimeDescriptor(owner.dataDir);
+    if (current && current.pid === owner.pid) {
+      removeRuntimeDescriptor(owner.dataDir, current.instanceId);
     }
   }
 
