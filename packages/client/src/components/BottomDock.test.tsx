@@ -29,7 +29,7 @@ describe("BottomDockResizeHandle", () => {
 		).toBeVisible();
 	});
 
-	it("shares the restrained accent feedback used by the library resize", () => {
+	it("shares the grip-only feedback used by the library resize", () => {
 		const setHeight = vi.fn();
 		render(
 			<BottomDockResizeHandle
@@ -42,15 +42,13 @@ describe("BottomDockResizeHandle", () => {
 		const resize = screen.getByRole("separator", {
 			name: "Resize data panel",
 		});
-		const guide = resize.querySelector("[data-resize-guide]");
 		const grip = resize.querySelector("[data-resize-grip]");
 
-		expect(guide).toHaveClass("opacity-0");
+		expect(resize.querySelector("[data-resize-guide]")).toBeNull();
 		expect(grip).toHaveClass("h-px", "w-12", "bg-text-3/45");
 
 		fireEvent.pointerDown(resize, { clientY: 500 });
 		expect(resize).toHaveAttribute("data-resizing", "true");
-		expect(guide).toHaveClass("h-[3px]", "opacity-100", "bg-accent/35");
 		expect(grip).toHaveClass("h-[5px]", "w-16", "bg-accent/80");
 
 		fireEvent.pointerMove(window, { clientY: 480 });
@@ -58,6 +56,5 @@ describe("BottomDockResizeHandle", () => {
 
 		fireEvent.pointerUp(window);
 		expect(resize).not.toHaveAttribute("data-resizing");
-		expect(guide).toHaveClass("opacity-0");
 	});
 });

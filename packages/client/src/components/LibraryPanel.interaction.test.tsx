@@ -200,20 +200,18 @@ describe("LibraryPanel", () => {
 		expect(screen.getByRole("tooltip").parentElement).toBe(document.body);
 	});
 
-	it("shows a restrained accent guide only while resizing", () => {
+	it("animates only the central grip while resizing", () => {
 		const { container } = render(<LibraryPanel />);
 		const resize = screen.getByRole("separator", {
 			name: "Resize library panel",
 		});
-		const guide = resize.querySelector("[data-resize-guide]");
 		const grip = resize.querySelector("[data-resize-grip]");
 
-		expect(guide).toHaveClass("opacity-0");
+		expect(resize.querySelector("[data-resize-guide]")).toBeNull();
 		expect(grip).toHaveClass("h-9", "w-px", "bg-text-3/45");
 
 		fireEvent.pointerDown(resize, { clientX: 400 });
 		expect(resize).toHaveAttribute("data-resizing", "true");
-		expect(guide).toHaveClass("w-[3px]", "opacity-100", "bg-accent/35");
 		expect(grip).toHaveClass("h-16", "w-[5px]", "bg-accent/80");
 		expect(container.querySelector("[data-library-panel]")).toHaveAttribute(
 			"data-resizing",
@@ -222,7 +220,6 @@ describe("LibraryPanel", () => {
 
 		fireEvent.pointerUp(window);
 		expect(resize).not.toHaveAttribute("data-resizing");
-		expect(guide).toHaveClass("opacity-0");
 	});
 
 	it("stays above collection and state workspaces", () => {
