@@ -28,6 +28,86 @@ async function cleanupMessage(mcp: McpTestClient, text: string) {
 }
 
 test.describe("Document annotations", () => {
+	test("keeps the annotation popover inside the workspace and viewport", async ({
+		baseURL,
+		page,
+	}) => {
+		const docName = `annotation-position-e2e-${Date.now()}`;
+		const mcp = await McpTestClient.connect(baseURL);
+		await page.setViewportSize({ width: 1030, height: 720 });
+
+		try {
+			await mcp.call("maket_doc", {
+				action: "new",
+				doc: docName,
+				format: "A4",
+				orientation: "landscape",
+			});
+			await mcp.call("maket_html", {
+				action: "set",
+				doc: docName,
+				page: 1,
+				html: [
+					'<main data-id="page" style="padding: 20mm">',
+					'<h1 data-id="wide-review-title" data-name="Wide review title" style="display:block;width:100%">Annotation positioning</h1>',
+					"</main>",
+				].join(""),
+			});
+
+			await page.goto("/");
+			await waitForWorkspace(page);
+			await mcp.call("maket_workspace", {
+				action: "focus",
+				doc: docName,
+				page: 1,
+			});
+			const library = await openLibraryView(page, "docs");
+			const libraryPin = library.locator("[data-library-pin]");
+			if ((await libraryPin.getAttribute("aria-pressed")) !== "true") {
+				await libraryPin.click();
+			}
+			await expect(libraryPin).toHaveAttribute("aria-pressed", "true");
+			const title = page.locator(
+				`[data-doc="${docName}"] [data-id="wide-review-title"]`,
+			);
+			await expect(title).toBeVisible();
+			await title.click();
+			await page.locator(".tb-comment").click();
+
+			const popover = page.locator("[data-annotation-popover]");
+			await expect(popover).toBeVisible();
+			await expect(library).toHaveAttribute("data-library-mode", "extended");
+			await expectPopoverBounds(page, popover, library);
+			const initialLibraryWidth = await library.evaluate(
+				(element) => element.getBoundingClientRect().width,
+			);
+			const resizeLibrary = library.getByRole("separator", {
+				name: /Resize library panel|Redimensionner le panneau/i,
+			});
+			await resizeLibrary.focus();
+			for (let step = 0; step < 4; step += 1) {
+				await resizeLibrary.press("ArrowRight");
+			}
+			await expect
+				.poll(() =>
+					library.evaluate((element) => element.getBoundingClientRect().width),
+				)
+				.toBeGreaterThan(initialLibraryWidth + 48);
+			await expectPopoverBounds(page, popover, library);
+
+			await popover.evaluate((element) => {
+				(element as HTMLElement).style.minHeight = "340px";
+			});
+			await expectPopoverBounds(page, popover, library);
+
+			await page.setViewportSize({ width: 860, height: 620 });
+			await expect(library).toHaveAttribute("data-library-mode", "extended");
+			await expectPopoverBounds(page, popover, library);
+		} finally {
+			await mcp.close();
+		}
+	});
+
 	test("an element annotation survives another window and its acknowledgement propagates", async ({
 		baseURL,
 		context,
@@ -377,3 +457,38 @@ test.describe("Document annotations", () => {
 		}
 	});
 });
+
+async function expectPopoverBounds(
+	page: import("@playwright/test").Page,
+	popover: import("@playwright/test").Locator,
+	library: import("@playwright/test").Locator,
+) {
+	await expect
+		.poll(async () => {
+			const [popoverBox, libraryBox] = await Promise.all([
+				popover.boundingBox(),
+				library.boundingBox(),
+			]);
+			const viewport = page.viewportSize();
+			if (!popoverBox || !libraryBox || !viewport) {
+				return {
+					outsideLibrary: false,
+					insideRight: false,
+					insideTop: false,
+					insideBottom: false,
+				};
+			}
+			return {
+				outsideLibrary: popoverBox.x >= libraryBox.x + libraryBox.width - 1,
+				insideRight: popoverBox.x + popoverBox.width <= viewport.width - 15,
+				insideTop: popoverBox.y >= 15,
+				insideBottom: popoverBox.y + popoverBox.height <= viewport.height - 15,
+			};
+		})
+		.toEqual({
+			outsideLibrary: true,
+			insideRight: true,
+			insideTop: true,
+			insideBottom: true,
+		});
+}

@@ -808,10 +808,14 @@ export function useReadingKeyboard({
 			let nextPage: number | null = null;
 			switch (event.key) {
 				case "PageUp":
+				case "ArrowUp":
+				case "ArrowLeft":
 					if (pageCount === 0) return;
 					nextPage = Math.max(0, pageIndex - 1);
 					break;
 				case "PageDown":
+				case "ArrowDown":
+				case "ArrowRight":
 					if (pageCount === 0) return;
 					nextPage = Math.min(pageCount - 1, pageIndex + 1);
 					break;

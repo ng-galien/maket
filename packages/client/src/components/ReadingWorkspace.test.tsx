@@ -1,4 +1,10 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +59,38 @@ describe("ReadingWorkspace", () => {
 		const input = document.createElement("input");
 		expect(readingShortcutBlocked(input)).toBe(true);
 		expect(readingShortcutBlocked(document.body)).toBe(false);
+	});
+
+	it("uses directional arrows to move between reader pages", () => {
+		const doc = makeDoc("report", 3);
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+			workspaceView: "reading",
+		});
+
+		render(
+			<>
+				<ReadingWorkspace />
+				<input aria-label="Reader test input" />
+			</>,
+		);
+
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		fireEvent.keyDown(window, { key: "ArrowDown" });
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		fireEvent.keyDown(window, { key: "ArrowUp" });
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+
+		const input = screen.getByRole("textbox", { name: "Reader test input" });
+		input.focus();
+		fireEvent.keyDown(input, { key: "ArrowRight" });
+		expect(useStore.getState().focusedPageIndex).toBe(0);
 	});
 
 	it("renders only the focused document and hides the canvas document chip", () => {
