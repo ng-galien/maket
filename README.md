@@ -145,7 +145,7 @@ npm install
 npm run dev
 ```
 
-Starts the server on `:24843` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24843/mcp`.
+Starts the development server on `:24844` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24844/mcp`. Port `:24843` is reserved for the installed desktop application.
 
 ### Code quality and architecture rules
 
@@ -236,7 +236,7 @@ Override with environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MAKET_PORT` | `24842` (or `3333` in dev) | HTTP server port |
+| `MAKET_PORT` | `24842` (`24844` with `npm run dev`; `3333` with `start:isolated`) | HTTP server port |
 | `MAKET_DATA_DIR` | `~/.maket/` | User data directory |
 | `MAKET_DB` | `$MAKET_DATA_DIR/documents.db` | SQLite path |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Gmail OAuth credentials (optional) |

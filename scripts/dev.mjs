@@ -53,7 +53,7 @@ function spawnAll(children) {
   process.on("SIGTERM", () => stop("SIGTERM"));
 }
 
-const PORT = process.env.MAKET_PORT ?? "24843";
+const PORT = process.env.MAKET_PORT ?? "24844";
 const DATA_DIR = resolve(ROOT, ".maket");
 
 const SERVER_ENV = { MAKET_PORT: PORT, MAKET_DATA_DIR: DATA_DIR };
