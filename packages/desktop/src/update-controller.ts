@@ -1,4 +1,9 @@
-import type { DesktopUpdateChannel, DesktopUpdateReason, DesktopUpdateState } from "@maket/shared";
+import {
+  DESKTOP_CHANNELS,
+  type DesktopUpdateChannel,
+  type DesktopUpdateReason,
+  type DesktopUpdateState,
+} from "@maket/shared";
 import { app, autoUpdater, type BrowserWindow } from "electron";
 import {
   type IUpdateElectronApp,
@@ -26,6 +31,7 @@ export class UpdateController {
   private windows = new Set<BrowserWindow>();
   private started = false;
   private updateLoop: IUpdateElectronApp | null = null;
+  private inFlightCheck: Promise<void> | null = null;
   private readonly currentVersion: string;
   private readonly platform: NodeJS.Platform;
   private readonly arch: string;
@@ -83,6 +89,9 @@ export class UpdateController {
     return this.state;
   }
 
+  /** Run one update check. Gated on a real in-flight call rather than on the
+   * published status, so a silent update service cannot leave the state stuck
+   * in "checking" and disable the manual check forever. */
   async check(): Promise<void> {
     if (!this.options.enabled) {
       this.publish({
@@ -91,13 +100,19 @@ export class UpdateController {
       });
       return;
     }
-    if (this.state.status === "checking" || this.state.status === "downloading") return;
+    if (this.inFlightCheck) return this.inFlightCheck;
+    if (this.state.status === "downloading") return;
     this.publish(this.baseState("checking"));
-    try {
-      await autoUpdater.checkForUpdates();
-    } catch (error) {
-      this.publishUnavailable(error);
-    }
+    this.inFlightCheck = (async () => {
+      try {
+        await autoUpdater.checkForUpdates();
+      } catch (error) {
+        this.publishUnavailable(error);
+      } finally {
+        this.inFlightCheck = null;
+      }
+    })();
+    return this.inFlightCheck;
   }
 
   install(): void {
@@ -118,15 +133,23 @@ export class UpdateController {
     };
   }
 
+  // `autoUpdater.setFeedURL` throws on an installation Squirrel refuses (an
+  // unsigned or damaged bundle). A broken updater must degrade to "unavailable",
+  // never take the application down with it.
   private startUpdateLoop(): void {
-    this.updateLoop?.stopUpdates();
-    this.publish(this.baseState("checking"));
-    this.updateLoop = this.startUpdates({
-      updateSource: updateSourceFor(this.getChannel(), this.platform, this.arch),
-      updateInterval: "1 hour",
-      notifyUser: false,
-      logger: updateLogger,
-    });
+    try {
+      this.updateLoop?.stopUpdates();
+      this.publish(this.baseState("checking"));
+      this.updateLoop = this.startUpdates({
+        updateSource: updateSourceFor(this.getChannel(), this.platform, this.arch),
+        updateInterval: "1 hour",
+        notifyUser: false,
+        logger: updateLogger,
+      });
+    } catch (error) {
+      this.updateLoop = null;
+      this.publishUnavailable(error);
+    }
   }
 
   private baseState(status: DesktopUpdateState["status"]): DesktopUpdateState {
@@ -140,7 +163,11 @@ export class UpdateController {
   private publish(state: DesktopUpdateState): void {
     this.state = state;
     for (const window of this.windows) {
-      window.webContents.send("maket:update:state-changed", state);
+      if (window.isDestroyed()) {
+        this.windows.delete(window);
+        continue;
+      }
+      window.webContents.send(DESKTOP_CHANNELS.updateStateChanged, state);
     }
   }
 

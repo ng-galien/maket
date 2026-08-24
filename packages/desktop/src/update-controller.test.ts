@@ -51,6 +51,37 @@ describe("UpdateController", () => {
     });
   });
 
+  it("survives an updater that refuses the installation", async () => {
+    const controller = new UpdateController({
+      enabled: true,
+      preferences: { getChannel: () => "stable", setChannel: vi.fn() },
+      startUpdates: () => {
+        throw new Error("Could not get code signature for running application");
+      },
+    });
+
+    expect(() => controller.start()).not.toThrow();
+    expect(controller.getState()).toMatchObject({
+      status: "unavailable",
+      reason: "service-unavailable",
+    });
+  });
+
+  it("still checks manually when the boot loop never left the checking state", async () => {
+    const controller = new UpdateController({
+      enabled: true,
+      preferences: { getChannel: () => "stable", setChannel: vi.fn() },
+      startUpdates: () => ({ stopUpdates: vi.fn() }),
+    });
+
+    controller.start();
+    expect(controller.getState().status).toBe("checking");
+
+    await controller.check();
+
+    expect(updater.checkForUpdates).toHaveBeenCalledOnce();
+  });
+
   it("treats an unreachable release service as neutral unavailability", async () => {
     const controller = new UpdateController({
       enabled: true,
