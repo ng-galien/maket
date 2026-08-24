@@ -1,5 +1,5 @@
 import { once } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -38,6 +38,12 @@ describe("embedded Maket server", () => {
 				MAKET_BIND_HOST: "127.0.0.1",
 			},
 		});
+		config.PUBLIC_DIR = join(dataDir, "public");
+		mkdirSync(config.PUBLIC_DIR, { recursive: true });
+		writeFileSync(
+			join(config.PUBLIC_DIR, "index.html"),
+			"<!doctype html><title>{{TITLE}}</title><main>{{SUBTITLE}}</main>",
+		);
 		const store = createSQLiteStore(":memory:");
 		const server = await startMaketServer({
 			config,
