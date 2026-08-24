@@ -5,9 +5,14 @@ patterns = ["dependency", "ownership", "call-flow", "hygiene"]
 components = [
   "maket",
   "workspace",
+  "client",
   "server",
   "contracts",
-  "mcp",
+  "tools@mcp",
+  "bridge@mcp",
+  "store@client",
+  "views@client",
+  "routes@http",
   "recentering@workspace",
   "snapshot@preview",
   "cursor@collections",
@@ -31,13 +36,13 @@ uris = [
 
 [aliases]
 dependency_import_ref = "kind = 'imports_symbol' OR kind = 'imports_module' OR kind = 'reexports'"
-workspace_source = "source ~ '**/dir:packages/dir:client/dir:src/**'"
+client_source = "source ~ '**/dir:packages/dir:client/dir:src/**'"
 server_source = "source ~ '**/dir:packages/dir:server/dir:src/**'"
 contracts_source = "source ~ '**/dir:packages/dir:shared/dir:src/**'"
-workspace_target = "target ~ '**/dir:packages/dir:client/dir:src/**'"
+client_target = "target ~ '**/dir:packages/dir:client/dir:src/**'"
 server_target = "target ~ '**/dir:packages/dir:server/dir:src/**'"
-mcp_bridge_target = "target ~ '**/dir:packages/dir:stdio-bridge/dir:src/**'"
-workspace_runtime_target = """
+bridge_at_mcp_target = "target ~ '**/dir:packages/dir:stdio-bridge/dir:src/**'"
+client_runtime_target = """
   target ~ '**/external_pkg:react/**'
   OR target ~ '**/external_pkg:react-dom/**'
   OR target ~ '**/external_pkg:zustand/**'
@@ -51,10 +56,10 @@ maket_application_call_ref = """
   (kind = 'calls' OR kind = 'method_call')
   AND target ~ '**/dir:packages/**'
 """
-mcp_tools_source = "source ~ '**/dir:packages/dir:server/dir:src/dir:tools/**'"
-server_http_routes_target = "target ~ '**/dir:packages/dir:server/dir:src/dir:routes/**'"
-workspace_state_source = "source ~ '**/dir:packages/dir:client/dir:src/dir:store/**'"
-workspace_view_target = "target ~ '**/dir:packages/dir:client/dir:src/dir:components/**'"
+tools_at_mcp_source = "source ~ '**/dir:packages/dir:server/dir:src/dir:tools/**'"
+routes_at_http_target = "target ~ '**/dir:packages/dir:server/dir:src/dir:routes/**'"
+store_at_client_source = "source ~ '**/dir:packages/dir:client/dir:src/dir:store/**'"
+views_at_client_target = "target ~ '**/dir:packages/dir:client/dir:src/dir:components/**'"
 server_services_source = "source ~ '**/dir:packages/dir:server/dir:src/dir:services/**'"
 server_broadcast_call = """
   (kind = 'calls' OR kind = 'method_call')
@@ -65,51 +70,51 @@ server_broadcast_call = """
 """
 
 [[refs.where]]
-id        = "contracts-workspace-server-mcp-dependency-stays-adapter-free"
+id        = "contracts-client-server-bridge@mcp-dependency-stays-adapter-free"
 severity  = "error"
 rationale = "Shared contracts must remain pure data and protocol definitions. They are consumed by both client and server, so importing adapters, framework runtimes, or Node APIs collapses the boundary."
 expr      = """
   $contracts_source AND $dependency_import_ref
-  => NOT ($workspace_target OR $server_target OR $mcp_bridge_target OR $workspace_runtime_target OR $server_runtime_target)
+  => NOT ($client_target OR $server_target OR $bridge_at_mcp_target OR $client_runtime_target OR $server_runtime_target)
 """
 message   = "`packages/shared` must not import client, server, stdio-bridge, browser framework, or server runtime code."
 
 [[refs.where]]
-id        = "workspace-server-mcp-dependency-does-not-target-runtime-implementations"
+id        = "client-server-bridge@mcp-dependency-does-not-target-runtime-implementations"
 severity  = "error"
 rationale = "The client mirrors server state through shared WS/HTTP contracts. Direct imports from server code couple the browser bundle to server implementation details and bypass the shared boundary."
-expr      = "$workspace_source AND $dependency_import_ref => NOT ($server_target OR $mcp_bridge_target)"
+expr      = "$client_source AND $dependency_import_ref => NOT ($server_target OR $bridge_at_mcp_target)"
 message   = "`packages/client` must depend on shared contracts, not server or stdio-bridge implementation code."
 
 [[refs.where]]
-id        = "server-workspace-dependency-does-not-target-workspace-runtime"
+id        = "server-client-dependency-does-not-target-client-runtime"
 severity  = "error"
 rationale = "Server services, routes, and tools may publish state through shared contracts, but they must not depend on UI components or client store implementation."
-expr      = "$server_source AND $dependency_import_ref => NOT $workspace_target"
+expr      = "$server_source AND $dependency_import_ref => NOT $client_target"
 message   = "`packages/server` must not import client implementation code."
 
 [[refs.where]]
-id        = "workspace-server-dependency-does-not-cross-runtime-boundary"
+id        = "client-server-dependency-does-not-cross-runtime-boundary"
 severity  = "error"
 rationale = "Client and server are separate adapters. The allowed compile-time contract between them is `packages/shared`; everything else should be reached through WS, HTTP, or MCP tool boundaries."
 expr      = """
-  ($workspace_source OR $server_source) AND $dependency_import_ref
-  => NOT (($workspace_source AND $server_target) OR ($server_source AND $workspace_target))
+  ($client_source OR $server_source) AND $dependency_import_ref
+  => NOT (($client_source AND $server_target) OR ($server_source AND $client_target))
 """
 message   = "Client/server compile-time crossings must go through `packages/shared`."
 
 [[refs.where]]
-id        = "mcp-server-dependency-does-not-import-http-routes"
+id        = "tools@mcp-routes@http-dependency-does-not-import-routes"
 severity  = "error"
 rationale = "Tools resolve services via DI; importing routes couples MCP actions to HTTP mount order."
-expr      = "$mcp_tools_source AND $dependency_import_ref => NOT $server_http_routes_target"
+expr      = "$tools_at_mcp_source AND $dependency_import_ref => NOT $routes_at_http_target"
 message   = "`packages/server/src/tools` must not import routes; depend on services via DI instead."
 
 [[refs.where]]
-id        = "workspace-dependency-keeps-state-independent-from-views"
+id        = "store@client-views@client-dependency-keeps-state-independent-from-views"
 severity  = "error"
 rationale = "Components subscribe to the store; the store must not depend on UI modules."
-expr      = "$workspace_state_source AND $dependency_import_ref => NOT $workspace_view_target"
+expr      = "$store_at_client_source AND $dependency_import_ref => NOT $views_at_client_target"
 message   = "`packages/client/src/store` must not import UI components."
 
 [[refs.where]]
