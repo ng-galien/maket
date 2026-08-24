@@ -47,6 +47,7 @@ switch (action) {
   case "mcpb": {
     const output = takeOption(args, "--output");
     rejectUnexpectedArgs(args);
+    buildMcpbIcon();
     await buildClaudeDesktopMcpb(output ? resolve(output) : undefined);
     break;
   }
@@ -171,13 +172,6 @@ async function buildDesktop({ sourcemap = false } = {}) {
 }
 
 function buildDesktopIcons() {
-  const sourcePath = join(ROOT, "packages", "client", "public", "favicon.svg");
-  const source = readFileSync(sourcePath, "utf8").replace('viewBox="0 0 100 100"', 'viewBox="-12 -12 124 124"');
-
-  function render(size) {
-    return new Resvg(source, { fitTo: { mode: "width", value: size } }).render().asPng();
-  }
-
   function wrapChunk(type, data) {
     const header = Buffer.alloc(8);
     header.write(type, 0, 4, "ascii");
@@ -193,13 +187,13 @@ function buildDesktopIcons() {
     ["ic08", 256],
     ["ic09", 512],
     ["ic10", 1024],
-  ].map(([type, size]) => wrapChunk(type, render(size)));
+  ].map(([type, size]) => wrapChunk(type, renderMaketIcon(size)));
   const icnsBody = Buffer.concat(icnsChunks);
   const icnsHeader = Buffer.alloc(8);
   icnsHeader.write("icns", 0, 4, "ascii");
   icnsHeader.writeUInt32BE(icnsBody.length + icnsHeader.length, 4);
 
-  const icoImage = render(256);
+  const icoImage = renderMaketIcon(256);
   const icoHeader = Buffer.alloc(22);
   icoHeader.writeUInt16LE(0, 0);
   icoHeader.writeUInt16LE(1, 2);
@@ -210,9 +204,29 @@ function buildDesktopIcons() {
   icoHeader.writeUInt32LE(icoHeader.length, 18);
 
   mkdirSync(DESKTOP_ASSETS, { recursive: true });
-  writeFileSync(join(DESKTOP_ASSETS, "icon.png"), render(1024));
+  writeFileSync(join(DESKTOP_ASSETS, "icon.png"), renderMaketIcon(1024));
   writeFileSync(join(DESKTOP_ASSETS, "icon.icns"), Buffer.concat([icnsHeader, icnsBody]));
   writeFileSync(join(DESKTOP_ASSETS, "icon.ico"), Buffer.concat([icoHeader, icoImage]));
+  writeFileSync(join(DESKTOP_ASSETS, "dmg-background.png"), renderPlainDmgBackground());
+}
+
+function buildMcpbIcon() {
+  mkdirSync(DESKTOP_ASSETS, { recursive: true });
+  writeFileSync(join(DESKTOP_ASSETS, "icon.png"), renderMaketIcon(1024));
+}
+
+function renderMaketIcon(size) {
+  const sourcePath = join(ROOT, "packages", "client", "public", "favicon.svg");
+  const source = readFileSync(sourcePath, "utf8").replace('viewBox="0 0 100 100"', 'viewBox="-12 -12 124 124"');
+  return new Resvg(source, { fitTo: { mode: "width", value: size } }).render().asPng();
+}
+
+function renderPlainDmgBackground() {
+  return new Resvg(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="658" height="498"><rect width="658" height="498" fill="#f7f7f7"/></svg>',
+  )
+    .render()
+    .asPng();
 }
 
 async function buildClaudeDesktopMcpb(outputPath) {
@@ -243,6 +257,7 @@ async function buildClaudeDesktopMcpb(outputPath) {
   try {
     const zip = new JSZip();
     zip.file("index.mjs", await readFile(bridgeOutput), archiveEntryOptions);
+    zip.file("icon.png", await readFile(join(DESKTOP_ASSETS, "icon.png")), archiveEntryOptions);
     zip.file("package.json", `${JSON.stringify({ type: "module" }, null, 2)}\n`, archiveEntryOptions);
     zip.file(
       "manifest.json",
@@ -253,6 +268,7 @@ async function buildClaudeDesktopMcpb(outputPath) {
           display_name: "Maket App",
           version: packageJson.version,
           description: "Connect Claude Desktop to the server embedded in Maket App.",
+          icon: "icon.png",
           author: {
             name: "Alexandre Boyer",
             url: "https://github.com/ng-galien/maket",

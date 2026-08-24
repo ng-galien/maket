@@ -103,7 +103,22 @@ export default {
         certificatePassword: signWindows ? process.env.WINDOWS_CERTIFICATE_PASSWORD : undefined,
       },
     },
-    { name: "@electron-forge/maker-dmg", platforms: ["darwin"] },
+    {
+      name: "@electron-forge/maker-dmg",
+      platforms: ["darwin"],
+      config: {
+        icon: join(desktopDir, "assets", "icon.icns"),
+        background: join(desktopDir, "assets", "dmg-background.png"),
+        iconSize: 112,
+        contents: (options) => [
+          { x: 180, y: 320, type: "file", path: options.appPath },
+          { x: 478, y: 320, type: "link", path: "/Applications" },
+        ],
+        additionalDMGOptions: {
+          window: { size: { width: 658, height: 498 } },
+        },
+      },
+    },
     { name: "@electron-forge/maker-zip", platforms: ["darwin"] },
     { name: "@electron-forge/maker-deb", config: {} },
     { name: "@electron-forge/maker-rpm", config: {} },

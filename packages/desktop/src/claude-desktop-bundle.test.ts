@@ -55,12 +55,19 @@ describe("Claude Desktop MCPB", () => {
     expect(readFileSync(secondOutput)).toEqual(readFileSync(output));
 
     const zip = await JSZip.loadAsync(readFileSync(output));
-    expect(Object.keys(zip.files).sort()).toEqual(["index.mjs", "manifest.json", "package.json"]);
+    expect(Object.keys(zip.files).sort()).toEqual(["icon.png", "index.mjs", "manifest.json", "package.json"]);
     const manifestFile = zip.file("manifest.json");
     if (!manifestFile) throw new Error("MCPB manifest is missing");
     const manifest = JSON.parse(await manifestFile.async("string"));
     const rootPackage = JSON.parse(readFileSync(resolve(import.meta.dirname, "../../../package.json"), "utf8"));
     expect(manifest.version).toBe(rootPackage.version);
+    expect(manifest.icon).toBe("icon.png");
+    const iconFile = zip.file("icon.png");
+    if (!iconFile) throw new Error("MCPB icon is missing");
+    const icon = await iconFile.async("nodebuffer");
+    expect(icon.subarray(1, 4).toString()).toBe("PNG");
+    expect(icon.readUInt32BE(16)).toBe(1024);
+    expect(icon.readUInt32BE(20)).toBe(1024);
     expect(manifest.server.mcp_config).toMatchObject({
       command: "node",
       env: { MAKET_CONNECT_ONLY: "1", MAKET_PORT: "24843" },
