@@ -160,7 +160,17 @@ async function createRuntime(prefix: string): Promise<TestRuntime> {
 	const config = createConfig({ env: { MAKET_DATA_DIR: dir } });
 	ensureDirs(config);
 	const store = createSQLiteStore(":memory:");
-	const container = createAppContainer({ config, ensure: false, store });
+	const container = createAppContainer({
+		config,
+		ensure: false,
+		store,
+		browserPool: {
+			async get(): Promise<never> {
+				throw new Error("Browser rendering is not used by this test");
+			},
+			async dispose() {},
+		},
+	});
 	registerToolPacks(container, { packs: { documents: {} } }, [documentsPack]);
 	const documents = container.resolve<Documents>("documents");
 	documents.loadAll();

@@ -40,12 +40,16 @@ describe("Claude Desktop MCPB", () => {
     const port = await pickFreePort();
     const output = join(root, "maket-app.mcpb");
     execFileSync(process.execPath, [
-      resolve(import.meta.dirname, "../../../scripts/build-claude-desktop-mcpb.mjs"),
+      resolve(import.meta.dirname, "../../../scripts/desktop.mjs"),
+      "mcpb",
+      "--output",
       output,
     ]);
     const secondOutput = join(root, "maket-app-second.mcpb");
     execFileSync(process.execPath, [
-      resolve(import.meta.dirname, "../../../scripts/build-claude-desktop-mcpb.mjs"),
+      resolve(import.meta.dirname, "../../../scripts/desktop.mjs"),
+      "mcpb",
+      "--output",
       secondOutput,
     ]);
     expect(readFileSync(secondOutput)).toEqual(readFileSync(output));

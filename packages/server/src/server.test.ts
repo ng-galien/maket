@@ -11,6 +11,12 @@ import { createConfig } from "./services/config.js";
 import { createSQLiteStore } from "./services/store.js";
 
 const directories: string[] = [];
+const browserPool = {
+	async get(): Promise<never> {
+		throw new Error("Browser rendering is not used by this test");
+	},
+	async dispose() {},
+};
 
 afterEach(() => {
 	for (const directory of directories.splice(0)) {
@@ -35,7 +41,7 @@ describe("embedded Maket server", () => {
 		const store = createSQLiteStore(":memory:");
 		const server = await startMaketServer({
 			config,
-			bootstrap: { store },
+			bootstrap: { store, browserPool },
 			loadEnvironment: false,
 			log: () => {},
 		});
@@ -82,7 +88,7 @@ describe("embedded Maket server", () => {
 		});
 		const server = await startMaketServer({
 			config,
-			bootstrap: { store: createSQLiteStore(":memory:") },
+			bootstrap: { store: createSQLiteStore(":memory:"), browserPool },
 			loadEnvironment: false,
 			log: () => {},
 		});
@@ -119,6 +125,7 @@ describe("embedded Maket server", () => {
 		});
 		const server = await startMaketServer({
 			config,
+			bootstrap: { browserPool },
 			loadEnvironment: false,
 			log: () => {},
 		});
@@ -167,7 +174,7 @@ describe("embedded Maket server", () => {
 			await expect(
 				startMaketServer({
 					config,
-					bootstrap: { store },
+					bootstrap: { store, browserPool },
 					loadEnvironment: false,
 					log: () => {},
 				}),

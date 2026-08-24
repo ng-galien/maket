@@ -88,13 +88,32 @@ describe("candidate update feed", () => {
   });
 
   it("rejects desktop packaging outside Node 22", () => {
-    const guard = resolve(import.meta.dirname, "../../../scripts/assert-desktop-node.mjs");
+    const desktop = resolve(import.meta.dirname, "../../../scripts/desktop.mjs");
     const versionFile = resolve(import.meta.dirname, "../../../.desktop-node-version");
     expect(readFileSync(versionFile, "utf8").trim()).toBe("22");
-    const result = spawnSync(process.execPath, [guard], { encoding: "utf8" });
+    const result = spawnSync(process.execPath, [desktop, "check"], {
+      encoding: "utf8",
+    });
     const runningNode22 = process.versions.node.startsWith("22.");
     expect(result.status).toBe(runningNode22 ? 0 : 1);
     if (!runningNode22) expect(result.stderr).toContain("requires Node 22");
+  });
+
+  it("keeps one desktop command for local and CI packaging", async () => {
+    const rootPackage = JSON.parse(await readFile(resolve(import.meta.dirname, "../../../package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const desktopPackage = JSON.parse(await readFile(resolve(import.meta.dirname, "../package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+
+    expect(Object.keys(rootPackage.scripts).filter((name) => name.startsWith("desktop"))).toEqual(["desktop"]);
+    expect(Object.keys(desktopPackage.scripts).sort()).toEqual(["test", "typecheck"]);
+    expect(workflow).toContain("npm run desktop -- make --arch=");
+    expect(workflow).toContain("matrix.arch");
+    expect(workflow).toContain("os: macos-15-intel");
+    expect(workflow).not.toContain("desktop:make");
   });
 });
 

@@ -35,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
@@ -260,7 +260,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-15
+          - os: macos-15-intel
             label: macOS Intel
             arch: x64
             artifact: macos-x64
@@ -318,11 +318,11 @@ jobs:
           [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
           "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build client
-        run: npm run build:client
+      - name: Verify desktop Node runtime
+        run: npm run desktop -- check
 
       - name: Make installers
-        run: npm run desktop:make -- --arch=${{ matrix.arch }}
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
 
       - name: Collect distributables
         shell: bash
@@ -375,7 +375,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
 
       - name: Download desktop distributables

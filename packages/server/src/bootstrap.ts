@@ -19,10 +19,7 @@ import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAnnotations } from "./services/annotations.js";
 import { createAssetsService } from "./services/assets.js";
-import {
-	type BrowserPool,
-	createBrowserPool,
-} from "./services/browser-pool.js";
+import type { BrowserPool } from "./services/browser-pool.js";
 import { createBundleExportService } from "./services/bundle-export.js";
 import { createBundleImportService } from "./services/bundle-import.js";
 import { createBus } from "./services/bus.js";
@@ -66,6 +63,9 @@ export interface BootstrapInputs {
 	/** Optional render-browser override — Electron supplies its embedded
 	 * Chromium while the standalone server uses Puppeteer. */
 	browserPool?: BrowserPool;
+	/** Owned render-browser factory. The headless entry point supplies the
+	 * Puppeteer implementation; Electron supplies `browserPool` instead. */
+	browserPoolFactory?: () => BrowserPool;
 }
 
 export function createAppContainer(
@@ -73,6 +73,9 @@ export function createAppContainer(
 ): AwilixContainer {
 	const config = inputs.config ?? createConfig();
 	if (inputs.ensure !== false) ensureDirs(config);
+	if (!inputs.browserPool && !inputs.browserPoolFactory) {
+		throw new Error("A browser pool or browser pool factory is required");
+	}
 
 	const container = createContainer({ strict: true });
 
@@ -127,7 +130,7 @@ export function createAppContainer(
 
 		browserPool: inputs.browserPool
 			? asValue(inputs.browserPool)
-			: asFunction(createBrowserPool)
+			: asFunction(inputs.browserPoolFactory as () => BrowserPool)
 					.singleton()
 					.disposer((p) => p.dispose()),
 

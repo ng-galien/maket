@@ -8,6 +8,7 @@ import {
 	readPackageVersion,
 } from "./src/runtime-ownership.js";
 import { startMaketServer } from "./src/server.js";
+import { createBrowserPool } from "./src/services/browser-pool.js";
 
 function crashLog(message: string): void {
 	process.stderr.write(`${message}\n`);
@@ -34,7 +35,9 @@ process.on("unhandledRejection", (reason) => {
 	process.exit(1);
 });
 
-const server = await startMaketServer();
+const server = await startMaketServer({
+	bootstrap: { browserPoolFactory: createBrowserPool },
+});
 // Publish workspace ownership so the desktop application detects this server
 // instead of silently starting a second one on the same SQLite workspace.
 const ownership = publishRuntimeOwnership({

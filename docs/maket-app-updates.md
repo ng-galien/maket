@@ -20,7 +20,7 @@ The selected channel is persisted in the Electron user-data directory. Maket App
 
 Electron's built-in updater does not expose byte download progress. The current UI therefore uses an indeterminate thin progress line and spinner while downloading. Once the update is ready, the user can restart from Settings; Maket stops its embedded server before `quitAndInstall()`.
 
-Installers produced with `npm run desktop:make:install` are local test builds. Packaging temporarily requires the Node major declared in `.desktop-node-version` (currently Node 22) and fails immediately on other Node majors. This file is the single source of truth for both local guards and release CI; `npm run desktop:node:check` diagnoses the active runtime. Local installers contain a `local-install` marker and do not contact a public update feed: until an artifact has been published, the Electron public service returns a `404` rather than a valid no-update response. CI and release builds do not contain this marker and keep automatic updates enabled.
+Local and CI installers use the same pipeline: `npm run desktop -- make --arch=<arch>`. Add `--local-install` for a local test installer; this only adds the `local-install` marker that disables public update checks. Packaging requires the Node major declared in `.desktop-node-version` (currently Node 22) and fails immediately on other Node majors; `npm run desktop -- check` diagnoses the active runtime. CI and release builds omit the local marker and keep automatic updates enabled.
 
 This packaging constraint is deliberately separate from the general `node >=22` project engine. It must not become permanent by accident: when Forge and its makers are upgraded, change `.desktop-node-version` in the same pull request, then validate macOS arm64/x64 and Windows x64 installers plus one update from the previous candidate. The guard, CI, and documentation will all follow that single change.
 
@@ -36,7 +36,7 @@ Required GitHub Actions secrets:
 - `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` for notarization;
 - `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` for the base64 PFX certificate.
 
-Forge also exposes `npm run desktop:publish` for a manually reviewed draft release. CI uses `make` followed by an explicit upload so all platform artifacts converge on one release.
+The same entry point exposes `npm run desktop -- publish` for a manually reviewed draft release. CI uses `npm run desktop -- make` followed by an explicit upload so all platform artifacts converge on one release.
 
 ## Release-candidate rollout
 
