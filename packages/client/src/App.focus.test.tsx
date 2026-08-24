@@ -133,7 +133,9 @@ describe("workspace focus invariant", () => {
 		expect(loading).toHaveClass("opacity-100");
 		expect(container.querySelector("[data-app-shell]")).toBeNull();
 
-		act(() => useStore.setState({ workspaceHydrated: true }));
+		act(() =>
+			useStore.setState({ workspaceHydrated: true, settingsHydrated: true }),
+		);
 		await waitFor(() =>
 			expect(container.querySelector("[data-app-shell]")).not.toBeNull(),
 		);
@@ -195,7 +197,9 @@ describe("workspace focus invariant", () => {
 		};
 
 		const { container, queryByRole } = render(<App />);
-		act(() => useStore.setState({ workspaceHydrated: true }));
+		act(() =>
+			useStore.setState({ workspaceHydrated: true, settingsHydrated: true }),
+		);
 
 		await waitFor(() =>
 			expect(container.querySelector("[data-app-shell]")).not.toBeNull(),

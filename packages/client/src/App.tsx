@@ -30,6 +30,10 @@ export default function App() {
 		desktop && configuration.status === "error" && configuration.plan === null;
 	const onboardingRequired =
 		desktop && configuration.plan?.onboardingRequired === true;
+	const configurationRequired = needsConfiguration(
+		setupMode,
+		onboardingRequired,
+	);
 	const t = useT();
 	const [workspaceRevealed, setWorkspaceRevealed] = useState(!desktop);
 	const locked = useStore((s) => s.locked);
@@ -44,7 +48,9 @@ export default function App() {
 	const themeMode = useStore((s) => s.themeMode);
 	const accentColor = useStore((s) => s.accentColor);
 	const workspaceHydrated = useStore((s) => s.workspaceHydrated);
+	const settingsHydrated = useStore((s) => s.settingsHydrated);
 	const settingsOpen = useStore((s) => s.settingsOpen);
+	const workspaceReady = workspaceHydrated && settingsHydrated;
 
 	useEffect(() => {
 		const removeCommands = installDesktopCommands();
@@ -58,8 +64,7 @@ export default function App() {
 	}, []);
 
 	const runtimeReachable =
-		!desktop ||
-		(configuration.plan !== null && !setupMode && !onboardingRequired);
+		!desktop || (configuration.plan !== null && !configurationRequired);
 
 	useEffect(() => {
 		if (!runtimeReachable) return;
@@ -83,10 +88,7 @@ export default function App() {
 	useEffect(() => {
 		if (
 			!desktop ||
-			(!setupMode &&
-				!onboardingRequired &&
-				!configurationFailed &&
-				!workspaceHydrated)
+			(!configurationRequired && !configurationFailed && !workspaceReady)
 		)
 			return;
 		let secondFrame = 0;
@@ -97,13 +99,7 @@ export default function App() {
 			cancelAnimationFrame(firstFrame);
 			cancelAnimationFrame(secondFrame);
 		};
-	}, [
-		configurationFailed,
-		desktop,
-		onboardingRequired,
-		setupMode,
-		workspaceHydrated,
-	]);
+	}, [configurationFailed, configurationRequired, desktop, workspaceReady]);
 
 	useEffect(() => {
 		if (workspaceDocNames.length === 0) {
@@ -129,9 +125,9 @@ export default function App() {
 		<div className="relative h-full w-full bg-[#111111]">
 			{configurationFailed ? (
 				<DesktopConfigurationError error={configuration.error} />
-			) : onboardingRequired && !settingsOpen ? (
+			) : configurationRequired && !settingsOpen ? (
 				<DesktopOnboarding />
-			) : !desktop || setupMode || onboardingRequired || workspaceHydrated ? (
+			) : !desktop || configurationRequired || workspaceReady ? (
 				workspaceView === "reading" && hasFocusedDoc && !settingsOpen ? (
 					<ReadingWorkspace />
 				) : (
@@ -158,6 +154,15 @@ export default function App() {
 			)}
 		</div>
 	);
+}
+
+/** A foreign server owning the workspace blocks hydration whether or not
+ *  onboarding was already completed, so the configuration screen must win. */
+function needsConfiguration(
+	setupMode: boolean,
+	onboardingRequired: boolean,
+): boolean {
+	return setupMode || onboardingRequired;
 }
 
 function DesktopConfigurationError({ error }: { error?: string }) {

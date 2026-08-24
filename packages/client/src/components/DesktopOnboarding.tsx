@@ -7,7 +7,6 @@ import {
 	AlertCircle,
 	Check,
 	CircleDashed,
-	ExternalLink,
 	LoaderCircle,
 	Settings,
 } from "lucide-react";
@@ -246,7 +245,6 @@ function OnboardingFooter({
 			>
 				<Settings size={15} />
 				{t("desktop_onboarding_open_settings")}
-				<ExternalLink size={13} />
 			</button>
 		</footer>
 	);
