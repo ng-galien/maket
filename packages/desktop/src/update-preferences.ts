@@ -1,31 +1,23 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { readSettingsFile, writeSettingsFile } from "@maket/server";
 import type { DesktopUpdateChannel } from "@maket/shared";
 
-interface DesktopPreferencesData {
-  updateChannel?: DesktopUpdateChannel;
-}
-
+/**
+ * The update channel lives in the user-level settings file alongside the panel
+ * preferences, so the Settings page and the updater read the same value. The
+ * main process needs it before the embedded server exists, hence the direct
+ * file access rather than a runtime service.
+ */
 export class UpdatePreferences {
   constructor(private readonly path: string) {}
 
   getChannel(): DesktopUpdateChannel {
-    const value = this.read().updateChannel;
-    return value === "candidate" ? "candidate" : "stable";
+    return readSettingsFile(this.path).updateChannel;
   }
 
   setChannel(channel: DesktopUpdateChannel): void {
-    const preferences = this.read();
-    mkdirSync(dirname(this.path), { recursive: true });
-    writeFileSync(this.path, `${JSON.stringify({ ...preferences, updateChannel: channel }, null, 2)}\n`, "utf8");
-  }
-
-  private read(): DesktopPreferencesData {
-    try {
-      const parsed = JSON.parse(readFileSync(this.path, "utf8"));
-      return parsed && typeof parsed === "object" ? parsed : {};
-    } catch {
-      return {};
-    }
+    writeSettingsFile(this.path, {
+      ...readSettingsFile(this.path),
+      updateChannel: channel,
+    });
   }
 }

@@ -1,6 +1,14 @@
-export type ThemeMode = "system" | "light" | "dark";
+import {
+	DEFAULT_SETTINGS,
+	normalizeAccentColor,
+	type SettingsThemeMode,
+} from "@maket/shared";
 
-export const DEFAULT_ACCENT_COLOR = "#10b981";
+export { normalizeAccentColor };
+
+export type ThemeMode = SettingsThemeMode;
+
+export const DEFAULT_ACCENT_COLOR = DEFAULT_SETTINGS.accentColor;
 export const LIGHT_ACCENT_CONTENT = "#ffffff";
 export const DARK_ACCENT_CONTENT = "#000000";
 
@@ -18,12 +26,6 @@ export function resolveDarkMode(
 	systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches,
 ): boolean {
 	return mode === "system" ? systemDark : mode === "dark";
-}
-
-export function normalizeAccentColor(value: string): string {
-	return /^#[0-9a-f]{6}$/i.test(value)
-		? value.toLowerCase()
-		: DEFAULT_ACCENT_COLOR;
 }
 
 export function applyAccentColor(

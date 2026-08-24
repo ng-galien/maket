@@ -13,6 +13,7 @@ import type { Collections } from "../collections.js";
 import type { DocumentRenderer } from "../document-renderer.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
+import type { SettingsService } from "../settings.js";
 import type { Store } from "../store.js";
 import type { WsRegistry } from "../ws-registry.js";
 
@@ -30,6 +31,7 @@ export interface WsHandlerDeps {
 	documentStates: DocumentStates;
 	documents: Documents;
 	pending: Annotations;
+	settings: SettingsService;
 	store: Store;
 	wsRegistry: WsRegistry;
 }

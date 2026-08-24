@@ -2,6 +2,7 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
+	Settings,
 	ToastKey,
 	WorkspaceCommand,
 	WorkspaceSignal,
@@ -9,7 +10,7 @@ import type {
 import en from "../i18n/en.json";
 
 import fr from "../i18n/fr.json";
-import { getLang } from "../i18n/useT";
+import { getLang, setLang } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
@@ -309,6 +310,7 @@ function handleWsOpen(): void {
 		type: "workspace_update",
 		displayed: useStore.getState().workspaceDocNames,
 	});
+	flushSettings();
 }
 
 function handleWsClose(): void {
@@ -404,6 +406,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			break;
 		case "ack_messages":
 			applyAckMessages(msg.ids as string[]);
+			break;
+		case "settings":
+			applyServerSettings(msg.settings);
 			break;
 		case "annotations_changed":
 			useStore.setState({ pending: msg.annotations as PendingMessage[] });
@@ -572,6 +577,44 @@ function applyAckMessages(idsList: string[]): void {
 	} else {
 		console.log("[ws] no matching pending found for ack ids");
 	}
+}
+
+/** The settings file is the source of truth. A patch the user made while the
+ *  socket was down is replayed on top so their change survives the snapshot. */
+function applyServerSettings(settings: Settings): void {
+	setLang(settings.language);
+	useStore.getState().applySettings(settings);
+	if (pendingSettings) flushSettings();
+}
+
+const SETTINGS_FLUSH_MS = 150;
+let pendingSettings: Partial<Settings> | null = null;
+let settingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Sends the first change immediately so closing the window right after a click
+ *  cannot lose it, then coalesces the rest of the burst — the colour picker
+ *  emits one event per pointer move, and each reaches the server as a
+ *  synchronous read-modify-write of the settings file. A patch made while the
+ *  socket was down stays queued until it reopens. */
+export function sendSettings(settings: Partial<Settings>): void {
+	if (useStore.getState().readOnly) return;
+	pendingSettings = { ...pendingSettings, ...settings };
+	if (settingsFlushTimer) return;
+	flushSettings();
+	settingsFlushTimer = setTimeout(() => {
+		settingsFlushTimer = null;
+		flushSettings();
+	}, SETTINGS_FLUSH_MS);
+}
+
+function flushSettings(): void {
+	const settings = pendingSettings;
+	if (!settings) return;
+	if (wsSend({ type: "settings_set", settings })) pendingSettings = null;
+}
+
+if (typeof window !== "undefined") {
+	window.addEventListener("pagehide", flushSettings);
 }
 
 export function wsSend(msg: WorkspaceCommand): boolean {

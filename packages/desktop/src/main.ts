@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
+import { createConfig } from "@maket/server";
 import type {
   DesktopCommand,
   DesktopConfigurationPlan,
@@ -77,7 +78,7 @@ const runtime = new WorkspaceController({
 const updates = new UpdateController({
   enabled: !isDevelopmentBuild && !isLocalInstallBuild && process.platform !== "linux",
   disabledReason: isLocalInstallBuild ? "local-build" : "development-build",
-  preferences: new UpdatePreferences(join(app.getPath("userData"), "desktop-preferences.json")),
+  preferences: new UpdatePreferences(createConfig({ env: process.env }).SETTINGS_PATH),
 });
 const setupPreferences = new DesktopSetupPreferences(join(app.getPath("userData"), "desktop-setup.json"));
 

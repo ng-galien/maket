@@ -192,4 +192,7 @@ export function registerServerEvents({
 	bus.on("assets:changed", ({ categoryUpdates }) =>
 		wsRegistry.broadcast({ type: "assets_changed", categoryUpdates }),
 	);
+	bus.on("settings:changed", (settings) =>
+		wsRegistry.broadcast({ type: "settings", settings }),
+	);
 }

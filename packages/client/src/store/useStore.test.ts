@@ -686,14 +686,13 @@ describe("UI preferences", () => {
 		expect(localStorage.getItem("maket-workspace-view")).toBe("reading");
 	});
 
-	it("toggleDarkMode flips and persists", () => {
+	it("toggleDarkMode flips the resolved scheme", () => {
 		useStore.setState({ darkMode: false, themeMode: "light" });
 		useStore.getState().toggleDarkMode();
 		expect(useStore.getState()).toMatchObject({
 			darkMode: true,
 			themeMode: "dark",
 		});
-		expect(localStorage.getItem("maket-theme-mode")).toBe("dark");
 		expect(document.documentElement.dataset.theme).toBe("dark");
 	});
 

@@ -3,6 +3,7 @@ import type {
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
+import { DEFAULT_SETTINGS } from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -933,10 +934,13 @@ describe("assets_changed", () => {
 
 describe("activity", () => {
 	it("renders a translated activity bubble in the DOM", async () => {
-		localStorage.setItem("maket-lang", "fr");
 		const { initWs } = await freshWsModule();
 		initWs();
 		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "settings",
+			settings: { ...DEFAULT_SETTINGS, language: "fr" },
+		});
 
 		MockWebSocket.last().emit({
 			type: "activity",

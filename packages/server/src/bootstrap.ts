@@ -36,6 +36,7 @@ import {
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
+import { createSettings } from "./services/settings.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
@@ -83,6 +84,7 @@ export function createAppContainer(
 		config: asValue(config),
 
 		bus: asFunction(createBus).singleton(),
+		settings: asFunction(createSettings).singleton(),
 
 		store: inputs.store
 			? asValue(inputs.store)

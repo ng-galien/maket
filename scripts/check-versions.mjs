@@ -21,6 +21,9 @@ const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
 const packageLock = JSON.parse(readFileSync(join(ROOT, "package-lock.json"), "utf-8"));
 const expected = rootPkg.version;
 const serverMetadata = JSON.parse(readFileSync(join(ROOT, "server.json"), "utf-8"));
+// manifest.json ships in the npm tarball and the mcpb bundle, and the server
+// advertises its `version` to MCP clients as serverInfo.
+const bundleManifest = JSON.parse(readFileSync(join(ROOT, "manifest.json"), "utf-8"));
 
 const workspaces = readdirSync(join(ROOT, "packages"), { withFileTypes: true })
   .filter((d) => d.isDirectory())
@@ -57,6 +60,13 @@ for (const [index, pkg] of (serverMetadata.packages ?? []).entries()) {
       name: `MCP Registry package ${index + 1}`,
     });
   }
+}
+if (bundleManifest.version !== expected) {
+  drift.push({
+    file: join(ROOT, "manifest.json"),
+    version: bundleManifest.version,
+    name: "bundle manifest",
+  });
 }
 if (serverMetadata.name !== rootPkg.mcpName) {
   drift.push({

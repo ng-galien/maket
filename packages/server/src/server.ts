@@ -3,7 +3,7 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { WorkspaceStateSignal } from "@maket/shared";
+import type { SettingsSignal, WorkspaceStateSignal } from "@maket/shared";
 import express, {
 	type Express,
 	type NextFunction,
@@ -27,6 +27,7 @@ import type { Config } from "./services/config.js";
 import { createConfig, loadEnvFile } from "./services/config.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
+import type { SettingsService } from "./services/settings.js";
 import type { WorkspaceCommandHandler } from "./services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./services/ws-registry.js";
 import { assetsPack } from "./tools/assets.js";
@@ -52,6 +53,10 @@ export type {
 	RenderPage,
 } from "./services/browser-pool.js";
 export { createConfig } from "./services/config.js";
+export {
+	readSettingsFile,
+	writeSettingsFile,
+} from "./services/settings.js";
 
 export interface MaketServer {
 	readonly config: Config;
@@ -78,6 +83,7 @@ interface RuntimeServices {
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
 	pending: Annotations;
+	settings: SettingsService;
 	wsHandler: WorkspaceCommandHandler;
 	wsRegistry: WsRegistry;
 }
@@ -159,6 +165,7 @@ function resolveRuntimeServices(container: AppContainer): RuntimeServices {
 		documents: container.resolve<Documents>("documents"),
 		documentRenderer: container.resolve<DocumentRenderer>("documentRenderer"),
 		pending: container.resolve<Annotations>("pending"),
+		settings: container.resolve<SettingsService>("settings"),
 		wsHandler: container.resolve<WorkspaceCommandHandler>("wsHandler"),
 		wsRegistry: container.resolve<WsRegistry>("wsRegistry"),
 	};
@@ -292,6 +299,7 @@ function handleWebSocketConnection(
 		documents,
 		documentRenderer,
 		pending,
+		settings,
 		wsHandler,
 		wsRegistry,
 	} = services;
@@ -312,6 +320,11 @@ function handleWebSocketConnection(
 		addToWorkspace: true,
 	};
 	ws.send(JSON.stringify(initialState));
+	const initialSettings: SettingsSignal = {
+		type: "settings",
+		settings: settings.get(),
+	};
+	ws.send(JSON.stringify(initialSettings));
 	ws.on("message", (raw) => {
 		try {
 			wsHandler(JSON.parse(String(raw)), ws);

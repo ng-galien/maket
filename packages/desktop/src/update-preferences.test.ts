@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SETTINGS } from "@maket/shared";
 import { describe, expect, it } from "vitest";
 import { UpdatePreferences } from "./update-preferences.js";
 
@@ -13,7 +14,11 @@ describe("UpdatePreferences", () => {
     preferences.setChannel("candidate");
 
     expect(new UpdatePreferences(path).getChannel()).toBe("candidate");
-    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ updateChannel: "candidate" });
+    // The channel shares the user-level settings document with the panel preferences.
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      ...DEFAULT_SETTINGS,
+      updateChannel: "candidate",
+    });
   });
 
   it("falls back to stable when the persisted file is invalid", () => {

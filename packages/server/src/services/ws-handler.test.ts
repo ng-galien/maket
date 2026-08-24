@@ -7,6 +7,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SETTINGS, type Settings } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
 import { registerServerEvents } from "../server-events.js";
@@ -19,6 +20,7 @@ import { createCollections } from "./collections.js";
 import type { DocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import type { SettingsService } from "./settings.js";
 import { createSQLiteStore } from "./store.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
@@ -35,6 +37,17 @@ function makeDoc(name: string, category = "general") {
 			bg: "#fff",
 		},
 	});
+}
+
+function settingsStub(): SettingsService {
+	let current: Settings = { ...DEFAULT_SETTINGS };
+	return {
+		get: () => current,
+		patch: (partial) => {
+			current = { ...current, ...partial };
+			return current;
+		},
+	};
 }
 
 function rendererStub(
@@ -60,6 +73,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documentStates,
 		documents,
 		pending,
+		settings: settingsStub(),
 		store,
 		wsRegistry,
 	});
@@ -1112,6 +1126,7 @@ describe("ws-handler — collection cursor", () => {
 			documentStates: base.documentStates,
 			documents: base.documents,
 			pending: base.pending,
+			settings: settingsStub(),
 			store: base.store,
 			wsRegistry: base.wsRegistry,
 		});

@@ -107,7 +107,7 @@ describe("SettingsPage", () => {
 		expect(close).toHaveTextContent("Close");
 	});
 
-	it("applies and persists theme and accent choices immediately", async () => {
+	it("applies theme and accent choices immediately", async () => {
 		const user = userEvent.setup();
 		render(<SettingsPage />);
 
@@ -116,12 +116,10 @@ describe("SettingsPage", () => {
 			themeMode: "dark",
 			darkMode: true,
 		});
-		expect(localStorage.getItem("maket-theme-mode")).toBe("dark");
 		expect(document.documentElement.dataset.theme).toBe("dark");
 
 		await user.click(screen.getByRole("button", { name: "Ocean" }));
 		expect(useStore.getState().accentColor).toBe("#0284c7");
-		expect(localStorage.getItem("maket-accent-color")).toBe("#0284c7");
 		expect(
 			document.documentElement.style.getPropertyValue("--color-accent"),
 		).toBe("#0284c7");
@@ -131,13 +129,17 @@ describe("SettingsPage", () => {
 		const user = userEvent.setup();
 		render(<SettingsPage />);
 
-		const toggle = screen.getByRole("switch");
-		const thumb = toggle.firstElementChild;
-		expect(thumb).toHaveClass("left-0", "translate-x-5");
-		await user.click(toggle);
+		const on = screen.getByRole("button", { name: "On" });
+		const off = screen.getByRole("button", { name: "Off" });
+		expect(on).toHaveAttribute("aria-pressed", "true");
+		expect(off).toHaveAttribute("aria-pressed", "false");
+
+		await user.click(off);
 		expect(useStore.getState().autoFocusFit).toBe(false);
-		expect(localStorage.getItem("maket-auto-focus-fit")).toBe("false");
-		expect(thumb).toHaveClass("left-0", "translate-x-1");
+		expect(screen.getByRole("button", { name: "Off" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
 
 		await user.click(screen.getByRole("button", { name: "Close settings" }));
 		expect(useStore.getState().settingsOpen).toBe(false);

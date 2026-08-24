@@ -1,6 +1,7 @@
 import type {
 	ClaudeDesktopConfiguration,
 	McpConfigurationFinding,
+	SettingsLanguage,
 } from "@maket/shared";
 import {
 	Check,
@@ -30,6 +31,7 @@ import {
 import { getLang, setLang, useT } from "../i18n/useT";
 import type { ThemeMode } from "../lib/colorScheme";
 import { useStore } from "../store/useStore";
+import { sendSettings } from "../store/ws";
 import { copyToClipboard } from "../utils";
 
 const ACCENT_PRESETS = [
@@ -441,12 +443,12 @@ function AppearanceSettings() {
 					<ChoiceButton
 						active={language === "fr"}
 						label="Français"
-						onClick={() => setLang("fr")}
+						onClick={() => selectLanguage("fr")}
 					/>
 					<ChoiceButton
 						active={language === "en"}
 						label="English"
-						onClick={() => setLang("en")}
+						onClick={() => selectLanguage("en")}
 					/>
 				</ChoiceGroup>
 			</SettingRow>
@@ -490,6 +492,12 @@ function AppearanceSettings() {
 			</SettingRow>
 		</SettingsSection>
 	);
+}
+
+/** The settings file is the source of truth; setLang paints immediately. */
+function selectLanguage(language: SettingsLanguage): void {
+	setLang(language);
+	sendSettings({ language });
 }
 
 function AccentChoices({
@@ -540,7 +548,7 @@ function AccentChoices({
 function WorkspaceSettings() {
 	const t = useT();
 	const autoFocusFit = useStore((state) => state.autoFocusFit);
-	const toggleAutoFocusFit = useStore((state) => state.toggleAutoFocusFit);
+	const setAutoFocusFit = useStore((state) => state.setAutoFocusFit);
 	return (
 		<SettingsSection
 			title={t("settings_workspace")}
@@ -550,17 +558,18 @@ function WorkspaceSettings() {
 				label={t("settings_auto_focus")}
 				description={t("settings_auto_focus_description")}
 			>
-				<button
-					type="button"
-					role="switch"
-					aria-checked={autoFocusFit}
-					onClick={toggleAutoFocusFit}
-					className={`relative h-6 w-10 rounded-full border border-border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${autoFocusFit ? "bg-accent" : "bg-input"}`}
-				>
-					<span
-						className={`absolute left-0 top-1 h-4 w-4 rounded-full shadow-xs transition-transform ${autoFocusFit ? "translate-x-5 bg-accent-contrast" : "translate-x-1 bg-white"}`}
+				<ChoiceGroup label={t("settings_auto_focus")}>
+					<ChoiceButton
+						active={autoFocusFit}
+						label={t("settings_on")}
+						onClick={() => setAutoFocusFit(true)}
 					/>
-				</button>
+					<ChoiceButton
+						active={!autoFocusFit}
+						label={t("settings_off")}
+						onClick={() => setAutoFocusFit(false)}
+					/>
+				</ChoiceGroup>
 			</SettingRow>
 		</SettingsSection>
 	);

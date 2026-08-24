@@ -1,26 +1,20 @@
 import { expect, test } from "./isolated-test";
 import { closeLibrary, openLibraryView } from "./workspace-test";
 
-// Verifies that UI preferences persist to localStorage and are restored
-// on reload — the Zustand store's init path runs against a real browser.
+// Panel settings persist server-side in the user settings file; layout state
+// stays in localStorage. Both are restored on reload against a real browser.
 
 test.describe("Preferences persistence", () => {
 	test("theme selection survives a reload", async ({ page }) => {
 		await page.goto("/");
-		// Start from a known state so previous tests can't bleed in.
-		await page.evaluate(() =>
-			localStorage.setItem("maket-theme-mode", "light"),
-		);
-		await page.reload();
-
 		await page
 			.getByRole("button", { name: /^(Settings|Paramètres)$/i })
 			.click();
+		await page.getByRole("button", { name: /^(Light|Clair)$/i }).click();
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
 		await page.getByRole("button", { name: /^(Dark|Sombre)$/i }).click();
-		// The store writes the flag synchronously.
-		expect(
-			await page.evaluate(() => localStorage.getItem("maket-theme-mode")),
-		).toBe("dark");
+		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
 		await page.reload();
 		await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

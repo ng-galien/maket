@@ -328,7 +328,7 @@ function NavigationUtilities({
 				label={t("help")}
 				onClick={() => {
 					closeSettings();
-					wsSend({ type: "open_onboarding", lang: helpLang() });
+					wsSend({ type: "open_onboarding", lang: getLang() });
 				}}
 			>
 				<HelpCircle size={21} strokeWidth={1.65} />
@@ -495,10 +495,6 @@ function UpdateRailTooltip({
 			)}
 		</div>
 	);
-}
-
-function helpLang(): "en" | "fr" {
-	return getLang() === "fr" ? "fr" : "en";
 }
 
 function PanelResizeHandle({

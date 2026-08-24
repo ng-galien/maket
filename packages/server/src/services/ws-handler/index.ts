@@ -58,6 +58,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStates,
 		documents,
 		pending,
+		settings,
 		store,
 		wsRegistry,
 	} = deps;
@@ -75,6 +76,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStates,
 		documents,
 		pending,
+		settings,
 		store,
 		wsRegistry,
 		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
@@ -104,6 +106,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "workspace_update":
 			handleWorkspaceUpdate(ctx, msg);
+			break;
+		case "settings_set":
+			ctx.settings.patch(msg.settings);
 			break;
 		case "update_meta":
 			handleUpdateMeta(ctx, msg);

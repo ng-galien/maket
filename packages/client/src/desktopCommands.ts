@@ -2,7 +2,12 @@ import type { DesktopCommand } from "@maket/shared";
 import { getLang, toggleLang } from "./i18n/useT";
 import { enterReadingSession } from "./store/readingSession";
 import { useStore } from "./store/useStore";
-import { clearActivityBubbles, sendLockDoc, wsSend } from "./store/ws";
+import {
+	clearActivityBubbles,
+	sendLockDoc,
+	sendSettings,
+	wsSend,
+} from "./store/ws";
 import { fitToView } from "./store/zoomBridge";
 
 export function installDesktopCommands(): () => void {
@@ -62,16 +67,13 @@ export function handleDesktopCommand(
 			void printFocusedDocument();
 			return;
 		case "toggle-auto-fit":
-			state.toggleAutoFocusFit();
+			state.setAutoFocusFit(!state.autoFocusFit);
 			return;
 		case "open-help":
-			wsSend({
-				type: "open_onboarding",
-				lang: getLang() === "en" ? "en" : "fr",
-			});
+			wsSend({ type: "open_onboarding", lang: getLang() });
 			return;
 		case "toggle-language":
-			toggleLang();
+			sendSettings({ language: toggleLang() });
 			return;
 		case "toggle-theme":
 			state.toggleDarkMode();

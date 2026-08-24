@@ -5,15 +5,16 @@ import {
 	type Collection,
 	type CollectionCursorMode,
 	collectionCursorKey,
+	DEFAULT_SETTINGS,
 	type DocumentStateClientView,
 	type PageCollectionCursor,
+	type Settings,
 } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
 import {
 	applyAccentColor,
 	applyColorScheme,
-	DEFAULT_ACCENT_COLOR,
 	normalizeAccentColor,
 	resolveDarkMode,
 	type ThemeMode,
@@ -27,6 +28,7 @@ import {
 	type AnnotationCreateOutcome,
 	sendAnnotationCreate,
 	sendLoadDoc,
+	sendSettings,
 	wsSend,
 } from "./ws";
 import { cancelFitForWorkspaceRemoval, requestFit } from "./zoomBridge";
@@ -185,6 +187,7 @@ interface AppState
 	// Connection
 	connected: boolean;
 	workspaceHydrated: boolean;
+	settingsHydrated: boolean;
 
 	// Multi-doc workspace
 	docs: Map<string, Document>;
@@ -230,7 +233,8 @@ interface AppState
 	setEditingElement: (id: string | null) => void;
 	setLocked: (v: boolean) => void;
 	setZoom: (v: number) => void;
-	toggleAutoFocusFit: () => void;
+	setAutoFocusFit: (autoFocusFit: boolean) => void;
+	applySettings: (settings: Settings) => void;
 	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
 	removePending: (id: string) => boolean;
 
@@ -270,19 +274,6 @@ function saveWorkspace(names: string[]) {
 function saveFocusedDoc(name: string) {
 	if (useStore.getState().readOnly) return;
 	localStorage.setItem("maket-focused-doc", name);
-}
-
-function loadThemeMode(): ThemeMode {
-	const saved = localStorage.getItem("maket-theme-mode");
-	if (saved === "system" || saved === "light" || saved === "dark") return saved;
-	const legacy = localStorage.getItem("dark-mode");
-	if (legacy === "true" || legacy === "false") {
-		const migrated = legacy === "true" ? "dark" : "light";
-		localStorage.setItem("maket-theme-mode", migrated);
-		localStorage.removeItem("dark-mode");
-		return migrated;
-	}
-	return "system";
 }
 
 function reconcileCollectionDrafts(
@@ -470,10 +461,6 @@ function stateDockForFocus(
 
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
-const _savedThemeMode = loadThemeMode();
-const _savedAccentColor = normalizeAccentColor(
-	localStorage.getItem("maket-accent-color") || DEFAULT_ACCENT_COLOR,
-);
 let assetLoadPromise: Promise<void> | null = null;
 let assetReloadQueued = false;
 let assetCategoryRevision = 0;
@@ -498,6 +485,7 @@ function withAssetCategoryUpdates(
 export const useStore = create<AppState>((set, get) => ({
 	connected: false,
 	workspaceHydrated: false,
+	settingsHydrated: false,
 	docs: new Map(),
 	workspaceDocNames: _savedWorkspace,
 	focusedDocName: resolveWorkspaceFocus(_savedWorkspace, _savedFocused, null),
@@ -540,15 +528,19 @@ export const useStore = create<AppState>((set, get) => ({
 		localStorage.getItem("maket-workspace-view") === "reading"
 			? "reading"
 			: "canvas",
-	themeMode: _savedThemeMode,
-	darkMode: resolveDarkMode(_savedThemeMode),
-	accentColor: _savedAccentColor,
+	themeMode: DEFAULT_SETTINGS.themeMode,
+	darkMode: resolveDarkMode(DEFAULT_SETTINGS.themeMode),
+	accentColor: DEFAULT_SETTINGS.accentColor,
 	locked: false,
 	zoom: 100,
-	autoFocusFit: localStorage.getItem("maket-auto-focus-fit") !== "false",
+	autoFocusFit: DEFAULT_SETTINGS.autoFocusFit,
 
 	setConnected: (connected) =>
-		set(connected ? { connected } : { connected, workspaceHydrated: false }),
+		set(
+			connected
+				? { connected }
+				: { connected, workspaceHydrated: false, settingsHydrated: false },
+		),
 	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
 	loadAssets: async (force = false) => {
 		const current = get();
@@ -1234,35 +1226,36 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 	setThemeMode: (themeMode) => {
 		const darkMode = resolveDarkMode(themeMode);
-		localStorage.setItem("maket-theme-mode", themeMode);
 		applyColorScheme(darkMode);
 		set({ themeMode, darkMode });
+		sendSettings({ themeMode });
 	},
-	setDarkMode: (darkMode) => {
-		const themeMode = darkMode ? "dark" : "light";
-		localStorage.setItem("maket-theme-mode", themeMode);
-		applyColorScheme(darkMode);
-		set({ themeMode, darkMode });
-	},
-	toggleDarkMode: () => {
-		const next = !get().darkMode;
-		const themeMode = next ? "dark" : "light";
-		localStorage.setItem("maket-theme-mode", themeMode);
-		applyColorScheme(next);
-		set({ themeMode, darkMode: next });
-	},
+	setDarkMode: (darkMode) => get().setThemeMode(darkMode ? "dark" : "light"),
+	toggleDarkMode: () => get().setThemeMode(get().darkMode ? "light" : "dark"),
 	setAccentColor: (value) => {
 		const accentColor = normalizeAccentColor(value);
-		localStorage.setItem("maket-accent-color", accentColor);
 		applyAccentColor(accentColor);
 		set({ accentColor });
+		sendSettings({ accentColor });
 	},
 	setLocked: (locked) => set({ locked }),
 	setZoom: (zoom) => set({ zoom }),
-	toggleAutoFocusFit: () => {
-		const next = !get().autoFocusFit;
-		localStorage.setItem("maket-auto-focus-fit", String(next));
-		set({ autoFocusFit: next });
+	setAutoFocusFit: (autoFocusFit) => {
+		set({ autoFocusFit });
+		sendSettings({ autoFocusFit });
+	},
+	applySettings: (settings) => {
+		const accentColor = normalizeAccentColor(settings.accentColor);
+		const darkMode = resolveDarkMode(settings.themeMode);
+		applyColorScheme(darkMode);
+		applyAccentColor(accentColor);
+		set({
+			themeMode: settings.themeMode,
+			darkMode,
+			accentColor,
+			autoFocusFit: settings.autoFocusFit,
+			settingsHydrated: true,
+		});
 	},
 	addPending: (msg) => {
 		const state = get();

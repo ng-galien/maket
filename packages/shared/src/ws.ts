@@ -1,5 +1,6 @@
 import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
+import type { Settings } from "./settings.js";
 import type { ToastKey, ToastLevel } from "./toast.js";
 
 /**
@@ -346,6 +347,18 @@ export interface UpdateWorkspaceCommand {
 	displayed: string[];
 }
 
+/** Server-authored settings snapshot. Sent on connect and after every change. */
+export interface SettingsSignal {
+	type: "settings";
+	settings: Settings;
+}
+
+/** Partial update; omitted fields keep their persisted value. */
+export interface SetSettingsCommand {
+	type: "settings_set";
+	settings: Partial<Settings>;
+}
+
 export type WorkspaceSignal =
 	| WorkspaceStateSignal
 	| StatePageProjectionSignal
@@ -363,7 +376,8 @@ export type WorkspaceSignal =
 	| AssetsChangedSignal
 	| CollectionsChangedSignal
 	| CollectionCursorsSignal
-	| FitViewSignal;
+	| FitViewSignal
+	| SettingsSignal;
 
 export type WorkspaceCommand =
 	| LoadDocumentCommand
@@ -387,6 +401,7 @@ export type WorkspaceCommand =
 	| PatchDocumentStateCommand
 	| CreateAnnotationCommand
 	| RemoveAnnotationCommand
-	| UpdateWorkspaceCommand;
+	| UpdateWorkspaceCommand
+	| SetSettingsCommand;
 
 export type WorkspaceMessage = WorkspaceSignal | WorkspaceCommand;

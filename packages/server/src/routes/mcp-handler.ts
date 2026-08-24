@@ -9,14 +9,17 @@ import {
 import type { AwilixContainer } from "awilix";
 import { resolveActivity } from "../core/activity-contract.js";
 import { mountTools } from "../core/container.js";
+import type { Config } from "../services/config.js";
 import type { WsRegistry } from "../services/ws-registry.js";
 
 export interface McpHttpHandlerDeps {
+	config: Config;
 	container: AwilixContainer;
 	wsRegistry: WsRegistry;
 }
 
 export function createMcpHttpHandler({
+	config,
 	container,
 	wsRegistry,
 }: McpHttpHandlerDeps): McpHttpHandler {
@@ -54,7 +57,7 @@ export function createMcpHttpHandler({
 
 	return createMcpHandler(() => {
 		const server = new McpServer(
-			{ name: "maket", version: "1.0.0" },
+			{ name: "maket", version: config.VERSION },
 			{ capabilities: { tools: {} } },
 		);
 		mountTools(server, container, broadcastActivity);

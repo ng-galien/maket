@@ -8,7 +8,12 @@
  */
 
 import { EventEmitter } from "node:events";
-import type { AssetCategoryUpdate, ToastKey, ToastLevel } from "@maket/shared";
+import type {
+	AssetCategoryUpdate,
+	Settings,
+	ToastKey,
+	ToastLevel,
+} from "@maket/shared";
 
 export interface BusEvents {
 	"document:created": { docName: string };
@@ -38,6 +43,7 @@ export interface BusEvents {
 	"collection-cursor:changed": Record<string, never>;
 	"messages:acked": { ids: string[] };
 	"annotations:changed": Record<string, never>;
+	"settings:changed": Settings;
 	toast: {
 		key: ToastKey;
 		params?: Record<string, string>;
