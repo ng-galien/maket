@@ -34,6 +34,8 @@ afterEach(() => {
 });
 
 describe("Claude Desktop MCPB", () => {
+  // Bundles with esbuild, zips, then spawns a real stdio MCP client — slow
+  // enough under v8 coverage instrumentation to need an explicit budget.
   it("contains only a connect-only stdio bridge to Maket App", async () => {
     const root = mkdtempSync(join(tmpdir(), "maket-claude-desktop-mcpb-"));
     roots.push(root);
@@ -108,7 +110,7 @@ describe("Claude Desktop MCPB", () => {
           MAKET_DATA_DIR: join(root, "data"),
         },
       }),
-      { timeout: 3_000 },
+      { timeout: 15_000 },
     );
     try {
       const tools = await client.listTools();
@@ -134,5 +136,5 @@ describe("Claude Desktop MCPB", () => {
         httpServer.close((error) => (error ? reject(error) : resolve()));
       });
     }
-  }, 15_000);
+  }, 60_000);
 });
