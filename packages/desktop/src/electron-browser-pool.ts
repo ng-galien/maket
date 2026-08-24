@@ -57,10 +57,15 @@ class ElectronRenderPage implements RenderPage {
   private ensureDebugger(): Promise<void> {
     if (!this.debuggerReady) {
       this.debuggerReady = (async () => {
+        // Chromium only services debugger commands once the window owns a
+        // renderer. On a BrowserWindow that never navigated, `Network.enable`
+        // never resolves and wedges the whole render, so navigate first.
+        await this.window.loadURL("about:blank");
         const debug = this.window.webContents.debugger;
         if (!debug.isAttached()) debug.attach();
         debug.on("message", this.onDebuggerMessage);
         await debug.sendCommand("Network.enable");
+        await debug.sendCommand("Page.enable");
       })();
     }
     return this.debuggerReady;
@@ -88,9 +93,21 @@ class ElectronRenderPage implements RenderPage {
     });
   }
 
+  // A `data:` URL cannot carry a rendered document: Chromium caps URLs at 2 MB
+  // and a single inlined print-quality image already exceeds that. CDP replaces
+  // the document in place, with no size limit, exactly like puppeteer's
+  // `setContent` does on the headless path.
   async setContent(html: string): Promise<void> {
     await this.ensureDebugger();
-    await this.window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    const debug = this.window.webContents.debugger;
+    await this.window.loadURL("about:blank");
+    const { frameTree } = (await debug.sendCommand("Page.getFrameTree")) as {
+      frameTree: { frame: { id: string } };
+    };
+    await debug.sendCommand("Page.setDocumentContent", {
+      frameId: frameTree.frame.id,
+      html,
+    });
   }
 
   async waitForNetworkIdle(): Promise<void> {

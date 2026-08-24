@@ -16,7 +16,9 @@ function fixture(networkIdleMs = 0) {
     isAttached: vi.fn(function (this: { attached: boolean }) {
       return this.attached;
     }),
-    sendCommand: vi.fn(async () => undefined),
+    sendCommand: vi.fn(async (method: string) =>
+      method === "Page.getFrameTree" ? { frameTree: { frame: { id: "frame-1" } } } : undefined,
+    ),
   });
   const window = {
     webContents: {
@@ -39,6 +41,42 @@ function fixture(networkIdleMs = 0) {
 }
 
 describe("Electron browser pool", () => {
+  it("gives the window a renderer before attaching the debugger", async () => {
+    const { pool, window, debug } = fixture();
+    const browser = await pool.get();
+    const page = await browser.newPage();
+
+    expect(page.setNetworkGuard).toBeDefined();
+    await page.setNetworkGuard?.("offline");
+
+    expect(window.loadURL).toHaveBeenCalledWith("about:blank");
+    const [navigated] = window.loadURL.mock.invocationCallOrder;
+    const [attached] = debug.attach.mock.invocationCallOrder;
+    expect(navigated).toBeDefined();
+    expect(attached).toBeDefined();
+    expect(navigated ?? 0).toBeLessThan(attached ?? 0);
+    expect(debug.sendCommand).toHaveBeenCalledWith("Network.enable");
+    expect(debug.sendCommand).toHaveBeenCalledWith("Page.enable");
+    await pool.dispose();
+  });
+
+  it("installs document content through CDP so large renders are not capped by data: URLs", async () => {
+    const { pool, window, debug } = fixture();
+    const browser = await pool.get();
+    const page = await browser.newPage();
+    const html = `<html lang="en"><body><img alt="" src="data:image/png;base64,${"A".repeat(4_000_000)}"></body></html>`;
+
+    await page.setContent(html);
+
+    expect(window.loadURL).toHaveBeenCalledWith("about:blank");
+    expect(window.loadURL).not.toHaveBeenCalledWith(expect.stringContaining("data:text/html"));
+    expect(debug.sendCommand).toHaveBeenCalledWith("Page.setDocumentContent", {
+      frameId: "frame-1",
+      html,
+    });
+    await pool.dispose();
+  });
+
   it("applies deviceScaleFactor through Chromium device metrics", async () => {
     const { pool, window, debug } = fixture();
     const browser = await pool.get();
