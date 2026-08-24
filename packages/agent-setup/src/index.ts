@@ -1,5 +1,17 @@
-import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { McpConfigurationFinding } from "@maket/shared";
 
@@ -85,13 +97,56 @@ function assertRegularTarget(path: string): void {
   }
 }
 
+/** Windows hands out EPERM/EBUSY while an antivirus or indexer holds the
+ * destination open; the rename succeeds once the handle is released. */
+const RENAME_RETRY_DELAYS_MS = [20, 50, 100];
+
+function sleepSync(milliseconds: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
+
+/** Mode of the file we are about to replace, so agent configuration keeps the
+ * permissions its own tool chose. */
+function destinationMode(path: string): number {
+  try {
+    return statSync(path).mode & 0o777;
+  } catch {
+    return 0o600;
+  }
+}
+
+function renameWithRetry(temporary: string, path: string): void {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      renameSync(temporary, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const delay = RENAME_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY")) {
+        throw error;
+      }
+      sleepSync(delay);
+    }
+  }
+}
+
+/** Replace a file we do not own. The temporary name is unique so a concurrent
+ * writer cannot rename our bytes into place, and the flush before the rename
+ * keeps a crash from publishing a truncated configuration. */
 function atomicWrite(path: string, content: string): void {
   assertRegularTarget(path);
   mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.maket-app-tmp`;
+  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporary, path);
+    writeFileSync(temporary, content, { encoding: "utf8", mode: destinationMode(path) });
+    const handle = openSync(temporary, "r+");
+    try {
+      fsyncSync(handle);
+    } finally {
+      closeSync(handle);
+    }
+    renameWithRetry(temporary, path);
   } finally {
     rmSync(temporary, { force: true });
   }

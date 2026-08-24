@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,6 +38,31 @@ afterEach(async () => {
 });
 
 describe("AgentSetupService", () => {
+  it("leaves no temporary file behind and keeps the destination permissions", () => {
+    const { homeDir, service } = fixture();
+    const path = join(homeDir, ".claude.json");
+    writeFileSync(path, `${JSON.stringify({ projects: { a: { history: [] } } }, null, 2)}\n`, {
+      mode: 0o644,
+    });
+    chmodSync(path, 0o644);
+
+    service.install("claude");
+
+    expect(readdirSync(homeDir).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
+    expect(statSync(path).mode & 0o777).toBe(0o644);
+    const written = JSON.parse(readFileSync(path, "utf8"));
+    expect(written.mcpServers.maket).toEqual({ type: "http", url: endpoint });
+    expect(written.projects).toEqual({ a: { history: [] } });
+  });
+
+  it("creates a new agent configuration owner-only", () => {
+    const { homeDir, service } = fixture();
+
+    service.install("gemini");
+
+    expect(statSync(join(homeDir, ".gemini", "settings.json")).mode & 0o777).toBe(0o600);
+  });
+
   it.each<[AgentClient, string, Record<string, unknown>]>([
     ["claude", ".claude.json", { type: "http", url: endpoint }],
     ["gemini", ".gemini/settings.json", { httpUrl: endpoint }],
