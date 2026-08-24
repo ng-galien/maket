@@ -13,8 +13,8 @@ jobs:
     permissions:
       contents: read
     env:
-      CODE_MONIKER_VERSION: "0.6.1"
-      CODE_MONIKER_SHA256: "47879fd56827116b6cfdde9575b809cb7c867e28c63239f64803171e63da93e6"
+      CODE_MONIKER_VERSION: "0.7.1"
+      CODE_MONIKER_SHA256: "7d9e26ceef2f7799b46e49f7393f222accff4c2dec25c362d07d8788ab7c3562"
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: init.defaultBranch
       GIT_CONFIG_VALUE_0: main
