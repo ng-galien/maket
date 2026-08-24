@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * @ng-galien/maket-server — bin entry.
+ * @ng-galien/maket — bin entry.
  *
  * Two roles in one binary:
  *
@@ -107,13 +107,19 @@ function handleUninstall(
 
 function unsupportedClient(command: string, client: string): void {
 	process.stderr.write(
-		`maket-server ${command}: client must be "claude", "codex", or "gemini" (got "${client}")\n`,
+		`maket ${command}: client must be "claude", "codex", or "gemini" (got "${client}")\n`,
 	);
 	process.exitCode = 1;
 }
 
+/** A fresh instance has no matched command, so cac renders the global help
+ *  rather than the usage of `help` itself. */
+function outputGlobalHelp(): void {
+	buildCli().outputHelp();
+}
+
 function buildCli(): CAC {
-	const cli = cac("maket-server");
+	const cli = cac("maket");
 
 	cli.option(
 		"--data-dir <path>",
@@ -137,7 +143,7 @@ function buildCli(): CAC {
 		});
 
 	cli
-		.command("stop", "Stop a server started by 'maket-server start'")
+		.command("stop", "Stop a server started by 'maket start'")
 		.action(async (opts: GlobalOpts) => {
 			await runStop(envOverrides(opts));
 		});
@@ -222,6 +228,11 @@ function buildCli(): CAC {
 			},
 		);
 
+	cli.command("help", "Show this help").action(outputGlobalHelp);
+	cli.command("version", "Print the Maket version").action(() => {
+		process.stdout.write(`${readVersion()}\n`);
+	});
+
 	cli.help();
 	cli.version(readVersion());
 	return cli;
@@ -240,7 +251,7 @@ async function main(argv: string[]): Promise<void> {
 		return;
 	}
 
-	cli.parse(["node", "maket-server", ...argv]);
+	cli.parse(["node", "maket", ...argv]);
 
 	if (cli.options.help || cli.options.version) return;
 
@@ -248,7 +259,7 @@ async function main(argv: string[]): Promise<void> {
 	const hasUnknown =
 		!cli.matchedCommand && firstArg !== undefined && !firstArg.startsWith("-");
 	if (hasUnknown) {
-		process.stderr.write(`maket-server: unknown command "${firstArg}"\n\n`);
+		process.stderr.write(`maket: unknown command "${firstArg}"\n\n`);
 		cli.outputHelp();
 		process.exitCode = 1;
 	}
@@ -260,6 +271,6 @@ main(process.argv.slice(2)).catch((e) => {
 		error instanceof CliUsageError || error.name === "CACError"
 			? error.message
 			: (error.stack ?? error.message);
-	process.stderr.write(`maket-server: ${detail}\n`);
+	process.stderr.write(`maket: ${detail}\n`);
 	process.exit(1);
 });

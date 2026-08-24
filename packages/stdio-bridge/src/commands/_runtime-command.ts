@@ -27,7 +27,7 @@ export function resolveMaketRuntime(
 	const exists = opts.exists ?? existsSync;
 	const realpath = opts.realpath ?? realpathSync;
 	const rawEntry = opts.entryPath ?? process.argv[1];
-	if (!rawEntry) return { command: "maket-server", args: [] };
+	if (!rawEntry) return { command: "maket", args: [] };
 
 	try {
 		const entry = realpath(resolve(rawEntry));
@@ -42,5 +42,5 @@ export function resolveMaketRuntime(
 			};
 		}
 	} catch {}
-	return { command: "maket-server", args: [] };
+	return { command: "maket", args: [] };
 }

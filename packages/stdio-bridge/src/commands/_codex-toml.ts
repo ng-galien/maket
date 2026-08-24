@@ -6,7 +6,7 @@
 
 import { resolveMaketRuntime } from "./_runtime-command.ts";
 
-export const PKG = "@ng-galien/maket-server";
+export const PKG = "@ng-galien/maket";
 
 export function codexTomlSnippet(): string {
 	const runtime = resolveMaketRuntime();

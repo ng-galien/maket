@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================
-// PACK-NPM — Stage Maket Server for `npm publish` under @ng-galien/maket-server
+// PACK-NPM — Stage Maket Server for `npm publish` under @ng-galien/maket
 // ============================================================
 //
 // Usage:
@@ -12,7 +12,7 @@
 // Output: dist/npm/ (ready-to-publish package directory).
 //
 // Installation contract for users:
-//   npm install -g @ng-galien/maket-server   # global binary: `maket-server`
+//   npm install -g @ng-galien/maket   # global binary: `maket`
 // ============================================================
 
 import { execFileSync, execSync } from "node:child_process";
@@ -43,6 +43,12 @@ const EXTERNALS = [
   "ws",
   "zod",
 ];
+
+// Workspace packages are private and bundled into server.js by esbuild; leaving
+// one in `dependencies` makes every `npm install` fail with a registry 404.
+function publishableDependencies(dependencies: Record<string, string> | undefined) {
+  return Object.fromEntries(Object.entries(dependencies ?? {}).filter(([name]) => !name.startsWith("@maket/")));
+}
 
 function stage(): void {
   if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
@@ -81,10 +87,10 @@ function stage(): void {
   log("Writing package.json...");
   const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
   const serverPkg = JSON.parse(readFileSync(join(ROOT, "packages/server/package.json"), "utf-8"));
-  const { "@maket/shared": _shared, ...runtimeDeps } = serverPkg.dependencies ?? {};
+  const runtimeDeps = publishableDependencies(serverPkg.dependencies);
 
   const npmPkg = {
-    name: "@ng-galien/maket-server",
+    name: "@ng-galien/maket",
     version: rootPkg.version,
     mcpName: rootPkg.mcpName,
     description: rootPkg.description,
@@ -96,7 +102,7 @@ function stage(): void {
     author: rootPkg.author,
     type: "module",
     main: "server.js",
-    bin: { "maket-server": "index.js" },
+    bin: { maket: "index.js" },
     files: ["index.js", "server.js", "manifest.json", "public/**", "README.md", "LICENSE"],
     engines: { node: ">=22.0.0" },
     dependencies: runtimeDeps,

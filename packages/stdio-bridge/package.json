@@ -4,7 +4,7 @@
 	"type": "module",
 	"main": "src/index.ts",
 	"bin": {
-		"maket-server": "src/index.ts"
+		"maket": "src/index.ts"
 	},
 	"license": "MIT",
 	"private": true,

@@ -1,5 +1,5 @@
 /**
- * `maket-server update` — upgrade the headless CLI. We don't try to detect the active
+ * `maket update` — upgrade the headless CLI. We don't try to detect the active
  * runtime (npx vs `npm -g` vs Homebrew); if `npm install -g` fails, npm's
  * own error message is more informative than anything we'd reinvent.
  */
@@ -64,7 +64,7 @@ async function runCheck(): Promise<void> {
 		latest = await fetchLatest();
 	} catch (e) {
 		process.stderr.write(
-			`maket-server update --check: failed to reach npm registry — ${(e as Error).message}\n`,
+			`maket update --check: failed to reach npm registry — ${(e as Error).message}\n`,
 		);
 		process.exitCode = 1;
 		return;
@@ -72,7 +72,7 @@ async function runCheck(): Promise<void> {
 	process.stdout.write(`current: ${current}\nlatest:  ${latest}\n`);
 	const cmp = compareVersions(current, latest);
 	if (cmp < 0) {
-		process.stdout.write(`\nUpdate available. Run: maket-server update\n`);
+		process.stdout.write(`\nUpdate available. Run: maket update\n`);
 		process.exitCode = 1;
 	} else {
 		process.stdout.write("\nUp to date.\n");
@@ -86,7 +86,7 @@ export function updateInstallArgs(target: string): string[] {
 function runInstall(target: string): void {
 	const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 	const args = updateInstallArgs(target);
-	process.stdout.write(`maket-server: running \`npm ${args.join(" ")}\`\n`);
+	process.stdout.write(`maket: running \`npm ${args.join(" ")}\`\n`);
 	const r = spawnSync(npm, args, { stdio: "inherit" });
 	if (r.status !== 0) {
 		process.exitCode = r.status ?? 1;
