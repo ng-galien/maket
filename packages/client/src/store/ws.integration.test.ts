@@ -577,12 +577,12 @@ describe("living document state signals", () => {
 			type: "state_patch_result",
 			requestId,
 			ok: false,
-			error: "Revision conflict",
+			message: { key: "msg_document_locked", params: { name: "editor" } },
 		});
 
 		expect(useStore.getState().statePatchPending).toEqual({});
 		expect(Object.values(useStore.getState().statePatchErrors)).toEqual([
-			"Revision conflict",
+			'Document "editor" is locked.',
 		]);
 	});
 });
@@ -710,12 +710,12 @@ describe("annotation_create acknowledgement", () => {
 			type: "annotation_create_result",
 			requestId: command.requestId,
 			ok: false,
-			error: 'Document "deleted" not found',
+			message: { key: "msg_document_not_found", params: { name: "deleted" } },
 		});
 
 		await expect(outcomePromise).resolves.toEqual({
 			ok: false,
-			error: 'Document "deleted" not found',
+			error: 'Document "deleted" not found.',
 		});
 		expect(useStore.getState().pending).toEqual([]);
 	});

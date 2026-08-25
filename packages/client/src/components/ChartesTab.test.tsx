@@ -18,7 +18,10 @@ beforeEach(() => {
 			json: async () => [
 				{
 					name: "atelier-intention",
-					tokens: { color: { primary: "#18181b" } },
+					tokens: {
+						color: { primary: "#18181b" },
+						spacing: { gutter: "24px" },
+					},
 				},
 				{
 					name: "editorial",
@@ -83,6 +86,17 @@ describe("ChartesTab actions", () => {
 			"hover:border-accent/40",
 			"hover:ring-accent/30",
 		);
+	});
+
+	it("uses the canonical localized token-group labels in the preview", async () => {
+		setLang("fr");
+		const user = userEvent.setup();
+		render(<ChartesTab />);
+
+		await user.click(await screen.findByText("atelier-intention"));
+
+		expect(screen.getByRole("heading", { name: "Couleurs" })).toBeVisible();
+		expect(screen.getByRole("heading", { name: "Espacements" })).toBeVisible();
 	});
 });
 

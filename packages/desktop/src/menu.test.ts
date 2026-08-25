@@ -1,6 +1,6 @@
 import type { DesktopCommand, DesktopRuntimeState } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
-import { createDesktopTranslate } from "./i18n.js";
+import { desktopMessage } from "./i18n.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
 
 describe("native application menu", () => {
@@ -22,7 +22,7 @@ describe("native application menu", () => {
         checkForUpdates: vi.fn(),
         sendCommand: (command) => sent.push(command),
       },
-      createDesktopTranslate("fr"),
+      (key, params) => desktopMessage("fr", key, params),
     );
     expect(template.map((item) => item.label)).toEqual([
       "Maket",

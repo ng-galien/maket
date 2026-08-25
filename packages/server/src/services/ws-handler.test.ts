@@ -147,7 +147,10 @@ describe("ws-handler — annotation persistence acknowledgement", () => {
 				type: "annotation_create_result",
 				requestId: "create-rejected",
 				ok: false,
-				error: 'Document "missing" not found',
+				message: {
+					key: "msg_document_not_found",
+					params: { name: "missing" },
+				},
 			},
 		]);
 		dispose();
@@ -305,7 +308,10 @@ describe("ws-handler — living document state", () => {
 			type: "state_patch_result",
 			requestId: "request-hidden",
 			ok: false,
-			error: expect.stringMatching(/not exposed by an active document binding/),
+			message: {
+				key: "msg_state_path_not_bound",
+				params: { path: "/secret" },
+			},
 		});
 		dispose();
 	});
@@ -351,9 +357,51 @@ describe("ws-handler — living document state", () => {
 			type: "state_patch_result",
 			requestId: "request-stale",
 			ok: false,
-			error: expect.stringMatching(/expected 2, current 1/),
+			message: {
+				key: "msg_state_revision_conflict",
+				params: { expected: 2, current: 1 },
+			},
 		});
 		expect(rebroadcast).toHaveBeenCalledWith({ docName: "checklist" });
+		dispose();
+	});
+
+	it("keeps state validation details out of the localized browser signal", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = makeDoc("typed-form");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<input type="checkbox" data-maket-bind="state.done">';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"typed-form",
+			{
+				type: "object",
+				properties: { done: { type: "boolean" } },
+				required: ["done"],
+			},
+			{ done: false },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-invalid-type",
+				docName: "typed-form",
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/done", value: "yes" },
+			},
+			ws,
+		);
+
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
+			type: "state_patch_result",
+			requestId: "request-invalid-type",
+			ok: false,
+			message: { key: "msg_state_invalid" },
+		});
 		dispose();
 	});
 });
@@ -1173,7 +1221,7 @@ describe("ws-handler — collection cursor", () => {
 		const { bus, handler, collectionCursors, dispose } = cursorFixture();
 		const toasts: string[] = [];
 		bus.on("toast", ({ key, params }) =>
-			toasts.push(key === "toast_detail" ? (params?.detail ?? "") : key),
+			toasts.push(key === "toast_detail" ? String(params?.detail ?? "") : key),
 		);
 
 		handler(
@@ -1196,9 +1244,7 @@ describe("ws-handler — collection cursor", () => {
 			},
 			STUB_WS,
 		);
-		expect(toasts.some((text) => text.includes('Row "ghost" not found'))).toBe(
-			true,
-		);
+		expect(toasts).toContain("msg_row_not_found");
 		dispose();
 	});
 });

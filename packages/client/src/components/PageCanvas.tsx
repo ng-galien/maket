@@ -83,7 +83,9 @@ function collectionPreviewHtml(
 			html: showTemplateMarkers
 				? markedTemplateHtml(rawHtml, null).html
 				: rawHtml,
-			error: translate("collection_not_found", { name: collectionName ?? "" }),
+			error: translate("msg_collection_not_found", {
+				name: collectionName ?? "",
+			}),
 		};
 	}
 	if (preview?.mode === "rendered" && collection) {

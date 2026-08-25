@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { PendingMessage } from "@maket/shared";
+import { MessageError } from "../../lib/message-error.js";
 
 export interface AnnotationRepository {
 	saveAnnotation(annotation: PendingMessage): void;
@@ -46,7 +47,12 @@ export function createAnnotationRepository(
 				const row = selectDocument.get({ name: annotation.docName }) as
 					| { id: string }
 					| undefined;
-				if (!row) throw new Error(`Document "${annotation.docName}" not found`);
+				if (!row)
+					throw new MessageError(
+						`Document "${annotation.docName}" not found.`,
+						"msg_document_not_found",
+						{ name: annotation.docName },
+					);
 				documentId = row.id;
 			}
 			insert.run({

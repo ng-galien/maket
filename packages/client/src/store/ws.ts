@@ -8,10 +8,7 @@ import type {
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
-import en from "../i18n/en.json";
-
-import fr from "../i18n/fr.json";
-import { getLang, setLang, translate } from "../i18n/useT";
+import { setLang, type TranslationKey, translate } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
@@ -20,37 +17,19 @@ import {
 } from "./useStore";
 import { requestFit } from "./zoomBridge";
 
-const BUBBLE_LANGS: Record<string, Record<ActivityKey | ToastKey, string>> = {
-	fr,
-	en,
-};
-
+/** Typed façades over `translate`, so a signal key is checked at compile time. */
 export function translateBubble(
 	key: ActivityKey,
-	params?: Record<string, string>,
+	params?: Record<string, string | number>,
 ): string {
-	return translateSignal(key, params);
+	return translate(key, params);
 }
 
 export function translateToast(
 	key: ToastKey,
-	params?: Record<string, string>,
+	params?: Record<string, string | number>,
 ): string {
-	return translateSignal(key, params);
-}
-
-function translateSignal(
-	key: ActivityKey | ToastKey,
-	params?: Record<string, string>,
-): string {
-	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
-	let text = dict[key];
-	if (params) {
-		for (const [k, v] of Object.entries(params)) {
-			text = text.replaceAll(`{${k}}`, v);
-		}
-	}
-	return text;
+	return translate(key, params);
 }
 
 let ws: WebSocket | null = null;
@@ -350,7 +329,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				);
 			break;
 		case "state_patch_result": {
-			const failure = msg.ok ? undefined : describeFailure(msg);
+			const failure = msg.ok
+				? undefined
+				: describeFailure(msg, "state_update_failed");
 			useStore.getState().settleStatePatch(msg.requestId, failure);
 			if (failure) spawnToast(failure, "error", 4000);
 			break;
@@ -412,7 +393,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "annotation_create_result":
 			settleAnnotationCreate(msg.requestId, {
 				ok: msg.ok,
-				...(msg.ok ? {} : { error: describeFailure(msg) }),
+				...(msg.ok
+					? {}
+					: { error: describeFailure(msg, "msg_annotation_not_saved") }),
 			});
 			break;
 		default:
@@ -615,14 +598,13 @@ if (typeof window !== "undefined") {
 
 /** The identifier is authoritative; a server that sent only a sentence still
  *  gets shown, and a silent failure falls back to the generic wording. */
-function describeFailure(signal: {
-	message?: LocalizedMessage;
-	error?: string;
-}): string {
-	if (signal.message) {
-		return translate(signal.message.key, signal.message.params);
-	}
-	return signal.error ?? translate("state_update_failed");
+function describeFailure(
+	signal: { message?: LocalizedMessage },
+	fallbackKey: TranslationKey,
+): string {
+	return signal.message
+		? translate(signal.message.key, signal.message.params)
+		: translate(fallbackKey);
 }
 
 export function wsSend(msg: WorkspaceCommand): boolean {

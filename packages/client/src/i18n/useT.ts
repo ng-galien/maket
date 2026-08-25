@@ -38,14 +38,16 @@ export function getLang(): SettingsLanguage {
 
 /** Translate outside React — error paths and the store have no hook to call.
  *  Components use `useT` so they re-render when the language changes. */
+export type TranslationKey = keyof typeof en;
+
 export function translate(
-	key: string,
+	key: TranslationKey,
 	vars?: Record<string, string | number>,
 ): string {
 	let text = LANGS[currentLang]?.[key] ?? LANGS.en[key] ?? key;
 	if (vars) {
 		for (const [k, v] of Object.entries(vars)) {
-			text = text.replace(`{${k}}`, String(v));
+			text = text.replaceAll(`{${k}}`, String(v));
 		}
 	}
 	return text;

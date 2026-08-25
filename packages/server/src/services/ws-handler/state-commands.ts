@@ -37,14 +37,7 @@ export function handleStatePatch(
 		sendResult(ws, msg.requestId, true, revision.revision);
 	} catch (error) {
 		ctx.broadcastState(doc);
-		sendResult(
-			ws,
-			msg.requestId,
-			false,
-			undefined,
-			localizedOf(error),
-			error instanceof Error ? error.message : String(error),
-		);
+		sendResult(ws, msg.requestId, false, undefined, localizedOf(error));
 	}
 }
 
@@ -54,7 +47,6 @@ function sendResult(
 	ok: boolean,
 	revision?: number,
 	message?: LocalizedMessage,
-	error?: string,
 ): void {
 	const signal: Extract<WorkspaceSignal, { type: "state_patch_result" }> = {
 		type: "state_patch_result",
@@ -62,7 +54,6 @@ function sendResult(
 		ok,
 		revision,
 		message,
-		error,
 	};
 	ws.send(JSON.stringify(signal));
 }

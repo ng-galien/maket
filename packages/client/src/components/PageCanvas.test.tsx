@@ -8,6 +8,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { statePatchKey, useStore } from "../store/useStore";
 import * as ws from "../store/ws";
@@ -15,6 +16,7 @@ import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 import { presentationPolicy } from "./presentation-policy";
 
 beforeEach(() => {
+	setLang("en");
 	vi.useFakeTimers();
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
@@ -827,6 +829,17 @@ describe("PageCanvas toolbar interactions", () => {
 			"client_name",
 		);
 		expect(marker?.getAttribute("data-collection-bound")).toBe("true");
+	});
+
+	it("shows a localized diagnostic when the bound collection is missing", () => {
+		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		expect(document.body.textContent).toContain(
+			'Collection "clients" not found.',
+		);
 	});
 
 	it("renders the selected collection row in rendered preview mode", () => {

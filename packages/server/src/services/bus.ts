@@ -46,7 +46,7 @@ export interface BusEvents {
 	"settings:changed": Settings;
 	toast: {
 		key: ToastKey;
-		params?: Record<string, string>;
+		params?: Record<string, string | number>;
 		level?: ToastLevel;
 		duration?: number;
 	};

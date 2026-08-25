@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import WebSocket from "ws";
 import { startMaketServer } from "./server.js";
 import { createConfig } from "./services/config.js";
 import { createSQLiteStore } from "./services/store.js";
@@ -25,6 +26,48 @@ afterEach(() => {
 });
 
 describe("embedded Maket server", () => {
+	it("exposes current settings and notifies its embedding host after a browser change", async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), "maket-embedded-settings-"));
+		directories.push(dataDir);
+		const config = createConfig({
+			packageDir: resolve(import.meta.dirname, "../../.."),
+			packaged: true,
+			env: {
+				MAKET_DATA_DIR: dataDir,
+				MAKET_SETTINGS_FILE: join(dataDir, "settings.json"),
+				MAKET_PORT: "0",
+				MAKET_BIND_HOST: "127.0.0.1",
+			},
+		});
+		const onSettingsChanged = vi.fn();
+		const server = await startMaketServer({
+			config,
+			bootstrap: { store: createSQLiteStore(":memory:"), browserPool },
+			loadEnvironment: false,
+			log: () => {},
+			onSettingsChanged,
+		});
+		const socket = new WebSocket(server.url.replace(/^http/, "ws"));
+
+		try {
+			await once(socket, "open");
+			expect(server.settings().language).toBe("en");
+			socket.send(
+				JSON.stringify({ type: "settings_set", settings: { language: "fr" } }),
+			);
+			await vi.waitFor(() =>
+				expect(onSettingsChanged).toHaveBeenCalledWith(
+					expect.objectContaining({ language: "fr" }),
+				),
+			);
+			expect(server.settings().language).toBe("fr");
+		} finally {
+			socket.close();
+			await once(socket, "close");
+			await server.close();
+		}
+	});
+
 	it("starts on the requested workspace and closes through its public lifecycle", async () => {
 		const dataDir = mkdtempSync(join(tmpdir(), "maket-embedded-server-"));
 		directories.push(dataDir);

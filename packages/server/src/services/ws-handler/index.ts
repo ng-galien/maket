@@ -12,6 +12,7 @@
 
 import type { WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
+import { localizedOf } from "../../lib/message-error.js";
 import { createCollectionCursors } from "../collection-cursor.js";
 import { createCollections } from "../collections.js";
 import {
@@ -187,10 +188,7 @@ function handleAnnotationCreate(
 				type: "annotation_create_result",
 				requestId: msg.requestId,
 				ok: false,
-				error:
-					error instanceof Error
-						? error.message
-						: "The annotation could not be saved.",
+				message: localizedOf(error) ?? { key: "msg_annotation_not_saved" },
 			}),
 		);
 	}

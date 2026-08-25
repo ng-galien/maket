@@ -116,7 +116,12 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			const definition = deps.store.loadDocumentState(doc.id);
 			if (!definition) return null;
 			const current = deps.store.loadCurrentDocumentState(doc.id);
-			if (!current) throw new Error("Document state has no revision.");
+			if (!current)
+				throw new MessageError(
+					"Document state has no revision.",
+					"msg_state_no_revision",
+					{ name: docName },
+				);
 			return { definition, current };
 		},
 		update(docName, expectedRevision, data) {
@@ -270,7 +275,11 @@ function requiredState(deps: DocumentStatesDeps, docName: string) {
 		);
 	const current = deps.store.loadCurrentDocumentState(doc.id);
 	if (!current)
-		throw new Error(`Document "${doc.name}" has no state revision.`);
+		throw new MessageError(
+			`Document "${doc.name}" has no state revision.`,
+			"msg_state_no_revision",
+			{ name: doc.name },
+		);
 	return { doc, definition, current };
 }
 
@@ -279,7 +288,8 @@ function assertValidState(
 	data: DocumentStateData,
 ): void {
 	const issues = validateDocumentState(schema, data);
-	if (issues.length > 0) throw new Error(issues.join("\n"));
+	if (issues.length > 0)
+		throw new MessageError(issues.join("\n"), "msg_state_invalid");
 }
 
 function assertValidStateTemplates(doc: Document): void {
@@ -315,7 +325,10 @@ function activeBindingPaths(
 
 function assertStateObject(data: unknown): asserts data is DocumentStateData {
 	if (typeof data !== "object" || data === null || Array.isArray(data)) {
-		throw new Error("Document state must remain a JSON object.");
+		throw new MessageError(
+			"Document state must remain a JSON object.",
+			"msg_state_not_object",
+		);
 	}
 }
 

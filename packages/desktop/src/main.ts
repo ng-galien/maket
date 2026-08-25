@@ -1,14 +1,15 @@
-import { existsSync, readFileSync, watchFile } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
-import { createConfig } from "@maket/server";
+import { createConfig, readSettingsFile } from "@maket/server";
 import type {
   DesktopCommand,
   DesktopConfigurationPlan,
   DesktopOnboardingResult,
   DesktopRuntimeState,
   McpConfigurationFinding,
+  Settings,
 } from "@maket/shared";
 import { DESKTOP_CHANNELS } from "@maket/shared";
 import {
@@ -25,7 +26,7 @@ import {
 import { inspectClaudeDesktop } from "./claude-desktop.js";
 import { applyDesktopOnboarding, validateOnboardingSelection } from "./configuration-install.js";
 import { createElectronBrowserPool } from "./electron-browser-pool.js";
-import { createDesktopTranslate, type DesktopTranslate, readDesktopLanguage } from "./i18n.js";
+import { type DesktopTranslate, desktopMessage, watchDesktopLanguage } from "./i18n.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
 import { printWithNativeDialog } from "./native-print.js";
 import { isTrustedIpcSender, isTrustedRendererUrl, shouldOpenInExternalBrowser } from "./renderer-security.js";
@@ -68,9 +69,11 @@ let quitting = false;
 let runtimeStopped = false;
 let runtimeReady = false;
 let agentSetup: AgentSetupService | null = null;
+let stopWatchingLanguage: (() => void) | null = null;
 
 const settingsPath = createConfig({ env: process.env }).SETTINGS_PATH;
-let translate: DesktopTranslate = createDesktopTranslate(readDesktopLanguage(settingsPath));
+let language = readSettingsFile(settingsPath).language;
+const translate: DesktopTranslate = (key, params) => desktopMessage(language, key, params);
 
 const electronBrowserPool = createElectronBrowserPool();
 const runtime = new WorkspaceController({
@@ -78,6 +81,7 @@ const runtime = new WorkspaceController({
   packageDir: app.isPackaged ? process.resourcesPath : developmentRoot,
   port: DESKTOP_SERVER_PORT,
   browserPool: electronBrowserPool,
+  onSettingsChanged: (settings) => followLanguage(settings.language),
 });
 const updates = new UpdateController({
   enabled: !isDevelopmentBuild && !isLocalInstallBuild && process.platform !== "linux",
@@ -242,17 +246,12 @@ function rebuildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** The language lives in a file any Maket surface may rewrite, so the menu
- *  follows the file rather than the click that changed it. */
-function watchLanguage(): void {
-  let current = readDesktopLanguage(settingsPath);
-  watchFile(settingsPath, { interval: 1_000 }, () => {
-    const next = readDesktopLanguage(settingsPath);
-    if (next === current) return;
-    current = next;
-    translate = createDesktopTranslate(next);
-    if (runtimeReady) rebuildMenu();
-  });
+/** The embedded bus updates immediately; the file watcher covers writes from
+ *  other Maket processes that do not share that bus. */
+function followLanguage(next: Settings["language"]): void {
+  if (next === language) return;
+  language = next;
+  if (runtimeReady) rebuildMenu();
 }
 
 function registerIpc(): void {
@@ -523,7 +522,7 @@ async function bootstrap(): Promise<void> {
     await createWindow(initialUrl);
     logStartup("main window created");
     if (runtimeReady) rebuildMenu();
-    watchLanguage();
+    stopWatchingLanguage = watchDesktopLanguage(settingsPath, followLanguage);
     updates.start();
   } catch (error) {
     process.stderr.write(
@@ -557,6 +556,8 @@ if (
     app.on("window-all-closed", () => app.quit());
     app.on("before-quit", (event) => {
       quitting = true;
+      stopWatchingLanguage?.();
+      stopWatchingLanguage = null;
       if (runtimeStopped) return;
       event.preventDefault();
       void runtime.stop().finally(() => {

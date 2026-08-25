@@ -12,6 +12,7 @@ import {
   writeRuntimeDescriptor,
 } from "@maket/runtime";
 import { type BrowserPool, createConfig, type MaketServer, startMaketServer } from "@maket/server";
+import type { Settings } from "@maket/shared";
 
 export const DESKTOP_SERVER_PORT = 24843;
 const HEADLESS_SERVER_PORT = 24842;
@@ -21,6 +22,9 @@ export interface WorkspaceControllerOptions {
   packageDir: string;
   port?: number;
   browserPool?: BrowserPool;
+  /** Notified after every settings change, so the host can follow the language
+   *  without watching the settings file. */
+  onSettingsChanged?: (settings: Settings) => void;
   /** Command line of a running process; tests substitute their own. */
   describeProcess?: (pid: number) => string | null;
 }
@@ -142,6 +146,7 @@ export class WorkspaceController {
       config,
       bootstrap: { browserPool: this.options.browserPool },
       loadEnvironment: false,
+      onSettingsChanged: this.options.onSettingsChanged,
     });
     const instanceId = randomUUID();
     this.workspace = dataDir;

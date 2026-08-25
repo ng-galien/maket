@@ -60,16 +60,14 @@ export interface StatePatchResultSignal {
 	requestId: string;
 	ok: boolean;
 	revision?: number;
-	/** Identifier the browser translates. `error` is the untranslated fallback
-	 *  for failures that carry no identifier yet. */
+	/** Identifier the browser translates. Failures never travel as prose. */
 	message?: LocalizedMessage;
-	error?: string;
 }
 
 export interface ToastSignal {
 	type: "toast";
 	key: ToastKey;
-	params?: Record<string, string>;
+	params?: Record<string, string | number>;
 	level: ToastLevel;
 	duration: number;
 }
@@ -122,7 +120,6 @@ export interface AnnotationCreateResultSignal {
 	requestId: string;
 	ok: boolean;
 	message?: LocalizedMessage;
-	error?: string;
 }
 
 export interface WorkspaceReloadSignal {

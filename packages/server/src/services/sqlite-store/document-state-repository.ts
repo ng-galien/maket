@@ -4,6 +4,7 @@ import type {
 	DocumentStateRevision,
 	DocumentStateSchema,
 } from "@maket/shared";
+import { MessageError } from "../../lib/message-error.js";
 import { NEXT_DOCUMENT_UPDATED_AT_SQL } from "./document-timestamp.js";
 
 export interface StoredDocumentState {
@@ -138,8 +139,10 @@ function appendRevision(
 		const currentSnapshot = revisionFromRow(current);
 		const currentRevision = currentSnapshot.revision;
 		if (currentRevision !== expectedRevision) {
-			throw new Error(
+			throw new MessageError(
 				`Document state revision conflict: expected ${expectedRevision}, current ${currentRevision}.`,
+				"msg_state_revision_conflict",
+				{ expected: expectedRevision, current: currentRevision },
 			);
 		}
 		const nextRevision = currentRevision + 1;

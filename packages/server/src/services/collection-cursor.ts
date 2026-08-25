@@ -191,20 +191,36 @@ function setCursor(
 	patch: CollectionCursorPatch,
 ): PageCollectionCursor {
 	const doc = ctx.documents.resolveOrLoad(docName);
-	if (!doc) throw new Error(`Document "${docName}" not found.`);
+	if (!doc)
+		throw new MessageError(
+			`Document "${docName}" not found.`,
+			"msg_document_not_found",
+			{ name: docName },
+		);
 	if (!doc.pages[pageIndex])
-		throw new Error(`Page ${pageIndex + 1} not found.`);
+		throw new MessageError(
+			`Page ${pageIndex + 1} not found.`,
+			"msg_page_not_found",
+			{ page: pageIndex + 1 },
+		);
 	const current = effectiveCursor(ctx, docName, pageIndex);
 	if (!current) {
-		throw new Error(
+		throw new MessageError(
 			`Page ${pageIndex + 1} of "${docName}" has no data source.`,
+			"msg_page_no_data_source",
+			{ page: pageIndex + 1, doc: docName },
 		);
 	}
 	const next = patchedCursor(ctx, current, patch);
 	const moved =
 		next.mode !== current.mode || next.memberId !== current.memberId;
 	const page = doc.pages[pageIndex];
-	if (!page) throw new Error(`Page ${pageIndex + 1} not found.`);
+	if (!page)
+		throw new MessageError(
+			`Page ${pageIndex + 1} not found.`,
+			"msg_page_not_found",
+			{ page: pageIndex + 1 },
+		);
 	const stored = toStoredCursor(next, doc.id, page.id);
 	ctx.cursors.set(storedCursorKey(doc.id, page.id), stored);
 	ctx.store.saveCollectionCursor(stored);
@@ -223,20 +239,31 @@ function patchedCursor(
 	if (patch.memberId !== undefined) {
 		if (patch.memberId !== null) {
 			if (!members.some((member) => member.id === patch.memberId)) {
-				throw new Error(
+				throw new MessageError(
 					`Row "${patch.memberId}" not found in collection "${next.collection}".`,
+					"msg_row_not_found",
+					{
+						row: patch.memberId,
+						collection: next.collection,
+						rows: members.length,
+					},
 				);
 			}
 		}
 		next.memberId = patch.memberId;
 	}
 	if (members.length === 0 && next.mode !== "template") {
-		throw new Error(
+		throw new MessageError(
 			`Collection "${next.collection}" has no rows; use template mode.`,
+			"msg_collection_no_rows",
+			{ name: next.collection },
 		);
 	}
 	if (next.mode === "rendered" && next.memberId === null) {
-		throw new Error("Rendered mode requires a current row.");
+		throw new MessageError(
+			"Rendered mode requires a current row.",
+			"msg_rendered_needs_row",
+		);
 	}
 	return next;
 }

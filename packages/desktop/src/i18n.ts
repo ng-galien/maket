@@ -7,6 +7,7 @@
  * reads for the update channel.
  */
 
+import { unwatchFile, watchFile } from "node:fs";
 import { readSettingsFile } from "@maket/server";
 import type { SettingsLanguage } from "@maket/shared";
 
@@ -94,18 +95,26 @@ const MESSAGES = {
 
 export type DesktopTranslate = (key: DesktopMessageKey, params?: Record<string, string>) => string;
 
-export function createDesktopTranslate(language: SettingsLanguage): DesktopTranslate {
-  const table = MESSAGES[language];
-  return (key, params) =>
-    params
-      ? Object.entries(params).reduce(
-          (text, [name, value]) => text.replaceAll(`{${name}}`, value),
-          table[key] as string,
-        )
-      : (table[key] as string);
+export function desktopMessage(
+  language: SettingsLanguage,
+  key: DesktopMessageKey,
+  params?: Record<string, string>,
+): string {
+  const text = MESSAGES[language][key];
+  if (!params) return text;
+  return Object.entries(params).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, value), text);
 }
 
-/** The language the user last chose, or English until they choose one. */
-export function readDesktopLanguage(settingsPath: string): SettingsLanguage {
-  return readSettingsFile(settingsPath).language;
+/** Observe writes made by any Maket process to the global settings file. */
+export function watchDesktopLanguage(
+  settingsPath: string,
+  onChange: (language: SettingsLanguage) => void,
+  interval = 1_000,
+): () => void {
+  const listener = () => {
+    onChange(readSettingsFile(settingsPath).language);
+  };
+  watchFile(settingsPath, { interval }, listener);
+  listener();
+  return () => unwatchFile(settingsPath, listener);
 }

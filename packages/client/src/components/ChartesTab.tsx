@@ -710,7 +710,7 @@ function CharteColorsSection({ colors }: { colors: [string, string][] }) {
 	return (
 		<section>
 			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-				{t("colors")}
+				{t("charte_edit_token_group_color")}
 			</h3>
 			<div className="flex flex-wrap gap-2">
 				{colors.map(([name, value]) => (
@@ -764,7 +764,7 @@ function CharteSpacingSection({ spacing }: { spacing: [string, string][] }) {
 	return (
 		<section>
 			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-				{t("spacings")}
+				{t("charte_edit_token_group_spacing")}
 			</h3>
 			<div className="flex flex-wrap gap-2">
 				{spacing.map(([name, value]) => (

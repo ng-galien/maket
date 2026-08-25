@@ -3,7 +3,11 @@ import type { Server as HttpServer, IncomingMessage } from "node:http";
 import { createServer } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { SettingsSignal, WorkspaceStateSignal } from "@maket/shared";
+import type {
+	Settings,
+	SettingsSignal,
+	WorkspaceStateSignal,
+} from "@maket/shared";
 import express, {
 	type Express,
 	type NextFunction,
@@ -62,6 +66,9 @@ export interface MaketServer {
 	readonly config: Config;
 	readonly url: string;
 	readonly closed: boolean;
+	/** Current user settings. The embedded host reads these to follow the
+	 *  language without watching the file. */
+	settings(): Settings;
 	close(): Promise<void>;
 }
 
@@ -70,6 +77,9 @@ export interface StartMaketServerOptions {
 	bootstrap?: Omit<BootstrapInputs, "config">;
 	loadEnvironment?: boolean;
 	log?: (...values: unknown[]) => void;
+	/** Called after every settings change, so an embedding host reacts to the
+	 *  bus event instead of polling the settings file. */
+	onSettingsChanged?: (settings: Settings) => void;
 }
 
 type AppContainer = ReturnType<typeof createAppContainer>;
@@ -448,6 +458,9 @@ export async function startMaketServer(
 		const registry = registerExecutableTools(container, log);
 		assertManifestMatchesRegistry(config, registry);
 		registerServerEvents({ ...services });
+		if (options.onSettingsChanged) {
+			services.bus.on("settings:changed", options.onSettingsChanged);
+		}
 		transports = await startTransports(config, container, services, log);
 	} catch (error) {
 		log(`[boot] ${error instanceof Error ? error.message : String(error)}`);
@@ -466,9 +479,11 @@ export async function startMaketServer(
 	let containerDisposed = false;
 	let containerDisposeError: unknown;
 	let closed = false;
+	const runtimeSettings = services.settings;
 	return {
 		config,
 		url: transports.url,
+		settings: () => runtimeSettings.get(),
 		get closed() {
 			return closed;
 		},

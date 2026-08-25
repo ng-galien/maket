@@ -91,7 +91,7 @@ function emitFailure(ctx: WsHandlerContext, error: unknown): void {
 	if (localized) {
 		ctx.bus.emit("toast", {
 			key: localized.key,
-			params: stringParams(localized.params),
+			params: localized.params,
 			level: "error",
 		});
 		return;
@@ -101,13 +101,4 @@ function emitFailure(ctx: WsHandlerContext, error: unknown): void {
 		params: { detail: error instanceof Error ? error.message : String(error) },
 		level: "error",
 	});
-}
-
-function stringParams(
-	params: Record<string, string | number> | undefined,
-): Record<string, string> | undefined {
-	if (!params) return undefined;
-	return Object.fromEntries(
-		Object.entries(params).map(([key, value]) => [key, String(value)]),
-	);
 }
