@@ -25,6 +25,7 @@ describe("candidate update feed", () => {
       writeArtifact(artifacts, "maket-app-windows-x64", "RELEASES", "release-index"),
       writeArtifact(artifacts, "maket-app-windows-x64", "maket_app-2.0.0-rc1-full.nupkg", "package"),
       writeArtifact(artifacts, "maket-app-windows-x64", "Maket-2.0.0-rc.1 Setup.exe", "installer"),
+      writeArtifact(artifacts, "maket-app-windows-x64", "Maket-Windows-x64-Setup.exe", "canonical-installer"),
     ]);
 
     await prepareCandidateUpdateFeed({
@@ -52,6 +53,9 @@ describe("candidate update feed", () => {
     await expect(readFile(join(output, "win32", "x64", "RELEASES"), "utf8")).resolves.toBe("release-index");
     await expect(readFile(join(output, "win32", "x64", "maket_app-2.0.0-rc1-full.nupkg"), "utf8")).resolves.toBe(
       "package",
+    );
+    await expect(readFile(join(output, "win32", "x64", "Maket-Windows-x64-Setup.exe"), "utf8")).resolves.toBe(
+      "canonical-installer",
     );
   });
 
@@ -114,6 +118,45 @@ describe("candidate update feed", () => {
     expect(workflow).toContain("matrix.arch");
     expect(workflow).toContain("os: macos-15-intel");
     expect(workflow).not.toContain("desktop:make");
+  });
+
+  it("builds unsigned snapshots from main for every supported desktop target", async () => {
+    const workflow = await readFile(
+      resolve(import.meta.dirname, "../../../.github/workflows/desktop-snapshot.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain('MAKET_SIGN_DESKTOP: "0"');
+    expect(workflow).toContain("--local-install");
+    expect(workflow).toContain("retention-days: 14");
+    expect(workflow).toContain("collect-desktop-installers.ts");
+    expect(workflow.match(/platform: darwin/g)).toHaveLength(2);
+    expect(workflow).toContain("platform: win32");
+    expect(workflow).toContain("platform: linux");
+  });
+
+  it("publishes signed macOS and Windows installers plus Linux packages", async () => {
+    const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+    const collector = await readFile(
+      resolve(import.meta.dirname, "../../../scripts/collect-desktop-installers.ts"),
+      "utf8",
+    );
+
+    const desktopBuild = workflow.indexOf("  desktop-build:");
+    const desktopSteps = workflow.indexOf("    steps:", desktopBuild);
+    const desktopJobHeader = workflow.slice(desktopBuild, desktopSteps);
+
+    expect(workflow).toContain("Validate credentials and import macOS signing certificate");
+    expect(workflow).toContain("Validate credentials and prepare Windows signing certificate");
+    expect(workflow).toContain("MACOS_CERTIFICATE_PASSWORD");
+    expect(workflow).toContain("WINDOWS_CERTIFICATE_PASSWORD");
+    expect(desktopJobHeader).not.toContain("MACOS_CERTIFICATE");
+    expect(desktopJobHeader).not.toContain("WINDOWS_CERTIFICATE");
+    expect(desktopJobHeader).not.toContain("APPLE_ID");
+    expect(workflow).toContain("platform: linux");
+    expect(workflow).toContain("collect-desktop-installers.ts");
+    expect(collector).toMatch(/SHA256SUMS-\$\{options\.platform}-\$\{options\.arch}\.txt/);
   });
 });
 

@@ -262,25 +262,29 @@ jobs:
         include:
           - os: macos-15-intel
             label: macOS Intel
+            platform: darwin
             arch: x64
             artifact: macos-x64
           - os: macos-15
             label: macOS Apple Silicon
+            platform: darwin
             arch: arm64
             artifact: macos-arm64
           - os: windows-2025
             label: Windows x64
+            platform: win32
             arch: x64
             artifact: windows-x64
+          - os: ubuntu-24.04
+            label: Linux x64
+            platform: linux
+            arch: x64
+            artifact: linux-x64
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     env:
       MAKET_SIGN_DESKTOP: "1"
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v7
 
@@ -289,15 +293,28 @@ jobs:
           node-version-file: ".desktop-node-version"
           cache: "npm"
 
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes fakeroot rpm
+
       - name: Install dependencies
         run: npm ci --no-audit
 
-      - name: Import macOS signing certificate
+      - name: Validate credentials and import macOS signing certificate
         if: runner.os == 'macOS'
         env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
+          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!NAME}" ]]; then
+              echo "::error::Missing required release secret ${NAME}."
+              exit 1
+            fi
+          done
           CERTIFICATE_PATH="$RUNNER_TEMP/maket-app.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/maket-app.keychain-db"
           echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
@@ -308,12 +325,15 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
           security set-key-partition-list -S apple-tool:,apple: -s -k runner "$KEYCHAIN_PATH"
 
-      - name: Prepare Windows signing certificate
+      - name: Validate credentials and prepare Windows signing certificate
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { throw "Missing required release secret WINDOWS_CERTIFICATE." }
+          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw "Missing required release secret WINDOWS_CERTIFICATE_PASSWORD." }
           $certificatePath = Join-Path $env:RUNNER_TEMP "maket-app.pfx"
           [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
           "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -321,14 +341,29 @@ jobs:
       - name: Verify desktop Node runtime
         run: npm run desktop -- check
 
-      - name: Make installers
+      - name: Make macOS installers
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
+
+      - name: Make Windows installers
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
+
+      - name: Make Linux installers
+        if: runner.os == 'Linux'
         run: npm run desktop -- make --arch=${{ matrix.arch }}
 
       - name: Collect distributables
-        shell: bash
-        run: |
-          mkdir -p desktop-artifacts
-          find packages/desktop/out/make -type f -exec cp {} desktop-artifacts/ \;
+        run: >-
+          npx tsx scripts/collect-desktop-installers.ts
+          packages/desktop/out/make desktop-artifacts
+          ${{ matrix.platform }} ${{ matrix.arch }}
 
       - uses: actions/upload-artifact@v6
         with:

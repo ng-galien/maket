@@ -6,6 +6,7 @@
 
 - **Stable** consumes non-draft, non-prerelease GitHub Releases through Electron's public update service. A stable release must contain the macOS ZIP and the Windows Squirrel assets (`Setup.exe`, `RELEASES`, and the full `.nupkg`).
 - **Candidate** consumes a dedicated static feed under `https://ng-galien.github.io/maket/updates/candidate/{platform}/{arch}`. Release candidates use SemVer versions such as `2.0.0-rc.1` and are published as GitHub prereleases.
+- **Snapshot** is an unsigned, local-install build of every push to `main`. GitHub Actions retains the macOS Intel, macOS Apple Silicon, Windows x64, and Linux x64 artifacts for 14 days. The local-install marker disables public update checks so a snapshot cannot accidentally move onto a release channel.
 
 The public Electron service intentionally excludes GitHub prereleases. The candidate feed is therefore a separate distribution surface, not a compatibility alias for the stable feed. On Windows, the Squirrel `RELEASES` file and referenced `.nupkg` are deployed together under the candidate feed URL.
 
@@ -20,15 +21,25 @@ The selected channel is persisted in the Electron user-data directory. Maket App
 
 Electron's built-in updater does not expose byte download progress. The current UI therefore uses an indeterminate thin progress line and spinner while downloading. Once the update is ready, the user can restart from Settings; Maket stops its embedded server before `quitAndInstall()`.
 
-Local and CI installers use the same pipeline: `npm run desktop -- make --arch=<arch>`. Add `--local-install` for a local test installer; this only adds the `local-install` marker that disables public update checks. Packaging requires the Node major declared in `.desktop-node-version` (currently Node 22) and fails immediately on other Node majors; `npm run desktop -- check` diagnoses the active runtime. CI and release builds omit the local marker and keep automatic updates enabled.
+Local and CI installers use the same pipeline: `npm run desktop -- make --arch=<arch>`. Add `--local-install` for a local test installer; this only adds the `local-install` marker that disables public update checks. Packaging requires the Node major declared in `.desktop-node-version` (currently Node 22) and fails immediately on other Node majors; `npm run desktop -- check` diagnoses the active runtime. Snapshot CI adds the local marker; candidate and stable release builds omit it and keep automatic updates enabled.
 
-This packaging constraint is deliberately separate from the general `node >=22` project engine. It must not become permanent by accident: when Forge and its makers are upgraded, change `.desktop-node-version` in the same pull request, then validate macOS arm64/x64 and Windows x64 installers plus one update from the previous candidate. The guard, CI, and documentation will all follow that single change.
+This packaging constraint is deliberately separate from the general `node >=22` project engine. It must not become permanent by accident: when Forge and its makers are upgraded, change `.desktop-node-version` in the same pull request, then validate macOS arm64/x64, Windows x64, and Linux x64 installers plus one update from the previous candidate. The guard, CI, and documentation will all follow that single change.
 
 An unreachable or incomplete release feed is reported as neutral `unavailable` state in Settings. It never creates an error badge in the application rail; Maket retries through the normal update loop. The red error state is reserved for an internal application failure, not network or release-service availability.
 
 ## Publishing
 
-The existing `publish.yml` workflow remains responsible for the npm/MCP package and the GitHub Release. Prerelease packages use the npm `next` tag and GitHub prerelease classification. After that release exists, the desktop matrix builds signed installers for macOS Intel, macOS Apple Silicon, and Windows x64, then attaches them to the same GitHub Release. For prereleases, a final job generates the macOS and Windows updater metadata, deploys the candidate feed through GitHub Pages, and preserves that feed across later documentation deployments.
+`desktop-snapshot.yml` runs on every push to `main` and can also be dispatched manually. Its four unsigned artifacts are the inspection surface before a release; they are not attached to a GitHub Release and are not a substitute for signing validation.
+
+The existing `publish.yml` workflow remains responsible for the npm/MCP package and the GitHub Release. Prerelease packages use the npm `next` tag and GitHub prerelease classification. After that release exists, the desktop matrix builds signed installers for macOS Intel, macOS Apple Silicon, and Windows x64 plus unsigned Linux x64 DEB and RPM packages, then attaches them to the same GitHub Release. For prereleases, a final job generates the macOS and Windows updater metadata, deploys the candidate feed through GitHub Pages, and preserves that feed across later documentation deployments. Linux updates remain manual.
+
+Each build keeps the Forge filenames needed by the update services and adds stable, version-independent names for human downloads:
+
+- `Maket-macOS-arm64.dmg` and `Maket-macOS-x64.dmg`;
+- `Maket-Windows-x64-Setup.exe`;
+- `Maket-Linux-x64.deb` and `Maket-Linux-x64.rpm`.
+
+The README names these files and links to the latest release without predicting that an asset already exists. The website resolves the canonical names against GitHub's latest-release API: it exposes direct downloads only for assets actually present and otherwise keeps the snapshot workflow as a working fallback. Each platform also publishes a manifest and its own SHA-256 checksum file, avoiding cross-platform overwrite while jobs upload in parallel.
 
 Required GitHub Actions secrets:
 
@@ -36,13 +47,15 @@ Required GitHub Actions secrets:
 - `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` for notarization;
 - `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` for the base64 PFX certificate.
 
+The release matrix validates these credentials before packaging and fails with the exact missing secret. A stable or candidate tag must not be pushed until all macOS and Windows signing credentials are configured and the snapshot installers have been inspected.
+
 The same entry point exposes `npm run desktop -- publish` for a manually reviewed draft release. CI uses `npm run desktop -- make` followed by an explicit upload so all platform artifacts converge on one release.
 
 ## Release-candidate rollout
 
 1. Align all workspace versions to `X.Y.Z-rc.N` with the repository version command.
 2. Create and push `vX.Y.Z-rc.N`; CI publishes npm on `next` and marks the GitHub Release as a prerelease.
-3. CI builds, signs, notarizes, and attaches the installers.
+3. CI builds, signs, notarizes, and attaches the macOS and Windows installers, plus the Linux DEB and RPM packages.
 4. CI deploys the Squirrel update assets and macOS `RELEASES.json` into the candidate static feed.
-5. Verify the three public feed endpoints. From RC2 onward, test an update from the previous candidate on macOS and Windows before promotion.
+5. Verify the three public feed endpoints and manually install all five canonical downloads. From RC2 onward, test an update from the previous candidate on macOS and Windows before promotion.
 6. Publish `vX.Y.Z` as a normal release; stable clients will then discover it through the public Electron service.

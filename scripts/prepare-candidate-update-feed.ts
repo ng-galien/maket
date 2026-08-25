@@ -75,12 +75,28 @@ async function prepareWindowsFeed(files: string[], output: string): Promise<void
   const windowsFiles = files.filter((path) => path.includes(artifactRoot));
   const releases = requireSingleArtifact(windowsFiles, (path) => basename(path) === "RELEASES", "Windows RELEASES");
   const packageFile = requireSingleArtifact(windowsFiles, (path) => path.endsWith("-full.nupkg"), "Windows full nupkg");
-  const installer = requireSingleArtifact(windowsFiles, (path) => path.endsWith(".exe"), "Windows installer");
+  const installer = preferCanonicalArtifact(
+    windowsFiles,
+    "Maket-Windows-x64-Setup.exe",
+    (path) => path.endsWith(".exe"),
+    "Windows installer",
+  );
   const targetDir = join(output, "win32", "x64");
   await mkdir(targetDir, { recursive: true });
   await Promise.all(
     [releases, packageFile, installer].map((source) => copyFile(source, join(targetDir, basename(source)))),
   );
+}
+
+function preferCanonicalArtifact(
+  files: string[],
+  canonicalName: string,
+  fallback: (path: string) => boolean,
+  label: string,
+): string {
+  const canonical = files.filter((path) => basename(path) === canonicalName);
+  if (canonical.length > 0) return requireSingleArtifact(canonical, () => true, `canonical ${label}`);
+  return requireSingleArtifact(files, fallback, label);
 }
 
 async function listFiles(directory: string): Promise<string[]> {

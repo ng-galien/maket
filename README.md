@@ -24,6 +24,29 @@
 
 ---
 
+## Install Maket App
+
+Maket App is the default way to run Maket. It includes the interface, server,
+runtime, and agent setup — Node.js is not required.
+
+| Platform | Installer |
+|---|---|
+| **macOS Apple Silicon** | `Maket-macOS-arm64.dmg` |
+| **macOS Intel** | `Maket-macOS-x64.dmg` |
+| **Windows x64** | `Maket-Windows-x64-Setup.exe` |
+| **Linux x64** | `Maket-Linux-x64.deb` or `Maket-Linux-x64.rpm` |
+
+[Download the newest snapshot](https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml)
+to test Maket App now. Snapshot installers are unsigned, built from `main`, and
+retained for 14 days. Signed macOS and Windows installers, plus Linux packages,
+will appear on the [latest release](https://github.com/ng-galien/maket/releases/latest)
+once the desktop release is published.
+
+Open the installer, launch **Maket**, then follow the first-run agent setup.
+
+Need a headless server, CI installation, or browser-only deployment? Jump to
+[Maket Server via npm](#option-b--maket-server-via-npm-advanced).
+
 ## Why Maket
 
 Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket adds a real canvas, reusable visual resources, and two distinct data models: collections produce repeated variants from ordered rows, while document state keeps one document synchronized with its own validated, revisioned data.
@@ -108,34 +131,32 @@ Templates use the supported Mustache subset for display and explicit `data-maket
 
 Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema and data snapshot; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state HTML binding contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
 
-## Install
+## Installation details
 
 Pick the row that matches your machine.
 
 | Platform | Recommended | What you get |
 |---|---|---|
-| **macOS** (Apple Silicon or Intel) | [Maket App](#option-a--maket-app-macos-and-windows) — `.dmg` | Native window, embedded server, agent setup on first launch |
-| **Windows** x64 | [Maket App](#option-a--maket-app-macos-and-windows) — `.exe` installer | Same |
-| **Linux** | [npm](#option-b--npm-every-platform) | Server, every MCP tool, full UI in your browser |
+| **macOS** (Apple Silicon or Intel) | [Maket App](#option-a--maket-app) — `.dmg` | Native window, embedded server, agent setup on first launch |
+| **Windows** x64 | [Maket App](#option-a--maket-app) — `.exe` installer | Same |
+| **Linux** x64 | [Maket App](#option-a--maket-app) — `.deb` or `.rpm` | Native window and embedded server; manual updates |
 
-There is no Maket App build for Linux yet. The npm route is not a downgraded
-mode: it runs the same server and the same interface, opened in your browser
-instead of a native window. It also works on macOS and Windows if you would
-rather not install an application.
+### Option A — Maket App
 
-### Option A — Maket App (macOS and Windows)
+Download the installer from the [latest release](https://github.com/ng-galien/maket/releases/latest),
+using the filename for your platform:
 
-Download the installer for your platform from the
-[latest release](https://github.com/ng-galien/maket/releases/latest):
-
-- **macOS Apple Silicon** — `Maket-<version>-arm64.dmg`
-- **macOS Intel** — `Maket-<version>-x64.dmg`
-- **Windows x64** — the `Setup.exe` installer
+- **macOS Apple Silicon** — `Maket-macOS-arm64.dmg`
+- **macOS Intel** — `Maket-macOS-x64.dmg`
+- **Windows x64** — `Maket-Windows-x64-Setup.exe`
+- **Linux x64** — `Maket-Linux-x64.deb` or `Maket-Linux-x64.rpm`
 
 On macOS, open the `.dmg` and drag **Maket** onto **Applications**. On Windows,
 run the installer; it sets up the Start menu entry and a desktop shortcut. The
 macOS build is signed and notarised, the Windows build is signed, so neither
-should trigger a security warning.
+should trigger a security warning. On Linux, install the package with your
+distribution's package manager; updates are downloaded manually from the latest
+release.
 
 Maket App carries its own runtime — **you do not need Node.js installed**. On
 first launch it offers to wire the AI clients it finds on your machine (Claude
@@ -154,7 +175,7 @@ interface, so nothing is exposed to your network.
 Updates are checked automatically and installed on your confirmation. The
 **Candidate** channel in Settings opts you into validation builds.
 
-### Option B — npm (every platform)
+### Option B — Maket Server via npm (advanced)
 
 ```bash
 # Install Maket and its compatible headless Chromium

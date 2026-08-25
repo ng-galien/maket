@@ -1,0 +1,97 @@
+name: Desktop snapshot installers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-snapshot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Snapshot (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            label: macOS Intel
+            platform: darwin
+            arch: x64
+            artifact: macos-x64
+          - os: macos-15
+            label: macOS Apple Silicon
+            platform: darwin
+            arch: arm64
+            artifact: macos-arm64
+          - os: windows-2025
+            label: Windows x64
+            platform: win32
+            arch: x64
+            artifact: windows-x64
+          - os: ubuntu-24.04
+            label: Linux x64
+            platform: linux
+            arch: x64
+            artifact: linux-x64
+    runs-on: ${{ matrix.os }}
+    env:
+      # Snapshots are installable test builds. Production signing remains a
+      # release-only gate so main builds do not depend on long-lived secrets.
+      MAKET_SIGN_DESKTOP: "0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".desktop-node-version"
+          cache: "npm"
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes fakeroot rpm
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Verify desktop Node runtime
+        run: npm run desktop -- check
+
+      - name: Make snapshot installers
+        run: npm run desktop -- make --arch=${{ matrix.arch }} --local-install
+
+      - name: Collect snapshot distributables
+        run: >-
+          npx tsx scripts/collect-desktop-installers.ts
+          packages/desktop/out/make desktop-artifacts
+          ${{ matrix.platform }} ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: maket-app-snapshot-${{ matrix.artifact }}-${{ github.run_number }}
+          path: desktop-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
+  summary:
+    name: Snapshot ready
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish download instructions
+        env:
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## Maket App snapshot installers"
+            echo
+            echo "Unsigned test installers for macOS Intel, macOS Apple Silicon, Windows x64, and Linux x64 are attached to this run."
+            echo
+            echo "Download them from: ${RUN_URL}#artifacts"
+          } >> "$GITHUB_STEP_SUMMARY"

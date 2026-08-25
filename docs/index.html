@@ -128,8 +128,7 @@
     .use__number,
     .workflow__number,
     .template__field,
-    .collection__row,
-    .terminal {
+    .collection__row {
       font-family: "DM Mono", monospace;
     }
 
@@ -303,11 +302,6 @@
         background 180ms ease,
         border-color 180ms ease,
         transform 180ms ease;
-    }
-
-    .button[data-copy-install] {
-      min-width: 12rem;
-      cursor: pointer;
     }
 
     .button:hover,
@@ -929,45 +923,55 @@
       color: rgba(251, 250, 246, 0.6);
     }
 
-    .terminal {
-      width: 100%;
-      max-width: 100%;
-      padding: clamp(1.3rem, 3vw, 2.2rem);
-      border: 1px solid rgba(251, 250, 246, 0.18);
-      border-radius: 0.8rem;
-      color: #e8eee9;
-      background: #111916;
-      font-size: var(--type-label);
-      line-height: 1.9;
-      box-shadow: 0 2.5rem 6rem rgba(0, 0, 0, 0.3);
+    .downloads {
+      border-top: 1px solid rgba(251, 250, 246, 0.22);
     }
 
-    .terminal__group + .terminal__group {
-      margin-top: 1.5rem;
-    }
-
-    .terminal__comment {
-      margin: 0;
-    }
-
-    .terminal__command {
+    .download {
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      gap: 0.75rem;
-      color: inherit;
-      font: inherit;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1.5rem;
+      align-items: center;
+      padding: 1.35rem 0;
+      border-bottom: 1px solid rgba(251, 250, 246, 0.22);
+      transition: color 160ms ease, padding-left 160ms ease;
     }
 
-    .terminal__command span:last-child {
-      overflow-wrap: anywhere;
-    }
-
-    .terminal .comment {
-      color: #72827b;
-    }
-
-    .terminal .prompt {
+    .download:hover,
+    .download:focus-visible {
+      padding-left: 0.45rem;
       color: var(--accent-light);
+    }
+
+    .download strong,
+    .download span {
+      display: block;
+    }
+
+    .download strong {
+      font-size: var(--type-body);
+      font-weight: 600;
+    }
+
+    .download span,
+    .download em {
+      color: rgba(251, 250, 246, 0.55);
+      font-family: "DM Mono", monospace;
+      font-size: var(--type-label);
+      font-style: normal;
+    }
+
+    .download:hover span,
+    .download:hover em,
+    .download:focus-visible span,
+    .download:focus-visible em {
+      color: inherit;
+    }
+
+    .install__note {
+      margin: 1.25rem 0 0;
+      color: rgba(251, 250, 246, 0.55);
+      font-size: var(--type-label);
     }
 
     .footer {
@@ -1227,12 +1231,6 @@
 
       .install__layout {
         gap: 2.75rem;
-      }
-
-      .terminal {
-        padding: 1.15rem;
-        font-size: 0.86rem;
-        line-height: 1.75;
       }
 
       .template {
@@ -1598,49 +1596,40 @@
       <div class="shell install__layout">
         <div class="install__copy reveal">
           <span class="section-index">07 — Installation</span>
-          <h2>Connect Maket to your agent<span class="dot">.</span></h2>
-          <p>Copy the ready-made prompt into Codex, Claude, or Gemini. Your agent will install, start, and verify Maket for you.</p>
+          <h2>Install Maket App<span class="dot">.</span></h2>
+          <p>The app includes its own server and runtime. Install it, launch Maket, then connect your agents from the first-run screen — no Node.js or terminal required.</p>
           <div class="actions">
-            <button
+            <a
               class="button button--primary"
-              type="button"
-              data-copy-install
-              data-copy-target="agent-install-prompt"
-              data-label="Copy instructions"
-              data-success-label="Copied"
-              data-error-label="Copy failed"
-            ><span aria-live="polite">Copy instructions</span></button>
-            <a class="button button--ghost" href="https://github.com/ng-galien/maket#install" target="_blank" rel="noopener">Read the full guide ↗</a>
+              href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml"
+              data-platform-download
+              data-windows-url="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml"
+              data-windows-label="Test Windows snapshot"
+              data-windows-asset="Maket-Windows-x64-Setup.exe"
+              data-windows-ready-label="Download for Windows"
+              data-macos-url="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml"
+              data-macos-label="Choose macOS snapshot"
+              data-macos-release-url="https://github.com/ng-galien/maket/releases/latest"
+              data-macos-ready-label="Choose macOS installer"
+              data-linux-url="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml"
+              data-linux-label="Choose Linux snapshot"
+              data-linux-release-url="https://github.com/ng-galien/maket/releases/latest"
+              data-linux-ready-label="Choose Linux package"
+            >View latest snapshot</a>
+            <a class="button button--ghost" href="https://github.com/ng-galien/maket#install-maket-app" target="_blank" rel="noopener">Installation guide ↗</a>
           </div>
-          <script type="text/plain" id="agent-install-prompt">Install Maket in this environment and complete the setup end to end.
-
-1. Check that Node.js 22 or newer is available.
-2. Determine whether the current agent client is Claude Code, Codex, or Gemini. Then run:
-   npx -y @ng-galien/maket install <claude|codex|gemini> --apply
-3. Preserve every existing MCP configuration entry and server.
-4. Start Maket:
-   npx -y @ng-galien/maket start
-5. Run `npx -y @ng-galien/maket doctor` and verify that the Maket MCP server and its tools are reachable from this client.
-6. Open the interface with `npx -y @ng-galien/maket open`. If the client must be restarted, tell me exactly what to restart.
-7. Report what you changed, the verification result, and the local Maket URL.
-
-Do not stop at explaining the commands: perform the installation and verification. Ask before any permission-sensitive action.</script>
+          <p class="install__note">Need automation or a headless host? Maket Server remains available through npm as the advanced installation path.</p>
         </div>
 
         <div class="reveal">
-          <section class="terminal" aria-label="Installation commands">
-            <div class="terminal__group">
-              <p class="terminal__comment comment"># Connect Maket to your agent</p>
-              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install claude --apply</span></code>
-              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install codex --apply</span></code>
-              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket install gemini --apply</span></code>
-            </div>
-            <div class="terminal__group">
-              <p class="terminal__comment comment"># Start Maket and open the interface</p>
-              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket start</span></code>
-              <code class="terminal__command"><span class="prompt">$</span><span>npx -y @ng-galien/maket open</span></code>
-            </div>
-          </section>
+          <nav class="downloads" aria-label="Maket App downloads">
+            <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-arm64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Apple Silicon</span><em data-release-badge>Snapshot ↗</em></a>
+            <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-x64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Intel</span><em data-release-badge>Snapshot ↗</em></a>
+            <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-Windows-x64-Setup.exe" data-release-label="EXE ↓"><span><strong>Windows</strong>x64</span><em data-release-badge>Snapshot ↗</em></a>
+            <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-Linux-x64.deb" data-release-label="DEB ↓"><span><strong>Linux</strong>x64 · Debian / Ubuntu</span><em data-release-badge>Snapshot ↗</em></a>
+            <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-Linux-x64.rpm" data-release-label="RPM ↓"><span><strong>Linux</strong>x64 · Fedora / RHEL</span><em data-release-badge>Snapshot ↗</em></a>
+          </nav>
+          <p class="install__note" data-release-status data-ready-label="Stable installers are available from the latest GitHub Release.">Until the first desktop release, these links open the latest snapshot workflow.</p>
         </div>
       </div>
     </section>
@@ -1703,51 +1692,53 @@ Do not stop at explaining the commands: perform the installation and verificatio
       { passive: true }
     );
 
-    async function writeToClipboard(value) {
-      if (navigator.clipboard?.writeText) {
-        try {
-          await navigator.clipboard.writeText(value);
-          return;
-        } catch {
-          // Fall through for browsers that expose the API but deny access.
+    for (const link of document.querySelectorAll('[data-platform-download]')) {
+      const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
+      const target = /win/i.test(platform) ? 'windows' : /mac/i.test(platform) ? 'macos' : /linux/i.test(platform) ? 'linux' : null;
+      if (target) {
+        link.dataset.platformTarget = target;
+        link.href = link.dataset[`${target}Url`];
+        link.textContent = link.dataset[`${target}Label`];
+        if (link.dataset[`${target}Asset`]) {
+          link.dataset.releaseAsset = link.dataset[`${target}Asset`];
+          link.dataset.releaseReadyLabel = link.dataset[`${target}ReadyLabel`];
         }
       }
+    }
 
-      const textarea = document.createElement('textarea');
-      textarea.value = value;
-      textarea.setAttribute('readonly', '');
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.append(textarea);
-      textarea.select();
-      let copied = false;
+    async function resolveReleaseDownloads() {
       try {
-        copied = document.execCommand('copy');
-      } finally {
-        textarea.remove();
-      }
-      if (!copied) throw new Error('Clipboard copy failed');
-    }
-
-    for (const button of document.querySelectorAll('[data-copy-install]')) {
-      button.addEventListener('click', async () => {
-        const target = document.getElementById(button.dataset.copyTarget);
-        const label = button.querySelector('[aria-live]');
-        if (!target || !label) return;
-
-        try {
-          await writeToClipboard(target.textContent.trim());
-          button.dataset.state = 'copied';
-          label.textContent = button.dataset.successLabel;
-          window.setTimeout(() => {
-            delete button.dataset.state;
-            label.textContent = button.dataset.label;
-          }, 2400);
-        } catch {
-          label.textContent = button.dataset.errorLabel;
+        const response = await fetch('https://api.github.com/repos/ng-galien/maket/releases/latest', {
+          headers: { Accept: 'application/vnd.github+json' }
+        });
+        if (!response.ok) return;
+        const release = await response.json();
+        const assets = new Map(release.assets.map((asset) => [asset.name, asset.browser_download_url]));
+        const downloads = [...document.querySelectorAll('.download[data-release-asset]')];
+        if (downloads.length === 0 || !downloads.every((link) => assets.has(link.dataset.releaseAsset))) return;
+        for (const link of document.querySelectorAll('[data-release-asset]')) {
+          const downloadUrl = assets.get(link.dataset.releaseAsset);
+          if (!downloadUrl) return;
+          link.href = downloadUrl;
+          if (link.dataset.releaseReadyLabel) link.textContent = link.dataset.releaseReadyLabel;
+          const badge = link.querySelector('[data-release-badge]');
+          if (badge) badge.textContent = link.dataset.releaseLabel;
         }
-      });
+        for (const link of document.querySelectorAll('[data-platform-download]')) {
+          const target = link.dataset.platformTarget;
+          if (target && link.dataset[`${target}ReleaseUrl`]) {
+            link.href = link.dataset[`${target}ReleaseUrl`];
+            link.textContent = link.dataset[`${target}ReadyLabel`];
+          }
+        }
+        const status = document.querySelector('[data-release-status]');
+        if (status) status.textContent = status.dataset.readyLabel;
+      } catch {
+        // Snapshot links remain usable when GitHub's release API is unavailable.
+      }
     }
+
+    resolveReleaseDownloads();
   </script>
 </body>
 </html>
