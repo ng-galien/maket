@@ -1,3 +1,5 @@
+import { MESSAGE_KEYS } from "./messages.js";
+
 /** Toast keys carried over WebSocket and translated by the browser. */
 export const TOAST_KEYS = [
 	"toast_document_created",
@@ -22,6 +24,7 @@ export const TOAST_KEYS = [
 	"toast_collection_payload_invalid",
 	"toast_bundle_imported",
 	"toast_detail",
+	...MESSAGE_KEYS,
 ] as const;
 
 export type ToastKey = (typeof TOAST_KEYS)[number];

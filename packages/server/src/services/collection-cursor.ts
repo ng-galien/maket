@@ -21,6 +21,7 @@ import type {
 	CollectionCursorMode,
 	PageCollectionCursor,
 } from "@maket/shared";
+import { MessageError } from "../lib/message-error.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 import type { CollectionCursorRecord } from "./sqlite-store/collection-cursor-repository.js";
@@ -164,8 +165,10 @@ function memberIdForRow(
 ): string {
 	const cursor = effectiveCursor(ctx, docName, pageIndex);
 	if (!cursor) {
-		throw new Error(
+		throw new MessageError(
 			`Page ${pageIndex + 1} of "${docName}" has no data source.`,
+			"msg_page_no_data_source",
+			{ page: pageIndex + 1, doc: docName },
 		);
 	}
 	const members = sortedMembers(ctx.store.loadCollection(cursor.collection));
@@ -174,8 +177,10 @@ function memberIdForRow(
 		const member = members[Number(row) - 1];
 		if (member) return member.id;
 	}
-	throw new Error(
+	throw new MessageError(
 		`Row "${row}" not found in collection "${cursor.collection}" (${members.length} rows).`,
+		"msg_row_not_found",
+		{ row, collection: cursor.collection, rows: members.length },
 	);
 }
 

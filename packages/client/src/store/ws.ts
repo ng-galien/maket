@@ -2,6 +2,7 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
+	LocalizedMessage,
 	Settings,
 	ToastKey,
 	WorkspaceCommand,
@@ -348,21 +349,12 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 					(msg.docList ?? []) as DocSummary[],
 				);
 			break;
-		case "state_patch_result":
-			useStore
-				.getState()
-				.settleStatePatch(
-					msg.requestId,
-					msg.ok ? undefined : (msg.error ?? translate("state_update_failed")),
-				);
-			if (!msg.ok) {
-				spawnToast(
-					msg.error ?? translate("state_update_failed"),
-					"error",
-					4000,
-				);
-			}
+		case "state_patch_result": {
+			const failure = msg.ok ? undefined : describeFailure(msg);
+			useStore.getState().settleStatePatch(msg.requestId, failure);
+			if (failure) spawnToast(failure, "error", 4000);
 			break;
+		}
 		case "toast":
 			spawnToast(translateToast(msg.key, msg.params), msg.level, msg.duration);
 			break;
@@ -420,7 +412,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "annotation_create_result":
 			settleAnnotationCreate(msg.requestId, {
 				ok: msg.ok,
-				...(msg.error ? { error: msg.error } : {}),
+				...(msg.ok ? {} : { error: describeFailure(msg) }),
 			});
 			break;
 		default:
@@ -619,6 +611,18 @@ function flushSettings(): void {
 
 if (typeof window !== "undefined") {
 	window.addEventListener("pagehide", flushSettings);
+}
+
+/** The identifier is authoritative; a server that sent only a sentence still
+ *  gets shown, and a silent failure falls back to the generic wording. */
+function describeFailure(signal: {
+	message?: LocalizedMessage;
+	error?: string;
+}): string {
+	if (signal.message) {
+		return translate(signal.message.key, signal.message.params);
+	}
+	return signal.error ?? translate("state_update_failed");
 }
 
 export function wsSend(msg: WorkspaceCommand): boolean {

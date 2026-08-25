@@ -1,5 +1,10 @@
-import type { WorkspaceCommand, WorkspaceSignal } from "@maket/shared";
+import type {
+	LocalizedMessage,
+	WorkspaceCommand,
+	WorkspaceSignal,
+} from "@maket/shared";
 import type WebSocket from "ws";
+import { localizedOf } from "../../lib/message-error.js";
 import type { WsHandlerContext } from "./context.js";
 
 export function handleStatePatch(
@@ -9,18 +14,18 @@ export function handleStatePatch(
 ): void {
 	const doc = ctx.documents.resolveOrLoad(msg.docName);
 	if (!doc) {
-		sendResult(ws, msg.requestId, false, undefined, "Document not found.");
+		sendResult(ws, msg.requestId, false, undefined, {
+			key: "msg_document_not_found",
+			params: { name: msg.docName },
+		});
 		return;
 	}
 	if (doc.meta?.locked === true) {
 		ctx.broadcastState(doc);
-		sendResult(
-			ws,
-			msg.requestId,
-			false,
-			undefined,
-			`Document "${doc.name}" is locked.`,
-		);
+		sendResult(ws, msg.requestId, false, undefined, {
+			key: "msg_document_locked",
+			params: { name: doc.name },
+		});
 		return;
 	}
 	try {
@@ -37,6 +42,7 @@ export function handleStatePatch(
 			msg.requestId,
 			false,
 			undefined,
+			localizedOf(error),
 			error instanceof Error ? error.message : String(error),
 		);
 	}
@@ -47,6 +53,7 @@ function sendResult(
 	requestId: string,
 	ok: boolean,
 	revision?: number,
+	message?: LocalizedMessage,
 	error?: string,
 ): void {
 	const signal: Extract<WorkspaceSignal, { type: "state_patch_result" }> = {
@@ -54,6 +61,7 @@ function sendResult(
 		requestId,
 		ok,
 		revision,
+		message,
 		error,
 	};
 	ws.send(JSON.stringify(signal));

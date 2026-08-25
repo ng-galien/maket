@@ -7,6 +7,7 @@ import {
 	isCollectionCursorMode,
 	type WorkspaceCommand,
 } from "@maket/shared";
+import { localizedOf } from "../../lib/message-error.js";
 import type { WsHandlerContext } from "./context.js";
 import { isPlainObject } from "./context.js";
 
@@ -24,13 +25,7 @@ export function handleCollectionSave(
 	try {
 		ctx.collections.save(msg.collection as unknown as Collection);
 	} catch (error) {
-		ctx.bus.emit("toast", {
-			key: "toast_detail",
-			params: {
-				detail: error instanceof Error ? error.message : String(error),
-			},
-			level: "error",
-		});
+		emitFailure(ctx, error);
 	}
 }
 
@@ -42,13 +37,7 @@ export function handleCollectionDelete(
 	try {
 		ctx.collections.delete(msg.name);
 	} catch (error) {
-		ctx.bus.emit("toast", {
-			key: "toast_detail",
-			params: {
-				detail: error instanceof Error ? error.message : String(error),
-			},
-			level: "error",
-		});
+		emitFailure(ctx, error);
 	}
 }
 
@@ -64,13 +53,7 @@ export function handleCollectionBindPage(
 		);
 		ctx.broadcastState(doc);
 	} catch (error) {
-		ctx.bus.emit("toast", {
-			key: "toast_detail",
-			params: {
-				detail: error instanceof Error ? error.message : String(error),
-			},
-			level: "error",
-		});
+		emitFailure(ctx, error);
 	}
 }
 
@@ -82,13 +65,7 @@ export function handleCollectionClearPage(
 		const doc = ctx.collections.clearPageBinding(msg.docName, msg.pageIndex);
 		ctx.broadcastState(doc);
 	} catch (error) {
-		ctx.bus.emit("toast", {
-			key: "toast_detail",
-			params: {
-				detail: error instanceof Error ? error.message : String(error),
-			},
-			level: "error",
-		});
+		emitFailure(ctx, error);
 	}
 }
 
@@ -103,12 +80,34 @@ export function handleCollectionCursorSet(
 			memberId: msg.memberId,
 		});
 	} catch (error) {
+		emitFailure(ctx, error);
+	}
+}
+
+/** Prefer the identifier the browser can translate; the raw sentence is the
+ *  fallback for failures that do not carry one yet. */
+function emitFailure(ctx: WsHandlerContext, error: unknown): void {
+	const localized = localizedOf(error);
+	if (localized) {
 		ctx.bus.emit("toast", {
-			key: "toast_detail",
-			params: {
-				detail: error instanceof Error ? error.message : String(error),
-			},
+			key: localized.key,
+			params: stringParams(localized.params),
 			level: "error",
 		});
+		return;
 	}
+	ctx.bus.emit("toast", {
+		key: "toast_detail",
+		params: { detail: error instanceof Error ? error.message : String(error) },
+		level: "error",
+	});
+}
+
+function stringParams(
+	params: Record<string, string | number> | undefined,
+): Record<string, string> | undefined {
+	if (!params) return undefined;
+	return Object.fromEntries(
+		Object.entries(params).map(([key, value]) => [key, String(value)]),
+	);
 }

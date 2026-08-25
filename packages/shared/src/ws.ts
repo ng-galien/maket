@@ -1,5 +1,6 @@
 import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
+import type { LocalizedMessage } from "./messages.js";
 import type { Settings } from "./settings.js";
 import type { ToastKey, ToastLevel } from "./toast.js";
 
@@ -59,6 +60,9 @@ export interface StatePatchResultSignal {
 	requestId: string;
 	ok: boolean;
 	revision?: number;
+	/** Identifier the browser translates. `error` is the untranslated fallback
+	 *  for failures that carry no identifier yet. */
+	message?: LocalizedMessage;
 	error?: string;
 }
 
@@ -117,6 +121,7 @@ export interface AnnotationCreateResultSignal {
 	type: "annotation_create_result";
 	requestId: string;
 	ok: boolean;
+	message?: LocalizedMessage;
 	error?: string;
 }
 
