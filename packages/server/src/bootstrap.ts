@@ -19,7 +19,7 @@ import { createOAuthRouter } from "./routes/oauth.routes.js";
 import { createThumbnailRouter } from "./routes/thumbnail.routes.js";
 import { createAnnotations } from "./services/annotations.js";
 import { createAssetsService } from "./services/assets.js";
-import { createBrowserPool } from "./services/browser-pool.js";
+import type { BrowserPool } from "./services/browser-pool.js";
 import { createBundleExportService } from "./services/bundle-export.js";
 import { createBundleImportService } from "./services/bundle-import.js";
 import { createBus } from "./services/bus.js";
@@ -36,6 +36,7 @@ import {
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
 import { createPdfService } from "./services/pdf.js";
+import { createSettings } from "./services/settings.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createThumbnailService } from "./services/thumbnail.js";
@@ -60,6 +61,12 @@ export interface BootstrapInputs {
 	documents?: Documents;
 	/** Optional GmailClient override — tests inject a stub. */
 	gmailClient?: GmailClient;
+	/** Optional render-browser override — Electron supplies its embedded
+	 * Chromium while the standalone server uses Puppeteer. */
+	browserPool?: BrowserPool;
+	/** Owned render-browser factory. The headless entry point supplies the
+	 * Puppeteer implementation; Electron supplies `browserPool` instead. */
+	browserPoolFactory?: () => BrowserPool;
 }
 
 export function createAppContainer(
@@ -67,6 +74,9 @@ export function createAppContainer(
 ): AwilixContainer {
 	const config = inputs.config ?? createConfig();
 	if (inputs.ensure !== false) ensureDirs(config);
+	if (!inputs.browserPool && !inputs.browserPoolFactory) {
+		throw new Error("A browser pool or browser pool factory is required");
+	}
 
 	const container = createContainer({ strict: true });
 
@@ -74,6 +84,7 @@ export function createAppContainer(
 		config: asValue(config),
 
 		bus: asFunction(createBus).singleton(),
+		settings: asFunction(createSettings).singleton(),
 
 		store: inputs.store
 			? asValue(inputs.store)
@@ -119,9 +130,11 @@ export function createAppContainer(
 
 		layout: asFunction(createLayoutService).singleton(),
 
-		browserPool: asFunction(createBrowserPool)
-			.singleton()
-			.disposer((p) => p.dispose()),
+		browserPool: inputs.browserPool
+			? asValue(inputs.browserPool)
+			: asFunction(inputs.browserPoolFactory as () => BrowserPool)
+					.singleton()
+					.disposer((p) => p.dispose()),
 
 		pdfService: asFunction(createPdfService).singleton(),
 

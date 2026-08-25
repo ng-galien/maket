@@ -42,7 +42,11 @@ describe("bus", () => {
 	it("exposes typed events (compile-time check via usage)", () => {
 		const bus = createBus();
 		// These compile because the payload shape matches BusEvents
-		bus.emit("toast", { text: "hello", level: "info" });
+		bus.emit("toast", {
+			key: "toast_charte_saved",
+			params: { name: "brand" },
+			level: "info",
+		});
 		bus.emit("element:updated", { docName: "d", id: "el-1" });
 		bus.emit("assets:changed", {});
 		// No assertion needed — if this compiles, the typing is correct.

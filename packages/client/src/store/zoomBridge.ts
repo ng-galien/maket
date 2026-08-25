@@ -1,4 +1,4 @@
-/** Bridge between the zoom slider (BottomBar) and d3-zoom (Workspace). */
+/** Bridge between workspace zoom controls and d3-zoom (Workspace). */
 let _zoomTo: ((pct: number) => void) | null = null;
 let _fitToView: (() => void) | null = null;
 let _fitToDoc: ((docName: string, pageIndex?: number) => void) | null = null;
@@ -47,10 +47,14 @@ export function zoomTo(pct: number): void {
 	_zoomTo?.(pct);
 }
 
+/** Immediate fit for an explicit user command. Automatic workspace changes
+ * must use requestFit so layout settling and user-interaction cancellation are
+ * preserved. The architecture rule of the same name enforces that boundary. */
 export function fitToView(): void {
 	_fitToView?.();
 }
 
+/** Immediate targeted fit, kept for direct user commands only. */
 export function fitToDoc(docName: string, pageIndex?: number): void {
 	_fitToDoc?.(docName, pageIndex);
 }

@@ -8,6 +8,7 @@ import {
 	within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { statePatchKey, useStore } from "../store/useStore";
 import * as ws from "../store/ws";
@@ -15,6 +16,7 @@ import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 import { presentationPolicy } from "./presentation-policy";
 
 beforeEach(() => {
+	setLang("en");
 	vi.useFakeTimers();
 	vi.spyOn(console, "log").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
@@ -829,6 +831,17 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(marker?.getAttribute("data-collection-bound")).toBe("true");
 	});
 
+	it("shows a localized diagnostic when the bound collection is missing", () => {
+		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
+		doc.pages[0].collection = { name: "clients" };
+
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		expect(document.body.textContent).toContain(
+			'Collection "clients" not found.',
+		);
+	});
+
 	it("renders the selected collection row in rendered preview mode", () => {
 		const doc = makeDoc('<p data-id="a">{{ client_name }}</p>');
 		doc.pages[0].collection = { name: "clients" };
@@ -974,7 +987,89 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(useStore.getState().showPopover).toBe(true);
 		expect(useStore.getState().selectedIds).toEqual(["a"]);
 	});
+
+	it("keeps full-page annotation outlines inside the clipped canvas", async () => {
+		useStore.setState({
+			pending: [
+				{
+					id: "full-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "full",
+					text: "Full page",
+					ts: 0,
+				},
+				{
+					id: "inner-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "inner",
+					text: "Inner element",
+					ts: 0,
+				},
+			],
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<div data-id="full"><span data-id="inner">Content</span></div>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		const full = container.querySelector('[data-id="full"]') as HTMLElement;
+		const inner = container.querySelector('[data-id="inner"]') as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(10, 20, 200, 100),
+		);
+		vi.spyOn(full, "getBoundingClientRect").mockReturnValue(
+			mockRect(10, 20, 200, 100),
+		);
+		vi.spyOn(inner, "getBoundingClientRect").mockReturnValue(
+			mockRect(40, 45, 80, 30),
+		);
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		expect(
+			container.querySelector('[data-annotation-marker="full"]'),
+		).toHaveClass("annotation-marker-inset");
+		expect(
+			container.querySelector('[data-annotation-marker="inner"]'),
+		).not.toHaveClass("annotation-marker-inset");
+	});
 });
+
+function mockRect(
+	x: number,
+	y: number,
+	width: number,
+	height: number,
+): DOMRect {
+	return {
+		x,
+		y,
+		width,
+		height,
+		left: x,
+		top: y,
+		right: x + width,
+		bottom: y + height,
+		toJSON: () => ({}),
+	} as DOMRect;
+}
 
 function makeDoc(html: string, marginUniform?: number): Document {
 	return {

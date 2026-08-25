@@ -30,6 +30,11 @@ export interface Documents {
 	delete(name: string): void;
 	/** Rename while preserving the stable document identity and related state. */
 	rename(name: string, newName: string): void;
+	/** Atomically move every cached document in one category subtree. */
+	moveCategory(
+		source: string,
+		destination: string,
+	): { moved: Document[]; lockedDocName?: string };
 	/** Summaries of every cached document. */
 	list(): DocSummary[];
 	/** Raw access to the backing map. */
@@ -56,6 +61,46 @@ function lightweightElements(elements: unknown[]): unknown[] {
 			return { ...e, children: lightweightElements(e.children) };
 		return el;
 	});
+}
+
+function collectionBindings(
+	pages: Document["pages"],
+): Array<{ name: string; pageCount: number }> {
+	const pageCounts = new Map<string, number>();
+	for (const page of pages) {
+		const name = page.collection?.name;
+		if (name) pageCounts.set(name, (pageCounts.get(name) ?? 0) + 1);
+	}
+	return [...pageCounts]
+		.map(([name, pageCount]) => ({ name, pageCount }))
+		.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function moveDocumentCategory(
+	cache: Map<string, Document>,
+	store: Store,
+	source: string,
+	destination: string,
+): { moved: Document[]; lockedDocName?: string } {
+	const affected = [...cache.values()].filter(
+		(doc) => doc.category === source || doc.category.startsWith(`${source}/`),
+	);
+	const locked = affected.find((doc) => doc.meta?.locked === true);
+	if (locked) return { moved: [], lockedDocName: locked.name };
+	const previousCategories = affected.map((doc) => doc.category);
+	for (const doc of affected) {
+		const suffix = doc.category.slice(source.length);
+		doc.category = `${destination}${suffix}`;
+	}
+	try {
+		store.saveDocs(affected);
+	} catch (error) {
+		for (const [index, doc] of affected.entries()) {
+			doc.category = previousCategories[index] ?? doc.category;
+		}
+		throw error;
+	}
+	return { moved: affected };
 }
 
 export function createDocuments({ store }: DocumentsDeps): Documents {
@@ -107,6 +152,9 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			d.name = newName;
 			cache.set(newName, d);
 		},
+		moveCategory(source, destination) {
+			return moveDocumentCategory(cache, store, source, destination);
+		},
 		list() {
 			const timestamps = store.listTimestamps();
 			const charteCache = new Map<string, string | undefined>();
@@ -140,8 +188,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 					0,
 				),
 				charte: d.meta?.charte,
-				collection: d.pages.find((page) => page.collection)?.collection,
-				collectionCount: d.pages.filter((page) => page.collection).length,
+				collectionBindings: collectionBindings(d.pages),
 				locked: d.meta?.locked === true,
 				updatedAt: timestamps.get(d.name),
 				charteColor: resolveCharteColor(d.meta?.charte),

@@ -18,7 +18,7 @@
  */
 
 import { parseHTML } from "linkedom";
-import type { Browser, Page } from "puppeteer";
+import type { Browser } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
 import { escapeCssValue, stripStyleClose } from "../lib/css-escape.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
@@ -27,7 +27,7 @@ import {
 	waitForPageStable,
 } from "../lib/page-stable-wait.js";
 import type { Document } from "../types.js";
-import type { BrowserPool } from "./browser-pool.js";
+import type { BrowserPool, RenderBrowser, RenderPage } from "./browser-pool.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 
@@ -113,19 +113,19 @@ function errorMessage(error: unknown): string {
  * them at the container level.
  */
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Headless layout path coordinates browser, network guard, and DOM measure.
 async function runHeadlessLayoutCheck(ctx: {
 	doc: Document;
 	pageHtml: string;
 	documents: Documents;
-	getBrowser: () => Promise<Browser>;
+	getBrowser: () => Promise<RenderBrowser>;
 	getAssetBaseUrl: () => string;
 	timeoutMs: number;
 }): Promise<HeadlessCheckResult> {
 	const { doc, pageHtml, documents, getBrowser, getAssetBaseUrl, timeoutMs } =
 		ctx;
-	let page: Page | undefined;
+	let page: RenderPage | undefined;
 	let expired = false;
 	let succeeded = false;
 	let closePromise: Promise<void> | undefined;
@@ -217,7 +217,9 @@ export function createLayoutService(
 	const getAssetBaseUrl =
 		opts.getAssetBaseUrl ??
 		(() => `http://localhost:${process.env.MAKET_PORT || "3333"}`);
-	const getBrowser = opts.browserLaunch ?? (() => browserPool.get());
+	const getBrowser = opts.browserLaunch
+		? async () => (await opts.browserLaunch?.()) as unknown as RenderBrowser
+		: () => browserPool.get();
 	const headlessTimeoutMs =
 		opts.headlessTimeoutMs ?? DEFAULT_HEADLESS_TIMEOUT_MS;
 
@@ -314,7 +316,7 @@ function parseMm(value: string | undefined): number | null {
 	return m ? Number.parseFloat(m[1] ?? "0") : null;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `serverLayoutCheck`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function serverLayoutCheck(
 	html: string,
@@ -438,7 +440,7 @@ export function serverLayoutCheck(
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
@@ -568,9 +570,9 @@ export function formatLayoutReport(
 // `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
 // declaring its own measurement zone. Falls back to firstElementChild for
 // legacy / non-canonical content.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
-// code-moniker: ignore[smell-long-callable]
+// code-moniker: ignore[maket-hygiene-limits-callable-size]
 // Puppeteer serializes this function alone, so browser helpers must stay inside its body.
 function measureInBrowser(
 	pageSelector: string,

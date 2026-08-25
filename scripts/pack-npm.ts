@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================
-// PACK-NPM — Stage Maket for `npm publish` under @ng-galien/maket
+// PACK-NPM — Stage Maket Server for `npm publish` under @ng-galien/maket
 // ============================================================
 //
 // Usage:
@@ -44,6 +44,12 @@ const EXTERNALS = [
   "zod",
 ];
 
+// Workspace packages are private and bundled into server.js by esbuild; leaving
+// one in `dependencies` makes every `npm install` fail with a registry 404.
+function publishableDependencies(dependencies: Record<string, string> | undefined) {
+  return Object.fromEntries(Object.entries(dependencies ?? {}).filter(([name]) => !name.startsWith("@maket/")));
+}
+
 function stage(): void {
   if (existsSync(DIST)) rmSync(DIST, { recursive: true, force: true });
   mkdirSync(DIST, { recursive: true });
@@ -81,7 +87,7 @@ function stage(): void {
   log("Writing package.json...");
   const rootPkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8"));
   const serverPkg = JSON.parse(readFileSync(join(ROOT, "packages/server/package.json"), "utf-8"));
-  const { "@maket/shared": _shared, ...runtimeDeps } = serverPkg.dependencies ?? {};
+  const runtimeDeps = publishableDependencies(serverPkg.dependencies);
 
   const npmPkg = {
     name: "@ng-galien/maket",

@@ -23,7 +23,7 @@ function escapeHtml(s: string): string {
 		.replace(/'/g, "&#39;");
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler for OAuth callback: completes Gmail token exchange via gmailClient.
 async function handleGoogleOAuthCallback(
 	deps: OAuthRouterDeps,

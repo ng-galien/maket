@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -67,6 +67,15 @@ const SCHEMA_SQL = `
   );
   CREATE UNIQUE INDEX collection_rows_position_idx
     ON collection_rows(collection_name, position);
+  CREATE TABLE collection_cursors (
+    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    page_id     TEXT NOT NULL,
+    collection  TEXT NOT NULL,
+    mode        TEXT NOT NULL CHECK (mode IN ('template', 'rendered', 'all')),
+    member_id   TEXT,
+    updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+    PRIMARY KEY (document_id, page_id)
+  );
   CREATE TABLE document_states (
     document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
     schema      TEXT NOT NULL CHECK (json_valid(schema)),
@@ -105,6 +114,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 10, up: migrateToV10 },
 	{ version: 11, up: migrateToV11 },
 	{ version: 12, up: migrateToV12 },
+	{ version: 13, up: migrateToV13 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -153,6 +163,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV10(db);
 	migrateToV11(db);
 	migrateToV12(db);
+	migrateToV13(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -203,6 +214,21 @@ function migrateToV12(db: DatabaseSync): void {
       position    TEXT,
       ts          INTEGER NOT NULL,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+}
+
+function migrateToV13(db: DatabaseSync): void {
+	migrateToV12(db);
+	db.exec(`
+    CREATE TABLE IF NOT EXISTS collection_cursors (
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      page_id     TEXT NOT NULL,
+      collection  TEXT NOT NULL,
+      mode        TEXT NOT NULL CHECK (mode IN ('template', 'rendered', 'all')),
+      member_id   TEXT,
+      updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now')),
+      PRIMARY KEY (document_id, page_id)
     );
   `);
 }
@@ -301,7 +327,16 @@ function assertCurrentSchema(db: DatabaseSync): void {
 	}
 	assertRevisionSchemas(db);
 	assertAnnotationsSchema(db);
+	assertCollectionCursorSchema(db);
 	assertIntegrity(db);
+}
+
+function assertCollectionCursorSchema(db: DatabaseSync): void {
+	if (!hasTable(db, "collection_cursors")) {
+		throw new Error(
+			"SQLite migration failed: collection_cursors table is missing",
+		);
+	}
 }
 
 function assertAnnotationsSchema(db: DatabaseSync): void {

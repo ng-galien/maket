@@ -26,7 +26,7 @@ import { waitForPageStable } from "../lib/page-stable-wait.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
-import type { BrowserPool } from "./browser-pool.js";
+import type { BrowserPool, RenderBrowser } from "./browser-pool.js";
 import type { CollectionCursors } from "./collection-cursor.js";
 import type { Config } from "./config.js";
 import type { DocumentRenderer } from "./document-renderer.js";
@@ -74,7 +74,7 @@ export interface PdfServiceOptions {
 	browserLaunch?: () => Promise<import("puppeteer").Browser>;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // PDF render orchestrates collections, cursors, asset inlining, and browser pool.
 async function renderPdfDocument(
 	ctx: {
@@ -169,7 +169,8 @@ export function createPdfService(
 	> = { current: "rendered", all: "all", template: "template" };
 	const pool: BrowserPool = opts.browserLaunch
 		? {
-				get: opts.browserLaunch,
+				get: async () =>
+					(await opts.browserLaunch?.()) as unknown as RenderBrowser,
 				async dispose() {},
 			}
 		: browserPool;

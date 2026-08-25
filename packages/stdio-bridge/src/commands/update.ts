@@ -1,5 +1,5 @@
 /**
- * `maket update` — upgrade the CLI. We don't try to detect the active
+ * `maket update` — upgrade the headless CLI. We don't try to detect the active
  * runtime (npx vs `npm -g` vs Homebrew); if `npm install -g` fails, npm's
  * own error message is more informative than anything we'd reinvent.
  */

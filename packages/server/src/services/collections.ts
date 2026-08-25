@@ -9,6 +9,7 @@ import {
 	summarizeCollection,
 	validateCollection,
 } from "@maket/shared";
+import { MessageError } from "../lib/message-error.js";
 import type { Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -118,7 +119,8 @@ function persistCollection(
 	store.saveCollection(collection);
 	bus.emit("collection:saved", { name: collection.name });
 	bus.emit("toast", {
-		text: `Collection "${collection.name}" saved`,
+		key: "toast_collection_saved",
+		params: { name: collection.name },
 		level: "success",
 	});
 }
@@ -128,7 +130,12 @@ function resolveRequiredCollection(
 	name: string,
 ): Collection {
 	const collection = store.loadCollection(name);
-	if (!collection) throw new Error(`Collection "${name}" not found.`);
+	if (!collection)
+		throw new MessageError(
+			`Collection "${name}" not found.`,
+			"msg_collection_not_found",
+			{ name },
+		);
 	return collection;
 }
 
@@ -217,15 +224,18 @@ function deleteCollection(
 ): boolean {
 	const references = referencedDocuments(name, store.loadAll());
 	if (references.length > 0) {
-		throw new Error(
+		throw new MessageError(
 			`Collection "${name}" is used by ${references.join(", ")}. Unbind it before deleting.`,
+			"msg_collection_in_use",
+			{ name, documents: references.join(", ") },
 		);
 	}
 	const deleted = store.deleteCollection(name);
 	if (deleted) {
 		bus.emit("collection:deleted", { name });
 		bus.emit("toast", {
-			text: `Collection "${name}" deleted`,
+			key: "toast_collection_deleted",
+			params: { name },
 			level: "success",
 		});
 	}
@@ -239,12 +249,24 @@ function updatePageBinding(
 	collectionName: string | null,
 ): Document {
 	const doc = deps.documents.resolveOrLoad(docName);
-	if (!doc) throw new Error(`Document "${docName}" not found.`);
+	if (!doc)
+		throw new MessageError(
+			`Document "${docName}" not found.`,
+			"msg_document_not_found",
+			{ name: docName },
+		);
 	const page = doc.pages[pageIndex];
-	if (!page) throw new Error(`Page ${pageIndex + 1} not found.`);
+	if (!page)
+		throw new MessageError(
+			`Page ${pageIndex + 1} not found.`,
+			"msg_page_not_found",
+			{ page: pageIndex + 1 },
+		);
 	if (collectionName && doc.dataModel === "state") {
-		throw new Error(
+		throw new MessageError(
 			`Document "${doc.name}" is state-backed and cannot bind a collection.`,
+			"msg_collection_on_state_document",
+			{ name: doc.name },
 		);
 	}
 	if (collectionName) resolveRequiredCollection(deps, collectionName);

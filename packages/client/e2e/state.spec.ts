@@ -62,6 +62,11 @@ test.describe("Living document state", () => {
 		).toBeVisible();
 		await expect(approved).not.toBeChecked();
 		await expect(owner).toHaveValue("Camille");
+		await page
+			.getByRole("button", {
+				name: /Open document state|Ouvrir l’état du document/i,
+			})
+			.click();
 		await expect(
 			page.getByRole("button", { name: /^(Live)$/i }),
 		).toHaveAttribute("aria-pressed", "true");

@@ -3,7 +3,7 @@
   "name": "io.github.ng-galien/maket",
   "title": "Maket",
   "description": "Compose branded visual documents with live preview, data collections, validation, and PDF export.",
-  "version": "1.7.4",
+  "version": "2.0.0",
   "websiteUrl": "https://ng-galien.github.io/maket/",
   "repository": {
     "url": "https://github.com/ng-galien/maket",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "@ng-galien/maket",
-      "version": "1.7.4",
+      "version": "2.0.0",
       "runtimeHint": "npx",
       "runtimeArguments": [
         {

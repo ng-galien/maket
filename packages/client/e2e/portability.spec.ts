@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, openWorkspace, test } from "./workspace-test";
+import { expect, libraryBadge, openWorkspace, test } from "./workspace-test";
 
 const AGENT_LOGO = path.join(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -122,7 +122,7 @@ test.describe("Portable workspace bundles", () => {
 			.getByPlaceholder(/Note sur le document|Note about the document/i)
 			.fill(noteText);
 		await page.keyboard.press("Enter");
-		await expect(messagesButton.locator("span")).toHaveText("1");
+		await expect(libraryBadge(messagesButton)).toHaveText("1");
 
 		await mcp.call("maket_doc", {
 			action: "export",
@@ -184,7 +184,7 @@ test.describe("Portable workspace bundles", () => {
 		await expect(
 			restored.locator("[data-annotation-page-marker]"),
 		).toBeVisible();
-		await expect(messagesButton.locator("span")).toHaveText("1");
+		await expect(libraryBadge(messagesButton)).toHaveText("1");
 
 		const messages = await mcp.callJson<
 			Array<{ text?: string; docName?: string }>

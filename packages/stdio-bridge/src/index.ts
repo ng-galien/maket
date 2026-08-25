@@ -112,6 +112,12 @@ function unsupportedClient(command: string, client: string): void {
 	process.exitCode = 1;
 }
 
+/** A fresh instance has no matched command, so cac renders the global help
+ *  rather than the usage of `help` itself. */
+function outputGlobalHelp(): void {
+	buildCli().outputHelp();
+}
+
 function buildCli(): CAC {
 	const cli = cac("maket");
 
@@ -221,6 +227,11 @@ function buildCli(): CAC {
 				await runGmail(sub, { ...envOverrides(opts), force: opts.force });
 			},
 		);
+
+	cli.command("help", "Show this help").action(outputGlobalHelp);
+	cli.command("version", "Print the Maket version").action(() => {
+		process.stdout.write(`${readVersion()}\n`);
+	});
 
 	cli.help();
 	cli.version(readVersion());

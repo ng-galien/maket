@@ -214,7 +214,7 @@ interface MaketDocToolDeps {
 	bundleImportService: BundleImportService;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP handlers are adapter boundaries: they parse the tool contract and route to document workflows without taking ownership from services.
 async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 	const args = MaketDocSchema.parse(rawArgs);
@@ -238,7 +238,7 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runNew`: edge adapter over services/store/bus, not domain ownership.
 function runNew(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=new", true);
@@ -267,7 +267,8 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 		: "";
 	bus.emit("document:created", { docName: args.doc });
 	bus.emit("toast", {
-		text: `New document "${args.doc}" (${fmt} ${orient})`,
+		key: "toast_document_created",
+		params: { doc: String(args.doc), format: fmt, orientation: orient },
 		level: "success",
 	});
 	const next = newDoc.meta.charte
@@ -282,7 +283,7 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runList`: edge adapter over services/store/bus, not domain ownership.
 function runList(documents: Documents) {
 	const list = documents.list();
@@ -354,7 +355,7 @@ function documentCategoryCount(node: DocumentCategoryNode): number {
 	return count;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runDelete`: edge adapter over services/store/bus, not domain ownership.
 function runDelete(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=delete", true);
@@ -367,13 +368,14 @@ function runDelete(args: Args, documents: Documents, bus: Bus) {
 	documents.delete(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
-		text: `Document "${args.doc}" deleted`,
+		key: "toast_document_deleted",
+		params: { doc: String(args.doc) },
 		level: "info",
 	});
 	return text(`Deleted "${args.doc}"`);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runDuplicate`: edge adapter over services/store/bus, not domain ownership.
 function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=duplicate", true);
@@ -406,7 +408,8 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		: "";
 	bus.emit("document:created", { docName: clone.name });
 	bus.emit("toast", {
-		text: `Document "${args.doc}" cloned → "${clone.name}"`,
+		key: "toast_document_cloned",
+		params: { doc: String(args.doc), clone: clone.name },
 		level: "success",
 	});
 	return text(
@@ -433,7 +436,7 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runRename`: edge adapter over services/store/bus, not domain ownership.
 function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=rename", true);
@@ -454,13 +457,14 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	documents.rename(oldName, args.name);
 	bus.emit("document:renamed", { oldName, docName: args.name });
 	bus.emit("toast", {
-		text: `"${oldName}" → "${args.name}"`,
+		key: "toast_document_renamed",
+		params: { from: oldName, to: String(args.name) },
 		level: "success",
 	});
 	return text(`Renamed "${oldName}" → "${args.name}"`);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Export is an MCP adapter that writes the bundle produced by BundleExportService.
 async function runExport(
 	args: Args,
@@ -511,7 +515,7 @@ async function runExport(
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Import is an MCP adapter that reads a bundle and reports the shared restoration result.
 async function runImport(
 	args: Args,

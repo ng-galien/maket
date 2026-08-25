@@ -1,5 +1,5 @@
 import type { Locator, Page } from "@playwright/test";
-import { expect, openWorkspace, test } from "./workspace-test";
+import { expect, openLibraryView, openWorkspace, test } from "./workspace-test";
 
 test.describe("Collection workspace", () => {
 	test("requires a completed hold before deleting a persisted collection", async ({
@@ -17,13 +17,8 @@ test.describe("Collection workspace", () => {
 			},
 		});
 		await openWorkspace(page);
-		await page.getByRole("button", { name: /^(Collections)$/i }).click();
-		const library = page.getByRole("complementary", {
-			name: /^(Collections)$/i,
-		});
-		const card = library
-			.getByText(name, { exact: true })
-			.locator("xpath=ancestor::div[contains(@class,'rounded-lg')][1]");
+		const library = await openLibraryView(page, "collections");
+		const card = library.locator(`[data-collection-row="${name}"]`);
 		await expect(card).toBeVisible();
 		await card.getByRole("button", { name: /^(Delete|Supprimer)$/i }).click();
 		const hold = card.getByRole("button", {
@@ -138,20 +133,18 @@ test.describe("Collection workspace", () => {
 				name: /agent_clients · (All rows|Toutes les lignes)/i,
 			})
 			.click();
-		const sourceDialog = page.getByRole("dialog", {
-			name: /Data source|Source de données/i,
-		});
-		await sourceDialog
+		const dataDock = page.locator("[data-collection-dock]");
+		await expect(dataDock).toBeVisible();
+		await expect(
+			page.getByRole("dialog", { name: /Data source|Source de données/i }),
+		).toHaveCount(0);
+		await dataDock
 			.getByRole("button", {
 				name: /Current row render|Rendu ligne courante/i,
 			})
 			.click();
 		await expect(document.locator(".page-canvas")).toHaveCount(1);
-		await sourceDialog
-			.getByRole("button", {
-				name: /Previous row|Ligne précédente/i,
-			})
-			.click();
+		await dataDock.getByText("Acme", { exact: true }).click();
 		await expect(document.getByText("Acme", { exact: true })).toBeVisible();
 		await expect(document.getByText("Globex", { exact: true })).toHaveCount(0);
 
@@ -164,15 +157,98 @@ test.describe("Collection workspace", () => {
 		expect(cursor).toContain("row 1/2 (acme");
 	});
 
+	test("opens linked data with a document preview and autonomous data without one", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Collection shell document";
+		const linkedName = "linked_shell_data";
+		const autonomousName = "autonomous_shell_data";
+		await openWorkspace(page);
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: docName,
+			format: "A4",
+			orientation: "portrait",
+		});
+		await mcp.call("maket_html", {
+			action: "set",
+			doc: docName,
+			page: 1,
+			html: '<main data-id="page"><h1 data-id="title">{{ label }}</h1></main>',
+		});
+		for (const name of [linkedName, autonomousName]) {
+			await mcp.call("maket_collection", {
+				action: "create",
+				name,
+				schema: {
+					type: "object",
+					properties: { label: { type: "string" } },
+					required: ["label"],
+				},
+			});
+		}
+		await mcp.call("maket_collection", {
+			action: "add_row",
+			name: linkedName,
+			row: "linked-row",
+			data: { label: "Linked" },
+		});
+		await mcp.call("maket_collection", {
+			action: "bind",
+			name: linkedName,
+			doc: docName,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
+		const library = await openLibraryView(page, "collections");
+
+		await library.getByText(linkedName, { exact: true }).click();
+		const dock = page.locator("[data-collection-dock]");
+		await expect(dock).toHaveAttribute(
+			"data-collection-layout",
+			"expanded-linked",
+		);
+		await expect(page.locator("[data-document-preview]")).toHaveAttribute(
+			"data-document-preview",
+			"true",
+		);
+		await page
+			.getByRole("button", {
+				name: /Active document · return to split|Document actif · revenir au partage/i,
+			})
+			.click();
+		await expect(dock).toHaveAttribute("data-collection-layout", "split");
+
+		const reopenedLibrary = await openLibraryView(page, "collections");
+		await reopenedLibrary.getByText(autonomousName, { exact: true }).click();
+		await expect(dock).toHaveAttribute(
+			"data-collection-layout",
+			"expanded-data",
+		);
+		await expect(page.locator("[data-document-preview]")).toHaveCount(0);
+
+		await reopenedLibrary
+			.getByRole("button", {
+				name: new RegExp(`^(Open|Ouvrir) ${docName}$`, "i"),
+			})
+			.click();
+		await expect(dock).toHaveAttribute("data-collection-layout", "split");
+		await expect(dock.getByText(linkedName, { exact: true })).toBeVisible();
+		await expect(page.locator(`[data-doc="${docName}"]`)).toBeVisible();
+	});
+
 	test("creates a collection, pastes tabular data and persists the draft", async ({
 		mcp,
 		page,
 	}) => {
 		await openWorkspace(page);
-		await page.getByRole("button", { name: /^(Collections)$/i }).click();
-		const library = page.getByRole("complementary", {
-			name: /^(Collections)$/i,
-		});
+		const library = await openLibraryView(page, "collections");
 		await expect(library).toBeVisible();
 		await library
 			.getByRole("button", { name: /New collection|Nouvelle collection/i })
@@ -188,7 +264,19 @@ test.describe("Collection workspace", () => {
 
 		const editor = collectionEditor(page, "launch_metrics");
 		await expect(editor).toBeVisible();
+		const emptyCollection = await mcp.callText("maket_collection", {
+			action: "view",
+			name: "launch_metrics",
+		});
+		expect(emptyCollection).not.toContain("client_name");
+		await editor.getByRole("tab", { name: /^(Schema|Schéma)$/i }).click();
 		await editor.getByPlaceholder(/Description/i).fill("Launch pipeline");
+		await editor
+			.getByPlaceholder(/new_field|nouveau_champ/i)
+			.fill("client_name");
+		await editor
+			.getByRole("button", { name: /Add field|Ajouter un champ/i })
+			.click();
 		await editor.getByPlaceholder(/new_field|nouveau_champ/i).fill("budget");
 		await editor
 			.getByRole("combobox", { name: /Field type|Type/i })
@@ -196,27 +284,48 @@ test.describe("Collection workspace", () => {
 		await editor
 			.getByRole("button", { name: /Add field|Ajouter un champ/i })
 			.click();
+		await editor.getByRole("tab", { name: /^(Data|Données)$/i }).click();
+		await editor
+			.getByRole("button", { name: /Add row|Ajouter une ligne/i })
+			.click();
 
 		const firstCell = editor
-			.locator("tbody input:not([type=checkbox])")
-			.first();
+			.getByRole("row")
+			.nth(1)
+			.getByRole("gridcell")
+			.nth(1);
+		await firstCell.click();
 		await pasteTable(firstCell, "Acme\t1200\nGlobex\t950");
 		await expect(editor.getByRole("row")).toHaveCount(3);
-		await expect(editor.locator('input[value="Acme"]')).toBeVisible();
-		await expect(editor.locator('input[value="1200"]')).toBeVisible();
-		await expect(editor.locator('input[value="Globex"]')).toBeVisible();
-		await expect(editor.locator('input[value="950"]')).toBeVisible();
+		await expect(editor.getByText("Acme", { exact: true })).toBeVisible();
+		await expect(editor.getByText("Globex", { exact: true })).toBeVisible();
+		await expect(
+			editor.getByRole("row").nth(1).getByRole("gridcell").nth(2),
+		).toHaveText("1200");
+		await expect(
+			editor.getByRole("row").nth(2).getByRole("gridcell").nth(2),
+		).toHaveText("950");
 
 		const save = editor.getByRole("button", { name: /^(Save|Enregistrer)$/i });
 		await expect(save).toBeDisabled();
-		const budgets = editor.locator('tbody input[type="number"]');
-		await budgets.nth(0).fill("");
-		await budgets.nth(0).fill("1200");
-		await budgets.nth(1).fill("");
-		await budgets.nth(1).fill("950");
+		for (const [rowIndex, value] of [
+			[1, "1200"],
+			[2, "950"],
+		] as const) {
+			const budgetCell = editor
+				.getByRole("row")
+				.nth(rowIndex)
+				.getByRole("gridcell")
+				.nth(2);
+			await budgetCell.dblclick();
+			const input = budgetCell.getByRole("spinbutton");
+			await input.fill("");
+			await input.fill(value);
+			await input.press("Enter");
+		}
 		await expect(save).toBeEnabled();
 		await save.click();
-		await expect(save).toHaveCount(0);
+		await expect(save).toBeDisabled();
 
 		const persisted = await mcp.callText("maket_collection", {
 			action: "view",
@@ -226,15 +335,12 @@ test.describe("Collection workspace", () => {
 		expect(persisted).toContain('"client_name":"Acme"');
 		expect(persisted).toContain('"budget":1200');
 		expect(persisted).toContain('"client_name":"Globex"');
+		expect(persisted).toContain('"budget":950');
 	});
 });
 
 function collectionEditor(page: Page, name: string): Locator {
-	return page
-		.getByText(name, { exact: true })
-		.locator(
-			"xpath=ancestor::div[contains(@class,'fixed') and contains(@class,'right-4')][1]",
-		);
+	return page.locator("[data-collection-dock]", { hasText: name });
 }
 
 async function pasteTable(locator: Locator, text: string): Promise<void> {

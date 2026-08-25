@@ -16,7 +16,7 @@ import {
 	useState,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { useT } from "../i18n/useT";
+import { translate, useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import {
 	hasPendingStatePatchForDocument,
@@ -83,7 +83,9 @@ function collectionPreviewHtml(
 			html: showTemplateMarkers
 				? markedTemplateHtml(rawHtml, null).html
 				: rawHtml,
-			error: `Collection "${collectionName ?? ""}" not found.`,
+			error: translate("msg_collection_not_found", {
+				name: collectionName ?? "",
+			}),
 		};
 	}
 	if (preview?.mode === "rendered" && collection) {
@@ -146,6 +148,7 @@ interface AnnotationMarkerBounds extends AnnotationTarget {
 	top: number;
 	width: number;
 	height: number;
+	inset: boolean;
 }
 
 const AuthoredPageHtml = memo(
@@ -179,7 +182,8 @@ function sameAnnotationMarkers(
 				marker.left === candidate.left &&
 				marker.top === candidate.top &&
 				marker.width === candidate.width &&
-				marker.height === candidate.height
+				marker.height === candidate.height &&
+				marker.inset === candidate.inset
 			);
 		})
 	);
@@ -377,6 +381,7 @@ export const PageCanvas = memo(function PageCanvas({
 			);
 			if (!target) return [];
 			const rect = target.getBoundingClientRect();
+			const edgeTolerance = 1;
 			return [
 				{
 					...annotation,
@@ -384,6 +389,11 @@ export const PageCanvas = memo(function PageCanvas({
 					top: (rect.top - pageRect.top) * scaleY,
 					width: rect.width * scaleX,
 					height: rect.height * scaleY,
+					inset:
+						rect.left <= pageRect.left + edgeTolerance ||
+						rect.top <= pageRect.top + edgeTolerance ||
+						rect.right >= pageRect.right - edgeTolerance ||
+						rect.bottom >= pageRect.bottom - edgeTolerance,
 				},
 			];
 		});
@@ -1063,7 +1073,7 @@ export const PageCanvas = memo(function PageCanvas({
 					{annotationMarkers.map((marker) => (
 						<div
 							key={marker.elementId}
-							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}`}
+							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}${marker.inset ? " annotation-marker-inset" : ""}`}
 							data-annotation-marker={marker.elementId}
 							style={{
 								left: marker.left,
@@ -1398,7 +1408,7 @@ function StateValueEditor({
 				</button>
 				<button
 					type="submit"
-					className="h-8 rounded-lg bg-accent px-3 text-xs font-semibold text-white hover:brightness-95"
+					className="h-8 rounded-lg bg-accent px-3 text-xs font-semibold text-accent-contrast hover:brightness-95"
 				>
 					{t("save")}
 				</button>

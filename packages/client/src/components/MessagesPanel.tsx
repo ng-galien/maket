@@ -1,20 +1,26 @@
 import {
-	Check,
+	Eye,
 	FileText,
 	Images,
 	LoaderCircle,
 	MessageSquareText,
-	MousePointerClick,
 	Send,
 	Trash2,
 	Type,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useT } from "../i18n/useT";
+import { useEffect, useMemo, useState } from "react";
+import { getLang, useT } from "../i18n/useT";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
 import { requestFit } from "../store/zoomBridge";
+import { LibrarySearchField } from "./shared/LibrarySearchField";
+import {
+	LibraryToolbar,
+	LibraryToolbarActions,
+	LibraryToolbarRow,
+} from "./shared/LibraryToolbar";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
 function messageElement(msg: PendingMessage): HTMLElement | null {
 	if (!msg.elementId || !msg.docName || typeof msg.pageIndex !== "number")
@@ -54,11 +60,6 @@ function highlightElement(msg: PendingMessage, on: boolean) {
 	el.toggleAttribute("data-maket-message-target", on);
 }
 
-function scrollToElement(msg: PendingMessage) {
-	const el = messageTarget(msg);
-	if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
 function revealMessageTarget(msg: PendingMessage) {
 	if (!msg.docName) return;
 	const pageIndex = msg.pageIndex ?? 0;
@@ -66,12 +67,10 @@ function revealMessageTarget(msg: PendingMessage) {
 	state.addDocToWorkspace(msg.docName);
 	state.setWorkspaceView("canvas");
 	state.setFocusedPage(msg.docName, pageIndex);
-	state.setActivePanel(null);
 	requestFit({ docName: msg.docName, pageIndex });
 	requestAnimationFrame(() =>
 		requestAnimationFrame(() => {
 			highlightElement(msg, true);
-			scrollToElement(msg);
 			setTimeout(() => highlightElement(msg, false), 5000);
 		}),
 	);
@@ -114,7 +113,10 @@ function openMessageTarget(
 
 function formatTime(ts: number): string {
 	const d = new Date(ts);
-	return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+	return d.toLocaleTimeString(getLang() === "fr" ? "fr-FR" : "en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 function resolveElementLabel(msg: PendingMessage): string {
@@ -156,7 +158,7 @@ function TypeBadge({ type }: { type: PendingMessage["type"] }) {
 	}
 }
 
-function ScopeChips({ msg }: { msg: PendingMessage }) {
+function MessageScope({ msg }: { msg: PendingMessage }) {
 	const t = useT();
 	const hasDoc = Boolean(msg.docName);
 	const hasPage = typeof msg.pageIndex === "number";
@@ -164,26 +166,33 @@ function ScopeChips({ msg }: { msg: PendingMessage }) {
 	const elLabel = msg.elementId ? resolveElementLabel(msg) : "";
 
 	if (!hasDoc && !hasPage && !hasEl)
-		return <span className="font-medium">{t("scope_workspace")}</span>;
+		return (
+			<span className="truncate text-[13px] font-semibold text-text-1">
+				{t("scope_workspace")}
+			</span>
+		);
 
 	return (
-		<div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-text-2">
+		<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 			{hasDoc && (
-				<span className="max-w-[150px] truncate font-semibold text-text-1">
+				<span className="truncate text-[13px] font-semibold text-text-1">
 					{msg.docName}
 				</span>
 			)}
-			{hasDoc && (hasPage || hasEl) && <span aria-hidden="true">›</span>}
-			{hasPage && (
-				<span className="tabular-nums">
-					{t("page")} {(msg.pageIndex ?? 0) + 1}
-				</span>
-			)}
-			{hasPage && hasEl && <span aria-hidden="true">›</span>}
-			{hasEl && (
-				<span className="max-w-[140px] truncate" title={msg.elementId}>
-					{elLabel}
-				</span>
+			{(hasPage || hasEl) && (
+				<div className="flex min-w-0 items-center gap-1.5 text-xs text-text-2">
+					{hasPage && (
+						<span className="shrink-0 tabular-nums">
+							{t("page")} {(msg.pageIndex ?? 0) + 1}
+						</span>
+					)}
+					{hasPage && hasEl && <span aria-hidden="true">·</span>}
+					{hasEl && (
+						<span className="truncate" title={msg.elementId}>
+							{elLabel}
+						</span>
+					)}
+				</div>
 			)}
 		</div>
 	);
@@ -212,20 +221,26 @@ function MessageBody({ msg }: { msg: PendingMessage }) {
 
 function MessageCard({
 	msg,
-	onResolve,
+	onDelete,
 }: {
 	msg: PendingMessage;
-	onResolve: (id: string) => boolean;
+	onDelete: (id: string) => boolean;
 }) {
 	const t = useT();
 	const canOpen = Boolean(msg.docName);
-	const [busy, setBusy] = useState<"opening" | "resolving" | null>(null);
+	const [busy, setBusy] = useState<"opening" | "deleting" | null>(null);
 	const [error, setError] = useState<string | null>(null);
+	useEffect(
+		() => () => {
+			highlightElement(msg, false);
+		},
+		[msg],
+	);
 	useEffect(() => {
-		if (busy !== "resolving") return;
+		if (busy !== "deleting") return;
 		const timeout = window.setTimeout(() => {
 			setBusy(null);
-			setError(t("pending_resolve_failed"));
+			setError(t("pending_delete_failed"));
 		}, 5000);
 		return () => window.clearTimeout(timeout);
 	}, [busy, t]);
@@ -241,77 +256,83 @@ function MessageCard({
 			},
 		);
 	};
-	const resolve = () => {
+	const deleteMessage = () => {
 		setError(null);
-		setBusy("resolving");
-		if (onResolve(msg.id)) return;
+		setBusy("deleting");
+		if (onDelete(msg.id)) return;
 		setBusy(null);
-		setError(t("pending_resolve_failed"));
+		setError(t("pending_delete_failed"));
 	};
 	return (
 		<article
 			aria-busy={busy !== null}
-			className={`rounded-[10px] border p-3 transition-colors ${
+			className={`rounded-md border px-3 py-2.5 transition-colors ${
 				msg.type === "delete"
 					? "border-danger-border bg-danger-soft"
-					: "border-border bg-panel hover:border-accent/30 hover:bg-accent/[0.03]"
+					: "border-border bg-panel hover:bg-input/50"
 			}`}
 			onMouseEnter={() => highlightElement(msg, true)}
 			onMouseLeave={() => highlightElement(msg, false)}
 		>
-			<div className="flex items-start justify-between gap-3">
-				<ScopeChips msg={msg} />
-				<time className="shrink-0 text-xs font-medium tabular-nums text-text-2">
-					{formatTime(msg.ts)}
-				</time>
-			</div>
-			<div className="mt-1.5 flex items-start gap-2">
-				<TypeBadge type={msg.type} />
-				<div className="min-w-0 flex-1 text-[15px] leading-[21px]">
-					<MessageBody msg={msg} />
-				</div>
-			</div>
-			<div className="mt-2.5 flex items-center gap-1.5">
-				{canOpen && (
+			<div className="flex min-w-0 items-start gap-2">
+				<MessageScope msg={msg} />
+				<div className="ml-auto flex shrink-0 items-center gap-0.5">
+					<time className="mr-1 text-xs font-medium tabular-nums text-text-3">
+						{formatTime(msg.ts)}
+					</time>
+					{canOpen && (
+						<button
+							type="button"
+							onClick={openTarget}
+							disabled={busy !== null}
+							aria-label={
+								busy === "opening"
+									? t("pending_opening")
+									: t("pending_open_target")
+							}
+							title={t("pending_open_target")}
+							className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-panel hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+						>
+							{busy === "opening" ? (
+								<LoaderCircle
+									size={14}
+									className="animate-spin"
+									aria-hidden="true"
+								/>
+							) : (
+								<Eye size={14} aria-hidden="true" />
+							)}
+						</button>
+					)}
 					<button
 						type="button"
-						onClick={openTarget}
+						aria-label={
+							busy === "deleting"
+								? t("pending_deleting")
+								: t("pending_delete_note")
+						}
+						title={t("pending_delete_note")}
+						onClick={deleteMessage}
 						disabled={busy !== null}
-						className="inline-flex h-8 items-center gap-1.5 rounded-[7px] px-2.5 text-[13px] font-semibold text-text-2 transition hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+						className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-50"
 					>
-						{busy === "opening" ? (
+						{busy === "deleting" ? (
 							<LoaderCircle
-								size={15}
+								size={14}
 								className="animate-spin"
 								aria-hidden="true"
 							/>
 						) : (
-							<MousePointerClick size={15} aria-hidden="true" />
+							<Trash2 size={14} aria-hidden="true" />
 						)}
-						{busy === "opening"
-							? t("pending_opening")
-							: t("pending_locate_short")}
 					</button>
-				)}
-				<button
-					type="button"
-					aria-label={t("pending_resolve_label")}
-					title={t("pending_resolve_label")}
-					onClick={resolve}
-					disabled={busy !== null}
-					className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-[7px] bg-accent-soft px-2.5 text-[13px] font-semibold text-accent transition hover:bg-accent hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				>
-					{busy === "resolving" ? (
-						<LoaderCircle
-							size={15}
-							className="animate-spin"
-							aria-hidden="true"
-						/>
-					) : (
-						<Check size={15} aria-hidden="true" />
-					)}
-					{busy === "resolving" ? t("pending_resolving") : t("pending_resolve")}
-				</button>
+				</div>
+			</div>
+			<div className="mt-2 flex items-start gap-2">
+				<TypeBadge type={msg.type} />
+				<div className="min-w-0 flex-1 text-[15px] leading-[21px]">
+					<MessageBody msg={msg} />
+				</div>
 			</div>
 			{error && (
 				<p className="mt-2 text-xs font-medium text-danger" role="alert">
@@ -349,7 +370,7 @@ function MessageComposer({
 				</p>
 				<button
 					type="button"
-					onClick={() => useStore.getState().setActivePanel("docs")}
+					onClick={() => useStore.getState().setLibraryView("docs")}
 					className="mt-2 inline-flex h-8 items-center rounded-[7px] bg-input px-2.5 text-[13px] font-semibold text-text-1 transition hover:bg-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 				>
 					{t("choose_document")}
@@ -392,7 +413,7 @@ function MessageComposer({
 					title={t("pending_send_note")}
 					className={`w-9 h-9 rounded-lg flex items-center justify-center transition flex-shrink-0 ${
 						note.trim() && !saving
-							? "bg-accent text-white hover:brightness-110"
+							? "bg-accent text-accent-contrast hover:brightness-110"
 							: "bg-input text-text-3 cursor-not-allowed"
 					}`}
 				>
@@ -421,28 +442,44 @@ function MessageComposer({
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MessagesPanel is an adapter over the pending queue: queue ownership stays in Zustand while the panel only renders and dispatches UI commands.
 export function MessagesPanel() {
 	const t = useT();
-	const open = useStore((s) => s.activePanel === "exchange");
-	const barPosition = useStore((s) => s.barPosition);
 	const [globalNote, setGlobalNote] = useState("");
+	const [search, setSearch] = useState("");
 	const [noteSaving, setNoteSaving] = useState(false);
 	const [noteError, setNoteError] = useState<string | null>(null);
 	const focusedDocName = useStore((s) => s.focusedDocName);
 	const pending = useStore((s) => s.pending);
 	const addPending = useStore((s) => s.addPending);
 	const removePending = useStore((s) => s.removePending);
-	const closePanel = () => useStore.getState().setActivePanel(null);
-
-	const barSide = 68;
-	const freeSide = 8;
-	const isTop = barPosition === "top";
-
-	const panelStyle = isTop
-		? { top: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` }
-		: { bottom: barSide, maxHeight: `calc(100vh - ${barSide + freeSide}px)` };
+	useEffect(() => {
+		if (pending.length > 0) return;
+		for (const target of document.querySelectorAll<HTMLElement>(
+			"[data-maket-message-target]",
+		)) {
+			target.removeAttribute("data-maket-message-target");
+		}
+	}, [pending.length]);
+	const filteredPending = useMemo(() => {
+		const query = search.trim().toLocaleLowerCase();
+		if (!query) return pending;
+		return pending.filter((message) =>
+			[
+				message.text,
+				message.type,
+				message.docName,
+				message.elementId,
+				message.file,
+				message.position,
+			]
+				.filter(Boolean)
+				.join(" ")
+				.toLocaleLowerCase()
+				.includes(query),
+		);
+	}, [pending, search]);
 
 	const submitNote = async () => {
 		const text = globalNote.trim();
@@ -464,46 +501,33 @@ export function MessagesPanel() {
 	};
 
 	return (
-		<aside
+		<section
 			id="panel-exchange"
 			aria-labelledby="messages-panel-title"
-			aria-hidden={!open}
-			inert={!open}
-			hidden={!open}
-			style={panelStyle}
-			className={`fixed right-4 w-[360px] max-sm:w-[calc(100vw-2rem)] bg-panel border border-border rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.15)] z-[var(--z-panel)] flex flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-				open
-					? "opacity-100 translate-x-0"
-					: "opacity-0 translate-x-8 pointer-events-none"
-			}`}
+			className="flex h-full min-h-0 flex-col overflow-hidden bg-panel"
 		>
-			<header className="flex items-center gap-2 border-b border-border/60 px-3 py-2.5">
-				<div className="min-w-0 flex-1">
-					<h2
-						id="messages-panel-title"
-						className="text-base font-semibold text-text-1"
-					>
-						{t("exchanges")}
-					</h2>
-					<p
-						className="text-[13px] leading-[18px] text-text-2"
-						aria-live="polite"
-					>
-						{t("pending_count", { count: pending.length })}
-					</p>
-				</div>
-				<button
-					type="button"
-					onClick={closePanel}
-					aria-label={t("close_exchanges")}
-					title={t("close_exchanges")}
-					className="flex h-8 w-8 items-center justify-center rounded-md text-text-2 transition hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				>
-					<span aria-hidden="true">×</span>
-				</button>
-			</header>
+			<LibraryToolbar>
+				<h2 id="messages-panel-title" className="sr-only">
+					{t("exchanges")}
+				</h2>
+				<LibraryToolbarRow>
+					<LibrarySearchField
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						onClear={() => setSearch("")}
+						placeholder={t("pending_search_hint")}
+					/>
+					<LibraryToolbarActions>
+						<p className="shrink-0 text-xs text-text-3" aria-live="polite">
+							{t("pending_count", { count: pending.length })}
+						</p>
+					</LibraryToolbarActions>
+				</LibraryToolbarRow>
+			</LibraryToolbar>
 			<div
-				className={`flex-1 overflow-y-auto px-3 py-3 flex gap-2 scrollbar-thin ${isTop ? "flex-col-reverse" : "flex-col"}`}
+				data-messages-scroll
+				onScroll={showLibraryScrollActivity}
+				className="library-scroll-area flex flex-1 flex-col gap-2 overflow-y-auto px-3 py-3"
 			>
 				{pending.length === 0 ? (
 					<div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 text-sm text-center px-4">
@@ -514,15 +538,19 @@ export function MessagesPanel() {
 							{t("pending_empty")}
 						</span>
 					</div>
+				) : filteredPending.length === 0 ? (
+					<div className="px-4 py-6 text-center text-sm text-text-3">
+						{t("pending_no_match")}
+					</div>
 				) : (
-					pending.map((msg) => (
-						<MessageCard key={msg.id} msg={msg} onResolve={removePending} />
+					filteredPending.map((msg) => (
+						<MessageCard key={msg.id} msg={msg} onDelete={removePending} />
 					))
 				)}
 			</div>
 
 			<MessageComposer
-				isTop={isTop}
+				isTop={false}
 				docName={focusedDocName}
 				note={globalNote}
 				saving={noteSaving}
@@ -533,6 +561,6 @@ export function MessagesPanel() {
 				}}
 				onSubmit={submitNote}
 			/>
-		</aside>
+		</section>
 	);
 }

@@ -2,7 +2,15 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Locator, Page } from "@playwright/test";
-import { createDocument, expect, openWorkspace, test } from "./workspace-test";
+import {
+	closeLibrary,
+	createDocument,
+	expect,
+	libraryBadge,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 const HISTORICAL_V1_FIXTURE = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -167,13 +175,43 @@ test.describe("Document library", () => {
 				await expect(
 					secondPage.getByRole("button", { name: /^(Document)$/i }),
 				).toContainText(otherName);
-				await expect(
-					page
-						.getByRole("navigation", {
-							name: /Reader navigation|Navigation du lecteur/i,
-						})
-						.getByRole("status"),
-				).toHaveText(/2\/2/);
+				const readerNavigation = page.getByRole("navigation", {
+					name: /Reader navigation|Navigation du lecteur/i,
+				});
+				const readerStatus = readerNavigation.getByRole("status");
+				const previousPage = readerNavigation.getByRole("button", {
+					name: /^(Previous page|Page précédente)/i,
+				});
+				const nextPage = readerNavigation.getByRole("button", {
+					name: /^(Next page|Page suivante)/i,
+				});
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(previousPage).toBeVisible();
+				await expect(previousPage).toBeEnabled();
+				await expect(previousPage).toHaveCSS("opacity", "1");
+				await expect(nextPage).toBeVisible();
+				await expect(nextPage).toBeDisabled();
+				await expect(nextPage).toHaveCSS("opacity", "0.25");
+
+				await page.keyboard.press("ArrowRight");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(nextPage).toBeDisabled();
+				await page.keyboard.press("ArrowUp");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await expect(previousPage).toBeDisabled();
+				await expect(previousPage).toHaveCSS("opacity", "0.25");
+				await expect(nextPage).toBeEnabled();
+				await expect(nextPage).toHaveCSS("opacity", "1");
+				await page.keyboard.press("ArrowUp");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await expect(previousPage).toBeDisabled();
+				await page.keyboard.press("ArrowRight");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await page.keyboard.press("ArrowLeft");
+				await expect(readerStatus).toHaveText(/1\/2/);
+				await page.keyboard.press("ArrowDown");
+				await expect(readerStatus).toHaveText(/2\/2/);
+				await expect(nextPage).toBeDisabled();
 			}
 
 			await mcp.call("maket_doc", {
@@ -202,10 +240,14 @@ test.describe("Document library", () => {
 					0,
 				);
 				await page
-					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.getByRole("button", {
+						name: /Close reader|Fermer la vue lecture/i,
+					})
 					.click();
 				await secondPage
-					.getByRole("button", { name: /Canvas view|Vue canevas/i })
+					.getByRole("button", {
+						name: /Close reader|Fermer la vue lecture/i,
+					})
 					.click();
 			}
 
@@ -239,11 +281,7 @@ test.describe("Document library", () => {
 			const panel = await openDocuments(page);
 			await expect(panel.getByText(newName, { exact: true })).toHaveCount(1);
 			await expect(panel.getByText(oldName, { exact: true })).toHaveCount(0);
-			await page
-				.getByRole("button", {
-					name: /Close Documents|Fermer Documents/i,
-				})
-				.click();
+			await closeLibrary(page);
 			await messagesButton.click();
 			await expect(page.getByText(noteText, { exact: true })).toHaveCount(1);
 
@@ -257,7 +295,7 @@ test.describe("Document library", () => {
 				action: "ack_messages",
 				ids: [annotation.id],
 			});
-			await expect(messagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(messagesButton)).toHaveCount(0);
 			await expect(
 				secondPage.locator(
 					`[data-doc="${newName}"] [data-annotation-page-marker]`,
@@ -282,7 +320,7 @@ test.describe("Document library", () => {
 		await expect(docRow(panel, "Acme invoice")).toHaveCount(0);
 
 		await openDocumentMenu(docRow(panel, "Acme proposal"));
-		await page.getByRole("button", { name: /^(Rename|Renommer)$/i }).click();
+		await page.getByRole("menuitem", { name: /^(Rename|Renommer)$/i }).click();
 		const rename = panel.getByPlaceholder(/New name|Nouveau nom/i);
 		await rename.fill("Acme launch proposal");
 		await rename.press("Enter");
@@ -291,7 +329,7 @@ test.describe("Document library", () => {
 		await search.fill("");
 		await openDocumentMenu(docRow(panel, "Acme launch proposal"));
 		await page
-			.getByRole("button", { name: /^(Duplicate|Dupliquer)$/i })
+			.getByRole("menuitem", { name: /^(Duplicate|Dupliquer)$/i })
 			.click();
 		const duplicate = panel.getByPlaceholder(/Copy name|Nom de la copie/i);
 		await duplicate.fill("Acme launch proposal v2");
@@ -349,19 +387,27 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await page
-			.getByRole("button", { name: /^(Copy name|Copier le nom)$/i })
+			.getByRole("menuitem", { name: /^(Copy name|Copier le nom)$/i })
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
 			.toBe(docName);
 
 		await openDocumentMenu(row());
-		await page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }).click();
-		const category = row().getByPlaceholder(
-			/Category path|Chemin de catégorie/i,
-		);
+		await page.getByRole("menuitem", { name: /^(Move…|Déplacer…)$/i }).click();
+		const moveDialog = page.getByRole("dialog", {
+			name: /Move “Menu action proposal”|Déplacer « Menu action proposal »/i,
+		});
+		const category = moveDialog.getByRole("combobox", {
+			name: /Search or create a category|Rechercher ou créer une catégorie/i,
+		});
 		await category.fill("clients/moved");
 		await category.press("Enter");
+		await moveDialog
+			.getByRole("button", {
+				name: /Move to clients\/moved|Déplacer vers clients\/moved/i,
+			})
+			.click();
 		await expect(
 			panel
 				.locator('[data-category-documents="clients/moved"]')
@@ -370,7 +416,7 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await page
-			.getByRole("button", {
+			.getByRole("menuitem", {
 				name: /^(Lock \(MCP read-only\)|Verrouiller \(MCP en lecture seule\))$/i,
 			})
 			.click();
@@ -380,23 +426,23 @@ test.describe("Document library", () => {
 
 		await openDocumentMenu(row());
 		await expect(
-			page.getByRole("button", { name: /^(Rename|Renommer)$/i }),
+			page.getByRole("menuitem", { name: /^(Rename|Renommer)$/i }),
 		).toBeDisabled();
 		await expect(
-			page.getByRole("button", { name: /^(Move…|Déplacer…)$/i }),
+			page.getByRole("menuitem", { name: /^(Move…|Déplacer…)$/i }),
 		).toBeDisabled();
 		await expect(
-			page.getByRole("button", { name: /^(Delete|Supprimer)$/i }),
+			page.getByRole("menuitem", { name: /^(Delete|Supprimer)$/i }),
 		).toBeDisabled();
 		await page
-			.getByRole("button", { name: /^(Unlock|Déverrouiller)$/i })
+			.getByRole("menuitem", { name: /^(Unlock|Déverrouiller)$/i })
 			.click();
 		await expect(
 			row().getByLabel(/Locked document|Document verrouillé/i),
 		).toHaveCount(0);
 
 		await openDocumentMenu(row());
-		const deleteAction = page.getByRole("button", {
+		const deleteAction = page.getByRole("menuitem", {
 			name: /^(Delete|Supprimer)$/i,
 		});
 		await expect(deleteAction).toBeEnabled();
@@ -433,7 +479,9 @@ test.describe("Document library", () => {
 
 		await openWorkspace(page);
 		const panel = await openDocuments(page);
-		const resizeHandle = panel.getByRole("separator", { name: "Resize panel" });
+		const resizeHandle = panel.getByRole("separator", {
+			name: /Resize library panel|Redimensionner le panneau de bibliothèque/i,
+		});
 		await resizeHandle.focus();
 		for (let index = 0; index < 10; index += 1) {
 			await resizeHandle.press("ArrowLeft");
@@ -543,7 +591,7 @@ test.describe("Document library", () => {
 		const countRadius = await categoryPart("clients", "count").evaluate(
 			(element) => Number.parseFloat(getComputedStyle(element).borderRadius),
 		);
-		expect(countRadius).toBe(8);
+		expect(countRadius).toBe(4);
 
 		for (const path of ["clients", "clients/acme", "clients/globex"]) {
 			const chevron = await categoryPart(path, "chevron").boundingBox();
@@ -563,6 +611,48 @@ test.describe("Document library", () => {
 			scrollWidth: element.scrollWidth,
 		}));
 		expect(panelSize.scrollWidth).toBeLessThanOrEqual(panelSize.clientWidth);
+	});
+
+	test("turns breadcrumb levels into cumulative removable category filters", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Breadcrumb filters";
+		await openWorkspace(page);
+		await createDocument(mcp, docName, {
+			category: "clients/acme/campaigns",
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+
+		await page
+			.getByRole("button", {
+				name: /Filter documents by category clients$|Filtrer les documents par catégorie clients$/i,
+			})
+			.click();
+		await page
+			.getByRole("button", {
+				name: /Filter documents by category clients\/acme$|Filtrer les documents par catégorie clients\/acme$/i,
+			})
+			.click();
+
+		const search = page.getByRole("combobox", {
+			name: /@category|@catégorie/i,
+		});
+		await expect(search).toHaveValue("@clients @clients/acme ");
+		await expect(
+			page.getByRole("button", { name: "@clients", exact: true }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "@clients/acme", exact: true }),
+		).toBeVisible();
+
+		await page.getByRole("button", { name: "@clients", exact: true }).click();
+		await expect(search).toHaveValue("@clients/acme ");
+		await expect(page.locator(`[data-doc-row="${docName}"]`)).toBeVisible();
 	});
 
 	test("centers an open document without a heavy row treatment", async ({
@@ -664,22 +754,28 @@ test.describe("Document library", () => {
 		}
 
 		await viewAlpha.click();
-		await expect(panel).toHaveCount(0);
+		await expect(panel).toBeVisible();
 		await expect(page.locator(`[data-doc="${alpha}"]`)).toBeVisible();
 		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
 		await expect
 			.poll(async () => {
 				const box = await page.locator(`[data-doc="${alpha}"]`).boundingBox();
-				const viewport = page.viewportSize();
-				if (!box || !viewport) return 100;
-				const x = Math.abs(box.x + box.width / 2 - viewport.width / 2);
-				const y = Math.abs(box.y + box.height / 2 - viewport.height / 2);
+				const canvas = await page
+					.locator("[data-canvas-workspace]")
+					.boundingBox();
+				if (!box || !canvas) return 100;
+				const x = Math.abs(
+					box.x + box.width / 2 - (canvas.x + canvas.width / 2),
+				);
+				const y = Math.abs(
+					box.y + box.height / 2 - (canvas.y + canvas.height / 2),
+				);
 				return Math.round(Math.max(x, y));
 			})
 			.toBeLessThanOrEqual(12);
 	});
 
-	test("keeps the canvas camera steady when a workspace document is closed", async ({
+	test("reframes the focused document when another workspace document is closed", async ({
 		mcp,
 		page,
 	}) => {
@@ -704,31 +800,128 @@ test.describe("Document library", () => {
 		await expect(betaDocument).toBeVisible();
 		await page.waitForTimeout(50);
 
-		const board = betaDocument.locator("xpath=..");
 		await alphaDocument
 			.getByRole("button", { name: /^(Close|Fermer)$/ })
 			.evaluate((button: HTMLButtonElement) => button.click());
 		await expect(alphaDocument).toHaveCount(0);
-		const transformAtClose = await board.evaluate((element) => {
-			const matrix = new DOMMatrix(getComputedStyle(element).transform);
-			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
-		});
 		await page.waitForTimeout(350);
 
 		await expect(betaDocument).toBeVisible();
-		const transformAfterClose = await board.evaluate((element) => {
-			const matrix = new DOMMatrix(getComputedStyle(element).transform);
-			return { x: matrix.m41, y: matrix.m42, scale: matrix.a };
+		await expect
+			.poll(async () => {
+				const box = await betaDocument.boundingBox();
+				const canvas = await page
+					.locator("[data-canvas-workspace]")
+					.boundingBox();
+				if (!box || !canvas) return 100;
+				const x = Math.abs(
+					box.x + box.width / 2 - (canvas.x + canvas.width / 2),
+				);
+				const y = Math.abs(
+					box.y + box.height / 2 - (canvas.y + canvas.height / 2),
+				);
+				return Math.round(Math.max(x, y));
+			})
+			.toBeLessThanOrEqual(12);
+	});
+
+	test("keeps the remaining document focused when the active handle is closed", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Close active alpha";
+		const beta = "Close active beta";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha);
+		await createDocument(mcp, beta);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
 		});
-		expect(Math.abs(transformAfterClose.x - transformAtClose.x)).toBeLessThan(
-			1,
-		);
-		expect(Math.abs(transformAfterClose.y - transformAtClose.y)).toBeLessThan(
-			1,
-		);
-		expect(
-			Math.abs(transformAfterClose.scale - transformAtClose.scale),
-		).toBeLessThan(0.001);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		const alphaDocument = page.locator(`[data-doc="${alpha}"]`);
+		const betaDocument = page.locator(`[data-doc="${beta}"]`);
+		await expect(betaDocument).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(beta);
+
+		await betaDocument
+			.getByRole("button", { name: /^(Close|Fermer)$/ })
+			.click();
+
+		await expect(betaDocument).toHaveCount(0);
+		await expect(alphaDocument).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(alpha);
+		await expect(
+			alphaDocument.locator('[data-active-page="true"]'),
+		).toBeVisible();
+	});
+
+	test("closes one or every document from the header selector", async ({
+		mcp,
+		page,
+	}) => {
+		const alpha = "Picker close alpha";
+		const beta = "Picker close beta";
+		const gamma = "Picker close gamma";
+		await openWorkspace(page);
+		await createDocument(mcp, alpha);
+		await createDocument(mcp, beta);
+		await createDocument(mcp, gamma);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: alpha,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: beta,
+			page: 1,
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: gamma,
+			page: 1,
+		});
+
+		await page.getByRole("button", { name: /^(Document)$/i }).click();
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^(Close|Fermer) ${alpha}$`),
+			})
+			.click();
+		await expect(page.getByRole("option", { name: alpha })).toHaveCount(0);
+		await expect(page.getByRole("option", { name: beta })).toBeVisible();
+		await expect(page.getByRole("option", { name: gamma })).toBeVisible();
+
+		await page
+			.getByRole("button", {
+				name: new RegExp(`^(Close|Fermer) ${gamma}$`),
+			})
+			.click();
+		await expect(
+			page.getByRole("button", { name: "Document", exact: true }),
+		).toContainText(beta);
+		await expect(page.locator(`[data-doc="${beta}"]`)).toBeVisible();
+
+		await page.getByRole("button", { name: "Document", exact: true }).click();
+		await page
+			.getByRole("button", { name: /^(Close all|Tout fermer)$/i })
+			.click();
+		await expect(
+			page.getByRole("button", {
+				name: /Open (?:a )?document|Ouvrir un document/i,
+			}),
+		).toBeVisible();
+		await expect(page.locator("[data-doc]")).toHaveCount(0);
 	});
 
 	test("exports a bundle from the library and imports it back", async ({
@@ -747,7 +940,9 @@ test.describe("Document library", () => {
 		await openDocumentMenu(docRow(panel, docName));
 		const downloadPromise = page.waitForEvent("download");
 		await page
-			.getByRole("button", { name: /Export \(\.maket\)|Exporter \(\.maket\)/i })
+			.getByRole("menuitem", {
+				name: /Export \(\.maket\)|Exporter \(\.maket\)/i,
+			})
 			.click();
 		const download = await downloadPromise;
 		const bundlePath = await download.path();
@@ -812,10 +1007,7 @@ test.describe("Document library", () => {
 });
 
 async function openDocuments(page: Page): Promise<Locator> {
-	await page.getByRole("button", { name: /^(Documents)$/i }).click();
-	const panel = page.getByRole("complementary", { name: /^(Documents)$/i });
-	await expect(panel).toBeVisible();
-	return panel;
+	return openLibraryView(page, "docs");
 }
 
 function docRow(panel: Locator, name: string): Locator {

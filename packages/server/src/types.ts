@@ -167,8 +167,7 @@ export interface DocSummary {
 	rating: number;
 	count: number;
 	charte?: string;
-	collection?: CollectionReference;
-	collectionCount?: number;
+	collectionBindings: Array<{ name: string; pageCount: number }>;
 	locked?: boolean;
 	/** ISO-ish timestamp ("2026-04-20 14:59:27") of the last save — used by the
 	 * client to render a relative "N min ago" label. */

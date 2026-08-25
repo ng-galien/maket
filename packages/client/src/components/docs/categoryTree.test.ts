@@ -14,6 +14,7 @@ function doc(name: string, category: string): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 	};
 }
 
@@ -46,13 +47,8 @@ describe("category tree", () => {
 
 	it("omits descendants of a collapsed path from selection order", () => {
 		const tree = buildCategoryTree(docs);
-		expect(visibleDocOrder(tree, false, new Set(["clients/acme"]))).toEqual([
+		expect(visibleDocOrder(tree, new Set(["clients/acme"]))).toEqual([
 			"Poster",
-		]);
-		expect(visibleDocOrder(tree, true, new Set(["clients/acme"]))).toEqual([
-			"Poster",
-			"Brief",
-			"Proposal",
 		]);
 	});
 });

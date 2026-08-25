@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { setLang } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import {
+	addCategoryFilter,
 	applySearchSuggestion,
 	buildQueryChips,
 	buildSearchSuggestions,
@@ -17,6 +19,7 @@ function doc(partial: Partial<DocSummary> & { name: string }): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 		...partial,
 	};
 }
@@ -24,10 +27,18 @@ function doc(partial: Partial<DocSummary> & { name: string }): DocSummary {
 describe("docsQuery", () => {
 	it("parses multi-criteria tokens", () => {
 		expect(parseQuery("@flyer #locked :4 summer")).toEqual({
-			category: "flyer",
+			categories: ["flyer"],
 			locked: true,
 			minRating: 4,
 			text: "summer",
+		});
+	});
+
+	it("accumulates category filters without duplicating them", () => {
+		expect(
+			parseQuery('@flyer "@Clients grands comptes/Acme" @FLYER'),
+		).toMatchObject({
+			categories: ["flyer", "clients grands comptes/acme"],
 		});
 	});
 
@@ -67,9 +78,35 @@ describe("docsQuery", () => {
 		).toBe(false);
 	});
 
+	it("combines categories with OR and the remaining criteria with AND", () => {
+		const query = parseQuery("@flyer @poster #locked :4 summer");
+		expect(
+			matchesQuery(
+				doc({
+					name: "Summer flyer",
+					category: "flyer/events",
+					locked: true,
+					rating: 4,
+				}),
+				query,
+			),
+		).toBe(true);
+		expect(
+			matchesQuery(
+				doc({
+					name: "Summer poster",
+					category: "poster",
+					locked: false,
+					rating: 5,
+				}),
+				query,
+			),
+		).toBe(false);
+	});
+
 	it("defers an incomplete trailing filter token without blocking results", () => {
 		expect(parseQuery("summer @cli", { deferLastFilterToken: true })).toEqual({
-			category: null,
+			categories: [],
 			locked: null,
 			minRating: 0,
 			text: "summer",
@@ -77,7 +114,7 @@ describe("docsQuery", () => {
 		expect(
 			parseQuery("summer @clients ", { deferLastFilterToken: true }),
 		).toEqual({
-			category: "clients",
+			categories: ["clients"],
 			locked: null,
 			minRating: 0,
 			text: "summer",
@@ -86,7 +123,7 @@ describe("docsQuery", () => {
 
 	it("ignores invalid filter-like tokens instead of turning them into text", () => {
 		expect(parseQuery("@ #unknown :9 proposal")).toEqual({
-			category: null,
+			categories: [],
 			locked: null,
 			minRating: 0,
 			text: "proposal",
@@ -125,7 +162,7 @@ describe("docsQuery", () => {
 		const search = applySearchSuggestion("@cli", suggestion);
 		expect(search).toBe('"@Clients grands comptes/Acme" ');
 		const query = parseQuery(search, { deferLastFilterToken: true });
-		expect(query.category).toBe("clients grands comptes/acme");
+		expect(query.categories).toEqual(["clients grands comptes/acme"]);
 		expect(
 			matchesQuery(
 				doc({
@@ -145,18 +182,42 @@ describe("docsQuery", () => {
 		expect(buildSearchSuggestions(":4", [])[0]?.token).toBe(":4");
 	});
 
-	it("strips tokens and builds removable chips", () => {
-		const search = "@flyer #locked :3";
+	it("adds, clears, and renders independent category filter chips", () => {
+		const initial = '#locked :3 brief "@Clients grands comptes/Acme"';
+		const search = addCategoryFilter(initial, "flyer");
+		expect(search).toBe(
+			'#locked :3 brief "@Clients grands comptes/Acme" @flyer ',
+		);
+		expect(addCategoryFilter(search, "FLYER")).toBe(search);
+		expect(addCategoryFilter(search, "")).toBe("#locked :3 brief");
+
 		const query = parseQuery(search);
-		const chips = buildQueryChips(query, search, () => {});
-		expect(chips.map((c) => c.key)).toEqual(["cat", "lock", "rating"]);
-		expect(stripToken(search, (t) => t === "#locked")).toBe("@flyer :3");
+		let updatedSearch = "";
+		const chips = buildQueryChips(query, search, (value) => {
+			updatedSearch = value;
+		});
+		expect(chips.map((c) => c.key)).toEqual([
+			"cat:clients grands comptes/acme",
+			"cat:flyer",
+			"lock",
+			"rating",
+		]);
+		chips[0]?.onRemove();
+		expect(updatedSearch).toBe("#locked :3 brief @flyer ");
+		expect(
+			parseQuery(updatedSearch, { deferLastFilterToken: true }).categories,
+		).toEqual(["flyer"]);
+		expect(stripToken(search, (t) => t === "#locked")).toBe(
+			':3 brief "@Clients grands comptes/Acme" @flyer',
+		);
 	});
 
 	it("formats relative time in fr and en", () => {
 		const ts = new Date(Date.now() - thrMinutes(5)).toISOString();
-		expect(relativeTime(ts, "en")).toMatch(/m ago|just now/);
-		expect(relativeTime(ts, "fr")).toMatch(/min|instant/);
+		setLang("en");
+		expect(relativeTime(ts)).toMatch(/m ago|just now/);
+		setLang("fr");
+		expect(relativeTime(ts)).toMatch(/min|instant/);
 	});
 });
 

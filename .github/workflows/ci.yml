@@ -13,8 +13,8 @@ jobs:
     permissions:
       contents: read
     env:
-      CODE_MONIKER_VERSION: "0.6.1"
-      CODE_MONIKER_SHA256: "47879fd56827116b6cfdde9575b809cb7c867e28c63239f64803171e63da93e6"
+      CODE_MONIKER_VERSION: "0.8.0"
+      CODE_MONIKER_SHA256: "325e411ca8cb7b625367e60c48b2b8af87dafa9878e99510b0da0db80a77173f"
       GIT_CONFIG_COUNT: 1
       GIT_CONFIG_KEY_0: init.defaultBranch
       GIT_CONFIG_VALUE_0: main
@@ -26,7 +26,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
 
       - name: Install dependencies
@@ -80,7 +80,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
 
       - name: Install dependencies

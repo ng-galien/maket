@@ -65,7 +65,7 @@ export function handleWorkspaceUpdate(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // text_edit is a WS adapter workflow: resolve doc/page, patch HTML via
 // linkedom, strip active markup, persist, broadcast. Coordinating those
 // owners is intentional edge glue, not feature envy of Document alone.

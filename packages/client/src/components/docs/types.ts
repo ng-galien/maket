@@ -6,11 +6,22 @@ export type RowMode =
 	| { kind: "idle" }
 	| { kind: "rename" }
 	| { kind: "duplicate" }
-	| { kind: "move-category" }
 	| { kind: "confirm-delete" };
 
+export type CategoryMoveTarget =
+	| { kind: "document"; name: string; category: string }
+	| { kind: "asset"; name: string; category: string }
+	| { kind: "category"; path: string };
+
+export interface CategoryPickerModel {
+	target: CategoryMoveTarget | null;
+	categories: string[];
+	close: () => void;
+	moveTo: (path: string) => void;
+}
+
 export interface Query {
-	category: string | null;
+	categories: string[];
 	locked: boolean | null;
 	minRating: number;
 	text: string;
@@ -23,12 +34,12 @@ export interface QueryChip {
 }
 
 export interface DocsTabModel {
-	barPosition: "bottom" | "top";
 	toolbar: DocsToolbarModel;
 	categories: DocsCategoryModel[];
 	empty: boolean;
 	selected: Set<string>;
 	bulk: BulkActionBarProps;
+	movePicker: CategoryPickerModel;
 }
 
 export interface DocsToolbarModel {
@@ -59,8 +70,16 @@ export interface DocsCategoryModel {
 	children: DocsCategoryModel[];
 	collapsed: boolean;
 	dropActive: boolean;
+	menuOpen: boolean;
+	renaming: boolean;
 	view: View;
 	toggle: () => void;
+	openMenu: () => void;
+	closeMenu: () => void;
+	startMove: () => void;
+	startRename: () => void;
+	cancelRename: () => void;
+	rename: (name: string) => void;
 	dragOver: (event: React.DragEvent) => void;
 	dragLeave: (event: React.DragEvent) => void;
 	drop: (event: React.DragEvent) => void;
@@ -94,6 +113,7 @@ export interface DocItemActions {
 	openMenu: () => void;
 	closeMenu: () => void;
 	changeMode: (mode: RowMode) => void;
+	moveCategory: () => void;
 	dragStart: (event: React.DragEvent) => void;
 	dragEnd: () => void;
 }

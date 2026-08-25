@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createAppContainer } from "./bootstrap.js";
+import { type BootstrapInputs, createAppContainer } from "./bootstrap.js";
 import { assertActivityContract } from "./core/activity-contract.js";
 import { registerToolPacks } from "./core/tool-pack-registry.js";
 import { createConfig } from "./services/config.js";
@@ -21,6 +21,13 @@ import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
 import { statePack } from "./tools/state.js";
 import { workspacePack } from "./tools/workspace.js";
+
+const browserPool = {
+	async get(): Promise<never> {
+		throw new Error("Browser rendering is not used by this test");
+	},
+	async dispose() {},
+};
 
 describe("createAppContainer", () => {
 	let tmp: string;
@@ -40,8 +47,12 @@ describe("createAppContainer", () => {
 		});
 	}
 
+	function createTestContainer(inputs: BootstrapInputs = {}) {
+		return createAppContainer({ browserPool, ...inputs });
+	}
+
 	it("wires the core services and resolves them", () => {
-		const c = createAppContainer({ config: testConfig() });
+		const c = createTestContainer({ config: testConfig() });
 		expect(c.resolve("config")).toBeDefined();
 		expect(typeof c.resolve<{ emit: unknown }>("bus").emit).toBe("function");
 		expect(typeof c.resolve<{ loadAll: unknown }>("store").loadAll).toBe(
@@ -60,7 +71,7 @@ describe("createAppContainer", () => {
 	});
 
 	it("services are singletons (same instance across resolves)", () => {
-		const c = createAppContainer({ config: testConfig() });
+		const c = createTestContainer({ config: testConfig() });
 		expect(c.resolve("bus")).toBe(c.resolve("bus"));
 		expect(c.resolve("store")).toBe(c.resolve("store"));
 		expect(c.resolve("documents")).toBe(c.resolve("documents"));
@@ -68,7 +79,7 @@ describe("createAppContainer", () => {
 	});
 
 	it("documents service is wired to the store singleton", () => {
-		const c = createAppContainer({ config: testConfig() });
+		const c = createTestContainer({ config: testConfig() });
 		const store = c.resolve<{ isEmpty: () => boolean }>("store");
 		const documents = c.resolve<{ loadAll: () => void }>("documents");
 
@@ -79,7 +90,7 @@ describe("createAppContainer", () => {
 	});
 
 	it("dispose() closes the SQLite store", async () => {
-		const c = createAppContainer({ config: testConfig() });
+		const c = createTestContainer({ config: testConfig() });
 		const store = c.resolve<{ loadAll: () => unknown[] }>("store");
 		// Reading works pre-dispose
 		expect(store.loadAll()).toEqual([]);
@@ -90,7 +101,7 @@ describe("createAppContainer", () => {
 	});
 
 	it("resolves every registered key (boot smoke)", () => {
-		const c = createAppContainer({ config: testConfig() });
+		const c = createTestContainer({ config: testConfig() });
 		// Every factory registered by bootstrap.ts must resolve without throwing.
 		// Eager resolution catches factory bugs (throwing constructors, missing deps)
 		// at test time rather than at production boot.
@@ -113,6 +124,7 @@ describe("registerToolPacks", () => {
 
 	function bootedContainer() {
 		return createAppContainer({
+			browserPool,
 			config: createConfig({
 				env: { MAKET_DATA_DIR: tmp },
 				homedir: () => "/nowhere",

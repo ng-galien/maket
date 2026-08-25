@@ -1,0 +1,37 @@
+fragment = "client-recentering"
+
+# The zoom bridge owns the client recentering contract. Keep its policy beside
+# the implementation so changes to the immediate and deferred APIs are reviewed
+# with the boundary they affect.
+
+[aliases]
+recentering_at_workspace_source = "source ~ '**/dir:packages/dir:client/dir:src/**'"
+recentering_at_workspace_explicit_fit_command_source = """
+  source ~ '**/dir:packages/dir:client/dir:src/module:desktopCommands'
+  OR source ~ '**/dir:packages/dir:client/dir:src/dir:components/module:WorkspaceHeader'
+"""
+recentering_at_workspace_immediate_fit_import = """
+  kind = 'imports_symbol'
+  AND (
+    target.name = 'fitToView'
+    OR target.name = 'fitToDoc'
+  )
+"""
+recentering_at_workspace_zoom_bridge_broad_import = """
+  (kind = 'imports_module' OR kind = 'reexports')
+  AND target ~ '**/dir:packages/dir:client/dir:src/dir:store/module:zoomBridge/**'
+"""
+
+[[refs.where]]
+id        = "recentering@workspace-call-flow-reserves-immediate-fit-for-explicit-commands"
+severity  = "error"
+rationale = "Immediate fitting is reserved for explicit user commands. Layout, focus, document, collection, and state changes must call `requestFit`, which owns post-commit timing, image/font settling, cancellation, and the pending request used while the board is unavailable."
+expr      = "$recentering_at_workspace_source AND $recentering_at_workspace_immediate_fit_import => $recentering_at_workspace_explicit_fit_command_source"
+message   = "Automatic recentering must use `requestFit`; only explicit Fit-to-view commands may import immediate fit functions."
+
+[[refs.where]]
+id        = "recentering@workspace-dependency-uses-named-zoom-bridge-imports"
+severity  = "error"
+rationale = "Named imports let the automatic-recentering rule distinguish deferred `requestFit` from immediate manual fit commands. Namespace imports and re-exports would hide that distinction from review."
+expr      = "NOT ($recentering_at_workspace_source AND $recentering_at_workspace_zoom_bridge_broad_import)"
+message   = "Import named zoom-bridge commands directly; namespace imports and re-exports bypass the recentering guard."

@@ -2,13 +2,13 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
+	LocalizedMessage,
+	Settings,
+	ToastKey,
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
-import en from "../i18n/en.json";
-
-import fr from "../i18n/fr.json";
-import { getLang } from "../i18n/useT";
+import { setLang, type TranslationKey, translate } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
@@ -17,20 +17,19 @@ import {
 } from "./useStore";
 import { requestFit } from "./zoomBridge";
 
-const BUBBLE_LANGS: Record<string, Record<ActivityKey, string>> = { fr, en };
-
+/** Typed façades over `translate`, so a signal key is checked at compile time. */
 export function translateBubble(
 	key: ActivityKey,
-	params?: Record<string, string>,
+	params?: Record<string, string | number>,
 ): string {
-	const dict = BUBBLE_LANGS[getLang()] ?? BUBBLE_LANGS.en;
-	let text = dict[key];
-	if (params) {
-		for (const [k, v] of Object.entries(params)) {
-			text = text.replace(`{${k}}`, v);
-		}
-	}
-	return text;
+	return translate(key, params);
+}
+
+export function translateToast(
+	key: ToastKey,
+	params?: Record<string, string | number>,
+): string {
+	return translate(key, params);
 }
 
 let ws: WebSocket | null = null;
@@ -83,7 +82,7 @@ export function sendStateValuePatch(
 		useStore.getState().beginStatePatch(docName, pointer, requestId);
 		useStore
 			.getState()
-			.settleStatePatch(requestId, "State update could not be sent.");
+			.settleStatePatch(requestId, translate("state_update_not_sent"));
 		return null;
 	}
 	useStore.getState().beginStatePatch(docName, pointer, requestId);
@@ -91,7 +90,7 @@ export function sendStateValuePatch(
 		() =>
 			useStore
 				.getState()
-				.timeoutStatePatch(requestId, "State update timed out."),
+				.timeoutStatePatch(requestId, translate("state_update_timed_out")),
 		10_000,
 	);
 	return requestId;
@@ -131,8 +130,6 @@ function spawnBubble(text: string, icon?: string) {
 	if (!text.trim()) return;
 	const state = useStore.getState();
 	if (state.workspaceView === "reading") return;
-	const barPos = state.barPosition;
-	const isTop = barPos === "top";
 	const bubble = document.createElement("div");
 	bubble.dataset.maketActivity = "";
 	bubble.setAttribute("role", "status");
@@ -146,10 +143,10 @@ function spawnBubble(text: string, icon?: string) {
 	bubble.appendChild(label);
 	Object.assign(bubble.style, {
 		position: "fixed",
-		[isTop ? "top" : "bottom"]: "80px",
-		right: "24px",
+		top: "64px",
+		right: "72px",
 		background: "var(--color-accent, #10B981)",
-		color: "white",
+		color: "var(--color-accent-contrast, #000000)",
 		fontSize: "13px",
 		fontWeight: "600",
 		padding: "10px 18px",
@@ -157,10 +154,9 @@ function spawnBubble(text: string, icon?: string) {
 		pointerEvents: "none",
 		zIndex: "9999",
 		whiteSpace: "nowrap",
-		boxShadow: "0 4px 16px rgba(16,185,129,0.35)",
-		animation: isTop
-			? "bubbleDown 2.5s ease-out forwards"
-			: "bubbleUp 2.5s ease-out forwards",
+		boxShadow:
+			"0 4px 16px color-mix(in srgb, var(--color-accent) 35%, transparent)",
+		animation: "bubbleDown 2.5s ease-out forwards",
 		display: "flex",
 		alignItems: "center",
 		gap: "8px",
@@ -178,12 +174,11 @@ function spawnToast(text: string, level: string, duration: number): void {
 		region.id = "maket-toast-region";
 		document.body.appendChild(region);
 	}
-	const isTop = useStore.getState().barPosition === "top";
 	Object.assign(region.style, {
 		position: "fixed",
-		[isTop ? "top" : "bottom"]: "80px",
-		[isTop ? "bottom" : "top"]: "auto",
-		right: "24px",
+		top: "64px",
+		bottom: "auto",
+		right: "72px",
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
@@ -295,6 +290,7 @@ function handleWsOpen(): void {
 		type: "workspace_update",
 		displayed: useStore.getState().workspaceDocNames,
 	});
+	flushSettings();
 }
 
 function handleWsClose(): void {
@@ -332,19 +328,16 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 					(msg.docList ?? []) as DocSummary[],
 				);
 			break;
-		case "state_patch_result":
-			useStore
-				.getState()
-				.settleStatePatch(
-					msg.requestId,
-					msg.ok ? undefined : (msg.error ?? "State update failed."),
-				);
-			if (!msg.ok) {
-				spawnToast(msg.error ?? "State update failed.", "error", 4000);
-			}
+		case "state_patch_result": {
+			const failure = msg.ok
+				? undefined
+				: describeFailure(msg, "state_update_failed");
+			useStore.getState().settleStatePatch(msg.requestId, failure);
+			if (failure) spawnToast(failure, "error", 4000);
 			break;
+		}
 		case "toast":
-			spawnToast(msg.text, msg.level, msg.duration);
+			spawnToast(translateToast(msg.key, msg.params), msg.level, msg.duration);
 			break;
 		case "charte_updated":
 			applyCharteUpdated(msg.name, msg.css);
@@ -357,7 +350,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			useStore.setState((state) => ({
 				docList: state.docList.filter((doc) => doc.name !== msg.name),
 			}));
-			useStore.getState().removeDocFromWorkspace(msg.name);
+			useStore.getState().closeWorkspaceDocuments([msg.name]);
 			break;
 		case "doc_renamed":
 			applyRenamedDocument(msg);
@@ -366,7 +359,13 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			applyCharteUpdated(msg.name, "");
 			break;
 		case "assets_changed":
-			window.dispatchEvent(new Event("assets-changed"));
+			if (msg.categoryUpdates) {
+				const state = useStore.getState();
+				state.applyAssetCategoryUpdates(msg.categoryUpdates);
+				if (!state.assetsLoaded) void state.loadAssets(true);
+			} else {
+				void useStore.getState().loadAssets(true);
+			}
 			break;
 		case "collections_changed":
 			useStore
@@ -385,13 +384,18 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "ack_messages":
 			applyAckMessages(msg.ids as string[]);
 			break;
+		case "settings":
+			applyServerSettings(msg.settings);
+			break;
 		case "annotations_changed":
 			useStore.setState({ pending: msg.annotations as PendingMessage[] });
 			break;
 		case "annotation_create_result":
 			settleAnnotationCreate(msg.requestId, {
 				ok: msg.ok,
-				...(msg.error ? { error: msg.error } : {}),
+				...(msg.ok
+					? {}
+					: { error: describeFailure(msg, "msg_annotation_not_saved") }),
 			});
 			break;
 		default:
@@ -403,6 +407,9 @@ function reportUnhandledSignal(msg: never): void {
 	console.error("[ws] unhandled server signal", msg);
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// The state signal handler is the single wire-to-store reconciliation boundary;
+// touching several store slices here avoids parallel client orchestration paths.
 function applyStateMessage(
 	msg: Extract<WorkspaceSignal, { type: "state" }>,
 ): void {
@@ -421,6 +428,7 @@ function applyStateMessage(
 	if (!doc) {
 		initialStateReceived = true;
 		useStore.setState({ docList });
+		updateWorkspaceHydration();
 		return;
 	}
 	if (msg.documentState !== undefined) {
@@ -434,6 +442,9 @@ function applyStateMessage(
 	if (!initialStateReceived)
 		applyInitialState(doc, docList, msg.charteCss || "");
 	else {
+		const fillsFocusedPlaceholder =
+			useStore.getState().focusedDocName === doc.name &&
+			!useStore.getState().docs.has(doc.name);
 		const explicitFocus = pendingLoadDoc === doc.name;
 		const backgroundLoad = backgroundLoadDocs.delete(doc.name);
 		useStore
@@ -446,8 +457,28 @@ function applyStateMessage(
 				backgroundLoad && !explicitFocus ? false : (msg.focus ?? false),
 				explicitFocus,
 			);
+		if (
+			fillsFocusedPlaceholder &&
+			useStore.getState().workspaceView === "canvas"
+		) {
+			requestFit({
+				docName: doc.name,
+				pageIndex: useStore.getState().focusedPageIndex,
+			});
+		}
 	}
 	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
+	updateWorkspaceHydration();
+}
+
+function updateWorkspaceHydration(): void {
+	if (!initialStateReceived) return;
+	const state = useStore.getState();
+	const available = new Set(state.docList.map((document) => document.name));
+	const expected = state.workspaceDocNames.filter((name) =>
+		available.has(name),
+	);
+	state.setWorkspaceHydrated(expected.every((name) => state.docs.has(name)));
 }
 
 function applyRenamedDocument(
@@ -525,6 +556,55 @@ function applyAckMessages(idsList: string[]): void {
 	} else {
 		console.log("[ws] no matching pending found for ack ids");
 	}
+}
+
+/** The settings file is the source of truth. A patch the user made while the
+ *  socket was down is replayed on top so their change survives the snapshot. */
+function applyServerSettings(settings: Settings): void {
+	setLang(settings.language);
+	useStore.getState().applySettings(settings);
+	if (pendingSettings) flushSettings();
+}
+
+const SETTINGS_FLUSH_MS = 150;
+let pendingSettings: Partial<Settings> | null = null;
+let settingsFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Sends the first change immediately so closing the window right after a click
+ *  cannot lose it, then coalesces the rest of the burst — the colour picker
+ *  emits one event per pointer move, and each reaches the server as a
+ *  synchronous read-modify-write of the settings file. A patch made while the
+ *  socket was down stays queued until it reopens. */
+export function sendSettings(settings: Partial<Settings>): void {
+	if (useStore.getState().readOnly) return;
+	pendingSettings = { ...pendingSettings, ...settings };
+	if (settingsFlushTimer) return;
+	flushSettings();
+	settingsFlushTimer = setTimeout(() => {
+		settingsFlushTimer = null;
+		flushSettings();
+	}, SETTINGS_FLUSH_MS);
+}
+
+function flushSettings(): void {
+	const settings = pendingSettings;
+	if (!settings) return;
+	if (wsSend({ type: "settings_set", settings })) pendingSettings = null;
+}
+
+if (typeof window !== "undefined") {
+	window.addEventListener("pagehide", flushSettings);
+}
+
+/** The identifier is authoritative; a server that sent only a sentence still
+ *  gets shown, and a silent failure falls back to the generic wording. */
+function describeFailure(
+	signal: { message?: LocalizedMessage },
+	fallbackKey: TranslationKey,
+): string {
+	return signal.message
+		? translate(signal.message.key, signal.message.params)
+		: translate(fallbackKey);
 }
 
 export function wsSend(msg: WorkspaceCommand): boolean {

@@ -12,7 +12,11 @@ import {
 	cancelDeferredFitOnUserZoom,
 	createDeferredFit,
 } from "../store/deferredFit";
-import { useStore, useWorkspaceDocNames } from "../store/useStore";
+import {
+	previewCursorForPage,
+	useStore,
+	useWorkspaceDocNames,
+} from "../store/useStore";
 import {
 	consumePendingFit,
 	consumeWorkspaceRemovalFitSuppression,
@@ -120,8 +124,14 @@ function useAutoFocusFit(workspaceDocNames: string[]): void {
 	const focusedDocName = useStore((state) => state.focusedDocName);
 	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
 	const autoFocusFit = useStore((state) => state.autoFocusFit);
+	const collectionGeometryKey = useStore(collectionRenderGeometryKey);
 	const workspaceCount = workspaceDocNames.length;
 	const previousWorkspaceCount = useRef(workspaceCount);
+	const previousCollectionLayout = useRef({
+		docName: focusedDocName,
+		pageIndex: focusedPageIndex,
+		geometryKey: collectionGeometryKey,
+	});
 	const workspaceKey = workspaceDocNames.join("\u0000");
 	useEffect(() => {
 		const removalSuppressedAutoFit = consumeWorkspaceRemovalFitSuppression();
@@ -137,6 +147,44 @@ function useAutoFocusFit(workspaceDocNames: string[]): void {
 		workspaceCount,
 		workspaceKey,
 	]);
+	useEffect(() => {
+		const previous = previousCollectionLayout.current;
+		previousCollectionLayout.current = {
+			docName: focusedDocName,
+			pageIndex: focusedPageIndex,
+			geometryKey: collectionGeometryKey,
+		};
+		const samePage =
+			previous.docName === focusedDocName &&
+			previous.pageIndex === focusedPageIndex;
+		if (
+			!autoFocusFit ||
+			!focusedDocName ||
+			!samePage ||
+			previous.geometryKey === collectionGeometryKey
+		) {
+			return;
+		}
+		requestFit({ docName: focusedDocName });
+	}, [autoFocusFit, collectionGeometryKey, focusedDocName, focusedPageIndex]);
+}
+
+function collectionRenderGeometryKey(
+	state: ReturnType<typeof useStore.getState>,
+): string | null {
+	if (!state.focusedDocName) return null;
+	const cursor = previewCursorForPage(
+		state,
+		state.focusedDocName,
+		state.focusedPageIndex,
+	);
+	if (!cursor) return null;
+	const collection =
+		state.collectionDrafts[cursor.collection] ??
+		state.collections.find((item) => item.name === cursor.collection);
+	const renderCount =
+		cursor.mode === "all" ? (collection?.members.length ?? 0) : 1;
+	return `${cursor.collection}\u0000${cursor.mode}\u0000${renderCount}`;
 }
 
 function useSpacePanCursor(wrapRef: React.RefObject<HTMLDivElement | null>) {
@@ -237,7 +285,6 @@ function runBoardZoomEffect(context: BoardZoomEffectContext) {
 	registerRequestFit(deferredFit.request);
 	const boardRo = observeInitialBoardFit(
 		context.boardRef,
-		fit,
 		deferredFit.request,
 		context.setBoardVisible,
 	);
@@ -274,7 +321,9 @@ function applyBoardZoomTransform(
 ) {
 	const transform = event.transform;
 	setTransform({ x: transform.x, y: transform.y, k: transform.k });
-	useStore.getState().setZoom(Math.round(transform.k * 100));
+	const zoom = Math.round(transform.k * 100);
+	const store = useStore.getState();
+	if (store.zoom !== zoom) store.setZoom(zoom);
 }
 
 function canStartBoardZoom(
@@ -375,7 +424,6 @@ function findBoardDocElement(
 
 function observeInitialBoardFit(
 	boardRef: React.RefObject<HTMLDivElement | null>,
-	fit: () => void,
 	deferredRequestFit: (target?: {
 		docName: string;
 		pageIndex?: number;
@@ -389,7 +437,7 @@ function observeInitialBoardFit(
 		initialFitDone = true;
 		const pending = consumePendingFit();
 		if (pending) deferredRequestFit(pending.target);
-		else fit();
+		else deferredRequestFit();
 		setBoardVisible(true);
 	});
 	if (boardRef.current) boardRo.observe(boardRef.current);

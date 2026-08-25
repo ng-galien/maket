@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -174,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(13);
+		const db = historicalDatabaseWithoutIds(14);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v13 is newer than supported v12/,
+			/schema v14 is newer than supported v13/,
 		);
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(14);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,8 +207,9 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(12);
+		expect(schemaVersion(db)).toBe(13);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
+		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
 		db.close();
 	});

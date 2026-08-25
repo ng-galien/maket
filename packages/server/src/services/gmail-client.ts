@@ -336,7 +336,7 @@ function createGmailApi(ctx: {
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // OAuth callback: state check, token exchange, profile lookup, token persist.
 async function completeGmailOAuthCallback(ctx: {
 	code: string;

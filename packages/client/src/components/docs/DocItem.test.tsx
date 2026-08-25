@@ -21,6 +21,7 @@ describe("DocRow", () => {
 			format: "A4",
 			pageCount: 3,
 			elementCount: 12,
+			collectionBindings: [],
 			charte: "Acme",
 			rating: 5,
 			emailDraftUrl: "https://mail.google.com/mail/u/0/#drafts/example",
@@ -42,6 +43,7 @@ describe("DocRow", () => {
 			openMenu: vi.fn(),
 			closeMenu: vi.fn(),
 			changeMode: vi.fn(),
+			moveCategory: vi.fn(),
 			dragStart: vi.fn(),
 			dragEnd: vi.fn(),
 		};
@@ -52,7 +54,9 @@ describe("DocRow", () => {
 			"text-accent",
 		);
 		const tooltip = screen.getByRole("tooltip");
-		expect(tooltip).toHaveTextContent("A4 · 3p · Living document · Acme · ★ 5");
+		expect(tooltip).toHaveTextContent(
+			"A4 · 3p · State-backed document · Acme · ★ 5",
+		);
 		expect(tooltip).toHaveClass("doc-row-tooltip");
 		expect(tooltip).not.toHaveClass("doc-row-tooltip--visible");
 		const rowButton = screen.getByText("Proposal").closest("button");

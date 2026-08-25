@@ -106,7 +106,7 @@ export function createMaketStateTool({
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP edge validates input, applies the cross-cutting lock, then delegates.
 function handleStateTool(
 	rawArgs: unknown,
@@ -146,7 +146,7 @@ function isMutation(action: Args["action"]): boolean {
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP dispatcher translates action contracts into the dedicated domain service.
 function runStateAction(args: Args, states: DocumentStates) {
 	switch (args.action) {

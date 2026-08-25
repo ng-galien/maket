@@ -1,5 +1,8 @@
 import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
+import type { LocalizedMessage } from "./messages.js";
+import type { Settings } from "./settings.js";
+import type { ToastKey, ToastLevel } from "./toast.js";
 
 /**
  * WebSocket wire contract between the server and browser clients.
@@ -57,13 +60,15 @@ export interface StatePatchResultSignal {
 	requestId: string;
 	ok: boolean;
 	revision?: number;
-	error?: string;
+	/** Identifier the browser translates. Failures never travel as prose. */
+	message?: LocalizedMessage;
 }
 
 export interface ToastSignal {
 	type: "toast";
-	text: string;
-	level: string;
+	key: ToastKey;
+	params?: Record<string, string | number>;
+	level: ToastLevel;
 	duration: number;
 }
 
@@ -114,7 +119,7 @@ export interface AnnotationCreateResultSignal {
 	type: "annotation_create_result";
 	requestId: string;
 	ok: boolean;
-	error?: string;
+	message?: LocalizedMessage;
 }
 
 export interface WorkspaceReloadSignal {
@@ -128,9 +133,16 @@ export interface ActivitySignal {
 	icon: string;
 }
 
-/** Signals the browser that `/api/assets` should be re-fetched. */
+export interface AssetCategoryUpdate {
+	filename: string;
+	category: string;
+}
+
+/** Signals the browser that assets changed. Category-only mutations carry a
+ * delta so the photo library can update without re-fetching every asset. */
 export interface AssetsChangedSignal {
 	type: "assets_changed";
+	categoryUpdates?: AssetCategoryUpdate[];
 }
 
 export interface CollectionsChangedSignal {
@@ -199,9 +211,31 @@ export interface UpdateDocumentMetadataCommand {
 	category?: string;
 }
 
+export interface MoveCategoryCommand {
+	type: "move_category";
+	/** Existing category path whose documents and descendants move together. */
+	source: string;
+	/** Complete destination path, including the category's final leaf name. */
+	destination: string;
+}
+
 export interface DeleteAssetCommand {
 	type: "delete_asset";
 	filename: string;
+}
+
+export interface UpdateAssetCategoryCommand {
+	type: "update_asset_category";
+	filename: string;
+	category: string;
+}
+
+export interface MoveAssetCategoryCommand {
+	type: "move_asset_category";
+	/** Existing image category path whose assets and descendants move together. */
+	source: string;
+	/** Complete destination path, including the category's final leaf name. */
+	destination: string;
 }
 
 /**
@@ -315,6 +349,18 @@ export interface UpdateWorkspaceCommand {
 	displayed: string[];
 }
 
+/** Server-authored settings snapshot. Sent on connect and after every change. */
+export interface SettingsSignal {
+	type: "settings";
+	settings: Settings;
+}
+
+/** Partial update; omitted fields keep their persisted value. */
+export interface SetSettingsCommand {
+	type: "settings_set";
+	settings: Partial<Settings>;
+}
+
 export type WorkspaceSignal =
 	| WorkspaceStateSignal
 	| StatePageProjectionSignal
@@ -332,7 +378,8 @@ export type WorkspaceSignal =
 	| AssetsChangedSignal
 	| CollectionsChangedSignal
 	| CollectionCursorsSignal
-	| FitViewSignal;
+	| FitViewSignal
+	| SettingsSignal;
 
 export type WorkspaceCommand =
 	| LoadDocumentCommand
@@ -342,7 +389,10 @@ export type WorkspaceCommand =
 	| LockDocumentCommand
 	| OpenOnboardingCommand
 	| UpdateDocumentMetadataCommand
+	| MoveCategoryCommand
 	| DeleteAssetCommand
+	| UpdateAssetCategoryCommand
+	| MoveAssetCategoryCommand
 	| SaveCharteCommand
 	| SaveCollectionCommand
 	| DeleteCollectionCommand
@@ -353,6 +403,7 @@ export type WorkspaceCommand =
 	| PatchDocumentStateCommand
 	| CreateAnnotationCommand
 	| RemoveAnnotationCommand
-	| UpdateWorkspaceCommand;
+	| UpdateWorkspaceCommand
+	| SetSettingsCommand;
 
 export type WorkspaceMessage = WorkspaceSignal | WorkspaceCommand;

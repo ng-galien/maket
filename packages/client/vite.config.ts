@@ -20,7 +20,9 @@ export default defineConfig(({ mode }) => {
 				demo: path.resolve(import.meta.dirname, "demo.html"),
 			};
 	return {
-		base: pagesBuild ? "./" : undefined,
+		// Relative assets let Electron render the same shell from disk while an
+		// existing headless server waits for an explicit takeover decision.
+		base: "./",
 		plugins: [react(), tailwindcss()],
 		resolve: {
 			alias: {
@@ -30,6 +32,9 @@ export default defineConfig(({ mode }) => {
 		build: {
 			sourcemap: process.env.E2E_COVERAGE === "1",
 			minify: process.env.E2E_COVERAGE === "1" ? false : undefined,
+			// react-data-grid uses CSS `light-dark()`; Vite 8's Lightning CSS
+			// minifier currently rewrites it incorrectly.
+			cssMinify: "esbuild",
 			// The shared hydration runtime is ~530 kB minified (~160 kB gzip).
 			// Keep the warning budget aligned with the shipped transfer size.
 			chunkSizeWarningLimit: 600,
@@ -37,7 +42,7 @@ export default defineConfig(({ mode }) => {
 				import.meta.dirname,
 				pagesBuild ? "../../docs/app" : "../../public",
 			),
-			emptyOutDir: pagesBuild,
+			emptyOutDir: true,
 			rollupOptions: {
 				input,
 			},

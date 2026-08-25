@@ -119,7 +119,7 @@ export function createMaketImageTool(deps: AssetsDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketImageSchema>;
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runList`: edge adapter over services/store/bus, not domain ownership.
 function runList(
 	args: Args,
@@ -166,7 +166,7 @@ function runList(
 	return text(`${header}\n${sections.join("\n")}`);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runView`: edge adapter over services/store/bus, not domain ownership.
 async function runView(
 	args: Args,
@@ -228,7 +228,7 @@ async function runView(
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runMeta`: edge adapter over services/store/bus, not domain ownership.
 function runMeta(
 	args: Args,
@@ -269,7 +269,7 @@ function runMeta(
 	return text(`${args.filename} — metadata updated (${fields.join(", ")})`);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runImport`: edge adapter over services/store/bus, not domain ownership.
 async function runImport(
 	args: Args,

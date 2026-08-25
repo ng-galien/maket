@@ -3,6 +3,7 @@ import type {
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
+import { DEFAULT_SETTINGS } from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -76,6 +77,7 @@ function summary(name: string): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 	};
 }
 
@@ -107,7 +109,10 @@ async function freshWsModule() {
 async function freshWsModuleWithZoomSpies() {
 	vi.resetModules();
 	const requestFit = vi.fn();
-	vi.doMock("./zoomBridge", () => ({ requestFit }));
+	vi.doMock("./zoomBridge", async (importOriginal) => ({
+		...(await importOriginal<typeof import("./zoomBridge")>()),
+		requestFit,
+	}));
 	const store = await import("./useStore");
 	const ws = await import("./ws");
 	return { ...ws, useStore: store.useStore, requestFit };
@@ -160,6 +165,42 @@ describe("initWs + onopen", () => {
 });
 
 describe("state message", () => {
+	it("reframes a focused workspace placeholder once its document arrives", async () => {
+		const { initWs, requestFit, useStore } = await freshWsModuleWithZoomSpies();
+		useStore.setState({ workspaceDocNames: [] });
+		initWs();
+		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+		useStore.setState({
+			docs: new Map(),
+			workspaceDocNames: ["beta"],
+			focusedDocName: "beta",
+			workspaceView: "canvas",
+		});
+		requestFit.mockClear();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+			addToWorkspace: false,
+			focus: false,
+		});
+
+		expect(useStore.getState().docs.has("beta")).toBe(true);
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(requestFit).toHaveBeenCalledExactlyOnceWith({
+			docName: "beta",
+			pageIndex: 0,
+		});
+	});
+
 	it("first state stores the doc without adding to workspace when the saved workspace is empty", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		// Empty saved workspace — the client must NOT adopt the server's active
@@ -198,6 +239,35 @@ describe("state message", () => {
 		const s = useStore.getState();
 		expect(s.focusedDocName).toBe("alpha");
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
+	});
+
+	it("never focuses the server active document when it is outside the saved workspace", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({
+			docs: new Map(),
+			workspaceDocNames: ["beta"],
+			focusedDocName: null,
+		});
+		initWs();
+		MockWebSocket.last().open();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("alpha"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+		});
+		expect(useStore.getState().focusedDocName).toBeNull();
+
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: doc("beta"),
+			docList: [summary("alpha"), summary("beta")],
+			charteCss: "",
+			addToWorkspace: false,
+			focus: false,
+		});
+		expect(useStore.getState().focusedDocName).toBe("beta");
 	});
 
 	it("first state issues load_document for every saved workspace doc other than the active one", async () => {
@@ -507,12 +577,12 @@ describe("living document state signals", () => {
 			type: "state_patch_result",
 			requestId,
 			ok: false,
-			error: "Revision conflict",
+			message: { key: "msg_document_locked", params: { name: "editor" } },
 		});
 
 		expect(useStore.getState().statePatchPending).toEqual({});
 		expect(Object.values(useStore.getState().statePatchErrors)).toEqual([
-			"Revision conflict",
+			'Document "editor" is locked.',
 		]);
 	});
 });
@@ -640,12 +710,12 @@ describe("annotation_create acknowledgement", () => {
 			type: "annotation_create_result",
 			requestId: command.requestId,
 			ok: false,
-			error: 'Document "deleted" not found',
+			message: { key: "msg_document_not_found", params: { name: "deleted" } },
 		});
 
 		await expect(outcomePromise).resolves.toEqual({
 			ok: false,
-			error: 'Document "deleted" not found',
+			error: 'Document "deleted" not found.',
 		});
 		expect(useStore.getState().pending).toEqual([]);
 	});
@@ -822,25 +892,55 @@ describe("doc_removed", () => {
 });
 
 describe("assets_changed", () => {
-	it("dispatches a window `assets-changed` event", async () => {
-		const { initWs } = await freshWsModule();
+	it("applies category deltas to the Zustand asset mirror", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		useStore.setState({
+			assets: [
+				{ file: "hero.png", category: "Archive" },
+				{ file: "logo.png", category: "Brand" },
+			],
+			assetsLoaded: true,
+		});
+		MockWebSocket.last().emit({
+			type: "assets_changed",
+			categoryUpdates: [{ filename: "hero.png", category: "Campaigns" }],
+		});
+		expect(useStore.getState().assets).toEqual([
+			{ file: "hero.png", category: "Campaigns" },
+			{ file: "logo.png", category: "Brand" },
+		]);
+	});
+
+	it("refreshes the Zustand asset mirror when the signal has no delta", async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			json: async () => ({ images: [{ file: "new-upload.png" }] }),
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const { initWs, useStore } = await freshWsModule();
 		initWs();
 		MockWebSocket.last().open();
 
-		const listener = vi.fn();
-		window.addEventListener("assets-changed", listener);
 		MockWebSocket.last().emit({ type: "assets_changed" });
-		window.removeEventListener("assets-changed", listener);
-		expect(listener).toHaveBeenCalledTimes(1);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(fetchMock).toHaveBeenCalledWith("/api/assets");
+		expect(useStore.getState().assets).toEqual([{ file: "new-upload.png" }]);
+		expect(useStore.getState().assetsLoaded).toBe(true);
 	});
 });
 
 describe("activity", () => {
 	it("renders a translated activity bubble in the DOM", async () => {
-		localStorage.setItem("maket-lang", "fr");
 		const { initWs } = await freshWsModule();
 		initWs();
 		MockWebSocket.last().open();
+		MockWebSocket.last().emit({
+			type: "settings",
+			settings: { ...DEFAULT_SETTINGS, language: "fr" },
+		});
 
 		MockWebSocket.last().emit({
 			type: "activity",
@@ -880,13 +980,14 @@ describe("activity", () => {
 
 		MockWebSocket.last().emit({
 			type: "toast",
-			text: "Saved",
+			key: "toast_charte_saved",
+			params: { name: "brand" },
 			level: "success",
 			duration: 3000,
 		});
 
 		const toast = document.querySelector('[role="status"]');
-		expect(toast?.textContent).toBe("Saved");
+		expect(toast?.textContent).toBe('Charte "brand" saved');
 		expect(document.getElementById("maket-toast-region")).not.toBeNull();
 		document.getElementById("maket-toast-region")?.remove();
 	});

@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import { expect, test as isolatedTest } from "./isolated-test";
 import { McpTestClient } from "./mcp-test-client";
 
@@ -24,6 +24,39 @@ export async function openWorkspace(page: Page): Promise<void> {
 	await expect(page.locator(".animate-pulse.bg-danger")).toHaveCount(0, {
 		timeout: 5_000,
 	});
+}
+
+export type LibraryView =
+	| "docs"
+	| "chartes"
+	| "photos"
+	| "collections"
+	| "exchange";
+
+export async function openLibraryView(
+	page: Page,
+	view: LibraryView,
+): Promise<Locator> {
+	const panel = page.locator("[data-library-panel]");
+	if ((await panel.getAttribute("data-library-mode")) === "compact") {
+		await panel.locator(`[data-library-rail-view="${view}"]`).click();
+	} else if ((await panel.getAttribute("data-library-view")) !== view) {
+		await panel.locator(`[data-library-rail-view="${view}"]`).click();
+	}
+	await expect(panel).toBeVisible();
+	await expect(panel).toHaveAttribute("data-library-mode", "extended");
+	return panel;
+}
+
+export async function closeLibrary(page: Page): Promise<void> {
+	const panel = page.locator("[data-library-panel]");
+	if ((await panel.getAttribute("data-library-mode")) === "compact") return;
+	await panel.locator('[data-library-rail-view][aria-current="page"]').click();
+	await expect(panel).toHaveAttribute("data-library-mode", "compact");
+}
+
+export function libraryBadge(button: Locator): Locator {
+	return button.locator("span:not([data-library-rail-icon])");
 }
 
 export async function createDocument(

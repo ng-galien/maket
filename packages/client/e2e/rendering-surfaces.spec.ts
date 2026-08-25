@@ -3,7 +3,13 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { promisify } from "node:util";
 import type { Locator, Page, TestInfo } from "@playwright/test";
-import { expect, openWorkspace, test } from "./workspace-test";
+import {
+	closeLibrary,
+	expect,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 const execFileAsync = promisify(execFile);
 
@@ -251,8 +257,7 @@ async function expectExportSurfaces(
 		page: 1,
 	});
 
-	await page.getByRole("button", { name: /^documents$/i }).click();
-	const panel = page.getByRole("complementary", { name: /^documents$/i });
+	const panel = await openLibraryView(page, "docs");
 	await panel.getByRole("button", { name: /grid view|vue vignettes/i }).click();
 	const thumbnail = panel.getByRole("img", { name: docName });
 	await expectThumbnailLoaded(thumbnail);
@@ -328,7 +333,9 @@ async function expectLifecycleStage({
 		page.locator(`[data-doc="${docName}"] .margin-guide`),
 		`${stageName} Reader hides print guides`,
 	).toHaveCount(0);
-	await page.getByRole("button", { name: /Canvas view|Vue canevas/i }).click();
+	await page
+		.getByRole("button", { name: /Close reader|Fermer la vue lecture/i })
+		.click();
 
 	const snapshot = await mcp.call("maket_preview", {
 		action: "snapshot",
@@ -360,8 +367,7 @@ async function expectLifecycleStage({
 			edgeMarkerRatio(spec.h),
 		),
 	).toEqual([34, 197, 94]);
-	await page.getByRole("button", { name: /^documents$/i }).click();
-	const panel = page.getByRole("complementary", { name: /^documents$/i });
+	const panel = await openLibraryView(page, "docs");
 	await panel.getByRole("button", { name: /grid view|vue vignettes/i }).click();
 	const thumbnail = panel.getByRole("img", { name: docName });
 	await expectThumbnailLoaded(thumbnail);
@@ -386,9 +392,7 @@ async function expectLifecycleStage({
 			edgeMarkerRatio(spec.h),
 		),
 	).toEqual([34, 197, 94]);
-	await page
-		.getByRole("button", { name: /Close Documents|Fermer.*documents/i })
-		.click();
+	await closeLibrary(page);
 
 	await surfacePage.goto(`/print?name=${encodeURIComponent(docName)}`);
 	await expectPrintGeometry(surfacePage, spec, stageName);

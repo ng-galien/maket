@@ -205,7 +205,7 @@ function openBrowser(url: string): void {
 	} catch {}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runConnect`: edge adapter over services/store/bus, not domain ownership.
 async function runConnect(
 	args: Args,
@@ -265,7 +265,7 @@ function requireRead(deps: GmailDeps): CallToolResult | null {
 	);
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runSearch`: edge adapter over services/store/bus, not domain ownership.
 async function runSearch(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { gmailClient } = deps;
@@ -359,7 +359,7 @@ function collectAttachments(
 	return attachments;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runRead`: edge adapter over services/store/bus, not domain ownership.
 async function runRead(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { gmailClient } = deps;
@@ -452,7 +452,7 @@ function formatSize(bytes: number): string {
 	return bytes < 1024 ? `${bytes}B` : `${(bytes / 1024).toFixed(0)}KB`;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Attachment fetch is a Gmail adapter workflow that coordinates grants, message lookup, asset storage, and document import decisions.
 async function runFetchAttachment(
 	args: Args,
@@ -550,7 +550,7 @@ async function runFetchAttachment(
 
 // On validation failure, remove() is required so a rejected image doesn't
 // linger in the library between agent turns.
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `importImageAttachment`: edge adapter over services/store/bus, not domain ownership.
 async function importImageAttachment(inputs: {
 	buffer: Buffer;
@@ -681,7 +681,7 @@ function normalizeEmailHtml(
 </html>`;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `buildMimeMessage`: edge adapter over services/store/bus, not domain ownership.
 function buildMimeMessage(
 	from: string,
@@ -730,7 +730,7 @@ function buildMimeMessage(
 	return `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}`;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Draft creation is a Gmail adapter workflow spanning grants, document rendering, attachment assembly, and metadata mirroring.
 async function runDraft(args: Args, deps: GmailDeps): Promise<CallToolResult> {
 	const { documents, store, gmailClient, pdfService, config, assets } = deps;

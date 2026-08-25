@@ -8,6 +8,7 @@
 import { ChevronLeft, ChevronRight, Download, Pause, Play } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Board } from "../components/Board";
+import { useT } from "../i18n/useT";
 import { applyColorScheme } from "../lib/colorScheme";
 import { useStore } from "../store/useStore";
 import { requestFit } from "../store/zoomBridge";
@@ -178,6 +179,7 @@ function DemoCaption({
 	stepIndex: number;
 	onPickScenario: (id: string) => void;
 }) {
+	const t = useT();
 	const step = scenario.steps[stepIndex];
 	return (
 		<div className="fixed top-4 left-1/2 z-50 w-[min(640px,92vw)] -translate-x-1/2">
@@ -190,7 +192,7 @@ function DemoCaption({
 							onClick={() => onPickScenario(candidate.id)}
 							className={`rounded-full px-2.5 py-1 text-2xs font-semibold transition-colors ${
 								candidate.id === scenario.id
-									? "bg-accent text-white"
+									? "bg-accent text-accent-contrast"
 									: "bg-input text-text-2 hover:text-text-1"
 							}`}
 						>
@@ -209,12 +211,15 @@ function DemoCaption({
 						}`}
 					/>
 					{step?.actor === "user"
-						? "You"
+						? t("demo_you")
 						: step?.actor === "agent"
-							? "Your agent"
+							? t("demo_your_agent")
 							: "Maket"}
 					<span className="ml-auto normal-case tracking-normal font-medium">
-						Replayed session · step {stepIndex + 1}/{scenario.steps.length}
+						{t("demo_replayed_step", {
+							step: stepIndex + 1,
+							total: scenario.steps.length,
+						})}
 					</span>
 				</div>
 				<div data-testid="demo-caption" className="mt-1 text-sm text-text-1">
@@ -242,15 +247,16 @@ function PlaybackBar({
 	onTogglePlaying: () => void;
 	onDownload: () => void;
 }) {
+	const t = useT();
 	return (
 		<div className="fixed right-2 bottom-2 left-2 z-50 flex items-center justify-center gap-2 rounded-full border border-border bg-panel px-3 py-2 shadow-lg sm:right-auto sm:bottom-4 sm:left-1/2 sm:w-auto sm:-translate-x-1/2 sm:px-4">
 			<span className="mr-1 hidden text-sm font-bold text-text-1 sm:inline">
-				Maket demo
+				{t("demo_title")}
 			</span>
 			<button
 				type="button"
-				title="Previous step"
-				aria-label="Previous step"
+				title={t("demo_previous_step")}
+				aria-label={t("demo_previous_step")}
 				disabled={stepIndex === 0}
 				onClick={() => onGoTo(Math.max(0, stepIndex - 1))}
 				className="flex h-7 w-7 items-center justify-center rounded-full text-text-2 hover:bg-border/50 disabled:opacity-35"
@@ -259,17 +265,17 @@ function PlaybackBar({
 			</button>
 			<button
 				type="button"
-				title={playing ? "Pause" : "Play"}
-				aria-label={playing ? "Pause" : "Play"}
+				title={playing ? t("demo_pause") : t("demo_play")}
+				aria-label={playing ? t("demo_pause") : t("demo_play")}
 				onClick={onTogglePlaying}
-				className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white"
+				className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-accent-contrast"
 			>
 				{playing ? <Pause size={14} /> : <Play size={14} />}
 			</button>
 			<button
 				type="button"
-				title="Next step"
-				aria-label="Next step"
+				title={t("demo_next_step")}
+				aria-label={t("demo_next_step")}
 				disabled={isLast}
 				onClick={() =>
 					onGoTo(Math.min(scenario.steps.length - 1, stepIndex + 1))
@@ -284,7 +290,7 @@ function PlaybackBar({
 				max={scenario.steps.length - 1}
 				step={1}
 				value={stepIndex}
-				aria-label="Timeline"
+				aria-label={t("demo_timeline")}
 				onChange={(event) => onGoTo(Number(event.target.value))}
 				className="mx-1 min-w-20 flex-1 cursor-pointer sm:w-44 sm:flex-none"
 				style={{ accentColor: "var(--color-accent)" }}
@@ -292,7 +298,7 @@ function PlaybackBar({
 			<button
 				type="button"
 				onClick={onDownload}
-				className="ml-1 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-white"
+				className="ml-1 flex items-center gap-1.5 rounded-full bg-accent px-3 py-1.5 text-xs font-semibold text-accent-contrast"
 			>
 				<Download size={13} />
 				<span className="hidden min-[360px]:inline">.maket</span>

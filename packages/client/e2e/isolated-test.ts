@@ -43,6 +43,8 @@ export const test = base.extend({
 
 export { expect };
 
+/** Settings are user-level by default, so each isolated server must be pointed
+ *  at its own file rather than the developer's real one. */
 async function startServer(dataDir: string): Promise<IsolatedServer> {
 	const child = spawn(process.execPath, [TSX_CLI, SERVER_ENTRY], {
 		cwd: ROOT,
@@ -50,6 +52,7 @@ async function startServer(dataDir: string): Promise<IsolatedServer> {
 			...process.env,
 			MAKET_PORT: "0",
 			MAKET_DATA_DIR: dataDir,
+			MAKET_SETTINGS_FILE: path.join(dataDir, "settings.json"),
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});

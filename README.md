@@ -24,6 +24,29 @@
 
 ---
 
+## Install Maket App
+
+Maket App is the default way to run Maket. It includes the interface, server,
+runtime, and agent setup — Node.js is not required.
+
+| Platform | Installer |
+|---|---|
+| **macOS Apple Silicon** | `Maket-macOS-arm64.dmg` |
+| **macOS Intel** | `Maket-macOS-x64.dmg` |
+| **Windows x64** | `Maket-Windows-x64-Setup.exe` |
+| **Linux x64** | `Maket-Linux-x64.deb` or `Maket-Linux-x64.rpm` |
+
+[Download the newest snapshot](https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml)
+to test Maket App now. Snapshot installers are unsigned, built from `main`, and
+retained for 14 days. Signed macOS and Windows installers, plus Linux packages,
+will appear on the [latest release](https://github.com/ng-galien/maket/releases/latest)
+once the desktop release is published.
+
+Open the installer, launch **Maket**, then follow the first-run agent setup.
+
+Need a headless server, CI installation, or browser-only deployment? Jump to
+[Maket Server via npm](#option-b--maket-server-via-npm-advanced).
+
 ## Why Maket
 
 Your AI assistant is good at writing. But design is about space, hierarchy, and rhythm — and that happens in layout, not prose. Maket adds a real canvas, reusable visual resources, and two distinct data models: collections produce repeated variants from ordered rows, while document state keeps one document synchronized with its own validated, revisioned data.
@@ -108,9 +131,51 @@ Templates use the supported Mustache subset for display and explicit `data-maket
 
 Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema and data snapshot; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state HTML binding contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
 
-## Install
+## Installation details
 
-### Option A — npm (recommended)
+Pick the row that matches your machine.
+
+| Platform | Recommended | What you get |
+|---|---|---|
+| **macOS** (Apple Silicon or Intel) | [Maket App](#option-a--maket-app) — `.dmg` | Native window, embedded server, agent setup on first launch |
+| **Windows** x64 | [Maket App](#option-a--maket-app) — `.exe` installer | Same |
+| **Linux** x64 | [Maket App](#option-a--maket-app) — `.deb` or `.rpm` | Native window and embedded server; manual updates |
+
+### Option A — Maket App
+
+Download the installer from the [latest release](https://github.com/ng-galien/maket/releases/latest),
+using the filename for your platform:
+
+- **macOS Apple Silicon** — `Maket-macOS-arm64.dmg`
+- **macOS Intel** — `Maket-macOS-x64.dmg`
+- **Windows x64** — `Maket-Windows-x64-Setup.exe`
+- **Linux x64** — `Maket-Linux-x64.deb` or `Maket-Linux-x64.rpm`
+
+On macOS, open the `.dmg` and drag **Maket** onto **Applications**. On Windows,
+run the installer; it sets up the Start menu entry and a desktop shortcut. The
+macOS build is signed and notarised, the Windows build is signed, so neither
+should trigger a security warning. On Linux, install the package with your
+distribution's package manager; updates are downloaded manually from the latest
+release.
+
+Maket App carries its own runtime — **you do not need Node.js installed**. On
+first launch it offers to wire the AI clients it finds on your machine (Claude
+Code, Codex, Gemini) to its embedded server, and it can install the bundled
+connector for Claude Desktop. The embedded server listens on `127.0.0.1:24843`.
+
+If a Maket server is already running from a previous npm install, the
+application says so and offers to stop it and take over — nothing is killed
+without your confirmation.
+
+The window is not the only way in: the **Maket** menu has *Ouvrir dans le
+navigateur*, which serves the same workspace at `http://127.0.0.1:24843` in any
+browser on that machine. Only that machine — the server never binds a public
+interface, so nothing is exposed to your network.
+
+Updates are checked automatically and installed on your confirmation. The
+**Candidate** channel in Settings opts you into validation builds.
+
+### Option B — Maket Server via npm (advanced)
 
 ```bash
 # Install Maket and its compatible headless Chromium
@@ -136,7 +201,7 @@ The CLI registers the absolute local Node runtime and installed Maket entry in a
 
 Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex|gemini> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
 
-### Option B — Clone and hack on it
+### Option C — Clone and hack on it
 
 ```bash
 git clone https://github.com/ng-galien/maket.git
@@ -145,7 +210,7 @@ npm install
 npm run dev
 ```
 
-Starts the server on `:24843` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24843/mcp`.
+Starts the development server on `:24844` and Vite HMR on `:5173`. The included `.mcp.json` points an MCP client opened in the project at `http://localhost:24844/mcp`. Port `:24843` is reserved for the installed desktop application.
 
 ### Code quality and architecture rules
 
@@ -153,9 +218,9 @@ Maket uses `code-moniker` for structural rules and code-smell review. The versio
 
 Do not add enforceable architecture or boundary rules to `AGENTS.md`, and do not add ad-hoc checker scripts in parallel with `code-moniker`. `AGENTS.md` is operator guidance for agents working in the repository; it is not the project's rule engine. If a boundary rule cannot be expressed with `code-moniker` yet, document that as a `code-moniker` evolution instead of creating another local rule system.
 
-Exceptions are local and explicit. If a rule is intentionally not applicable, keep the rule enabled and add a targeted suppression comment in the file being checked, for example `// code-moniker: ignore[smell-long-callable]`, with a nearby explanation of the design reason.
+Exceptions are local and explicit. If a rule is intentionally not applicable, keep the rule enabled and add a targeted suppression comment in the file being checked, for example `// code-moniker: ignore[maket-hygiene-limits-callable-size]`, with a nearby explanation of the design reason.
 
-### Option C — Package as a desktop extension (.mcpb)
+### Option D — Package as a desktop extension (.mcpb)
 
 ```bash
 npm install -g @anthropic-ai/mcpb
@@ -166,7 +231,9 @@ node scripts/pack-mcpb.ts
 
 Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions).
 
-**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, Codex, Gemini, or similar).
+**Requirements:** an MCP-compatible client (Claude Code, Claude Desktop, Codex,
+Gemini, or similar). Maket App bundles everything else; the npm, clone and
+`.mcpb` routes additionally need Node.js ≥22.
 
 ### CLI reference
 
@@ -236,7 +303,7 @@ Override with environment variables:
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `MAKET_PORT` | `24842` (or `3333` in dev) | HTTP server port |
+| `MAKET_PORT` | `24842` (`24844` with `npm run dev`; `3333` with `start:isolated`) | HTTP server port |
 | `MAKET_DATA_DIR` | `~/.maket/` | User data directory |
 | `MAKET_DB` | `$MAKET_DATA_DIR/documents.db` | SQLite path |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | — | Gmail OAuth credentials (optional) |

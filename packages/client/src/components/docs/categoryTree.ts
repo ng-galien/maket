@@ -1,29 +1,33 @@
 import { categoryPathSegments, normalizeCategoryPath } from "@maket/shared";
 import type { DocSummary } from "../../store/types";
 
-export interface CategoryNode {
+export interface CategoryNode<T = DocSummary> {
 	name: string;
 	path: string;
-	docs: DocSummary[];
-	children: CategoryNode[];
+	docs: T[];
+	children: CategoryNode<T>[];
 	total: number;
 }
 
-interface MutableCategoryNode {
+interface MutableCategoryNode<T> {
 	name: string;
 	path: string;
-	docs: DocSummary[];
-	children: Map<string, MutableCategoryNode>;
+	docs: T[];
+	children: Map<string, MutableCategoryNode<T>>;
 }
 
-export function buildCategoryTree(docs: DocSummary[]): CategoryNode[] {
-	const roots = new Map<string, MutableCategoryNode>();
+export function buildCategoryTree<T extends { category?: string | null }>(
+	docs: T[],
+	itemName: (item: T) => string = (item) =>
+		"name" in item ? String(item.name) : "",
+): CategoryNode<T>[] {
+	const roots = new Map<string, MutableCategoryNode<T>>();
 	for (const doc of docs) {
 		const normalized = normalizeCategoryPath(doc.category);
 		const segments = categoryPathSegments(normalized);
 		let siblings = roots;
 		let path = "";
-		let leaf: MutableCategoryNode | null = null;
+		let leaf: MutableCategoryNode<T> | null = null;
 		for (const segment of segments) {
 			path = path ? `${path}/${segment}` : segment;
 			let node = siblings.get(segment);
@@ -36,17 +40,20 @@ export function buildCategoryTree(docs: DocSummary[]): CategoryNode[] {
 		}
 		leaf?.docs.push(doc);
 	}
-	return finalizeNodes(roots);
+	return finalizeNodes(roots, itemName);
 }
 
-function finalizeNodes(
-	nodes: Map<string, MutableCategoryNode>,
-): CategoryNode[] {
+function finalizeNodes<T>(
+	nodes: Map<string, MutableCategoryNode<T>>,
+	itemName: (item: T) => string,
+): CategoryNode<T>[] {
 	return [...nodes.values()]
 		.sort((a, b) => a.name.localeCompare(b.name))
 		.map((node) => {
-			const children = finalizeNodes(node.children);
-			const docs = [...node.docs].sort((a, b) => a.name.localeCompare(b.name));
+			const children = finalizeNodes(node.children, itemName);
+			const docs = [...node.docs].sort((a, b) =>
+				itemName(a).localeCompare(itemName(b)),
+			);
 			return {
 				name: node.name,
 				path: node.path,
@@ -62,7 +69,7 @@ export function categoryPathsForDocs(docs: DocSummary[]): string[] {
 	return flattenCategoryPaths(buildCategoryTree(docs));
 }
 
-function flattenCategoryPaths(nodes: CategoryNode[]): string[] {
+export function flattenCategoryPaths<T>(nodes: CategoryNode<T>[]): string[] {
 	return nodes.flatMap((node) => [
 		node.path,
 		...flattenCategoryPaths(node.children),
@@ -71,14 +78,13 @@ function flattenCategoryPaths(nodes: CategoryNode[]): string[] {
 
 export function visibleDocOrder(
 	nodes: CategoryNode[],
-	searching: boolean,
 	collapsed: Set<string>,
 ): string[] {
 	const names: string[] = [];
 	for (const node of nodes) {
-		if (!searching && collapsed.has(node.path)) continue;
+		if (collapsed.has(node.path)) continue;
 		names.push(...node.docs.map((doc) => doc.name));
-		names.push(...visibleDocOrder(node.children, searching, collapsed));
+		names.push(...visibleDocOrder(node.children, collapsed));
 	}
 	return names;
 }

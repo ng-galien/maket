@@ -1,5 +1,6 @@
 import { expect, test } from "./isolated-test";
 import { McpTestClient } from "./mcp-test-client";
+import { closeLibrary, libraryBadge, openLibraryView } from "./workspace-test";
 
 const NOTE_TEXT = "Make this title more prominent";
 const DOCUMENT_NOTE_TEXT = "Review the overall document hierarchy";
@@ -27,6 +28,86 @@ async function cleanupMessage(mcp: McpTestClient, text: string) {
 }
 
 test.describe("Document annotations", () => {
+	test("keeps the annotation popover inside the workspace and viewport", async ({
+		baseURL,
+		page,
+	}) => {
+		const docName = `annotation-position-e2e-${Date.now()}`;
+		const mcp = await McpTestClient.connect(baseURL);
+		await page.setViewportSize({ width: 1030, height: 720 });
+
+		try {
+			await mcp.call("maket_doc", {
+				action: "new",
+				doc: docName,
+				format: "A4",
+				orientation: "landscape",
+			});
+			await mcp.call("maket_html", {
+				action: "set",
+				doc: docName,
+				page: 1,
+				html: [
+					'<main data-id="page" style="padding: 20mm">',
+					'<h1 data-id="wide-review-title" data-name="Wide review title" style="display:block;width:100%">Annotation positioning</h1>',
+					"</main>",
+				].join(""),
+			});
+
+			await page.goto("/");
+			await waitForWorkspace(page);
+			await mcp.call("maket_workspace", {
+				action: "focus",
+				doc: docName,
+				page: 1,
+			});
+			const library = await openLibraryView(page, "docs");
+			const libraryPin = library.locator("[data-library-pin]");
+			if ((await libraryPin.getAttribute("aria-pressed")) !== "true") {
+				await libraryPin.click();
+			}
+			await expect(libraryPin).toHaveAttribute("aria-pressed", "true");
+			const title = page.locator(
+				`[data-doc="${docName}"] [data-id="wide-review-title"]`,
+			);
+			await expect(title).toBeVisible();
+			await title.click();
+			await page.locator(".tb-comment").click();
+
+			const popover = page.locator("[data-annotation-popover]");
+			await expect(popover).toBeVisible();
+			await expect(library).toHaveAttribute("data-library-mode", "extended");
+			await expectPopoverBounds(page, popover, library);
+			const initialLibraryWidth = await library.evaluate(
+				(element) => element.getBoundingClientRect().width,
+			);
+			const resizeLibrary = library.getByRole("separator", {
+				name: /Resize library panel|Redimensionner le panneau/i,
+			});
+			await resizeLibrary.focus();
+			for (let step = 0; step < 4; step += 1) {
+				await resizeLibrary.press("ArrowRight");
+			}
+			await expect
+				.poll(() =>
+					library.evaluate((element) => element.getBoundingClientRect().width),
+				)
+				.toBeGreaterThan(initialLibraryWidth + 48);
+			await expectPopoverBounds(page, popover, library);
+
+			await popover.evaluate((element) => {
+				(element as HTMLElement).style.minHeight = "340px";
+			});
+			await expectPopoverBounds(page, popover, library);
+
+			await page.setViewportSize({ width: 860, height: 620 });
+			await expect(library).toHaveAttribute("data-library-mode", "extended");
+			await expectPopoverBounds(page, popover, library);
+		} finally {
+			await mcp.close();
+		}
+	});
+
 	test("an element annotation survives another window and its acknowledgement propagates", async ({
 		baseURL,
 		context,
@@ -114,16 +195,9 @@ test.describe("Document annotations", () => {
 				name: /^(exchanges|échanges)$/i,
 			});
 			await expect(messagesButton).toHaveAttribute("aria-expanded", "false");
-			await expect(page.locator("#panel-exchange")).toHaveAttribute(
-				"aria-hidden",
-				"true",
-			);
-			await expect(page.locator("#panel-exchange")).toHaveAttribute(
-				"hidden",
-				"",
-			);
-			await expect(page.locator("#panel-docs")).toHaveAttribute("inert", "");
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(page.locator("#panel-exchange")).toHaveCount(0);
+			await expect(page.locator("[data-library-panel]")).toBeVisible();
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			await expect(marker).toBeVisible();
 			await expect(otherMarker).toHaveCount(0);
 			expect(
@@ -146,12 +220,12 @@ test.describe("Document annotations", () => {
 				.locator("xpath=ancestor::article[1]");
 			await expect(
 				messageCard.getByRole("button", {
-					name: /^(view|voir)$/i,
+					name: /Open target|Afficher la cible/i,
 				}),
 			).toBeVisible();
 			await expect(
 				messageCard.getByRole("button", {
-					name: /resolve and remove from the list|résoudre et retirer de la liste/i,
+					name: /Delete note|Supprimer la note/i,
 				}),
 			).toBeVisible();
 			await messageCard.hover();
@@ -168,19 +242,19 @@ test.describe("Document annotations", () => {
 
 			// A message remains actionable after its document has been removed from
 			// the workspace: View reopens it, focuses the page, and reveals the target.
-			await page.getByRole("button", { name: /^(documents)$/i }).click();
+			await openLibraryView(page, "docs");
 			await page
-				.getByText(docName, { exact: true })
-				.locator("xpath=ancestor::button[1]")
+				.locator("[data-library-panel]")
+				.getByRole("button", { name: docName, exact: true })
 				.click();
 			await expect(title).toHaveCount(0);
-			await page
-				.getByRole("button", { name: /close documents|fermer documents/i })
-				.click();
+			await closeLibrary(page);
 			await messagesButton.click();
-			await messageCard.getByRole("button", { name: /^(view|voir)$/i }).click();
+			await messageCard
+				.getByRole("button", { name: /Open target|Afficher la cible/i })
+				.click();
 			await expect(title).toBeVisible();
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			const reopenedMessages = await mcp.callJson<
 				Array<{
 					docName?: string;
@@ -221,8 +295,8 @@ test.describe("Document annotations", () => {
 			const secondMessagesButton = secondPage.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await expect(secondMessagesButton.locator("span")).toHaveText("1");
-			await secondMessagesButton.click();
+			await expect(libraryBadge(secondMessagesButton)).toHaveText("1");
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(NOTE_TEXT)).toBeVisible();
 
 			await secondPage.reload();
@@ -233,7 +307,7 @@ test.describe("Document annotations", () => {
 				page: 1,
 			});
 			await expect(secondMarker).toBeVisible();
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(NOTE_TEXT)).toBeVisible();
 
 			const messages = await mcp.callJson<Array<{ id: string; text?: string }>>(
@@ -255,9 +329,9 @@ test.describe("Document annotations", () => {
 			await expect(
 				page
 					.getByRole("button", { name: /^(exchanges|échanges)$/i })
-					.locator("span"),
+					.locator("span:not([data-library-rail-icon])"),
 			).toHaveCount(0);
-			await expect(secondMessagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(secondMessagesButton)).toHaveCount(0);
 			await expect(marker).toHaveCount(0);
 			await expect(secondMarker).toHaveCount(0);
 			await expect(secondPage.getByText(NOTE_TEXT)).toHaveCount(0);
@@ -299,7 +373,7 @@ test.describe("Document annotations", () => {
 				.getByPlaceholder(/Note sur le document|Note about the document/i)
 				.fill(DOCUMENT_NOTE_TEXT);
 			await page.keyboard.press("Enter");
-			await expect(messagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			await expect(
 				page.locator(`[data-doc="${docName}"] [data-annotation-page-marker]`),
 			).toBeVisible();
@@ -309,12 +383,12 @@ test.describe("Document annotations", () => {
 				.locator("xpath=ancestor::article[1]");
 			await expect(
 				documentMessage.getByRole("button", {
-					name: /^(view|voir)$/i,
+					name: /Open target|Afficher la cible/i,
 				}),
 			).toBeVisible();
 			await expect(
 				documentMessage.getByRole("button", {
-					name: /resolve and remove from the list|résoudre et retirer de la liste/i,
+					name: /Delete note|Supprimer la note/i,
 				}),
 			).toBeVisible();
 
@@ -329,13 +403,13 @@ test.describe("Document annotations", () => {
 			const secondMessagesButton = secondPage.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await expect(secondMessagesButton.locator("span")).toHaveText("1");
+			await expect(libraryBadge(secondMessagesButton)).toHaveText("1");
 			await expect(
 				secondPage.locator(
 					`[data-doc="${docName}"] [data-annotation-page-marker]`,
 				),
 			).toBeVisible();
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
 
 			await secondPage.reload();
@@ -345,7 +419,7 @@ test.describe("Document annotations", () => {
 				doc: docName,
 				page: 1,
 			});
-			await secondMessagesButton.click();
+			await openLibraryView(secondPage, "exchange");
 			await expect(secondPage.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
 
 			const messages = await mcp.callJson<
@@ -368,8 +442,8 @@ test.describe("Document annotations", () => {
 				ids: [annotation.id],
 			});
 
-			await expect(messagesButton.locator("span")).toHaveCount(0);
-			await expect(secondMessagesButton.locator("span")).toHaveCount(0);
+			await expect(libraryBadge(messagesButton)).toHaveCount(0);
+			await expect(libraryBadge(secondMessagesButton)).toHaveCount(0);
 			await expect(
 				secondPage.locator(
 					`[data-doc="${docName}"] [data-annotation-page-marker]`,
@@ -383,3 +457,38 @@ test.describe("Document annotations", () => {
 		}
 	});
 });
+
+async function expectPopoverBounds(
+	page: import("@playwright/test").Page,
+	popover: import("@playwright/test").Locator,
+	library: import("@playwright/test").Locator,
+) {
+	await expect
+		.poll(async () => {
+			const [popoverBox, libraryBox] = await Promise.all([
+				popover.boundingBox(),
+				library.boundingBox(),
+			]);
+			const viewport = page.viewportSize();
+			if (!popoverBox || !libraryBox || !viewport) {
+				return {
+					outsideLibrary: false,
+					insideRight: false,
+					insideTop: false,
+					insideBottom: false,
+				};
+			}
+			return {
+				outsideLibrary: popoverBox.x >= libraryBox.x + libraryBox.width - 1,
+				insideRight: popoverBox.x + popoverBox.width <= viewport.width - 15,
+				insideTop: popoverBox.y >= 15,
+				insideBottom: popoverBox.y + popoverBox.height <= viewport.height - 15,
+			};
+		})
+		.toEqual({
+			outsideLibrary: true,
+			insideRight: true,
+			insideTop: true,
+			insideBottom: true,
+		});
+}

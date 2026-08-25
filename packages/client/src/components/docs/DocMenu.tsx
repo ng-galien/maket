@@ -1,4 +1,3 @@
-import { normalizeCategoryPath } from "@maket/shared";
 import {
 	Copy,
 	Download,
@@ -10,17 +9,16 @@ import {
 	Trash2,
 	Unlock,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n/useT";
 import {
 	sendDeleteDoc,
 	sendDuplicateDoc,
 	sendLockDoc,
 	sendRenameDoc,
-	wsSend,
 } from "../../store/ws";
 import { copyToClipboard } from "../../utils";
+import { AnchoredMenu, AnchoredMenuItem } from "../shared/AnchoredMenu";
 import { HoldToDelete } from "../shared/HoldToDelete";
 import { exportMaketBundle } from "./docsImportExport";
 import type {
@@ -28,13 +26,9 @@ import type {
 	DocItemMenuProps,
 	DocItemModel,
 	DocItemProps,
-	DocMenuActions,
-	DocMenuModel,
 	DocMenuProps,
-	DocMenuViewModel,
 	DocRowMenuButtonProps,
 	InlineNameEditorProps,
-	MenuItemProps,
 	RowMode,
 } from "./types";
 
@@ -77,6 +71,8 @@ export function DocMenuButton({
 			ref={anchorRef}
 			type="button"
 			aria-label={t("doc_menu")}
+			aria-haspopup="menu"
+			aria-expanded={model.menuOpen}
 			onClick={(event) => toggleDocMenu(event, model, actions)}
 			className={`${buttonSize} rounded-md flex items-center justify-center text-text-3 hover:bg-black/[0.06] transition ${
 				model.menuOpen
@@ -112,26 +108,6 @@ export function DocInlineNameEditor({ model, actions }: DocItemProps) {
 					: t("doc_duplicate_prompt")
 			}
 			onCommit={(value) => commitDocName(value, model, actions)}
-			onCancel={() => actions.changeMode({ kind: "idle" })}
-		/>
-	);
-}
-
-export function DocInlineCategoryEditor({ model, actions }: DocItemProps) {
-	const t = useT();
-	return (
-		<InlineNameEditor
-			initial={model.doc.category || "general"}
-			placeholder={t("doc_move_category_prompt")}
-			onCommit={(value) => {
-				const raw = value.trim();
-				actions.changeMode({ kind: "idle" });
-				if (!raw) return;
-				const category = normalizeCategoryPath(raw);
-				if (category !== normalizeCategoryPath(model.doc.category)) {
-					wsSend({ type: "update_meta", docName: model.doc.name, category });
-				}
-			}}
 			onCancel={() => actions.changeMode({ kind: "idle" })}
 		/>
 	);
@@ -184,7 +160,10 @@ export function DocItemMenu({
 				close: actions.closeMenu,
 				rename: () => changeDocMenuMode(actions, "rename"),
 				duplicate: () => changeDocMenuMode(actions, "duplicate"),
-				moveCategory: () => changeDocMenuMode(actions, "move-category"),
+				moveCategory: () => {
+					actions.closeMenu();
+					actions.moveCategory();
+				},
 				requestDelete: () => changeDocMenuMode(actions, "confirm-delete"),
 			}}
 			anchorRef={anchorRef}
@@ -241,58 +220,8 @@ export function InlineNameEditor({
 }
 
 function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
-	const menu = useDocMenuModel(model, actions, anchorRef);
-	if (!menu.pos) return null;
-	return createPortal(<DocMenuView menu={menu} />, document.body);
-}
-
-function useDocMenuModel(
-	model: DocMenuModel,
-	actions: DocMenuActions,
-	anchorRef: React.RefObject<HTMLElement | null>,
-): DocMenuViewModel {
-	const ref = useRef<HTMLDivElement>(null);
-	const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-
-	useLayoutEffect(() => {
-		const a = anchorRef.current;
-		if (!a) return;
-		const rect = a.getBoundingClientRect();
-		const MENU_W = 192;
-		const GAP = 4;
-		const top = rect.bottom + GAP;
-		const right = Math.max(8, window.innerWidth - rect.right);
-		const ESTIMATED_H = 238;
-		const flipped =
-			top + ESTIMATED_H > window.innerHeight - 8
-				? Math.max(8, rect.top - GAP - ESTIMATED_H)
-				: top;
-		void MENU_W;
-		setPos({ top: flipped, right });
-	}, [anchorRef]);
-
-	useEffect(() => {
-		const onDocClick = (e: MouseEvent) => {
-			if (ref.current?.contains(e.target as Node)) return;
-			if (anchorRef.current?.contains(e.target as Node)) return;
-			actions.close();
-		};
-		const onKey = (e: KeyboardEvent) => {
-			if (e.key === "Escape") actions.close();
-		};
-		const onScroll = () => actions.close();
-		document.addEventListener("mousedown", onDocClick);
-		document.addEventListener("keydown", onKey);
-		window.addEventListener("scroll", onScroll, true);
-		window.addEventListener("resize", onScroll);
-		return () => {
-			document.removeEventListener("mousedown", onDocClick);
-			document.removeEventListener("keydown", onKey);
-			window.removeEventListener("scroll", onScroll, true);
-			window.removeEventListener("resize", onScroll);
-		};
-	}, [actions, anchorRef]);
-
+	const t = useT();
+	const stateBacked = model.doc.dataModel === "state";
 	const copy = async () => {
 		await copyToClipboard(model.doc.name);
 		actions.close();
@@ -302,96 +231,62 @@ function useDocMenuModel(
 		sendLockDoc(model.doc.name, !model.locked);
 		actions.close();
 	};
-
-	return { ...model, ref, pos, actions, copy, toggleLock };
-}
-
-// code-moniker: ignore[smell-feature-envy-local]
-// Pure React view: composing menu items is the component's adapter role, not misplaced domain behavior.
-function DocMenuView({ menu }: { menu: DocMenuViewModel }) {
-	const t = useT();
-	const stateBacked = menu.doc.dataModel === "state";
 	return (
-		<div
-			ref={menu.ref}
-			className="fixed z-[210] w-48 bg-panel rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.18)] border border-black/5 overflow-hidden py-1"
-			style={{ top: menu.pos?.top, right: menu.pos?.right }}
+		<AnchoredMenu
+			anchorRef={anchorRef}
+			onClose={actions.close}
+			className="w-48"
+			ariaLabel={t("doc_menu")}
 		>
-			<MenuItem icon={<Copy size={13} />} onClick={menu.copy}>
+			<AnchoredMenuItem icon={<Copy size={13} />} onClick={copy}>
 				{t("doc_copy_name")}
-			</MenuItem>
-			<MenuItem
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
 				icon={<Pencil size={13} />}
-				onClick={menu.actions.rename}
-				disabled={menu.locked || stateBacked}
+				onClick={actions.rename}
+				disabled={model.locked || stateBacked}
 			>
 				{t("doc_rename")}
-			</MenuItem>
-			<MenuItem
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
 				icon={<Files size={13} />}
-				onClick={menu.actions.duplicate}
+				onClick={actions.duplicate}
 				disabled={stateBacked}
 			>
 				{t("doc_duplicate")}
-			</MenuItem>
-			<MenuItem
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
 				icon={<FolderInput size={13} />}
-				onClick={menu.actions.moveCategory}
-				disabled={menu.locked}
+				onClick={actions.moveCategory}
+				disabled={model.locked}
 			>
 				{t("doc_move_category")}
-			</MenuItem>
-			<MenuItem
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
 				icon={<Download size={13} />}
 				disabled={stateBacked}
 				onClick={() => {
-					exportMaketBundle([menu.doc.name]);
-					menu.actions.close();
+					exportMaketBundle([model.doc.name]);
+					actions.close();
 				}}
 			>
 				{t("doc_export_maket")}
-			</MenuItem>
-			<MenuItem
-				icon={menu.locked ? <Unlock size={13} /> : <Lock size={13} />}
-				onClick={menu.toggleLock}
+			</AnchoredMenuItem>
+			<AnchoredMenuItem
+				icon={model.locked ? <Unlock size={13} /> : <Lock size={13} />}
+				onClick={toggleLock}
 			>
-				{menu.locked ? t("doc_unlock") : t("doc_lock")}
-			</MenuItem>
-			<div className="h-px bg-black/[0.06] my-1" />
-			<MenuItem
+				{model.locked ? t("doc_unlock") : t("doc_lock")}
+			</AnchoredMenuItem>
+			<hr className="my-1 border-0 border-t border-border" />
+			<AnchoredMenuItem
 				icon={<Trash2 size={13} />}
-				onClick={menu.actions.requestDelete}
-				disabled={menu.locked || !menu.canDelete}
+				onClick={actions.requestDelete}
+				disabled={model.locked || !model.canDelete}
 				danger
 			>
 				{t("doc_delete")}
-			</MenuItem>
-		</div>
-	);
-}
-
-function MenuItem({
-	icon,
-	children,
-	onClick,
-	disabled,
-	danger,
-}: MenuItemProps) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			disabled={disabled}
-			className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-sm text-left transition ${
-				disabled
-					? "text-text-3 cursor-not-allowed"
-					: danger
-						? "text-danger hover:bg-danger-soft"
-						: "text-text-1 hover:bg-black/[0.05]"
-			}`}
-		>
-			<span className="flex-shrink-0">{icon}</span>
-			<span className="flex-1 truncate">{children}</span>
-		</button>
+			</AnchoredMenuItem>
+		</AnchoredMenu>
 	);
 }

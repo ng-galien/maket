@@ -2,7 +2,7 @@
   "mcpServers": {
     "maket": {
       "type": "http",
-      "url": "http://localhost:24843/mcp"
+      "url": "http://localhost:24844/mcp"
     },
     "esac": {
       "type": "http",

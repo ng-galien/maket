@@ -17,7 +17,7 @@ import {
 	useReadingKeyboard,
 } from "../components/ReadingWorkspace";
 import { collectionPageViews } from "../components/WorkspaceDoc";
-import { useT } from "../i18n/useT";
+import { translate, useT } from "../i18n/useT";
 import { applyColorScheme } from "../lib/colorScheme";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
@@ -35,11 +35,13 @@ async function fetchPublishedBundle(src: string): Promise<{
 }> {
 	const url = new URL(src, location.href);
 	if (url.origin !== location.origin) {
-		throw new Error("Bundle URL must use the same origin as the viewer");
+		throw new Error(translate("viewer_error_cross_origin"));
 	}
 	const response = await fetch(url);
 	if (!response.ok) {
-		throw new Error(`Could not fetch bundle (${response.status})`);
+		throw new Error(
+			translate("viewer_error_fetch", { status: response.status }),
+		);
 	}
 	return {
 		data: await response.arrayBuffer(),
@@ -239,6 +241,7 @@ function DropZone({
 	error: string | null;
 	onFile: (file: File) => void;
 }) {
+	const t = useT();
 	const [dragOver, setDragOver] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
 
@@ -264,21 +267,24 @@ function DropZone({
 			>
 				<FileUp size={40} className="text-text-3" />
 				<div className="text-center">
-					<div className="text-lg font-semibold text-text-1">Maket Viewer</div>
+					<div className="text-lg font-semibold text-text-1">
+						{t("viewer_title")}
+					</div>
 					<div className="mt-1 text-sm text-text-3">
-						Drop a <code>.maket</code> file here to open it
+						{t("viewer_drop_hint_before")} <code>.maket</code>{" "}
+						{t("viewer_drop_hint_after")}
 					</div>
 					<div className="mt-0.5 text-xs text-text-3">
-						Everything stays in your browser — nothing is uploaded.
+						{t("viewer_drop_privacy")}
 					</div>
 				</div>
 				<button
 					type="button"
 					disabled={busy}
 					onClick={() => inputRef.current?.click()}
-					className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+					className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-contrast disabled:opacity-50"
 				>
-					{busy ? "Opening…" : "Choose a file"}
+					{busy ? t("viewer_opening") : t("viewer_choose_file")}
 				</button>
 				{error && (
 					<div className="max-w-sm text-center text-xs font-medium text-danger">
@@ -316,11 +322,17 @@ function ViewerBar({
 	pageLabel: string;
 	onPageChange: (pageIndex: number) => void;
 }) {
+	const t = useT();
 	const darkMode = useStore((s) => s.darkMode);
 	const focusedDocName = useStore((s) => s.focusedDocName);
 	const documentNames = useStore((s) => s.workspaceDocNames);
+	const docs = useStore((s) => s.docs);
 	const setFocusedDoc = useStore((s) => s.setFocusedDoc);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const documents = documentNames.flatMap((name) => {
+		const doc = docs.get(name);
+		return doc ? [{ name: doc.name, category: doc.category }] : [];
+	});
 
 	return (
 		<div
@@ -328,7 +340,7 @@ function ViewerBar({
 			className="fixed right-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] left-2 z-50 flex h-14 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:right-auto sm:left-1/2 sm:w-auto sm:-translate-x-1/2"
 		>
 			<ReaderDocumentPicker
-				documentNames={documentNames}
+				documents={documents}
 				docName={focusedDocName ?? ""}
 				position="bottom"
 				onDocumentChange={setFocusedDoc}
@@ -344,8 +356,8 @@ function ViewerBar({
 			/>
 			<button
 				type="button"
-				title="Open another file"
-				aria-label="Open another file"
+				title={t("viewer_open_file")}
+				aria-label={t("viewer_open_file")}
 				onClick={() => inputRef.current?.click()}
 				className="hidden size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex"
 			>
@@ -353,8 +365,8 @@ function ViewerBar({
 			</button>
 			<button
 				type="button"
-				title="Toggle dark mode"
-				aria-label="Toggle dark mode"
+				title={t("viewer_toggle_dark")}
+				aria-label={t("viewer_toggle_dark")}
 				onClick={() => useStore.getState().toggleDarkMode()}
 				className="hidden size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 sm:flex"
 			>
@@ -389,6 +401,7 @@ function ViewerMobileActions({
 	onOpenFile: () => void;
 	onToggleDarkMode: () => void;
 }) {
+	const t = useT();
 	const [open, setOpen] = useState(false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
@@ -422,7 +435,7 @@ function ViewerMobileActions({
 			<button
 				ref={triggerRef}
 				type="button"
-				aria-label="More viewer actions"
+				aria-label={t("viewer_more_actions")}
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
 				className="flex size-10 items-center justify-center rounded-xl text-text-3 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
@@ -432,7 +445,7 @@ function ViewerMobileActions({
 			{open && (
 				<div
 					role="group"
-					aria-label="Viewer actions"
+					aria-label={t("viewer_actions")}
 					data-reader-menu
 					className="absolute right-0 bottom-full mb-2 w-52 rounded-xl border border-border bg-panel p-1.5 shadow-[0_18px_56px_rgba(0,0,0,0.2)]"
 					style={{ animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
@@ -446,7 +459,7 @@ function ViewerMobileActions({
 						className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-text-2 outline-none transition-colors hover:bg-input focus-visible:bg-input focus-visible:text-text-1"
 					>
 						<FileUp size={16} />
-						Open another file
+						{t("viewer_open_file")}
 					</button>
 					<button
 						type="button"
@@ -457,7 +470,7 @@ function ViewerMobileActions({
 						className="flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium text-text-2 outline-none transition-colors hover:bg-input focus-visible:bg-input focus-visible:text-text-1"
 					>
 						{darkMode ? <Sun size={16} /> : <Moon size={16} />}
-						Toggle dark mode
+						{t("viewer_toggle_dark")}
 					</button>
 				</div>
 			)}

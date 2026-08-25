@@ -11,7 +11,7 @@
  *                                [--only en|fr]
  *
  * Options:
- *   --port   HTTP port of the Maket server (default 24843 — the dev server).
+ *   --port   HTTP port of the Maket server (default 24844 — the dev server).
  *   --dwell  Seconds to rest on each finished page (default 5).
  *   --step   Seconds between sub-steps inside a page build (default 2.5).
  *   --only   Record only one deck id: "en" or "fr" (default: both).
@@ -29,7 +29,7 @@ import { decks } from "./decks.mjs";
 
 const { values } = parseArgs({
   options: {
-    port: { type: "string", default: "24843" },
+    port: { type: "string", default: "24844" },
     dwell: { type: "string", default: "5" },
     step: { type: "string", default: "2.5" },
     only: { type: "string" },

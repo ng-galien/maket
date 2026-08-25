@@ -4,6 +4,7 @@ import type {
 	DocumentStateRevision,
 	DocumentStateSchema,
 } from "@maket/shared";
+import { MessageError } from "../../lib/message-error.js";
 import { NEXT_DOCUMENT_UPDATED_AT_SQL } from "./document-timestamp.js";
 
 export interface StoredDocumentState {
@@ -90,7 +91,7 @@ type DocumentStateStatements = {
 	documentTouch: StatementSync;
 };
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite transaction adapter: statement fan-out is the repository boundary.
 function initializeState(
 	db: DatabaseSync,
@@ -120,7 +121,7 @@ function initializeState(
 	return requiredRevision(statements.revisionSelect.get(documentId, 1));
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite transaction adapter: optimistic append must coordinate its statements.
 function appendRevision(
 	db: DatabaseSync,
@@ -138,8 +139,10 @@ function appendRevision(
 		const currentSnapshot = revisionFromRow(current);
 		const currentRevision = currentSnapshot.revision;
 		if (currentRevision !== expectedRevision) {
-			throw new Error(
+			throw new MessageError(
 				`Document state revision conflict: expected ${expectedRevision}, current ${currentRevision}.`,
+				"msg_state_revision_conflict",
+				{ expected: expectedRevision, current: currentRevision },
 			);
 		}
 		const nextRevision = currentRevision + 1;
@@ -160,7 +163,7 @@ function appendRevision(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Schema and data form one revision and must commit with the current-schema pointer.
 function replaceSchema(
 	db: DatabaseSync,
@@ -204,7 +207,7 @@ function replaceSchema(
 	}
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Preparing SQL statements is database-adapter setup, not domain ownership.
 function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 	return {

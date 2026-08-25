@@ -1,51 +1,131 @@
 import type { Collection } from "@maket/shared";
-import { Database, Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Link2, Link2Off, Plus, Trash2 } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { HoldToDelete } from "./shared/HoldToDelete";
+import { LibraryListDivider } from "./shared/LibraryListDivider";
+import { LibrarySearchField } from "./shared/LibrarySearchField";
+import {
+	LibraryToolbar,
+	LibraryToolbarActions,
+	LibraryToolbarRow,
+} from "./shared/LibraryToolbar";
+import { showLibraryScrollActivity } from "./shared/libraryScroll";
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// code-moniker: ignore[maket-hygiene-limits-callable-size]
 // Collections panel shell: coordinates store-backed library focus with the
 // overlay lifecycle so opening an editor also dismisses the blocking panel.
 export function CollectionsTab() {
 	const t = useT();
 	const collections = useStore((s) => s.collections);
+	const docList = useStore((s) => s.docList);
+	const docs = useStore((s) => s.docs);
+	const focusedDocName = useStore((s) => s.focusedDocName);
+	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
 	const focusedCollectionName = useStore((s) => s.focusedCollectionName);
 	const setFocusedCollection = useStore((s) => s.setFocusedCollection);
-	const setActivePanel = useStore((s) => s.setActivePanel);
+	const setDataDockMode = useStore((s) => s.setDataDockMode);
+	const openWorkspaceDocument = useStore((s) => s.openWorkspaceDocument);
 	const [naming, setNaming] = useState(false);
 	const [deleting, setDeleting] = useState<string | null>(null);
+	const [search, setSearch] = useState("");
+	const focusedDoc = focusedDocName ? docs.get(focusedDocName) : null;
+	const focusedPage = focusedDoc?.pages[focusedPageIndex];
+	const focusedPageCollection = focusedPage?.collection?.name ?? null;
 	const openCollection = (name: string) => {
+		setDataDockMode("expanded");
 		setFocusedCollection(name);
-		setActivePanel(null);
+	};
+	const openCollectionDocument = (collectionName: string, docName: string) => {
+		setFocusedCollection(collectionName);
+		setDataDockMode("split");
+		openWorkspaceDocument(docName);
+	};
+	const setFocusedPageCollection = (collectionName: string | null) => {
+		if (!focusedDoc || !focusedPage) return;
+		wsSend(
+			collectionName
+				? {
+						type: "collection_bind_page",
+						docName: focusedDoc.name,
+						pageIndex: focusedPageIndex,
+						collectionName,
+					}
+				: {
+						type: "collection_clear_page",
+						docName: focusedDoc.name,
+						pageIndex: focusedPageIndex,
+					},
+		);
+		if (collectionName) {
+			setFocusedCollection(collectionName);
+			setDataDockMode("split");
+		}
 	};
 
 	const sortedCollections = useMemo(
 		() => [...collections].sort((a, b) => a.name.localeCompare(b.name)),
 		[collections],
 	);
+	const documentsByCollection = useMemo(() => {
+		const grouped = new Map<string, typeof docList>();
+		for (const document of docList) {
+			for (const binding of document.collectionBindings) {
+				const documents = grouped.get(binding.name) ?? [];
+				documents.push(document);
+				grouped.set(binding.name, documents);
+			}
+		}
+		for (const documents of grouped.values()) {
+			documents.sort((a, b) => a.name.localeCompare(b.name));
+		}
+		return grouped;
+	}, [docList]);
+	const filteredCollections = useMemo(() => {
+		const query = search.trim().toLocaleLowerCase();
+		if (!query) return sortedCollections;
+		return sortedCollections.filter((collection) =>
+			[
+				collection.name,
+				collection.description,
+				...Object.keys(collection.schema.properties ?? {}),
+				...(documentsByCollection.get(collection.name) ?? []).map(
+					(document) => document.name,
+				),
+			]
+				.filter(Boolean)
+				.join(" ")
+				.toLocaleLowerCase()
+				.includes(query),
+		);
+	}, [documentsByCollection, search, sortedCollections]);
 
 	return (
-		<div className="p-4 space-y-4">
-			<div className="flex items-center justify-between gap-3">
-				<div className="flex items-center gap-2 min-w-0">
-					<Database size={18} className="text-accent shrink-0" />
-					<h2 className="text-lg font-bold text-text-1 truncate">
-						{t("collections")}
-					</h2>
-				</div>
-				<button
-					type="button"
-					title={t("collection_new")}
-					aria-label={t("collection_new")}
-					onClick={() => setNaming(true)}
-					className="w-8 h-8 rounded-full flex items-center justify-center text-white bg-accent hover:opacity-90 transition-opacity"
-				>
-					<Plus size={16} />
-				</button>
-			</div>
+		<div data-collections-list className="flex h-full min-h-0 flex-col">
+			<LibraryToolbar>
+				<LibraryToolbarRow>
+					<LibrarySearchField
+						value={search}
+						onChange={(event) => setSearch(event.target.value)}
+						onClear={() => setSearch("")}
+						placeholder={t("collection_search_hint")}
+					/>
+					<LibraryToolbarActions>
+						<button
+							type="button"
+							title={t("collection_new")}
+							aria-label={t("collection_new")}
+							onClick={() => setNaming(true)}
+							className="flex h-8 w-8 items-center justify-center rounded-md bg-input text-text-3 transition hover:text-text-1"
+						>
+							<Plus size={13} />
+						</button>
+					</LibraryToolbarActions>
+				</LibraryToolbarRow>
+			</LibraryToolbar>
 
 			{naming && (
 				<NewCollectionForm
@@ -56,21 +136,49 @@ export function CollectionsTab() {
 			)}
 
 			{sortedCollections.length === 0 ? (
-				<div className="text-sm text-text-3 bg-input rounded-lg p-3">
+				<div className="px-3 py-4 text-sm text-text-3">
 					{t("collection_none")}
 				</div>
+			) : filteredCollections.length === 0 ? (
+				<div className="px-3 py-4 text-sm text-text-3">
+					{t("collection_no_match")}
+				</div>
 			) : (
-				<div className="space-y-2">
-					{sortedCollections.map((collection) => (
-						<CollectionCard
-							key={collection.name}
-							collection={collection}
-							active={focusedCollectionName === collection.name}
-							deleting={deleting === collection.name}
-							onOpen={() => openCollection(collection.name)}
-							onAskDelete={() => setDeleting(collection.name)}
-							onCancelDelete={() => setDeleting(null)}
-						/>
+				<div
+					data-collections-scroll
+					onScroll={showLibraryScrollActivity}
+					className="library-scroll-area min-h-0 flex-1 overflow-y-auto"
+				>
+					{filteredCollections.map((collection, index) => (
+						<Fragment key={collection.name}>
+							<CollectionRow
+								collection={collection}
+								documents={documentsByCollection.get(collection.name) ?? []}
+								active={focusedCollectionName === collection.name}
+								deleting={deleting === collection.name}
+								focusedPageBinding={
+									focusedDoc && focusedPage
+										? focusedPageCollection === collection.name
+											? "linked"
+											: "available"
+										: null
+								}
+								onOpen={() => openCollection(collection.name)}
+								onOpenDocument={(documentName) =>
+									openCollectionDocument(collection.name, documentName)
+								}
+								onToggleFocusedPage={() =>
+									setFocusedPageCollection(
+										focusedPageCollection === collection.name
+											? null
+											: collection.name,
+									)
+								}
+								onAskDelete={() => setDeleting(collection.name)}
+								onCancelDelete={() => setDeleting(null)}
+							/>
+							{index < filteredCollections.length - 1 && <LibraryListDivider />}
+						</Fragment>
 					))}
 				</div>
 			)}
@@ -78,44 +186,123 @@ export function CollectionsTab() {
 	);
 }
 
-function CollectionCard({
-	collection,
-	active,
-	deleting,
-	onOpen,
-	onAskDelete,
-	onCancelDelete,
-}: {
+interface CollectionRowProps {
 	collection: Collection;
+	documents: ReturnType<typeof useStore.getState>["docList"];
 	active: boolean;
 	deleting: boolean;
+	focusedPageBinding: "linked" | "available" | null;
 	onOpen: () => void;
+	onOpenDocument: (name: string) => void;
+	onToggleFocusedPage: () => void;
 	onAskDelete: () => void;
 	onCancelDelete: () => void;
-}) {
+}
+
+function CollectionRow(props: CollectionRowProps) {
+	const {
+		collection,
+		documents,
+		active,
+		deleting,
+		focusedPageBinding,
+		onOpen,
+		onOpenDocument,
+		onToggleFocusedPage,
+		onAskDelete,
+		onCancelDelete,
+	} = props;
 	const t = useT();
 	const fieldCount = Object.keys(collection.schema.properties ?? {}).length;
 	return (
 		<div
-			className={`w-full rounded-lg border transition-colors ${
-				active
-					? "border-accent bg-accent-soft"
-					: "border-border bg-panel hover:bg-input"
+			data-collection-row={collection.name}
+			data-active={active || undefined}
+			className={`group/collection relative transition-colors duration-100 ${
+				active ? "bg-accent-soft" : "hover:bg-input/70"
 			}`}
 		>
-			<button type="button" onClick={onOpen} className="w-full text-left p-3">
-				<div className="text-sm font-semibold text-text-1 truncate">
-					{collection.name}
+			{active && (
+				<span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-accent" />
+			)}
+			<div className="flex min-w-0 items-center">
+				<button
+					type="button"
+					onClick={onOpen}
+					aria-current={active ? "true" : undefined}
+					className="flex min-w-0 flex-1 items-center px-3 py-2.5 text-left"
+				>
+					<span className="min-w-0 flex-1">
+						<span className="block truncate text-base font-medium text-text-1">
+							{collection.name}
+						</span>
+						<span className="mt-0.5 block truncate text-xs text-text-3">
+							{t("collection_summary_counts", {
+								fields: fieldCount,
+								rows: collection.members.length,
+							})}
+						</span>
+					</span>
+				</button>
+				{focusedPageBinding && !deleting && (
+					<button
+						type="button"
+						title={
+							focusedPageBinding === "linked"
+								? t("collection_detach_active_page")
+								: t("collection_bind_active_page")
+						}
+						aria-label={
+							focusedPageBinding === "linked"
+								? t("collection_detach_active_page")
+								: t("collection_bind_active_page")
+						}
+						onClick={onToggleFocusedPage}
+						className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-sm transition-colors ${
+							focusedPageBinding === "linked"
+								? "text-accent hover:bg-accent-soft"
+								: "text-text-3 opacity-0 hover:bg-input hover:text-text-1 focus-visible:opacity-100 group-hover/collection:opacity-100"
+						}`}
+					>
+						{focusedPageBinding === "linked" ? (
+							<Link2Off size={13} />
+						) : (
+							<Link2 size={13} />
+						)}
+					</button>
+				)}
+				{!deleting && (
+					<button
+						type="button"
+						title={t("delete")}
+						aria-label={t("delete")}
+						onClick={onAskDelete}
+						className="mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-3 opacity-0 transition-[color,background-color,opacity] duration-100 hover:bg-danger-soft hover:text-danger focus-visible:opacity-100 group-hover/collection:opacity-100"
+					>
+						<Trash2 size={13} />
+					</button>
+				)}
+			</div>
+			{documents.length > 0 && !deleting && (
+				<div className="ml-3 border-l border-border pb-1.5 pl-1 pr-2">
+					{documents.map((document) => (
+						<button
+							key={document.name}
+							type="button"
+							title={`${document.category} / ${document.name}`}
+							aria-label={t("collection_open_document", {
+								name: document.name,
+							})}
+							onClick={() => onOpenDocument(document.name)}
+							className="flex w-full min-w-0 items-center rounded-md px-2 py-1.5 text-left text-sm text-text-2 transition-colors hover:bg-input hover:text-accent"
+						>
+							<span className="truncate">{document.name}</span>
+						</button>
+					))}
 				</div>
-				<div className="text-xs text-text-3 mt-1">
-					{t("collection_summary_counts", {
-						fields: fieldCount,
-						rows: collection.members.length,
-					})}
-				</div>
-			</button>
+			)}
 			{deleting ? (
-				<div className="px-3 pb-3">
+				<div className="px-3 pb-2.5">
 					<HoldToDelete
 						label={t("collection_delete_hold", { name: collection.name })}
 						onConfirm={() => {
@@ -125,17 +312,7 @@ function CollectionCard({
 						onCancel={onCancelDelete}
 					/>
 				</div>
-			) : (
-				<button
-					type="button"
-					title={t("delete")}
-					aria-label={t("delete")}
-					onClick={onAskDelete}
-					className="ml-3 mb-3 w-8 h-8 rounded-md inline-flex items-center justify-center text-text-3 hover:text-danger hover:bg-input transition-colors"
-				>
-					<Trash2 size={14} />
-				</button>
-			)}
+			) : null}
 		</div>
 	);
 }
@@ -165,13 +342,11 @@ function NewCollectionForm({
 				description: "",
 				schema: {
 					type: "object",
-					properties: {
-						client_name: { type: "string", title: "Client" },
-					},
-					required: ["client_name"],
+					properties: {},
+					required: [],
 					additionalProperties: false,
 				},
-				members: [{ id: "member_1", position: 0, data: { client_name: "" } }],
+				members: [],
 			},
 		});
 		onCreated(trimmed);
@@ -179,7 +354,7 @@ function NewCollectionForm({
 	};
 
 	return (
-		<div className="flex items-center gap-2 rounded-lg border border-border bg-panel p-2">
+		<div className="flex shrink-0 items-center gap-1.5 border-b border-border p-2">
 			<input
 				ref={inputRef}
 				value={name}
@@ -189,20 +364,20 @@ function NewCollectionForm({
 					if (event.key === "Escape") onDone();
 				}}
 				placeholder={t("collection_name_placeholder")}
-				className="min-w-0 flex-1 bg-input rounded-md px-2 py-1.5 text-sm text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
+				className="h-8 min-w-0 flex-1 rounded-md bg-input px-2 text-sm text-text-1 outline-none focus:ring-2 focus:ring-accent/25"
 			/>
 			<button
 				type="button"
 				disabled={!valid}
 				onClick={create}
-				className="h-8 px-3 rounded-md text-xs font-bold text-white bg-accent hover:opacity-90 transition-opacity disabled:opacity-35"
+				className="h-8 rounded-md bg-accent px-2.5 text-xs font-bold text-accent-contrast transition-opacity hover:opacity-90 disabled:opacity-35"
 			>
 				{t("collection_new")}
 			</button>
 			<button
 				type="button"
 				onClick={onDone}
-				className="h-8 px-2 rounded-md text-xs font-semibold text-text-3 hover:bg-input transition-colors"
+				className="h-8 rounded-md px-2 text-xs font-semibold text-text-3 transition-colors hover:bg-input"
 			>
 				{t("cancel")}
 			</button>

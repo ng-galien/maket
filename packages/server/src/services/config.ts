@@ -6,10 +6,11 @@
  * side-effecting helper so the factory itself is pure.
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SETTINGS_FILE } from "@maket/shared";
 
 export interface Config {
 	/** Detect compiled binary mode — false in Node.js mode. */
@@ -39,11 +40,20 @@ export interface Config {
 	APP_TITLE: string;
 	/** Application subtitle shown in UI (may be empty). */
 	APP_SUBTITLE: string;
+	/** Release version advertised to MCP clients. */
+	VERSION: string;
+	/** User-level settings file. Anchored to the home directory, never to
+	 *  DATA_DIR, so panel preferences survive a workspace switch. */
+	SETTINGS_PATH: string;
 }
 
 export interface ConfigInputs {
 	env?: Record<string, string | undefined>;
 	homedir?: () => string;
+	/** Read-only runtime assets root. Electron supplies process.resourcesPath. */
+	packageDir?: string;
+	/** Explicit packaged-runtime marker for hosts that embed the server. */
+	packaged?: boolean;
 }
 
 const DEFAULT_PORT = 24842;
@@ -55,13 +65,13 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const __dirname = dirname(fileURLToPath(import.meta.url));
 	const projectRoot = resolve(__dirname, "../../../..");
 	const COMPILED = false;
-	const PACKAGED = !COMPILED && !existsSync(join(projectRoot, "packages"));
+	const PACKAGED =
+		inputs.packaged ??
+		(!COMPILED && !existsSync(join(projectRoot, "packages")));
 
-	const PACKAGE_DIR = COMPILED
-		? dirname(process.execPath)
-		: PACKAGED
-			? __dirname
-			: projectRoot;
+	const PACKAGE_DIR =
+		inputs.packageDir ??
+		(COMPILED ? dirname(process.execPath) : PACKAGED ? __dirname : projectRoot);
 
 	const explicitData = env.MAKET_DATA_DIR;
 	const DATA_DIR = explicitData ? explicitData : join(homedir(), ".maket");
@@ -79,6 +89,11 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const APP_TITLE = env.MAKET_TITLE || "Maket";
 	const APP_SUBTITLE = env.MAKET_SUBTITLE || "";
 
+	const VERSION = readManifestVersion(PACKAGE_DIR);
+
+	const SETTINGS_PATH =
+		env.MAKET_SETTINGS_FILE || join(homedir(), ".maket", SETTINGS_FILE);
+
 	return {
 		COMPILED,
 		PACKAGED,
@@ -93,7 +108,21 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 		HOST,
 		APP_TITLE,
 		APP_SUBTITLE,
+		VERSION,
+		SETTINGS_PATH,
 	};
+}
+
+/** manifest.json ships next to public/ in every distribution and is version-checked. */
+function readManifestVersion(packageDir: string): string {
+	try {
+		const { version } = JSON.parse(
+			readFileSync(join(packageDir, "manifest.json"), "utf-8"),
+		) as { version?: string };
+		return version || "unknown";
+	} catch {
+		return "unknown";
+	}
 }
 
 /** Create writable directories on disk. Safe to call multiple times. */

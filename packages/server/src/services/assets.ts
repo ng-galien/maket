@@ -53,7 +53,7 @@ const THUMB_PX = 400;
  * Legacy thumbs (`<basename>.jpg`, used before v1.1.0) are migrated at startup;
  * see `migrateLegacyThumbs` below.
  */
-const thumbFilename = (filename: string) => {
+export const assetThumbnailFilename = (filename: string) => {
 	const ext = extname(filename).toLowerCase();
 	return ext === ".svg" ? `${filename}.thumb.png` : `${filename}.thumb.jpg`;
 };
@@ -219,7 +219,7 @@ async function importAssetBuffer(
 function removeAsset(safePath: SafePath, filename: string): void {
 	const abs = safePath(filename);
 	if (abs && existsSync(abs)) unlinkSync(abs);
-	const thumbAbs = safePath(join("thumbs", thumbFilename(filename)));
+	const thumbAbs = safePath(join("thumbs", assetThumbnailFilename(filename)));
 	if (thumbAbs && existsSync(thumbAbs)) unlinkSync(thumbAbs);
 }
 
@@ -231,7 +231,7 @@ function readAssetBase64(
 	const abs = safePath(filename);
 	if (!abs || !existsSync(abs)) return null;
 	const thumb = preferThumb
-		? safePath(join("thumbs", thumbFilename(filename)))
+		? safePath(join("thumbs", assetThumbnailFilename(filename)))
 		: null;
 	const src = thumb && existsSync(thumb) ? thumb : abs;
 	return {
@@ -389,7 +389,7 @@ async function optimizeAsset(
 	if (!abs || !existsSync(abs)) return null;
 	const td = paths.thumbDir();
 	if (!existsSync(td)) mkdirSync(td, { recursive: true });
-	const thumbPath = join(td, thumbFilename(filename));
+	const thumbPath = join(td, assetThumbnailFilename(filename));
 	return ext === ".svg"
 		? optimizeSvg(abs, thumbPath)
 		: optimizeRaster(abs, thumbPath, ext);
@@ -490,7 +490,9 @@ function migrateLegacyThumb(
 		}
 		const onlyMatch = matching[0];
 		if (!onlyMatch) return;
-		const targetPath = safePath(join("thumbs", thumbFilename(onlyMatch)));
+		const targetPath = safePath(
+			join("thumbs", assetThumbnailFilename(onlyMatch)),
+		);
 		if (!targetPath) return;
 		if (existsSync(targetPath)) {
 			unlinkSync(legacyPath);
@@ -531,7 +533,9 @@ export function createAssetsService(
 		readBase64: (filename, preferThumb = true) =>
 			readAssetBase64(paths.safePath, filename, preferThumb),
 		hasThumb(filename) {
-			const thumb = paths.safePath(join("thumbs", thumbFilename(filename)));
+			const thumb = paths.safePath(
+				join("thumbs", assetThumbnailFilename(filename)),
+			);
 			return !!thumb && existsSync(thumb);
 		},
 		mimeFromExt: (pathOrFilename) =>

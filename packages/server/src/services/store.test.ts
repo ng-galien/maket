@@ -239,6 +239,22 @@ describe("SQLiteStore", () => {
 		store.close();
 	});
 
+	it("rolls back every asset in a failed bulk save", () => {
+		const store = createSQLiteStore(":memory:");
+		const circularTags: unknown[] = [];
+		circularTags.push(circularTags);
+
+		expect(() =>
+			store.saveAssets([
+				{ filename: "first.png", category: "Campaigns" },
+				{ filename: "invalid.png", tags: circularTags as string[] },
+			]),
+		).toThrow();
+
+		expect(store.loadAsset("first.png")).toBeNull();
+		store.close();
+	});
+
 	it("deleteAsset returns true when an asset existed", () => {
 		const store = createSQLiteStore(":memory:");
 		store.saveAsset({ filename: "a.png" });

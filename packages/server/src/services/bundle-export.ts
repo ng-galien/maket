@@ -63,7 +63,7 @@ export function createBundleExportService(
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Bundle construction intentionally coordinates every portable dependency behind one shared owner.
 async function buildBundle(
 	deps: BundleExportServiceDeps,

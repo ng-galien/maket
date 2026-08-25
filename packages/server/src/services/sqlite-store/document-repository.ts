@@ -148,7 +148,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 	};
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite repository setup owns the prepared-statement catalog for this persistence adapter.
 function prepareDocumentStatements(db: DatabaseSync): {
 	docUpsert: StatementSync;

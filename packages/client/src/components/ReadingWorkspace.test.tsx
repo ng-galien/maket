@@ -1,8 +1,15 @@
-import { act, cleanup, render } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
+import { enterReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import {
@@ -26,6 +33,15 @@ function makeDoc(name: string, pageCount = 1): Document {
 	};
 }
 
+function WorkspaceViewHarness() {
+	const workspaceView = useStore((state) => state.workspaceView);
+	return workspaceView === "reading" ? (
+		<ReadingWorkspace />
+	) : (
+		<div data-canvas-workspace />
+	);
+}
+
 afterEach(() => {
 	cleanup();
 	vi.unstubAllGlobals();
@@ -43,6 +59,38 @@ describe("ReadingWorkspace", () => {
 		const input = document.createElement("input");
 		expect(readingShortcutBlocked(input)).toBe(true);
 		expect(readingShortcutBlocked(document.body)).toBe(false);
+	});
+
+	it("uses directional arrows to move between reader pages", () => {
+		const doc = makeDoc("report", 3);
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+			workspaceView: "reading",
+		});
+
+		render(
+			<>
+				<ReadingWorkspace />
+				<input aria-label="Reader test input" />
+			</>,
+		);
+
+		fireEvent.keyDown(window, { key: "ArrowRight" });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		fireEvent.keyDown(window, { key: "ArrowDown" });
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		fireEvent.keyDown(window, { key: "ArrowLeft" });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		fireEvent.keyDown(window, { key: "ArrowUp" });
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+
+		const input = screen.getByRole("textbox", { name: "Reader test input" });
+		input.focus();
+		fireEvent.keyDown(input, { key: "ArrowRight" });
+		expect(useStore.getState().focusedPageIndex).toBe(0);
 	});
 
 	it("renders only the focused document and hides the canvas document chip", () => {
@@ -80,7 +128,7 @@ describe("ReadingWorkspace", () => {
 			workspaceView: "reading",
 		});
 
-		render(<ReadingWorkspace />);
+		render(<WorkspaceViewHarness />);
 		expect(document.querySelector("[data-toolbar-shell]")).toBeNull();
 		expect(document.querySelector(".element-toolbar")).toBeNull();
 
@@ -91,6 +139,59 @@ describe("ReadingWorkspace", () => {
 		);
 		expect(useStore.getState().focusedDocName).toBe("beta");
 		expect(document.querySelector("[data-doc='beta']")).not.toBeNull();
+	});
+
+	it("closes with a plain close control and restores the originating workspace", async () => {
+		const user = userEvent.setup();
+		const alpha = makeDoc("alpha", 2);
+		const beta = makeDoc("beta");
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+			]),
+			workspaceDocNames: [alpha.name, beta.name],
+			focusedDocName: alpha.name,
+			focusedPageIndex: 1,
+			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
+			stateDockOpen: false,
+			libraryOpen: true,
+			libraryView: "collections",
+			settingsOpen: false,
+			selectedIds: ["element-1"],
+			editingElementId: "element-1",
+			showPopover: true,
+			workspaceView: "canvas",
+		});
+		expect(enterReadingSession()).toBe(true);
+
+		render(<WorkspaceViewHarness />);
+		await user.click(screen.getByRole("button", { name: "Next document" }));
+		expect(useStore.getState().focusedDocName).toBe(beta.name);
+		const close = screen.getByRole("button", { name: "Close reader" });
+		expect(close.querySelector(".lucide-x")).not.toBeNull();
+		expect(
+			screen.getByRole("navigation", { name: "Reader navigation" })
+				.lastElementChild,
+		).toBe(close);
+		await user.click(close);
+		expect(document.querySelector("[data-canvas-workspace]")).not.toBeNull();
+
+		expect(useStore.getState()).toMatchObject({
+			workspaceView: "canvas",
+			focusedDocName: alpha.name,
+			focusedPageIndex: 1,
+			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
+			stateDockOpen: false,
+			libraryOpen: true,
+			libraryView: "collections",
+			settingsOpen: false,
+			selectedIds: ["element-1"],
+			editingElementId: "element-1",
+			showPopover: true,
+		});
 	});
 
 	it("keeps the document picker keyboard-accessible", async () => {
@@ -171,22 +272,24 @@ describe("ReadingWorkspace", () => {
 		}
 	});
 
-	it("reserves toolbar clearance on the toolbar side", () => {
+	it("reserves clearance for the stable top reading controls", () => {
 		const doc = makeDoc("report");
 		useStore.setState({
 			docs: new Map([[doc.name, doc]]),
 			workspaceDocNames: [doc.name],
 			focusedDocName: doc.name,
 			workspaceView: "reading",
-			barPosition: "bottom",
 		});
 		const { container } = render(<ReadingWorkspace />);
 		const workspace = container.querySelector("[data-reading-workspace]");
-		expect(workspace).toHaveClass("pb-20");
-		expect(workspace).toHaveAttribute("data-bar-position", "bottom");
-
-		act(() => useStore.getState().setBarPosition("top"));
-		expect(workspace).toHaveClass("pt-20");
+		expect(workspace).toHaveClass("pt-16");
 		expect(workspace).toHaveAttribute("data-bar-position", "top");
+		expect(
+			screen.getByRole("navigation", { name: "Reader navigation" }),
+		).toHaveClass("h-12", "p-1", "rounded-lg");
+		expect(screen.getByRole("button", { name: "Close reader" })).toHaveClass(
+			"size-9",
+			"rounded-md",
+		);
 	});
 });

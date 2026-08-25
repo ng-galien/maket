@@ -1,10 +1,4 @@
-import {
-	Check,
-	ChevronDown,
-	ChevronLeft,
-	ChevronRight,
-	LayoutGrid,
-} from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
 import type {
 	FocusEvent as ReactFocusEvent,
 	KeyboardEvent as ReactKeyboardEvent,
@@ -21,9 +15,9 @@ import {
 	useState,
 } from "react";
 import { useT } from "../i18n/useT";
+import { exitReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
-import { requestFit } from "../store/zoomBridge";
 import type { PresentationDataSource } from "./presentation-policy";
 import {
 	collectionPageViews,
@@ -53,7 +47,7 @@ export function ReadingWorkspace() {
 				key={model.doc.name}
 				doc={model.doc}
 				dataSource="connected"
-				barPosition={model.barPosition}
+				barPosition="top"
 				initialPageIndex={model.initialReaderPageIndex}
 				onVisiblePage={model.onVisiblePage}
 			/>
@@ -64,7 +58,7 @@ export function ReadingWorkspace() {
 
 interface ReaderBarModel {
 	position: "top" | "bottom";
-	documentNames: string[];
+	documents: DocumentPickerItem[];
 	docName: string;
 	pageIndex: number;
 	pageTotal: number;
@@ -76,13 +70,12 @@ interface ReaderBarModel {
 
 interface ConnectedReaderModel {
 	doc: Document;
-	barPosition: "top" | "bottom";
 	initialReaderPageIndex: number;
 	onVisiblePage: (logicalIndex: number, sourcePageIndex: number) => void;
 	bar: ReaderBarModel;
 }
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This hook is the connected Reader shell adapter: it composes Zustand selectors and navigation commands while ReaderSurface owns presentation.
 function useConnectedReaderModel(): ConnectedReaderModel | null {
 	const doc = useFocusedDoc();
@@ -90,10 +83,8 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
 	const docs = useStore((state) => state.docs);
 	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
-	const barPosition = useStore((state) => state.barPosition);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
 	const setFocusedPage = useStore((state) => state.setFocusedPage);
-	const setWorkspaceView = useStore((state) => state.setWorkspaceView);
 	const t = useT();
 	const pageLabel = t("page");
 	const rowLabel = t("collection_row_lower");
@@ -144,13 +135,8 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	);
 
 	const returnToCanvasView = useCallback(() => {
-		if (!doc) return;
-		returnToCanvas(
-			doc.name,
-			pageViews[readerPageIndex]?.pageIndex ?? focusedPageIndex,
-			setWorkspaceView,
-		);
-	}, [doc, focusedPageIndex, pageViews, readerPageIndex, setWorkspaceView]);
+		exitReadingSession();
+	}, []);
 	const handleVisiblePage = useCallback(
 		(logicalIndex: number, sourcePageIndex: number) => {
 			if (!doc) return;
@@ -168,15 +154,19 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	});
 
 	if (!doc) return null;
-	const documentNames = workspaceDocNames.filter((name) => docs.has(name));
+	const documents = workspaceDocNames.flatMap((name) => {
+		const workspaceDoc = docs.get(name);
+		return workspaceDoc
+			? [{ name: workspaceDoc.name, category: workspaceDoc.category }]
+			: [];
+	});
 	return {
 		doc,
-		barPosition,
 		initialReaderPageIndex,
 		onVisiblePage: handleVisiblePage,
 		bar: {
-			position: barPosition,
-			documentNames,
+			position: "top",
+			documents,
 			docName: doc.name,
 			pageIndex: readerPageIndex,
 			pageTotal: pageViews.length,
@@ -241,8 +231,8 @@ export function ReaderSurface({
 
 	const toolbarClearance = barPosition
 		? barPosition === "top"
-			? "pt-20 pb-6 sm:pt-24 sm:pb-8"
-			: "pt-6 pb-20 sm:pt-8 sm:pb-24"
+			? "pt-16 pb-6 sm:pt-20 sm:pb-8"
+			: "pt-6 pb-16 sm:pt-8 sm:pb-20"
 		: embedded
 			? "py-0"
 			: "py-6 sm:py-8";
@@ -274,30 +264,27 @@ export function ReaderSurface({
 
 function ReaderBar({ model }: { model: ReaderBarModel }) {
 	const t = useT();
-	const documentIndex = model.documentNames.indexOf(model.docName);
+	const documentNames = model.documents.map((document) => document.name);
+	const documentIndex = documentNames.indexOf(model.docName);
 	return (
 		<nav
 			aria-label={t("reader_navigation")}
-			className={`fixed left-1/2 z-[var(--z-bar)] flex h-14 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-1 rounded-2xl border border-border/80 bg-panel/95 p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.14)] backdrop-blur-xl sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
+			className={`fixed left-1/2 z-[var(--z-bar)] flex h-12 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-0.5 rounded-lg border border-border/80 bg-panel/95 p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] backdrop-blur-lg sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
 		>
-			<ReaderButton label={t("canvas_view")} onClick={model.onExit}>
-				<LayoutGrid size={18} strokeWidth={1.8} />
-			</ReaderButton>
-			<div className="mx-1 hidden h-7 w-px shrink-0 bg-border sm:block" />
 			<ReaderButton
 				label={t("previous_document")}
 				disabled={documentIndex <= 0}
 				className="hidden sm:flex"
 				onClick={() =>
 					model.onDocumentChange(
-						model.documentNames[documentIndex - 1] ?? model.docName,
+						documentNames[documentIndex - 1] ?? model.docName,
 					)
 				}
 			>
-				<ChevronLeft size={18} />
+				<ChevronLeft size={17} />
 			</ReaderButton>
 			<ReaderDocumentPicker
-				documentNames={model.documentNames}
+				documents={model.documents}
 				docName={model.docName}
 				position={model.position}
 				onDocumentChange={model.onDocumentChange}
@@ -306,44 +293,55 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 			<ReaderButton
 				label={t("next_document")}
 				disabled={
-					documentIndex < 0 || documentIndex >= model.documentNames.length - 1
+					documentIndex < 0 || documentIndex >= documentNames.length - 1
 				}
 				onClick={() =>
 					model.onDocumentChange(
-						model.documentNames[documentIndex + 1] ?? model.docName,
+						documentNames[documentIndex + 1] ?? model.docName,
 					)
 				}
 				className="hidden sm:flex"
 			>
-				<ChevronRight size={18} />
+				<ChevronRight size={17} />
 			</ReaderButton>
-			<div className="mx-1 h-7 w-px shrink-0 bg-border" />
+			<div className="mx-0.5 h-6 w-px shrink-0 bg-border" />
 			<ReaderPageControls
 				pageIndex={model.pageIndex}
 				pageTotal={model.pageTotal}
 				pageLabel={model.pageLabel}
 				onPageChange={model.onPageChange}
 			/>
+			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
+			<ReaderButton label={t("close_reader")} onClick={model.onExit}>
+				<X size={17} strokeWidth={1.8} />
+			</ReaderButton>
 		</nav>
 	);
 }
 
 export function ReaderDocumentPicker({
-	documentNames,
+	documents,
 	docName,
 	position,
 	onDocumentChange,
+	onCloseDocument,
+	onCloseAll,
 	className = "",
 	title,
+	variant = "reader",
 }: {
-	documentNames: string[];
+	documents: DocumentPickerItem[];
 	docName: string;
 	position: "top" | "bottom";
 	onDocumentChange: (name: string) => void;
+	onCloseDocument?: (name: string) => void;
+	onCloseAll?: () => void;
 	className?: string;
 	title?: string;
+	variant?: "reader" | "header";
 }) {
 	const t = useT();
+	const documentNames = documents.map((document) => document.name);
 	const model = useReaderDocumentPicker({
 		documentNames,
 		docName,
@@ -365,11 +363,15 @@ export function ReaderDocumentPicker({
 				aria-controls={model.open ? model.listboxId : undefined}
 				onClick={model.toggle}
 				onKeyDown={model.onTriggerKeyDown}
-				className="group flex h-10 w-full min-w-0 items-center gap-3 rounded-xl border border-transparent bg-input/70 px-3 text-left text-sm font-semibold text-text-1 outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border hover:bg-input focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/30"
+				className={
+					variant === "header"
+						? "group flex h-6 max-w-full min-w-0 items-center gap-1 rounded-sm text-left text-base font-semibold text-text-1 outline-none transition-colors duration-100 hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/30"
+						: "group flex h-9 w-full min-w-0 items-center gap-2.5 rounded-md border border-transparent bg-input/70 px-3 text-left text-sm font-semibold text-text-1 outline-none transition-[background-color,border-color,box-shadow] duration-150 hover:border-border hover:bg-input focus-visible:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent/30"
+				}
 			>
 				<span className="min-w-0 flex-1 truncate">{docName}</span>
 				<ChevronDown
-					size={16}
+					size={variant === "header" ? 14 : 16}
 					strokeWidth={2}
 					className={`shrink-0 text-text-3 transition-transform duration-150 group-hover:text-text-2 ${model.open ? "rotate-180" : ""}`}
 				/>
@@ -377,14 +379,22 @@ export function ReaderDocumentPicker({
 			{model.open && (
 				<ReaderDocumentList
 					model={model}
-					documentNames={documentNames}
+					documents={documents}
 					docName={docName}
 					position={position}
 					label={t("reader_document")}
+					variant={variant}
+					onCloseDocument={onCloseDocument}
+					onCloseAll={onCloseAll}
 				/>
 			)}
 		</div>
 	);
+}
+
+export interface DocumentPickerItem {
+	name: string;
+	category: string;
 }
 
 interface ReaderDocumentPickerModel {
@@ -534,51 +544,127 @@ function useReaderDocumentPicker({
 	};
 }
 
-function ReaderDocumentList({
-	model,
-	documentNames,
-	docName,
-	position,
-	label,
-}: {
+interface ReaderDocumentListProps {
 	model: ReaderDocumentPickerModel;
-	documentNames: string[];
+	documents: DocumentPickerItem[];
 	docName: string;
 	position: "top" | "bottom";
 	label: string;
-}) {
+	variant: "reader" | "header";
+	onCloseDocument?: (name: string) => void;
+	onCloseAll?: () => void;
+}
+
+function ReaderDocumentList(props: ReaderDocumentListProps) {
+	const {
+		model,
+		documents,
+		docName,
+		position,
+		label,
+		variant,
+		onCloseDocument,
+		onCloseAll,
+	} = props;
+	const t = useT();
 	return (
 		<div
-			id={model.listboxId}
-			role="listbox"
-			aria-label={label}
 			data-reader-menu
-			className={`absolute left-0 z-[var(--z-popover)] max-h-64 w-[max(100%,16rem)] overflow-y-auto rounded-xl border border-border bg-panel p-1.5 shadow-[0_18px_56px_rgba(0,0,0,0.2)] ${position === "top" ? "top-full mt-2" : "bottom-full mb-2"}`}
+			className={`absolute left-0 z-[var(--z-popover)] min-w-full w-[min(22rem,calc(100vw-1rem))] overflow-hidden border border-border bg-panel shadow-[0_18px_56px_rgba(0,0,0,0.2)] ${
+				variant === "header" ? "rounded-lg p-1" : "rounded-xl p-1.5"
+			} ${
+				position === "top"
+					? variant === "header"
+						? "top-full mt-2"
+						: "top-full mt-2"
+					: "bottom-full mb-2"
+			}`}
 			style={{ animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
 		>
-			{documentNames.map((name, index) => {
-				const selected = name === docName;
-				return (
-					<button
-						key={name}
-						ref={(element) => {
-							model.optionRefs.current[index] = element;
-						}}
-						type="button"
-						role="option"
-						aria-selected={selected}
-						tabIndex={index === model.activeIndex ? 0 : -1}
-						onClick={() => model.choose(name)}
-						onKeyDown={(event) => model.onOptionKeyDown(event, index)}
-						className={`flex h-10 w-full items-center gap-3 rounded-lg px-3 text-left text-sm outline-none transition-colors ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
-					>
-						<span className="min-w-0 flex-1 truncate font-medium">{name}</span>
-						{selected && <Check size={16} className="shrink-0 text-accent" />}
-					</button>
-				);
-			})}
+			<div className="flex items-center justify-between gap-4 border-b border-border px-2.5 py-2">
+				<span className="text-sm font-semibold text-text-1">
+					{t("open_documents_title")}
+				</span>
+				<div className="flex shrink-0 items-center gap-2">
+					<span className="text-xs text-text-3">
+						{t("open_documents_summary", { count: documents.length })}
+					</span>
+					{onCloseAll && (
+						<button
+							type="button"
+							onClick={onCloseAll}
+							className="rounded-sm px-1.5 py-1 text-xs font-medium text-text-2 transition-colors hover:bg-input hover:text-text-1"
+						>
+							{t("close_all_documents")}
+						</button>
+					)}
+				</div>
+			</div>
+			<div
+				id={model.listboxId}
+				role="listbox"
+				aria-label={label}
+				className="max-h-72 overflow-y-auto py-1"
+			>
+				{documents.map((document, index) => {
+					const { name, category } = document;
+					const selected = name === docName;
+					const categoryId = `${model.listboxId}-category-${index}`;
+					return (
+						<div key={name} className="group/document relative">
+							<button
+								ref={(element) => {
+									model.optionRefs.current[index] = element;
+								}}
+								type="button"
+								role="option"
+								aria-selected={selected}
+								aria-label={name}
+								aria-describedby={categoryId}
+								tabIndex={index === model.activeIndex ? 0 : -1}
+								onClick={() => model.choose(name)}
+								onKeyDown={(event) => model.onOptionKeyDown(event, index)}
+								className={`relative flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors ${onCloseDocument ? "pr-10" : ""} ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
+							>
+								{selected && (
+									<span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-accent" />
+								)}
+								<span className="min-w-0 flex-1">
+									<span className="block truncate text-sm font-semibold text-text-1">
+										{name}
+									</span>
+									<span
+										id={categoryId}
+										className="mt-0.5 block truncate text-xs text-text-3"
+									>
+										{documentCategoryLabel(category)}
+									</span>
+								</span>
+								{selected && !onCloseDocument && (
+									<Check size={16} className="shrink-0 text-accent" />
+								)}
+							</button>
+							{onCloseDocument && (
+								<button
+									type="button"
+									onClick={() => onCloseDocument(name)}
+									aria-label={t("close_document", { name })}
+									title={t("close_document", { name })}
+									className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-text-3 opacity-70 transition-colors hover:bg-black/[0.05] hover:text-text-1 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/30 group-hover/document:opacity-100"
+								>
+									<X size={14} strokeWidth={1.75} />
+								</button>
+							)}
+						</div>
+					);
+				})}
+			</div>
 		</div>
 	);
+}
+
+function documentCategoryLabel(category: string): string {
+	return ["Maket", ...category.split("/").filter(Boolean)].join(" / ");
 }
 
 export function ReaderPageControls({
@@ -595,13 +681,13 @@ export function ReaderPageControls({
 	const t = useT();
 	const current = pageTotal === 0 ? 0 : Math.min(pageIndex + 1, pageTotal);
 	return (
-		<div className="flex shrink-0 items-center rounded-xl bg-input/55 p-0.5">
+		<div className="flex shrink-0 items-center rounded-md bg-input/55 p-0.5">
 			<ReaderButton
 				label={`${t("previous_page")} — ${pageLabel}`}
 				disabled={pageIndex <= 0 || pageTotal === 0}
 				onClick={() => onPageChange(pageIndex - 1)}
 			>
-				<ChevronLeft size={17} />
+				<ChevronLeft size={16} />
 			</ReaderButton>
 			<span
 				role="status"
@@ -616,7 +702,7 @@ export function ReaderPageControls({
 				disabled={pageTotal === 0 || pageIndex >= pageTotal - 1}
 				onClick={() => onPageChange(pageIndex + 1)}
 			>
-				<ChevronRight size={17} />
+				<ChevronRight size={16} />
 			</ReaderButton>
 		</div>
 	);
@@ -656,7 +742,7 @@ function ReaderButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className={`size-10 shrink-0 items-center justify-center rounded-xl text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
+			className={`size-9 shrink-0 items-center justify-center rounded-md text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
 		>
 			{children}
 		</button>
@@ -722,10 +808,14 @@ export function useReadingKeyboard({
 			let nextPage: number | null = null;
 			switch (event.key) {
 				case "PageUp":
+				case "ArrowUp":
+				case "ArrowLeft":
 					if (pageCount === 0) return;
 					nextPage = Math.max(0, pageIndex - 1);
 					break;
 				case "PageDown":
+				case "ArrowDown":
+				case "ArrowRight":
 					if (pageCount === 0) return;
 					nextPage = Math.min(pageCount - 1, pageIndex + 1);
 					break;
@@ -797,13 +887,4 @@ export function preferredScroll(behavior: ScrollBehavior): ScrollBehavior {
 	return window.matchMedia("(prefers-reduced-motion: reduce)").matches
 		? "auto"
 		: "smooth";
-}
-
-export function returnToCanvas(
-	docName: string,
-	pageIndex: number,
-	setWorkspaceView: (view: "canvas" | "reading") => void,
-): void {
-	setWorkspaceView("canvas");
-	requestFit({ docName, pageIndex });
 }

@@ -61,11 +61,13 @@ Until the app is published and verified by Google, only explicitly-listed test u
 
 ### 6. Hand the credentials to Maket
 
-Start Maket locally (`npx -y @ng-galien/maket start`, or `npm run dev` in a clone).
+Start Maket locally — open Maket App, or run `npx -y @ng-galien/maket start`, or `npm run dev` in a clone.
+
+The server port depends on how Maket runs: `24843` for Maket App, `24842` for the `maket start` CLI, `24844` for `npm run dev`. Substitute yours below (Maket App also exposes it under Settings → Agents).
 
 The easy path — form:
 
-1. Open `http://localhost:24842/setup/gmail` in your browser (replace the port if you changed `MAKET_PORT`).
+1. Open `http://localhost:24842/setup/gmail` in your browser (use your own port — `24843` when Maket App is running).
 2. Paste the full JSON from the file Google gave you.
 3. Tick *"also request inbox reading"* if you want the AI to search and read your mail. Leave it unchecked for the default draft-only mode.
 4. Click **Save credentials**.
@@ -133,7 +135,7 @@ Your email is not in the Test users list for the OAuth project. Add it at [Audie
 You skipped step 2. Open the URL Google gave you (or the [Gmail API library page](https://console.cloud.google.com/apis/library/gmail.googleapis.com)) and click Enable. Allow a minute or two for propagation.
 
 **`Gmail credentials not configured`**
-Maket couldn't find `google-credentials.json`. Use the setup form at `http://localhost:24842/setup/gmail`, drop the JSON manually at `~/.maket/google-credentials.json`, or set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env`.
+Maket couldn't find `google-credentials.json`. Use the setup form at `http://localhost:<port>/setup/gmail` (`24843` for Maket App, `24842` for the CLI), drop the JSON manually at `~/.maket/google-credentials.json`, or set `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in `.env`.
 
 **Refresh token expired (`invalid_grant`)**
 Expected in Testing mode after 7 days. Run `maket_gmail action=connect` again.

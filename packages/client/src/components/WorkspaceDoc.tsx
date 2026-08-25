@@ -150,7 +150,12 @@ function previewStateFor(
 	const members = sortedMembers(collection);
 	const member = members.find((item) => item.id === cursor?.memberId);
 	return {
-		mode: cursor?.collection === collection.name ? cursor.mode : "template",
+		mode:
+			cursor?.collection === collection.name
+				? cursor.mode
+				: members.length > 0
+					? "rendered"
+					: "template",
 		memberId: member?.id ?? members[0]?.id ?? null,
 	};
 }
@@ -229,7 +234,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const pendingCount = useStore(
 		(s) => s.pending.filter((m) => m.docName === docName).length,
 	);
-	const removeDoc = useStore((s) => s.removeDocFromWorkspace);
+	const closeWorkspaceDocuments = useStore((s) => s.closeWorkspaceDocuments);
 	const setFocused = useStore((s) => s.setFocusedDoc);
 	const setFocusedPage = useStore((s) => s.setFocusedPage);
 	const pageViews = useMemo(
@@ -269,22 +274,26 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 				: [],
 		[collections, doc, surface],
 	);
+	const policy = useMemo(
+		() =>
+			presentationPolicy({
+				surface,
+				dataSource,
+				access:
+					surface === "reader" && dataSource === "static"
+						? "read-only"
+						: doc?.meta?.locked
+							? "locked"
+							: readOnly
+								? "read-only"
+								: "writable",
+			}),
+		[dataSource, doc?.meta?.locked, readOnly, surface],
+	);
 
 	if (!doc) return null;
 
 	const docWidthPx = doc.canvas.w * 3.78;
-	const policy = presentationPolicy({
-		surface,
-		dataSource,
-		access:
-			surface === "reader" && dataSource === "static"
-				? "read-only"
-				: doc.meta?.locked
-					? "locked"
-					: readOnly
-						? "read-only"
-						: "writable",
-	});
 	const labelScale = 1 / Math.max(zoomK, 0.1);
 	// Chip tracks the doc's on-screen width, but never below a readable floor
 	// (a narrow doc at far zoom would crush the name span to 0px) and never
@@ -407,7 +416,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 							/>
 						)}
 						{pendingCount > 0 && (
-							<span className="text-2xs font-bold text-white bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
+							<span className="text-2xs font-bold text-accent-contrast bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
 								{pendingCount}
 							</span>
 						)}
@@ -417,7 +426,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 							aria-label={t("close")}
 							onClick={(e) => {
 								e.stopPropagation();
-								removeDoc(docName);
+								closeWorkspaceDocuments([docName]);
 							}}
 							className="doc-close-btn w-5 h-5 rounded-md flex items-center justify-center text-text-3 p-0 border-none bg-transparent cursor-pointer shrink-0"
 						>
@@ -428,8 +437,13 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						<div className="font-semibold text-sm">{doc.name}</div>
 						<div className="text-2xs text-text-3 mt-0.5">
 							{doc.canvas.format} {doc.canvas.orientation} · {doc.canvas.w}×
-							{doc.canvas.h}mm · {doc.pages.length} page
-							{doc.pages.length > 1 ? "s" : ""}
+							{doc.canvas.h}mm ·{" "}
+							{t(
+								doc.pages.length > 1
+									? "doc_page_count_many"
+									: "doc_page_count_one",
+								{ count: doc.pages.length },
+							)}
 						</div>
 					</div>
 				</div>

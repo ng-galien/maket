@@ -117,7 +117,7 @@ export function createMaketWorkspaceTool(deps: WorkspaceDeps): ToolHandler {
 
 type Args = z.infer<typeof MaketWorkspaceSchema>;
 
-// code-moniker: ignore[smell-feature-envy-local]
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runFocus`: edge adapter over services/store/bus, not domain ownership.
 function runFocus(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=focus", true);
@@ -193,9 +193,8 @@ function runLock(args: Args, documents: Documents, bus: Bus) {
 	documents.persist(d.name);
 	bus.emit("meta:updated", { docName: d.name });
 	bus.emit("toast", {
-		text: next
-			? `Document "${d.name}" locked`
-			: `Document "${d.name}" unlocked`,
+		key: next ? "toast_document_locked" : "toast_document_unlocked",
+		params: { doc: d.name },
 		level: "info",
 	});
 	return text(

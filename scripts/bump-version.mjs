@@ -36,7 +36,7 @@ function rewriteVersion(file) {
   writeFileSync(file, next);
 }
 
-const targets = [join(ROOT, "package.json"), join(ROOT, "server.json")];
+const targets = [join(ROOT, "package.json"), join(ROOT, "server.json"), join(ROOT, "manifest.json")];
 for (const d of readdirSync(join(ROOT, "packages"), { withFileTypes: true })) {
   if (d.isDirectory()) {
     targets.push(join(ROOT, "packages", d.name, "package.json"));

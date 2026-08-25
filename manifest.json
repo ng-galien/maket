@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "maket",
   "display_name": "Maket",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Visual design tool for AI assistants — compose posters, flyers, labels, social posts with PDF export.",
   "long_description": "Maket turns your AI assistant into a visual designer. Describe what you want — a poster, a flyer, a product label — and the AI composes it with precise typography, brand chartes, and your image library.\n\nA live preview opens automatically in your browser and updates in real time as the AI works. Annotate elements directly in the preview to give feedback. Export to PDF when you're done.",
   "author": {

@@ -10,6 +10,7 @@ import {
 	validateDocumentState,
 	validateDocumentStateTemplate,
 } from "@maket/shared";
+import { MessageError } from "../lib/message-error.js";
 import type { Document } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -81,7 +82,11 @@ export function validateStateTemplateUpdate(
 	const definition = store.loadDocumentState(doc.id);
 	const current = store.loadCurrentDocumentState(doc.id);
 	if (!definition || !current) {
-		throw new Error(`Document "${doc.name}" has no state.`);
+		throw new MessageError(
+			`Document "${doc.name}" has no state.`,
+			"msg_document_no_state",
+			{ name: doc.name },
+		);
 	}
 	validateDocumentStateTemplate(html);
 	renderDocumentStateText(html, current.data, { schema: current.schema });
@@ -111,7 +116,12 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			const definition = deps.store.loadDocumentState(doc.id);
 			if (!definition) return null;
 			const current = deps.store.loadCurrentDocumentState(doc.id);
-			if (!current) throw new Error("Document state has no revision.");
+			if (!current)
+				throw new MessageError(
+					"Document state has no revision.",
+					"msg_state_no_revision",
+					{ name: docName },
+				);
 			return { definition, current };
 		},
 		update(docName, expectedRevision, data) {
@@ -131,7 +141,10 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 		},
 		patchTerminal(docName, expectedRevision, operation) {
 			if (operation.path === "") {
-				throw new Error("The document-state root is not an editable terminal.");
+				throw new MessageError(
+					"The document-state root is not an editable terminal.",
+					"msg_state_root_not_terminal",
+				);
 			}
 			const { doc, current } = requiredState(deps, docName);
 			const previous = readJsonPointer(current.data, operation.path);
@@ -139,13 +152,16 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 				!isTerminalJsonValue(previous) ||
 				!isTerminalJsonValue(operation.value)
 			) {
-				throw new Error(
+				throw new MessageError(
 					"Live document interactions can replace terminal JSON values only.",
+					"msg_state_terminal_only",
 				);
 			}
 			if (!activeBindingPaths(doc, current).has(operation.path)) {
-				throw new Error(
+				throw new MessageError(
 					`Document state path "${operation.path}" is not exposed by an active document binding.`,
+					"msg_state_path_not_bound",
+					{ path: operation.path },
 				);
 			}
 			return patchState(deps, docName, expectedRevision, [operation]);
@@ -182,8 +198,10 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			const { doc } = requiredState(deps, docName);
 			const source = deps.store.loadDocumentStateRevision(doc.id, revision);
 			if (!source) {
-				throw new Error(
+				throw new MessageError(
 					`Document state revision ${revision} not found for "${doc.name}".`,
+					"msg_state_revision_not_found",
+					{ revision, name: doc.name },
 				);
 			}
 			assertValidState(source.schema, source.data);
@@ -230,20 +248,38 @@ function patchState(
 
 function requiredDocument(documents: Documents, docName: string) {
 	const doc = documents.resolveOrLoad(docName);
-	if (!doc) throw new Error(`Document "${docName}" not found.`);
+	if (!doc)
+		throw new MessageError(
+			`Document "${docName}" not found.`,
+			"msg_document_not_found",
+			{ name: docName },
+		);
 	return doc;
 }
 
 function requiredState(deps: DocumentStatesDeps, docName: string) {
 	const doc = requiredDocument(deps.documents, docName);
 	if (doc.dataModel !== "state") {
-		throw new Error(`Document "${doc.name}" has no state.`);
+		throw new MessageError(
+			`Document "${doc.name}" has no state.`,
+			"msg_document_no_state",
+			{ name: doc.name },
+		);
 	}
 	const definition = deps.store.loadDocumentState(doc.id);
-	if (!definition) throw new Error(`Document "${doc.name}" has no state.`);
+	if (!definition)
+		throw new MessageError(
+			`Document "${doc.name}" has no state.`,
+			"msg_document_no_state",
+			{ name: doc.name },
+		);
 	const current = deps.store.loadCurrentDocumentState(doc.id);
 	if (!current)
-		throw new Error(`Document "${doc.name}" has no state revision.`);
+		throw new MessageError(
+			`Document "${doc.name}" has no state revision.`,
+			"msg_state_no_revision",
+			{ name: doc.name },
+		);
 	return { doc, definition, current };
 }
 
@@ -252,7 +288,8 @@ function assertValidState(
 	data: DocumentStateData,
 ): void {
 	const issues = validateDocumentState(schema, data);
-	if (issues.length > 0) throw new Error(issues.join("\n"));
+	if (issues.length > 0)
+		throw new MessageError(issues.join("\n"), "msg_state_invalid");
 }
 
 function assertValidStateTemplates(doc: Document): void {
@@ -288,7 +325,10 @@ function activeBindingPaths(
 
 function assertStateObject(data: unknown): asserts data is DocumentStateData {
 	if (typeof data !== "object" || data === null || Array.isArray(data)) {
-		throw new Error("Document state must remain a JSON object.");
+		throw new MessageError(
+			"Document state must remain a JSON object.",
+			"msg_state_not_object",
+		);
 	}
 }
 

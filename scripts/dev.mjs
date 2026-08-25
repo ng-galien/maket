@@ -53,10 +53,14 @@ function spawnAll(children) {
   process.on("SIGTERM", () => stop("SIGTERM"));
 }
 
-const PORT = process.env.MAKET_PORT ?? "24843";
+const PORT = process.env.MAKET_PORT ?? "24844";
 const DATA_DIR = resolve(ROOT, ".maket");
 
-const SERVER_ENV = { MAKET_PORT: PORT, MAKET_DATA_DIR: DATA_DIR };
+const SERVER_ENV = {
+  MAKET_PORT: PORT,
+  MAKET_DATA_DIR: DATA_DIR,
+  MAKET_SETTINGS_FILE: resolve(DATA_DIR, "settings.json"),
+};
 const SERVER_ARGS = ["tsx", "--watch", "packages/server/index.ts"];
 
 switch (MODE) {
@@ -83,6 +87,7 @@ switch (MODE) {
     const server = run("server", NPX_CMD, ["tsx", "packages/server/index.ts"], {
       MAKET_PORT: "3333",
       MAKET_DATA_DIR: DATA_DIR,
+      MAKET_SETTINGS_FILE: resolve(DATA_DIR, "settings.json"),
     });
     spawnAll([server]);
     break;
@@ -93,6 +98,7 @@ switch (MODE) {
     const server = run("server", NPX_CMD, ["tsx", "packages/server/index.ts"], {
       MAKET_PORT: "3399",
       MAKET_DATA_DIR: e2eDir,
+      MAKET_SETTINGS_FILE: resolve(e2eDir, "settings.json"),
     });
     spawnAll([server]);
     break;

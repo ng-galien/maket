@@ -31,3 +31,6 @@ bun.lock
 /packages/client/playwright-report
 /packages/client/test-results
 /packages/client/blob-report
+/packages/desktop/.desktop/
+/packages/desktop/.desktop-host/
+/packages/desktop/out/

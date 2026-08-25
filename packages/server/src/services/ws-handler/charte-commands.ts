@@ -14,13 +14,17 @@ export function handleCharteSave(
 ): void {
 	const name = String(msg.name || "").trim();
 	if (!name) {
-		ctx.bus.emit("toast", { text: "Charte name is required", level: "error" });
+		ctx.bus.emit("toast", {
+			key: "toast_charte_name_required",
+			level: "error",
+		});
 		return;
 	}
 	const invalid = validateCharteSavePayload(msg);
 	if (invalid) {
 		ctx.bus.emit("toast", {
-			text: `Charte "${name}" rejected: ${invalid}`,
+			key: "toast_charte_rejected",
+			params: { name, reason: invalid },
 			level: "error",
 		});
 		return;
@@ -35,7 +39,8 @@ export function handleCharteSave(
 	ctx.store.saveCharte(charte);
 	ctx.bus.emit("charte:updated", { name, css: composeCharteCss(charte) });
 	ctx.bus.emit("toast", {
-		text: `Charte "${name}" saved`,
+		key: "toast_charte_saved",
+		params: { name },
 		level: "success",
 	});
 }

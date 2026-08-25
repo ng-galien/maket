@@ -15,10 +15,37 @@ import {
 	shouldDisableSandbox,
 } from "../lib/chromium-sandbox.js";
 
+export type NetworkGuardMode = "offline" | "localhost-only";
+
+export interface RenderPage {
+	setNetworkGuard?(mode: NetworkGuardMode): Promise<void>;
+	setViewport(viewport: {
+		width: number;
+		height: number;
+		deviceScaleFactor?: number;
+	}): Promise<void>;
+	setContent(html: string, options?: { waitUntil?: string }): Promise<void>;
+	waitForNetworkIdle(): Promise<void>;
+	evaluate<T>(
+		pageFunction: ((...args: never[]) => T) | string,
+		...args: unknown[]
+	): Promise<Awaited<T>>;
+	screenshot(options?: Record<string, unknown>): Promise<Uint8Array>;
+	pdf(options?: Record<string, unknown>): Promise<Uint8Array>;
+	close(): Promise<void>;
+}
+
+export interface RenderBrowser {
+	readonly connected: boolean;
+	newPage(): Promise<RenderPage>;
+	on(event: "disconnected", listener: () => void): unknown;
+	close(): Promise<void>;
+}
+
 export interface BrowserPool {
 	/** Returns the shared Browser, launching it on first use or after a
 	 * disconnect. */
-	get(): Promise<Browser>;
+	get(): Promise<RenderBrowser>;
 	/** Closes the underlying browser, if any. Awilix calls this at shutdown. */
 	dispose(): Promise<void>;
 }
@@ -40,15 +67,15 @@ export function createBrowserPool(
 				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
 			}));
 
-	let current: Browser | null = null;
-	let pending: Promise<Browser> | null = null;
+	let current: RenderBrowser | null = null;
+	let pending: Promise<RenderBrowser> | null = null;
 
 	return {
 		async get() {
 			if (current?.connected) return current;
 			if (!pending) {
 				pending = (async () => {
-					const b = await launch();
+					const b = (await launch()) as unknown as RenderBrowser;
 					b.on("disconnected", () => {
 						if (current === b) current = null;
 					});

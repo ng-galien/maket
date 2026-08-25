@@ -19,6 +19,9 @@ jobs:
   publish:
     name: Publish @ng-galien/maket and create release
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
 
     # `id-token: write` is what lets GitHub mint the short-lived OIDC token
     # that npm verifies against the trusted publisher config. Without it,
@@ -32,7 +35,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
 
@@ -53,6 +56,11 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v${VERSION}" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME does not match package version ${VERSION}"
             exit 1
@@ -99,7 +107,14 @@ jobs:
       - name: Publish
         if: steps.npm.outputs.publish == 'true'
         working-directory: dist/npm
-        run: npm publish --access public
+        env:
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          if [[ "$PRERELEASE" == "true" ]]; then
+            npm publish --access public --tag next
+          else
+            npm publish --access public
+          fi
 
       - name: Verify published MCP package identity
         id: mcp_package
@@ -215,13 +230,216 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "GitHub Release $GITHUB_REF_NAME already exists; nothing to do."
+            if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+              gh release edit "$GITHUB_REF_NAME" --prerelease
+            else
+              gh release edit "$GITHUB_REF_NAME" --prerelease=false
+            fi
+            echo "GitHub Release $GITHUB_REF_NAME already exists; its channel classification is aligned."
             exit 0
           fi
           node scripts/release-notes.mjs "$VERSION" > release-notes.md
           printf "\nFull changelog: https://github.com/%s/blob/%s/CHANGELOG.md\n" \
             "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" >> release-notes.md
-          gh release create "$GITHUB_REF_NAME" \
-            --verify-tag \
-            --title "$GITHUB_REF_NAME" \
+          RELEASE_ARGS=(
+            "$GITHUB_REF_NAME"
+            --verify-tag
+            --title "$GITHUB_REF_NAME"
             --notes-file release-notes.md
+          )
+          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            RELEASE_ARGS+=(--prerelease)
+          fi
+          gh release create "${RELEASE_ARGS[@]}"
+
+  desktop-build:
+    name: Build Maket App (${{ matrix.label }})
+    if: github.ref_type == 'tag'
+    needs: publish
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15-intel
+            label: macOS Intel
+            platform: darwin
+            arch: x64
+            artifact: macos-x64
+          - os: macos-15
+            label: macOS Apple Silicon
+            platform: darwin
+            arch: arm64
+            artifact: macos-arm64
+          - os: windows-2025
+            label: Windows x64
+            platform: win32
+            arch: x64
+            artifact: windows-x64
+          - os: ubuntu-24.04
+            label: Linux x64
+            platform: linux
+            arch: x64
+            artifact: linux-x64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      MAKET_SIGN_DESKTOP: "1"
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".desktop-node-version"
+          cache: "npm"
+
+      - name: Install Linux packaging tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes fakeroot rpm
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Validate credentials and import macOS signing certificate
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!NAME}" ]]; then
+              echo "::error::Missing required release secret ${NAME}."
+              exit 1
+            fi
+          done
+          CERTIFICATE_PATH="$RUNNER_TEMP/maket-app.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/maket-app.keychain-db"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p runner "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p runner "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k runner "$KEYCHAIN_PATH"
+
+      - name: Validate credentials and prepare Windows signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) { throw "Missing required release secret WINDOWS_CERTIFICATE." }
+          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw "Missing required release secret WINDOWS_CERTIFICATE_PASSWORD." }
+          $certificatePath = Join-Path $env:RUNNER_TEMP "maket-app.pfx"
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Verify desktop Node runtime
+        run: npm run desktop -- check
+
+      - name: Make macOS installers
+        if: runner.os == 'macOS'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
+
+      - name: Make Windows installers
+        if: runner.os == 'Windows'
+        env:
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
+
+      - name: Make Linux installers
+        if: runner.os == 'Linux'
+        run: npm run desktop -- make --arch=${{ matrix.arch }}
+
+      - name: Collect distributables
+        run: >-
+          npx tsx scripts/collect-desktop-installers.ts
+          packages/desktop/out/make desktop-artifacts
+          ${{ matrix.platform }} ${{ matrix.arch }}
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: maket-app-${{ matrix.artifact }}
+          path: desktop-artifacts/*
+          if-no-files-found: error
+
+  desktop-upload:
+    name: Attach Maket App installers
+    if: github.ref_type == 'tag'
+    needs: desktop-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: maket-app-*
+          path: desktop-artifacts
+          merge-multiple: true
+
+      - name: Upload installers to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" desktop-artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
+
+  candidate-feed:
+    name: Deploy candidate update feed
+    if: github.ref_type == 'tag' && needs.publish.outputs.prerelease == 'true'
+    needs: [publish, desktop-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: "npm"
+
+      - name: Download desktop distributables
+        uses: actions/download-artifact@v7
+        with:
+          pattern: maket-app-*
+          path: desktop-artifacts
+
+      - name: Install dependencies
+        run: npm ci --no-audit
+
+      - name: Build Pages artifact
+        run: npm run build:pages
+
+      - name: Prepare candidate update feed
+        env:
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: npx tsx scripts/prepare-candidate-update-feed.ts desktop-artifacts docs/updates/candidate "$VERSION"
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./docs
+
+      - name: Deploy candidate feed
+        id: deployment
+        uses: actions/deploy-pages@v5
+        env:
+          NODE_OPTIONS: --disable-warning=DEP0040

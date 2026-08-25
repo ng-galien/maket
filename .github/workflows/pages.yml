@@ -38,7 +38,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: "26"
           cache: "npm"
 
       - name: Setup Pages
@@ -49,6 +49,9 @@ jobs:
 
       - name: Build Pages artifact
         run: npm run build:pages
+
+      - name: Preserve candidate update feed
+        run: npx tsx scripts/preserve-candidate-update-feed.ts docs/updates/candidate
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5

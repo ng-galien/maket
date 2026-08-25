@@ -1,5 +1,5 @@
 import type { Collection } from "@maket/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
 // Silence the syncPending/syncWorkspace setTimeout → wsSend(null) no-op chatter.
@@ -14,7 +14,8 @@ const { useStore, cursorForPage, previewCursorForPage } = await import(
 	"./useStore"
 );
 const { wsSend } = await import("./ws");
-const { consumeWorkspaceRemovalFitSuppression } = await import("./zoomBridge");
+const { consumePendingFit, consumeWorkspaceRemovalFitSuppression } =
+	await import("./zoomBridge");
 
 // Snapshot of the store's initial shape so each test can reset cleanly.
 // Captured once after module import — before any test mutates state.
@@ -35,11 +36,16 @@ function resetStore() {
 			collectionCursors: {},
 			draftCursorOverrides: {},
 			collectionDrafts: {},
+			assets: [],
+			assetsLoaded: false,
+			assetsLoading: false,
 			selectedIds: [],
 			editingElementId: null,
 			showPopover: false,
 			pending: [],
-			activePanel: null,
+			libraryView: "docs",
+			libraryOpen: true,
+			settingsOpen: false,
 			locked: false,
 			zoom: 100,
 		},
@@ -81,6 +87,13 @@ function makeDoc(
 	};
 }
 
+function bindCollection(doc: Document, collection: string): Document {
+	const page = doc.pages[doc.activePage];
+	if (!page) throw new Error("fixture document has no active page");
+	page.collection = { name: collection };
+	return doc;
+}
+
 function summary(name: string, category = "flyer"): DocSummary {
 	return {
 		id: `id-${name}`,
@@ -89,12 +102,50 @@ function summary(name: string, category = "flyer"): DocSummary {
 		format: "A4",
 		pageCount: 1,
 		elementCount: 0,
+		collectionBindings: [],
 	};
 }
 
 beforeEach(() => {
 	consumeWorkspaceRemovalFitSuppression();
+	consumePendingFit();
+	vi.mocked(wsSend).mockClear();
 	resetStore();
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("asset mirror", () => {
+	it("keeps a newer WS category delta when an older HTTP snapshot resolves", async () => {
+		let resolveJson: (value: {
+			images: Array<{ file: string; category: string }>;
+		}) => void = () => {};
+		const json = new Promise<{
+			images: Array<{ file: string; category: string }>;
+		}>((resolve) => {
+			resolveJson = resolve;
+		});
+		const fetchMock = vi.fn(async () => ({ json: () => json }));
+		vi.stubGlobal("fetch", fetchMock);
+		useStore.setState({
+			assets: [{ file: "hero.png", category: "Archive" }],
+			assetsLoaded: true,
+		});
+
+		const loading = useStore.getState().loadAssets(true);
+		await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+		useStore
+			.getState()
+			.applyAssetCategoryUpdates([
+				{ filename: "hero.png", category: "Campaigns" },
+			]);
+		resolveJson({ images: [{ file: "hero.png", category: "Archive" }] });
+		await loading;
+
+		expect(useStore.getState().assets).toEqual([
+			{ file: "hero.png", category: "Campaigns" },
+		]);
+	});
 });
 
 describe("upsertDoc", () => {
@@ -162,6 +213,33 @@ describe("upsertDoc", () => {
 
 		expect(useStore.getState().focusedDocName).toBe("beta");
 		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
+	it("reveals an explicitly opened document without closing collection data", () => {
+		const alpha = makeDoc("alpha");
+		const beta = bindCollection(makeDoc("beta"), "clients");
+		useStore.getState().upsertDoc(alpha, [summary("alpha")], "");
+		useStore.setState({
+			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
+		});
+
+		useStore
+			.getState()
+			.upsertDoc(
+				beta,
+				[summary("alpha"), summary("beta")],
+				"",
+				true,
+				true,
+				true,
+			);
+
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: "beta",
+			focusedCollectionName: "clients",
+			dataDockMode: "split",
+		});
 	});
 
 	it("preserves the locally selected page on background state updates", () => {
@@ -309,7 +387,7 @@ describe("replaceRenamedDoc", () => {
 });
 
 describe("workspace / focus", () => {
-	it("removeDocFromWorkspace reassigns focus to the last remaining doc", () => {
+	it("closeWorkspaceDocuments reassigns focus to the last remaining doc", () => {
 		useStore
 			.getState()
 			.upsertDoc(makeDoc("alpha", "flyer", 2, 1), [summary("alpha")], "");
@@ -323,43 +401,129 @@ describe("workspace / focus", () => {
 				true,
 			);
 		expect(useStore.getState().focusedDocName).toBe("beta");
-		useStore.getState().removeDocFromWorkspace("beta");
+		useStore.getState().closeWorkspaceDocuments(["beta"]);
 		const s = useStore.getState();
 		expect(s.workspaceDocNames).toEqual(["alpha"]);
 		expect(s.focusedDocName).toBe("alpha");
 		expect(s.focusedPageIndex).toBe(1);
 		expect(s.selectedIds).toEqual([]);
+		expect(localStorage.getItem("maket-focused-doc")).toBe("alpha");
 	});
 
-	it("removeDocFromWorkspace leaves focus alone when removing a non-focused doc", () => {
+	it("keeps the remaining document focused after a stale close-handle event", () => {
+		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+		useStore
+			.getState()
+			.upsertDoc(
+				makeDoc("beta"),
+				[summary("alpha"), summary("beta")],
+				"",
+				true,
+				true,
+			);
+
+		useStore.getState().closeWorkspaceDocuments(["beta"]);
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+
+		// The removed frame may finish dispatching its click after the close.
+		useStore.getState().setFocusedDoc("beta");
+
+		const state = useStore.getState();
+		expect(state.workspaceDocNames).toEqual(["alpha"]);
+		expect(state.focusedDocName).toBe("alpha");
+		expect(localStorage.getItem("maket-focused-doc")).toBe("alpha");
+	});
+
+	it("allows an empty focus only when the workspace is empty", () => {
+		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
+
+		useStore.getState().setFocusedDoc(null);
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+
+		useStore.getState().closeWorkspaceDocuments(["alpha"]);
+		expect(useStore.getState().focusedDocName).toBeNull();
+	});
+
+	it("closeWorkspaceDocuments leaves focus alone when closing a non-focused doc", () => {
 		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
 		useStore
 			.getState()
 			.upsertDoc(makeDoc("beta"), [summary("alpha"), summary("beta")], "");
 		useStore.setState({ selectedIds: ["x"] });
-		useStore.getState().removeDocFromWorkspace("beta");
+		useStore.getState().closeWorkspaceDocuments(["beta"]);
 		const s = useStore.getState();
 		expect(s.focusedDocName).toBe("alpha");
 		expect(s.selectedIds).toEqual(["x"]);
 	});
 
-	it("removeDocFromWorkspace does not suppress a future fit when the doc is not open", () => {
+	it("closeWorkspaceDocuments does not suppress a future fit when the doc is not open", () => {
 		useStore.getState().upsertDoc(makeDoc("alpha"), [summary("alpha")], "");
-		useStore.getState().removeDocFromWorkspace("absent");
+		useStore.getState().closeWorkspaceDocuments(["absent"]);
 
 		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
 		expect(useStore.getState().focusedDocName).toBe("alpha");
 		expect(consumeWorkspaceRemovalFitSuppression()).toBe(false);
 	});
 
+	it("loads and frames the remaining focused document when its content is missing", () => {
+		useStore.setState({
+			docs: new Map([["alpha", makeDoc("alpha")]]),
+			workspaceDocNames: ["alpha", "beta"],
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			workspaceView: "canvas",
+		});
+
+		useStore.getState().closeWorkspaceDocuments(["alpha"]);
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(localStorage.getItem("maket-focused-doc")).toBe("beta");
+		expect(wsSend).toHaveBeenCalledWith({
+			type: "load_document",
+			name: "beta",
+		});
+		expect(consumePendingFit()).toEqual({
+			target: { docName: "beta", pageIndex: 0 },
+		});
+	});
+
 	it("addDocToWorkspace is idempotent", () => {
 		useStore.getState().addDocToWorkspace("alpha");
 		useStore.getState().addDocToWorkspace("alpha");
 		expect(useStore.getState().workspaceDocNames).toEqual(["alpha"]);
+		expect(useStore.getState().focusedDocName).toBe("alpha");
+	});
+
+	it("openWorkspaceDocument reuses focus navigation for an open document", () => {
+		const alpha = makeDoc("alpha");
+		const beta = bindCollection(makeDoc("beta"), "projects");
+		useStore.setState({
+			docs: new Map([
+				["alpha", alpha],
+				["beta", beta],
+			]),
+			workspaceDocNames: ["alpha", "beta"],
+			focusedDocName: "alpha",
+			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
+		});
+
+		useStore.getState().openWorkspaceDocument("beta");
+
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: "beta",
+			focusedCollectionName: "projects",
+			dataDockMode: "split",
+		});
+		expect(consumePendingFit()).toEqual({ target: { docName: "beta" } });
 	});
 
 	it("setFocusedDoc is a no-op when unchanged", () => {
-		useStore.setState({ focusedDocName: "alpha", selectedIds: ["x"] });
+		useStore.setState({
+			workspaceDocNames: ["alpha"],
+			focusedDocName: "alpha",
+			selectedIds: ["x"],
+		});
 		useStore.getState().setFocusedDoc("alpha");
 		expect(useStore.getState().selectedIds).toEqual(["x"]);
 	});
@@ -368,6 +532,7 @@ describe("workspace / focus", () => {
 		const beta = makeDoc("beta", "flyer", 3, 2);
 		useStore.setState({
 			docs: new Map([["beta", beta]]),
+			workspaceDocNames: ["alpha", "beta"],
 			focusedDocName: "alpha",
 			focusedPageIndex: 0,
 			selectedIds: ["x"],
@@ -381,6 +546,7 @@ describe("workspace / focus", () => {
 		const beta = makeDoc("beta", "flyer", 3);
 		useStore.setState({
 			docs: new Map([["beta", beta]]),
+			workspaceDocNames: ["alpha", "beta"],
 			focusedDocName: "alpha",
 			focusedPageIndex: 0,
 			selectedIds: ["x"],
@@ -397,6 +563,7 @@ describe("workspace / focus", () => {
 		const alpha = makeDoc("alpha", "flyer", 2);
 		useStore.setState({
 			docs: new Map([["alpha", alpha]]),
+			workspaceDocNames: ["alpha"],
 			focusedDocName: "alpha",
 			focusedPageIndex: 1,
 			selectedIds: ["x"],
@@ -407,14 +574,67 @@ describe("workspace / focus", () => {
 		expect(useStore.getState().selectedIds).toEqual(["x"]);
 	});
 
-	it("setFocusedDoc keeps the opened collection workspace", () => {
+	it("setFocusedDoc keeps the collection available while revealing the document", () => {
+		const alpha = makeDoc("alpha");
+		const beta = bindCollection(makeDoc("beta"), "clients");
 		useStore.setState({
+			docs: new Map([
+				["alpha", alpha],
+				["beta", beta],
+			]),
+			workspaceDocNames: ["alpha", "beta"],
 			focusedDocName: "alpha",
 			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
 		});
 		useStore.getState().setFocusedDoc("beta");
 		expect(useStore.getState().focusedDocName).toBe("beta");
 		expect(useStore.getState().focusedCollectionName).toBe("clients");
+		expect(useStore.getState().dataDockMode).toBe("split");
+	});
+
+	it("setFocusedDoc reveals an already focused document behind expanded data", () => {
+		const alpha = bindCollection(makeDoc("alpha"), "clients");
+		useStore.setState({
+			docs: new Map([["alpha", alpha]]),
+			workspaceDocNames: ["alpha"],
+			focusedDocName: "alpha",
+			focusedCollectionName: "clients",
+			dataDockMode: "expanded",
+			selectedIds: ["title"],
+		});
+
+		useStore.getState().setFocusedDoc("alpha");
+
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: "alpha",
+			focusedCollectionName: "clients",
+			dataDockMode: "split",
+			selectedIds: ["title"],
+		});
+	});
+
+	it("closes collection data when the focused document has no binding", () => {
+		const alpha = bindCollection(makeDoc("alpha"), "clients");
+		const beta = makeDoc("beta");
+		useStore.setState({
+			docs: new Map([
+				["alpha", alpha],
+				["beta", beta],
+			]),
+			workspaceDocNames: ["alpha", "beta"],
+			focusedDocName: "alpha",
+			focusedCollectionName: "clients",
+			dataDockMode: "split",
+		});
+
+		useStore.getState().setFocusedDoc("beta");
+
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: "beta",
+			focusedCollectionName: null,
+			dataDockMode: "split",
+		});
 	});
 
 	it("setFocusedCollection keeps the focused document controls open", () => {
@@ -450,10 +670,14 @@ describe("selection", () => {
 });
 
 describe("UI preferences", () => {
-	it("setBarPosition persists to localStorage", () => {
-		useStore.getState().setBarPosition("top");
-		expect(useStore.getState().barPosition).toBe("top");
-		expect(localStorage.getItem("bar-position")).toBe("top");
+	it("selects one library view and keeps the pane open", () => {
+		useStore.setState({ libraryOpen: false });
+		useStore.getState().setLibraryView("collections");
+		expect(useStore.getState()).toMatchObject({
+			libraryView: "collections",
+			libraryOpen: true,
+		});
+		expect(localStorage.getItem("maket-library-view")).toBe("collections");
 	});
 
 	it("setWorkspaceView persists the reading layout preference", () => {
@@ -462,25 +686,64 @@ describe("UI preferences", () => {
 		expect(localStorage.getItem("maket-workspace-view")).toBe("reading");
 	});
 
-	it("toggleDarkMode flips and persists", () => {
-		useStore.setState({ darkMode: false });
+	it("toggleDarkMode flips the resolved scheme", () => {
+		useStore.setState({ darkMode: false, themeMode: "light" });
 		useStore.getState().toggleDarkMode();
-		expect(useStore.getState().darkMode).toBe(true);
-		expect(localStorage.getItem("dark-mode")).toBe("true");
+		expect(useStore.getState()).toMatchObject({
+			darkMode: true,
+			themeMode: "dark",
+		});
 		expect(document.documentElement.dataset.theme).toBe("dark");
 	});
 
-	it("togglePanel toggles active panel off when same", () => {
-		useStore.getState().togglePanel("chartes");
-		expect(useStore.getState().activePanel).toBe("chartes");
-		useStore.getState().togglePanel("chartes");
-		expect(useStore.getState().activePanel).toBeNull();
+	it("opens settings as a full-page destination and restores the library", () => {
+		useStore.setState({ libraryOpen: true, settingsOpen: false });
+		useStore.getState().toggleSettings();
+		expect(useStore.getState()).toMatchObject({
+			settingsOpen: true,
+			libraryOpen: false,
+		});
+
+		useStore.getState().toggleLibrary();
+		expect(useStore.getState()).toMatchObject({
+			settingsOpen: false,
+			libraryOpen: true,
+		});
 	});
 
-	it("togglePanel switches to a different panel", () => {
-		useStore.getState().togglePanel("chartes");
-		useStore.getState().togglePanel("photos");
-		expect(useStore.getState().activePanel).toBe("photos");
+	it("toggles and persists the library visibility", () => {
+		useStore.setState({ libraryOpen: true });
+		useStore.getState().toggleLibrary();
+		expect(useStore.getState().libraryOpen).toBe(false);
+		expect(localStorage.getItem("maket-library-open")).toBe("false");
+	});
+
+	it("toggles and persists whether the library is pinned", () => {
+		useStore.setState({ libraryOpen: true, libraryPinned: false });
+		useStore.getState().toggleLibraryPinned();
+		expect(useStore.getState()).toMatchObject({
+			libraryOpen: true,
+			libraryPinned: true,
+		});
+		expect(localStorage.getItem("maket-library-pinned")).toBe("true");
+
+		useStore.getState().toggleLibraryPinned();
+		expect(useStore.getState()).toMatchObject({
+			libraryOpen: false,
+			libraryPinned: false,
+		});
+		expect(localStorage.getItem("maket-library-pinned")).toBe("false");
+		expect(localStorage.getItem("maket-library-open")).toBe("false");
+	});
+
+	it("opens agent exchanges in the same left navigation", () => {
+		useStore.setState({ libraryOpen: false, libraryView: "docs" });
+		useStore.getState().setLibraryView("exchange");
+		expect(useStore.getState()).toMatchObject({
+			libraryOpen: true,
+			libraryView: "exchange",
+		});
+		expect(localStorage.getItem("maket-library-view")).toBe("exchange");
 	});
 });
 
@@ -503,13 +766,13 @@ describe("collection cursors", () => {
 		vi.mocked(wsSend).mockClear();
 	});
 
-	it("defaults the cursor of a bound page to template mode, first row", () => {
+	it("defaults the cursor of a bound page to single-row mode, first row", () => {
 		seed();
 		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual({
 			docName: "alpha",
 			pageIndex: 0,
 			collection: "clients",
-			mode: "template",
+			mode: "rendered",
 			memberId: "member_1",
 		});
 	});
@@ -549,7 +812,7 @@ describe("collection cursors", () => {
 		expect(cursorForPage(useStore.getState(), "alpha", 0)).toEqual(
 			expect.objectContaining({
 				collection: "clients",
-				mode: "template",
+				mode: "rendered",
 				memberId: "member_1",
 			}),
 		);
@@ -572,7 +835,7 @@ describe("collection cursors", () => {
 			memberId: "member_2",
 		});
 		expect(cursorForPage(useStore.getState(), "alpha", 0)?.mode).toBe(
-			"template",
+			"rendered",
 		);
 	});
 

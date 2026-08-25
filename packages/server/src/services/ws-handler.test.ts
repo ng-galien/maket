@@ -7,8 +7,10 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SETTINGS, type Settings } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
+import { registerServerEvents } from "../server-events.js";
 import { createDocument, type Document } from "../types.js";
 import { createAnnotations } from "./annotations.js";
 import { createAssetsService } from "./assets.js";
@@ -18,13 +20,15 @@ import { createCollections } from "./collections.js";
 import type { DocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import type { SettingsService } from "./settings.js";
 import { createSQLiteStore } from "./store.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
-function makeDoc(name: string) {
+function makeDoc(name: string, category = "general") {
 	return createDocument({
 		name,
+		category,
 		canvas: {
 			format: "A4",
 			orientation: "portrait",
@@ -33,6 +37,17 @@ function makeDoc(name: string) {
 			bg: "#fff",
 		},
 	});
+}
+
+function settingsStub(): SettingsService {
+	let current: Settings = { ...DEFAULT_SETTINGS };
+	return {
+		get: () => current,
+		patch: (partial) => {
+			current = { ...current, ...partial };
+			return current;
+		},
+	};
 }
 
 function rendererStub(
@@ -48,15 +63,17 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const documentStates = createDocumentStates({ store, documents, bus });
 	const pending = createAnnotations({ bus, store });
 	const wsRegistry = createWsRegistry();
+	const documentRenderer = opts.documentRenderer ?? rendererStub();
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
 		assets,
 		bus,
-		documentRenderer: opts.documentRenderer ?? rendererStub(),
+		documentRenderer,
 		documentStates,
 		documents,
 		pending,
+		settings: settingsStub(),
 		store,
 		wsRegistry,
 	});
@@ -66,6 +83,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documents,
 		documentStates,
 		pending,
+		documentRenderer,
 		handler,
 		wsRegistry,
 		assetsDir,
@@ -129,7 +147,10 @@ describe("ws-handler — annotation persistence acknowledgement", () => {
 				type: "annotation_create_result",
 				requestId: "create-rejected",
 				ok: false,
-				error: 'Document "missing" not found',
+				message: {
+					key: "msg_document_not_found",
+					params: { name: "missing" },
+				},
 			},
 		]);
 		dispose();
@@ -287,7 +308,10 @@ describe("ws-handler — living document state", () => {
 			type: "state_patch_result",
 			requestId: "request-hidden",
 			ok: false,
-			error: expect.stringMatching(/not exposed by an active document binding/),
+			message: {
+				key: "msg_state_path_not_bound",
+				params: { path: "/secret" },
+			},
 		});
 		dispose();
 	});
@@ -333,9 +357,51 @@ describe("ws-handler — living document state", () => {
 			type: "state_patch_result",
 			requestId: "request-stale",
 			ok: false,
-			error: expect.stringMatching(/expected 2, current 1/),
+			message: {
+				key: "msg_state_revision_conflict",
+				params: { expected: 2, current: 1 },
+			},
 		});
 		expect(rebroadcast).toHaveBeenCalledWith({ docName: "checklist" });
+		dispose();
+	});
+
+	it("keeps state validation details out of the localized browser signal", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const doc = makeDoc("typed-form");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<input type="checkbox" data-maket-bind="state.done">';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"typed-form",
+			{
+				type: "object",
+				properties: { done: { type: "boolean" } },
+				required: ["done"],
+			},
+			{ done: false },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "request-invalid-type",
+				docName: "typed-form",
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/done", value: "yes" },
+			},
+			ws,
+		);
+
+		expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
+			type: "state_patch_result",
+			requestId: "request-invalid-type",
+			ok: false,
+			message: { key: "msg_state_invalid" },
+		});
 		dispose();
 	});
 });
@@ -356,7 +422,10 @@ describe("ws-handler — lock guards", () => {
 		expect(documents.resolve("locked")).not.toBeNull();
 		expect(store.loadOne("locked")).not.toBeNull();
 		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ text: expect.stringMatching(/locked/i) }),
+			expect.objectContaining({
+				key: "toast_document_locked_delete",
+				params: { doc: "locked" },
+			}),
 		);
 		dispose();
 	});
@@ -533,7 +602,6 @@ describe("ws-handler — document and canvas flows", () => {
 		documents.loadAll();
 		const updated = vi.fn();
 		bus.on("meta:updated", updated);
-
 		handler(
 			{
 				type: "update_meta",
@@ -606,6 +674,76 @@ describe("ws-handler — file and document mutations", () => {
 		dispose();
 	});
 
+	it("moves one image to another category and emits assets:changed", () => {
+		const { store, bus, handler, assetsDir, dispose } = fixture();
+		writeFileSync(join(assetsDir, "hero.png"), "hero");
+		store.saveAsset({
+			filename: "hero.png",
+			title: "Hero",
+			category: "Products/Heroes",
+		});
+		const changed = vi.fn();
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "update_asset_category",
+				filename: "hero.png",
+				category: " Campaigns / Summer ",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadAsset("hero.png")).toMatchObject({
+			title: "Hero",
+			category: "Campaigns/Summer",
+		});
+		expect(changed).toHaveBeenCalledWith({
+			categoryUpdates: [{ filename: "hero.png", category: "Campaigns/Summer" }],
+		});
+		dispose();
+	});
+
+	it("moves an image category subtree while preserving descendants", () => {
+		const { store, bus, handler, dispose } = fixture();
+		store.saveAsset({ filename: "root.png", category: "Products/Heroes" });
+		store.saveAsset({
+			filename: "child.png",
+			category: "Products/Heroes/Portraits",
+		});
+		store.saveAsset({ filename: "other.png", category: "Products/Other" });
+		const changed = vi.fn();
+		const saveAssets = vi.spyOn(store, "saveAssets");
+		bus.on("assets:changed", changed);
+
+		handler(
+			{
+				type: "move_asset_category",
+				source: "Products/Heroes",
+				destination: "Campaigns/Heroes",
+			},
+			STUB_WS,
+		);
+
+		expect(store.loadAsset("root.png")?.category).toBe("Campaigns/Heroes");
+		expect(store.loadAsset("child.png")?.category).toBe(
+			"Campaigns/Heroes/Portraits",
+		);
+		expect(store.loadAsset("other.png")?.category).toBe("Products/Other");
+		expect(changed).toHaveBeenCalledTimes(1);
+		expect(saveAssets).toHaveBeenCalledOnce();
+		expect(changed).toHaveBeenCalledWith({
+			categoryUpdates: [
+				{ filename: "root.png", category: "Campaigns/Heroes" },
+				{
+					filename: "child.png",
+					category: "Campaigns/Heroes/Portraits",
+				},
+			],
+		});
+		dispose();
+	});
+
 	it("delete_document keeps the last remaining doc intact", () => {
 		const { store, documents, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("solo"));
@@ -646,7 +784,10 @@ describe("ws-handler — file and document mutations", () => {
 			docName: "new",
 		});
 		expect(toast).toHaveBeenCalledWith(
-			expect.objectContaining({ text: expect.stringMatching(/old.*new/i) }),
+			expect.objectContaining({
+				key: "toast_document_renamed",
+				params: { from: "old", to: "new" },
+			}),
 		);
 		dispose();
 	});
@@ -679,6 +820,102 @@ describe("ws-handler — file and document mutations", () => {
 			pages: [{ name: "P1", html: '<p data-id="a">A</p>' }],
 		});
 		expect(created).toHaveBeenCalledWith({ docName: "copy" });
+		dispose();
+	});
+
+	it("moves a category subtree while preserving descendant paths", () => {
+		const {
+			store,
+			documents,
+			bus,
+			handler,
+			pending,
+			documentRenderer,
+			wsRegistry,
+			dispose,
+		} = fixture();
+		store.saveDoc(makeDoc("root", "Products/Workbench"));
+		store.saveDoc(makeDoc("child", "Products/Workbench/Prototypes"));
+		store.saveDoc(makeDoc("other", "Products/Other"));
+		documents.loadAll();
+		const updated = vi.fn();
+		const saveDocs = vi.spyOn(store, "saveDocs");
+		bus.on("meta:updated", updated);
+		const send = vi.fn();
+		wsRegistry.add({ readyState: 1, send });
+		const collections = createCollections({ bus, documents, store });
+		registerServerEvents({
+			bus,
+			collections,
+			collectionCursors: createCollectionCursors({ bus, documents, store }),
+			documents,
+			documentRenderer,
+			wsRegistry,
+			pending,
+		});
+
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Lab/Workbench",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("root")?.category).toBe("Lab/Workbench");
+		expect(documents.resolve("child")?.category).toBe(
+			"Lab/Workbench/Prototypes",
+		);
+		expect(documents.resolve("other")?.category).toBe("Products/Other");
+		expect(store.loadOne("child")?.category).toBe("Lab/Workbench/Prototypes");
+		expect(updated).toHaveBeenCalledOnce();
+		expect(saveDocs).toHaveBeenCalledOnce();
+		expect(updated).toHaveBeenCalledWith({ docName: "root" });
+		const signals = send.mock.calls.map(([payload]) => JSON.parse(payload));
+		expect(signals.filter((signal) => signal.type === "state")).toHaveLength(1);
+		const snapshot = signals.find((signal) => signal.type === "state") ?? {};
+		expect(snapshot.docList).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: "root", category: "Lab/Workbench" }),
+				expect.objectContaining({
+					name: "child",
+					category: "Lab/Workbench/Prototypes",
+				}),
+			]),
+		);
+		dispose();
+	});
+
+	it("refuses self-descendant moves and moves containing locked documents", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const child = makeDoc("locked", "Products/Workbench/Child");
+		child.meta = { locked: true };
+		store.saveDoc(makeDoc("root", "Products/Workbench"));
+		store.saveDoc(child);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Products/Workbench/Child/New",
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "move_category",
+				source: "Products/Workbench",
+				destination: "Lab/Workbench",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve("root")?.category).toBe("Products/Workbench");
+		expect(documents.resolve("locked")?.category).toBe(
+			"Products/Workbench/Child",
+		);
 		dispose();
 	});
 });
@@ -937,6 +1174,7 @@ describe("ws-handler — collection cursor", () => {
 			documentStates: base.documentStates,
 			documents: base.documents,
 			pending: base.pending,
+			settings: settingsStub(),
 			store: base.store,
 			wsRegistry: base.wsRegistry,
 		});
@@ -982,7 +1220,9 @@ describe("ws-handler — collection cursor", () => {
 	it("rejects invalid modes and toasts on unknown rows", () => {
 		const { bus, handler, collectionCursors, dispose } = cursorFixture();
 		const toasts: string[] = [];
-		bus.on("toast", ({ text }) => toasts.push(text));
+		bus.on("toast", ({ key, params }) =>
+			toasts.push(key === "toast_detail" ? String(params?.detail ?? "") : key),
+		);
 
 		handler(
 			{
@@ -993,7 +1233,7 @@ describe("ws-handler — collection cursor", () => {
 			} as never,
 			STUB_WS,
 		);
-		expect(collectionCursors.resolve("poster", 0)?.mode).toBe("template");
+		expect(collectionCursors.resolve("poster", 0)?.mode).toBe("rendered");
 
 		handler(
 			{
@@ -1004,9 +1244,7 @@ describe("ws-handler — collection cursor", () => {
 			},
 			STUB_WS,
 		);
-		expect(toasts.some((text) => text.includes('Row "ghost" not found'))).toBe(
-			true,
-		);
+		expect(toasts).toContain("msg_row_not_found");
 		dispose();
 	});
 });

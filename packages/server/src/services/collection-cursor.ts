@@ -1,20 +1,19 @@
 /**
  * collection-cursor — server-owned preview state of page↔collection bindings.
  *
- * The binding itself (`page.collection`) is persistent document state; the
- * cursor over it (render mode + current member) is transient session state,
- * so it lives here — not on the persistence model. Public commands address
- * pages by current index, while the service stores cursors by stable page id:
- * two pages bound to the same collection hold independent cursors even when
- * pages are reordered or removed.
+ * The binding itself (`page.collection`) is persistent document state. The
+ * cursor over it (render mode + current member) is persistent view state keyed
+ * by stable document and page ids. Public commands still address pages by
+ * current index: two pages bound to the same collection hold independent
+ * cursors even when pages are reordered, renamed, or reopened.
  *
  * Humans move the cursor through the `collection_cursor_set` WS command,
  * agents through `maket_collection action=cursor`; exports read the same
  * value. Every mutation emits `collection-cursor:changed` on the bus — the
  * WS broadcast lives in `index.ts` listeners, never here.
  *
- * The service is stateless across process restarts, like `pending.ts`:
- * cursors default back to template mode / first row.
+ * A page without a saved cursor defaults to single-row render / first row.
+ * Empty collections stay in template mode until a row exists.
  */
 
 import type {
@@ -22,17 +21,13 @@ import type {
 	CollectionCursorMode,
 	PageCollectionCursor,
 } from "@maket/shared";
+import { MessageError } from "../lib/message-error.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
+import type { CollectionCursorRecord } from "./sqlite-store/collection-cursor-repository.js";
 import type { Store } from "./store.js";
 
-interface StoredCollectionCursor {
-	docName: string;
-	pageId: string;
-	collection: string;
-	mode: CollectionCursorMode;
-	memberId: string | null;
-}
+type StoredCollectionCursor = CollectionCursorRecord;
 
 export interface CollectionCursorPatch {
 	mode?: CollectionCursorMode;
@@ -52,7 +47,7 @@ export interface CollectionCursorView {
 
 export interface CollectionCursors {
 	/**
-	 * Effective cursor of a page, lazily defaulted to template mode / first
+	 * Effective cursor of a page, lazily defaulted to single-row render / first
 	 * row. Returns null when the page has no collection binding.
 	 */
 	resolve(docName: string, pageIndex: number): PageCollectionCursor | null;
@@ -98,12 +93,23 @@ interface CursorContext extends CollectionCursorsDeps {
 
 /** Builds the context with an explicit field list — spreading the Awilix
  * PROXY would enumerate every container registration, this service included. */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// This factory is the intended composition boundary: it hydrates the cursor
+// repository once and wires domain events to the focused cursor service.
 export function createCollectionCursors({
 	bus,
 	documents,
 	store,
 }: CollectionCursorsDeps): CollectionCursors {
-	const ctx: CursorContext = { bus, documents, store, cursors: new Map() };
+	const cursors = new Map(
+		store
+			.loadAllCollectionCursors()
+			.map((cursor) => [
+				storedCursorKey(cursor.documentId, cursor.pageId),
+				cursor,
+			]),
+	);
+	const ctx: CursorContext = { bus, documents, store, cursors };
 	const reconcile = () => reconcileCursors(ctx);
 	bus.on("collection:saved", reconcile);
 	bus.on("collection:deleted", reconcile);
@@ -159,8 +165,10 @@ function memberIdForRow(
 ): string {
 	const cursor = effectiveCursor(ctx, docName, pageIndex);
 	if (!cursor) {
-		throw new Error(
+		throw new MessageError(
 			`Page ${pageIndex + 1} of "${docName}" has no data source.`,
+			"msg_page_no_data_source",
+			{ page: pageIndex + 1, doc: docName },
 		);
 	}
 	const members = sortedMembers(ctx.store.loadCollection(cursor.collection));
@@ -169,8 +177,10 @@ function memberIdForRow(
 		const member = members[Number(row) - 1];
 		if (member) return member.id;
 	}
-	throw new Error(
+	throw new MessageError(
 		`Row "${row}" not found in collection "${cursor.collection}" (${members.length} rows).`,
+		"msg_row_not_found",
+		{ row, collection: cursor.collection, rows: members.length },
 	);
 }
 
@@ -181,24 +191,39 @@ function setCursor(
 	patch: CollectionCursorPatch,
 ): PageCollectionCursor {
 	const doc = ctx.documents.resolveOrLoad(docName);
-	if (!doc) throw new Error(`Document "${docName}" not found.`);
+	if (!doc)
+		throw new MessageError(
+			`Document "${docName}" not found.`,
+			"msg_document_not_found",
+			{ name: docName },
+		);
 	if (!doc.pages[pageIndex])
-		throw new Error(`Page ${pageIndex + 1} not found.`);
+		throw new MessageError(
+			`Page ${pageIndex + 1} not found.`,
+			"msg_page_not_found",
+			{ page: pageIndex + 1 },
+		);
 	const current = effectiveCursor(ctx, docName, pageIndex);
 	if (!current) {
-		throw new Error(
+		throw new MessageError(
 			`Page ${pageIndex + 1} of "${docName}" has no data source.`,
+			"msg_page_no_data_source",
+			{ page: pageIndex + 1, doc: docName },
 		);
 	}
 	const next = patchedCursor(ctx, current, patch);
 	const moved =
 		next.mode !== current.mode || next.memberId !== current.memberId;
 	const page = doc.pages[pageIndex];
-	if (!page) throw new Error(`Page ${pageIndex + 1} not found.`);
-	ctx.cursors.set(
-		storedCursorKey(docName, page.id),
-		toStoredCursor(next, page.id),
-	);
+	if (!page)
+		throw new MessageError(
+			`Page ${pageIndex + 1} not found.`,
+			"msg_page_not_found",
+			{ page: pageIndex + 1 },
+		);
+	const stored = toStoredCursor(next, doc.id, page.id);
+	ctx.cursors.set(storedCursorKey(doc.id, page.id), stored);
+	ctx.store.saveCollectionCursor(stored);
 	if (moved) ctx.bus.emit("collection-cursor:changed", {});
 	return next;
 }
@@ -214,20 +239,31 @@ function patchedCursor(
 	if (patch.memberId !== undefined) {
 		if (patch.memberId !== null) {
 			if (!members.some((member) => member.id === patch.memberId)) {
-				throw new Error(
+				throw new MessageError(
 					`Row "${patch.memberId}" not found in collection "${next.collection}".`,
+					"msg_row_not_found",
+					{
+						row: patch.memberId,
+						collection: next.collection,
+						rows: members.length,
+					},
 				);
 			}
 		}
 		next.memberId = patch.memberId;
 	}
 	if (members.length === 0 && next.mode !== "template") {
-		throw new Error(
+		throw new MessageError(
 			`Collection "${next.collection}" has no rows; use template mode.`,
+			"msg_collection_no_rows",
+			{ name: next.collection },
 		);
 	}
 	if (next.mode === "rendered" && next.memberId === null) {
-		throw new Error("Rendered mode requires a current row.");
+		throw new MessageError(
+			"Rendered mode requires a current row.",
+			"msg_rendered_needs_row",
+		);
 	}
 	return next;
 }
@@ -247,9 +283,10 @@ function snapshotCursors(ctx: CursorContext): PageCollectionCursor[] {
 function reconcileCursors(ctx: CursorContext): void {
 	let changed = false;
 	for (const [key, cursor] of ctx.cursors) {
-		const location = cursorLocation(ctx, cursor.docName, cursor.pageId);
+		const location = cursorLocation(ctx, cursor.documentId, cursor.pageId);
 		if (!location?.collectionName) {
 			ctx.cursors.delete(key);
+			ctx.store.deleteCollectionCursor(cursor.documentId, cursor.pageId);
 			changed = true;
 			continue;
 		}
@@ -257,10 +294,10 @@ function reconcileCursors(ctx: CursorContext): void {
 		const next = clampMember(
 			ctx,
 			collectionName === cursor.collection
-				? toPageCursor(cursor, location.pageIndex)
+				? toPageCursor(cursor, location.docName, location.pageIndex)
 				: defaultCursor(
 						ctx,
-						cursor.docName,
+						location.docName,
 						location.pageIndex,
 						collectionName,
 					),
@@ -270,7 +307,9 @@ function reconcileCursors(ctx: CursorContext): void {
 			next.mode !== cursor.mode ||
 			next.memberId !== cursor.memberId
 		) {
-			ctx.cursors.set(key, toStoredCursor(next, cursor.pageId));
+			const stored = toStoredCursor(next, cursor.documentId, cursor.pageId);
+			ctx.cursors.set(key, stored);
+			ctx.store.saveCollectionCursor(stored);
 			changed = true;
 		}
 	}
@@ -287,14 +326,16 @@ function effectiveCursor(
 	const doc = ctx.documents.resolveOrLoad(docName);
 	const page = doc?.pages[pageIndex];
 	if (!page) return null;
-	const key = storedCursorKey(docName, page.id);
+	const key = storedCursorKey(doc.id, page.id);
 	const existing = ctx.cursors.get(key);
 	if (!existing || existing.collection !== collectionName) {
 		const next = defaultCursor(ctx, docName, pageIndex, collectionName);
-		ctx.cursors.set(key, toStoredCursor(next, page.id));
+		const stored = toStoredCursor(next, doc.id, page.id);
+		ctx.cursors.set(key, stored);
+		ctx.store.saveCollectionCursor(stored);
 		return next;
 	}
-	return toPageCursor(existing, pageIndex);
+	return toPageCursor(existing, docName, pageIndex);
 }
 
 function defaultCursor(
@@ -308,7 +349,7 @@ function defaultCursor(
 		docName,
 		pageIndex,
 		collection: collectionName,
-		mode: "template",
+		mode: members.length > 0 ? "rendered" : "template",
 		memberId: members[0]?.id ?? null,
 	};
 }
@@ -341,29 +382,38 @@ function boundCollectionName(
 
 function cursorLocation(
 	ctx: CursorContext,
-	docName: string,
+	documentId: string,
 	pageId: string,
-): { pageIndex: number; collectionName: string | null } | null {
-	const doc = ctx.documents.resolveOrLoad(docName);
+): {
+	docName: string;
+	pageIndex: number;
+	collectionName: string | null;
+} | null {
+	const doc =
+		[...ctx.documents.all().values()].find(
+			(document) => document.id === documentId,
+		) ?? ctx.store.loadById(documentId);
 	if (!doc) return null;
 	const pageIndex = doc.pages.findIndex((page) => page.id === pageId);
 	if (pageIndex < 0) return null;
 	return {
+		docName: doc.name,
 		pageIndex,
 		collectionName: doc.pages[pageIndex]?.collection?.name ?? null,
 	};
 }
 
-function storedCursorKey(docName: string, pageId: string): string {
-	return `${docName}\0${pageId}`;
+function storedCursorKey(documentId: string, pageId: string): string {
+	return `${documentId}\0${pageId}`;
 }
 
 function toStoredCursor(
 	cursor: PageCollectionCursor,
+	documentId: string,
 	pageId: string,
 ): StoredCollectionCursor {
 	return {
-		docName: cursor.docName,
+		documentId,
 		pageId,
 		collection: cursor.collection,
 		mode: cursor.mode,
@@ -373,10 +423,11 @@ function toStoredCursor(
 
 function toPageCursor(
 	cursor: StoredCollectionCursor,
+	docName: string,
 	pageIndex: number,
 ): PageCollectionCursor {
 	return {
-		docName: cursor.docName,
+		docName,
 		pageIndex,
 		collection: cursor.collection,
 		mode: cursor.mode,

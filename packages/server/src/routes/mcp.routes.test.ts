@@ -46,6 +46,7 @@ describe("mcp routes", () => {
 			toolRegistry: asValue(toolRegistry),
 		});
 		const mcpHttpHandler = createMcpHttpHandler({
+			config: { VERSION: "9.9.9" } as never,
 			container,
 			wsRegistry: wsRegistry as never,
 		});

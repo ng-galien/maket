@@ -509,7 +509,7 @@ function CharteEditFooter({ model }: { model: CharteEditForm }) {
 			<button
 				type="button"
 				onClick={model.save}
-				className="px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-white hover:brightness-110 transition"
+				className="px-4 py-2 rounded-lg text-sm font-semibold bg-accent text-accent-contrast hover:brightness-110 transition"
 			>
 				{t("save")}
 			</button>

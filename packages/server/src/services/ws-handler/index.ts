@@ -12,9 +12,14 @@
 
 import type { WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
+import { localizedOf } from "../../lib/message-error.js";
 import { createCollectionCursors } from "../collection-cursor.js";
 import { createCollections } from "../collections.js";
-import { handleDeleteAsset } from "./asset-commands.js";
+import {
+	handleDeleteAsset,
+	handleMoveAssetCategory,
+	handleUpdateAssetCategory,
+} from "./asset-commands.js";
 import { handleCharteSave } from "./charte-commands.js";
 import {
 	handleCollectionBindPage,
@@ -33,6 +38,7 @@ import {
 	handleDuplicateDocument,
 	handleLoadDocument,
 	handleLockDocument,
+	handleMoveCategory,
 	handleRenameDocument,
 	handleUpdateMeta,
 } from "./document-commands.js";
@@ -53,6 +59,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStates,
 		documents,
 		pending,
+		settings,
 		store,
 		wsRegistry,
 	} = deps;
@@ -70,6 +77,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStates,
 		documents,
 		pending,
+		settings,
 		store,
 		wsRegistry,
 		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
@@ -100,8 +108,14 @@ function dispatchWorkspaceCommand(
 		case "workspace_update":
 			handleWorkspaceUpdate(ctx, msg);
 			break;
+		case "settings_set":
+			ctx.settings.patch(msg.settings);
+			break;
 		case "update_meta":
 			handleUpdateMeta(ctx, msg);
+			break;
+		case "move_category":
+			handleMoveCategory(ctx, msg);
 			break;
 		case "charte_save":
 			handleCharteSave(ctx, msg);
@@ -123,6 +137,12 @@ function dispatchWorkspaceCommand(
 			break;
 		case "delete_asset":
 			handleDeleteAsset(ctx, msg);
+			break;
+		case "update_asset_category":
+			handleUpdateAssetCategory(ctx, msg);
+			break;
+		case "move_asset_category":
+			handleMoveAssetCategory(ctx, msg);
 			break;
 		case "delete_document":
 			handleDeleteDocument(ctx, msg);
@@ -168,10 +188,7 @@ function handleAnnotationCreate(
 				type: "annotation_create_result",
 				requestId: msg.requestId,
 				ok: false,
-				error:
-					error instanceof Error
-						? error.message
-						: "The annotation could not be saved.",
+				message: localizedOf(error) ?? { key: "msg_annotation_not_saved" },
 			}),
 		);
 	}
