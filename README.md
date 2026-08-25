@@ -110,7 +110,51 @@ Use `maket_state action=init` to attach the initial schema and data, then `get`,
 
 ## Install
 
-### Option A — npm (recommended)
+Pick the row that matches your machine.
+
+| Platform | Recommended | What you get |
+|---|---|---|
+| **macOS** (Apple Silicon or Intel) | [Maket App](#option-a--maket-app-macos-and-windows) — `.dmg` | Native window, embedded server, agent setup on first launch |
+| **Windows** x64 | [Maket App](#option-a--maket-app-macos-and-windows) — `.exe` installer | Same |
+| **Linux** | [npm](#option-b--npm-every-platform) | Server, every MCP tool, full UI in your browser |
+
+There is no Maket App build for Linux yet. The npm route is not a downgraded
+mode: it runs the same server and the same interface, opened in your browser
+instead of a native window. It also works on macOS and Windows if you would
+rather not install an application.
+
+### Option A — Maket App (macOS and Windows)
+
+Download the installer for your platform from the
+[latest release](https://github.com/ng-galien/maket/releases/latest):
+
+- **macOS Apple Silicon** — `Maket-<version>-arm64.dmg`
+- **macOS Intel** — `Maket-<version>-x64.dmg`
+- **Windows x64** — the `Setup.exe` installer
+
+On macOS, open the `.dmg` and drag **Maket** onto **Applications**. On Windows,
+run the installer; it sets up the Start menu entry and a desktop shortcut. The
+macOS build is signed and notarised, the Windows build is signed, so neither
+should trigger a security warning.
+
+Maket App carries its own runtime — **you do not need Node.js installed**. On
+first launch it offers to wire the AI clients it finds on your machine (Claude
+Code, Codex, Gemini) to its embedded server, and it can install the bundled
+connector for Claude Desktop. The embedded server listens on `127.0.0.1:24843`.
+
+If a Maket server is already running from a previous npm install, the
+application says so and offers to stop it and take over — nothing is killed
+without your confirmation.
+
+The window is not the only way in: the **Maket** menu has *Ouvrir dans le
+navigateur*, which serves the same workspace at `http://127.0.0.1:24843` in any
+browser on that machine. Only that machine — the server never binds a public
+interface, so nothing is exposed to your network.
+
+Updates are checked automatically and installed on your confirmation. The
+**Candidate** channel in Settings opts you into validation builds.
+
+### Option B — npm (every platform)
 
 ```bash
 # Install Maket and its compatible headless Chromium
@@ -136,7 +180,7 @@ The CLI registers the absolute local Node runtime and installed Maket entry in a
 
 Daemon controls: `maket status`, `maket logs [--bridge]`, `maket stop`, `maket restart`. Diagnostics: `maket doctor`, `maket config`. Upgrade: `maket update [--check]`. Undo install: `maket uninstall <claude|codex|gemini> --apply`. Use `--scope=project` on `install claude` to write `<cwd>/.mcp.json` instead of the user-scope file. Global flags `--data-dir`, `--port`, `--host` override the matching `MAKET_*` env var on any command.
 
-### Option B — Clone and hack on it
+### Option C — Clone and hack on it
 
 ```bash
 git clone https://github.com/ng-galien/maket.git
@@ -155,7 +199,7 @@ Do not add enforceable architecture or boundary rules to `AGENTS.md`, and do not
 
 Exceptions are local and explicit. If a rule is intentionally not applicable, keep the rule enabled and add a targeted suppression comment in the file being checked, for example `// code-moniker: ignore[maket-hygiene-limits-callable-size]`, with a nearby explanation of the design reason.
 
-### Option C — Package as a desktop extension (.mcpb)
+### Option D — Package as a desktop extension (.mcpb)
 
 ```bash
 npm install -g @anthropic-ai/mcpb
@@ -166,7 +210,9 @@ node scripts/pack-mcpb.ts
 
 Drag `dist/maket.mcpb` into a desktop MCP host (e.g. Claude Desktop → Settings → Extensions).
 
-**Requirements:** Node.js ≥22 and an MCP-compatible client (Claude Code, Claude Desktop, Codex, Gemini, or similar).
+**Requirements:** an MCP-compatible client (Claude Code, Claude Desktop, Codex,
+Gemini, or similar). Maket App bundles everything else; the npm, clone and
+`.mcpb` routes additionally need Node.js ≥22.
 
 ### CLI reference
 
