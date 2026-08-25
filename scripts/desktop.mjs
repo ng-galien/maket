@@ -14,13 +14,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DESKTOP_DIR = join(ROOT, "packages", "desktop");
 const DESKTOP_OUTPUT = join(DESKTOP_DIR, ".desktop");
 const DESKTOP_ASSETS = join(DESKTOP_DIR, "assets");
-const FORGE = join(
-  ROOT,
-  "node_modules",
-  ".bin",
-  process.platform === "win32" ? "electron-forge.cmd" : "electron-forge",
-);
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+const FORGE_CLI = join(ROOT, "node_modules", "@electron-forge", "cli", "dist", "electron-forge.js");
 const FORBIDDEN_RUNTIME_PACKAGES = [
   "@playwright",
   "@puppeteer",
@@ -81,8 +75,8 @@ switch (action) {
     await buildDesktop();
     await withLocalInstallMarker(localInstall, async () => {
       await run(
-        FORGE,
-        [action, ...args],
+        process.execPath,
+        [FORGE_CLI, action, ...args],
         {
           ...process.env,
           MAKET_LOCAL_INSTALL: localInstall ? "1" : "0",
@@ -134,7 +128,9 @@ function assertDesktopNode() {
 }
 
 async function buildClient() {
-  await run(NPM, ["run", "build", "-w", "@maket/client"]);
+  const npmCli = process.env.npm_execpath;
+  if (!npmCli) throw new Error("Desktop builds must run through npm: npm run desktop -- <action>");
+  await run(process.execPath, [npmCli, "run", "build", "-w", "@maket/client"]);
 }
 
 async function buildDesktop({ sourcemap = false } = {}) {
@@ -315,7 +311,7 @@ async function buildClaudeDesktopMcpb(outputPath) {
 
 async function startDesktop() {
   if (process.platform !== "darwin") {
-    await run(FORGE, ["start"], process.env, DESKTOP_DIR);
+    await run(process.execPath, [FORGE_CLI, "start"], process.env, DESKTOP_DIR);
     return;
   }
 

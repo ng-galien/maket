@@ -111,6 +111,8 @@ describe("candidate update feed", () => {
       scripts: Record<string, string>;
     };
     const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+    const desktopScript = await readFile(resolve(import.meta.dirname, "../../../scripts/desktop.mjs"), "utf8");
+    const forgeConfig = await readFile(resolve(import.meta.dirname, "../forge.config.mjs"), "utf8");
 
     expect(Object.keys(rootPackage.scripts).filter((name) => name.startsWith("desktop"))).toEqual(["desktop"]);
     expect(Object.keys(desktopPackage.scripts).sort()).toEqual(["test", "typecheck"]);
@@ -118,6 +120,11 @@ describe("candidate update feed", () => {
     expect(workflow).toContain("matrix.arch");
     expect(workflow).toContain("os: macos-15-intel");
     expect(workflow).not.toContain("desktop:make");
+    expect(desktopScript).toContain("process.env.npm_execpath");
+    expect(desktopScript).toContain('"@electron-forge", "cli", "dist", "electron-forge.js"');
+    expect(desktopScript).not.toContain("npm.cmd");
+    expect(desktopScript).not.toContain("electron-forge.cmd");
+    expect(forgeConfig.match(/options: \{ bin: "Maket" }/g)).toHaveLength(2);
   });
 
   it("builds unsigned snapshots from main for every supported desktop target", async () => {

@@ -120,8 +120,8 @@ export default {
       },
     },
     { name: "@electron-forge/maker-zip", platforms: ["darwin"] },
-    { name: "@electron-forge/maker-deb", config: {} },
-    { name: "@electron-forge/maker-rpm", config: {} },
+    { name: "@electron-forge/maker-deb", config: { options: { bin: "Maket" } } },
+    { name: "@electron-forge/maker-rpm", config: { options: { bin: "Maket" } } },
   ],
   publishers: [
     {
