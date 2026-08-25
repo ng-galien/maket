@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useT } from "../../i18n/useT";
 
 interface Props {
 	label: string;
@@ -13,6 +14,7 @@ interface Props {
  * Follows the "No window.prompt / window.confirm" interaction invariant.
  */
 export function HoldToDelete({ label, onConfirm, onCancel }: Props) {
+	const t = useT();
 	const HOLD_MS = 650;
 	const [progress, setProgress] = useState(0);
 	const rafRef = useRef<number | null>(null);
@@ -91,7 +93,7 @@ export function HoldToDelete({ label, onConfirm, onCancel }: Props) {
 			<button
 				type="button"
 				onClick={onCancel}
-				aria-label="cancel"
+				aria-label={t("cancel")}
 				className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-danger/15 text-danger"
 			>
 				<span aria-hidden className="text-base leading-none">

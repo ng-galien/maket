@@ -1,7 +1,7 @@
 import { Upload } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useT } from "../../i18n/useT";
+import { translate, useT } from "../../i18n/useT";
 import { LibrarySearchField } from "../shared/LibrarySearchField";
 import {
 	LibraryToolbarActions,
@@ -73,7 +73,7 @@ function handleImportDrop(
 		item.name.toLowerCase().endsWith(".maket"),
 	);
 	if (file) void importState.handleImportFile(file);
-	else importState.setImportError("Import failed: .maket");
+	else importState.setImportError(translate("import_maket_failed"));
 }
 
 export function DocsToolbar({ model }: { model: DocsToolbarModel }) {

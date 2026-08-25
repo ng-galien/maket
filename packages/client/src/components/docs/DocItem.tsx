@@ -480,7 +480,7 @@ function DocRowInfo({
 	point: { x: number; y: number } | null;
 }) {
 	const t = useT();
-	const updated = relativeTime(doc.updatedAt, navigator.language);
+	const updated = relativeTime(doc.updatedAt);
 	const details = [
 		doc.format,
 		`${doc.pageCount ?? 1}p`,

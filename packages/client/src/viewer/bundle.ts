@@ -17,6 +17,7 @@ import {
 	validateBundleManifest,
 } from "@maket/shared";
 import JSZip from "jszip";
+import { translate } from "../i18n/useT";
 import type { Document } from "../store/types";
 
 export interface ViewerCharte {
@@ -90,7 +91,7 @@ function finalizeManifest(
 		toViewerDocument,
 	);
 	if (documents.length === 0) {
-		throw new Error("This .maket file contains no documents");
+		throw new Error(translate("bundle_error_no_documents"));
 	}
 	return {
 		version: data.version,
@@ -130,14 +131,14 @@ async function openBundleZip(data: ArrayBuffer): Promise<JSZip> {
 	try {
 		return await JSZip.loadAsync(data);
 	} catch {
-		throw new Error("Invalid .maket file: not a valid ZIP container");
+		throw new Error(translate("bundle_error_not_zip"));
 	}
 }
 
 async function readZipManifest(zip: JSZip): Promise<Record<string, unknown>> {
 	const manifestFile = zip.file("manifest.json");
 	if (!manifestFile) {
-		throw new Error("Invalid .maket file: missing manifest.json");
+		throw new Error(translate("bundle_error_missing_manifest"));
 	}
 	return parseBundleManifest(await manifestFile.async("string"));
 }
@@ -183,7 +184,7 @@ export async function decodeMaketFile(
 			new Map(),
 		);
 	}
-	throw new Error("Invalid .maket file: unrecognized format");
+	throw new Error(translate("bundle_error_unrecognized"));
 }
 
 /**

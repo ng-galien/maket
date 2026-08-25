@@ -9,7 +9,7 @@ import {
 	Type,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useT } from "../i18n/useT";
+import { getLang, useT } from "../i18n/useT";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
@@ -113,7 +113,10 @@ function openMessageTarget(
 
 function formatTime(ts: number): string {
 	const d = new Date(ts);
-	return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+	return d.toLocaleTimeString(getLang() === "fr" ? "fr-FR" : "en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+	});
 }
 
 function resolveElementLabel(msg: PendingMessage): string {

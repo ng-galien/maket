@@ -207,7 +207,9 @@ describe("PhotosTab insertion availability", () => {
 			screen.getAllByRole("button", { name: "Actions" })[0] as HTMLElement,
 		);
 		await user.click(await screen.findByRole("menuitem", { name: "Delete" }));
-		await user.click(screen.getByRole("button", { name: "cancel" }));
+		await user.click(
+			screen.getByRole("button", { name: /^(Cancel|Annuler)$/ }),
+		);
 		await user.click(screen.getByRole("button", { name: /^Forest/ }));
 		expect(screen.getByText("Green trees")).toBeVisible();
 		await user.click(screen.getByRole("button", { name: "Delete" }));

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { setLang } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import {
 	addCategoryFilter,
@@ -213,8 +214,10 @@ describe("docsQuery", () => {
 
 	it("formats relative time in fr and en", () => {
 		const ts = new Date(Date.now() - thrMinutes(5)).toISOString();
-		expect(relativeTime(ts, "en")).toMatch(/m ago|just now/);
-		expect(relativeTime(ts, "fr")).toMatch(/min|instant/);
+		setLang("en");
+		expect(relativeTime(ts)).toMatch(/m ago|just now/);
+		setLang("fr");
+		expect(relativeTime(ts)).toMatch(/min|instant/);
 	});
 });
 

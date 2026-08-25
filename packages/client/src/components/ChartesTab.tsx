@@ -705,11 +705,12 @@ function ChartePreviewHeader({
 }
 
 function CharteColorsSection({ colors }: { colors: [string, string][] }) {
+	const t = useT();
 	if (colors.length === 0) return null;
 	return (
 		<section>
 			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-				Couleurs
+				{t("colors")}
 			</h3>
 			<div className="flex flex-wrap gap-2">
 				{colors.map(([name, value]) => (
@@ -758,11 +759,12 @@ function CharteFontsSection({ fonts }: { fonts: [string, string][] }) {
 }
 
 function CharteSpacingSection({ spacing }: { spacing: [string, string][] }) {
+	const t = useT();
 	if (spacing.length === 0) return null;
 	return (
 		<section>
 			<h3 className="text-xs font-bold text-text-3 uppercase tracking-wider mb-2">
-				Espacements
+				{t("spacings")}
 			</h3>
 			<div className="flex flex-wrap gap-2">
 				{spacing.map(([name, value]) => (

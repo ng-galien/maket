@@ -1,4 +1,5 @@
 import { categoryPathContains, normalizeCategoryPath } from "@maket/shared";
+import { translate } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
 import type { Query, QueryChip } from "./types";
 
@@ -272,20 +273,17 @@ export function parseTimestamp(ts: string | undefined): Date | null {
 	return Number.isNaN(d.getTime()) ? null : d;
 }
 
-export function relativeTime(ts: string | undefined, lang: string): string {
+export function relativeTime(ts: string | undefined): string {
 	const d = parseTimestamp(ts);
 	if (!d) return "";
-	const diffMs = Date.now() - d.getTime();
-	const m = Math.round(diffMs / 60000);
-	const fr = lang.startsWith("fr");
-	if (m < 1) return fr ? "à l'instant" : "just now";
-	if (m < 60) return fr ? `il y a ${m} min` : `${m}m ago`;
+	const m = Math.round((Date.now() - d.getTime()) / 60000);
+	if (m < 1) return translate("time_just_now");
+	if (m < 60) return translate("time_minutes", { count: m });
 	const h = Math.round(m / 60);
-	if (h < 24) return fr ? `il y a ${h} h` : `${h}h ago`;
+	if (h < 24) return translate("time_hours", { count: h });
 	const days = Math.round(h / 24);
-	if (days < 30) return fr ? `il y a ${days} j` : `${days}d ago`;
+	if (days < 30) return translate("time_days", { count: days });
 	const months = Math.round(days / 30);
-	if (months < 12) return fr ? `il y a ${months} mois` : `${months}mo ago`;
-	const years = Math.round(months / 12);
-	return fr ? `il y a ${years} an${years > 1 ? "s" : ""}` : `${years}y ago`;
+	if (months < 12) return translate("time_months", { count: months });
+	return translate("time_years", { count: Math.round(months / 12) });
 }

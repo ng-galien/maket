@@ -437,8 +437,13 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						<div className="font-semibold text-sm">{doc.name}</div>
 						<div className="text-2xs text-text-3 mt-0.5">
 							{doc.canvas.format} {doc.canvas.orientation} · {doc.canvas.w}×
-							{doc.canvas.h}mm · {doc.pages.length} page
-							{doc.pages.length > 1 ? "s" : ""}
+							{doc.canvas.h}mm ·{" "}
+							{t(
+								doc.pages.length > 1
+									? "doc_page_count_many"
+									: "doc_page_count_one",
+								{ count: doc.pages.length },
+							)}
 						</div>
 					</div>
 				</div>

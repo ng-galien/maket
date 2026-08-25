@@ -10,7 +10,7 @@ import type {
 import en from "../i18n/en.json";
 
 import fr from "../i18n/fr.json";
-import { getLang, setLang } from "../i18n/useT";
+import { getLang, setLang, translate } from "../i18n/useT";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
@@ -102,7 +102,7 @@ export function sendStateValuePatch(
 		useStore.getState().beginStatePatch(docName, pointer, requestId);
 		useStore
 			.getState()
-			.settleStatePatch(requestId, "State update could not be sent.");
+			.settleStatePatch(requestId, translate("state_update_not_sent"));
 		return null;
 	}
 	useStore.getState().beginStatePatch(docName, pointer, requestId);
@@ -110,7 +110,7 @@ export function sendStateValuePatch(
 		() =>
 			useStore
 				.getState()
-				.timeoutStatePatch(requestId, "State update timed out."),
+				.timeoutStatePatch(requestId, translate("state_update_timed_out")),
 		10_000,
 	);
 	return requestId;
@@ -353,10 +353,14 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				.getState()
 				.settleStatePatch(
 					msg.requestId,
-					msg.ok ? undefined : (msg.error ?? "State update failed."),
+					msg.ok ? undefined : (msg.error ?? translate("state_update_failed")),
 				);
 			if (!msg.ok) {
-				spawnToast(msg.error ?? "State update failed.", "error", 4000);
+				spawnToast(
+					msg.error ?? translate("state_update_failed"),
+					"error",
+					4000,
+				);
 			}
 			break;
 		case "toast":

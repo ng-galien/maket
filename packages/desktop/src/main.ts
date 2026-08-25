@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, watchFile } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
@@ -25,6 +25,7 @@ import {
 import { inspectClaudeDesktop } from "./claude-desktop.js";
 import { applyDesktopOnboarding, validateOnboardingSelection } from "./configuration-install.js";
 import { createElectronBrowserPool } from "./electron-browser-pool.js";
+import { createDesktopTranslate, type DesktopTranslate, readDesktopLanguage } from "./i18n.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
 import { printWithNativeDialog } from "./native-print.js";
 import { isTrustedIpcSender, isTrustedRendererUrl, shouldOpenInExternalBrowser } from "./renderer-security.js";
@@ -68,6 +69,9 @@ let runtimeStopped = false;
 let runtimeReady = false;
 let agentSetup: AgentSetupService | null = null;
 
+const settingsPath = createConfig({ env: process.env }).SETTINGS_PATH;
+let translate: DesktopTranslate = createDesktopTranslate(readDesktopLanguage(settingsPath));
+
 const electronBrowserPool = createElectronBrowserPool();
 const runtime = new WorkspaceController({
   version: app.getVersion(),
@@ -78,7 +82,7 @@ const runtime = new WorkspaceController({
 const updates = new UpdateController({
   enabled: !isDevelopmentBuild && !isLocalInstallBuild && process.platform !== "linux",
   disabledReason: isLocalInstallBuild ? "local-build" : "development-build",
-  preferences: new UpdatePreferences(createConfig({ env: process.env }).SETTINGS_PATH),
+  preferences: new UpdatePreferences(settingsPath),
 });
 const setupPreferences = new DesktopSetupPreferences(join(app.getPath("userData"), "desktop-setup.json"));
 
@@ -129,11 +133,11 @@ async function openWorkspace(path: string): Promise<void> {
   if (resolve(path) === current.workspace) return;
   const options: Electron.MessageBoxOptions = {
     type: "warning",
-    buttons: ["Change workspace", "Cancel"],
+    buttons: [translate("dialog_change_workspace"), translate("dialog_cancel")],
     defaultId: 1,
     cancelId: 1,
-    message: "Change the active Maket workspace?",
-    detail: "Browser and MCP clients will disconnect while the embedded server restarts.",
+    message: translate("dialog_change_workspace_message"),
+    detail: translate("dialog_change_workspace_detail"),
   };
   const choice = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
   if (choice.response !== 0) return;
@@ -145,7 +149,7 @@ async function openWorkspace(path: string): Promise<void> {
 async function chooseWorkspace(): Promise<string | null> {
   const options: Electron.OpenDialogOptions = {
     properties: ["openDirectory", "createDirectory"],
-    title: "Open Maket Workspace",
+    title: translate("dialog_choose_workspace_title"),
   };
   const result = mainWindow ? await dialog.showOpenDialog(mainWindow, options) : await dialog.showOpenDialog(options);
   return result.canceled ? null : (result.filePaths[0] ?? null);
@@ -223,15 +227,32 @@ function handleTrustedIpc<TArgs extends unknown[], TResult>(
 
 function rebuildMenu(): void {
   const state = runtime.state();
-  const template = buildApplicationMenuTemplate(state, {
-    openHome: () => void openWorkspace(runtime.home),
-    chooseWorkspace: () => void chooseAndOpenWorkspace(),
-    openInBrowser: () => void openInBrowser(),
-    copyServerUrl: () => clipboard.writeText(state.url),
-    checkForUpdates: () => void updates.check(),
-    sendCommand: sendRendererCommand,
-  });
+  const template = buildApplicationMenuTemplate(
+    state,
+    {
+      openHome: () => void openWorkspace(runtime.home),
+      chooseWorkspace: () => void chooseAndOpenWorkspace(),
+      openInBrowser: () => void openInBrowser(),
+      copyServerUrl: () => clipboard.writeText(state.url),
+      checkForUpdates: () => void updates.check(),
+      sendCommand: sendRendererCommand,
+    },
+    translate,
+  );
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** The language lives in a file any Maket surface may rewrite, so the menu
+ *  follows the file rather than the click that changed it. */
+function watchLanguage(): void {
+  let current = readDesktopLanguage(settingsPath);
+  watchFile(settingsPath, { interval: 1_000 }, () => {
+    const next = readDesktopLanguage(settingsPath);
+    if (next === current) return;
+    current = next;
+    translate = createDesktopTranslate(next);
+    if (runtimeReady) rebuildMenu();
+  });
 }
 
 function registerIpc(): void {
@@ -450,10 +471,7 @@ async function createWindow(url: string): Promise<void> {
   window.webContents.on("render-process-gone", (_event, details) => {
     if (quitting || details.reason === "clean-exit") return;
     logStartup(`renderer stopped unexpectedly: ${details.reason} (${details.exitCode})`);
-    dialog.showErrorBox(
-      "Maket stopped unexpectedly",
-      "The application window stopped responding and Maket will now quit.",
-    );
+    dialog.showErrorBox(translate("dialog_renderer_gone_title"), translate("dialog_renderer_gone_detail"));
     app.quit();
   });
   window.webContents.on("did-finish-load", () => {
@@ -505,12 +523,16 @@ async function bootstrap(): Promise<void> {
     await createWindow(initialUrl);
     logStartup("main window created");
     if (runtimeReady) rebuildMenu();
+    watchLanguage();
     updates.start();
   } catch (error) {
     process.stderr.write(
       `[desktop] startup failed: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
     );
-    await dialog.showErrorBox("Maket could not start", error instanceof Error ? error.message : String(error));
+    await dialog.showErrorBox(
+      translate("dialog_start_failed_title"),
+      error instanceof Error ? error.message : String(error),
+    );
     app.quit();
   }
 }

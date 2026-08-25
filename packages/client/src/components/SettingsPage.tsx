@@ -35,11 +35,11 @@ import { sendSettings } from "../store/ws";
 import { copyToClipboard } from "../utils";
 
 const ACCENT_PRESETS = [
-	{ name: "Emerald", value: "#10b981" },
-	{ name: "Ocean", value: "#0284c7" },
-	{ name: "Indigo", value: "#6366f1" },
-	{ name: "Violet", value: "#8b5cf6" },
-	{ name: "Amber", value: "#d97706" },
+	{ key: "accent_emerald", value: "#10b981" },
+	{ key: "accent_ocean", value: "#0284c7" },
+	{ key: "accent_indigo", value: "#6366f1" },
+	{ key: "accent_violet", value: "#8b5cf6" },
+	{ key: "accent_amber", value: "#d97706" },
 ] as const;
 
 export function SettingsPage() {
@@ -509,6 +509,7 @@ function AccentChoices({
 	onChange: (value: string) => void;
 	customLabel: string;
 }) {
+	const t = useT();
 	return (
 		<div className="flex flex-wrap items-center gap-2">
 			{ACCENT_PRESETS.map((preset) => {
@@ -518,9 +519,9 @@ function AccentChoices({
 						type="button"
 						key={preset.value}
 						onClick={() => onChange(preset.value)}
-						aria-label={preset.name}
+						aria-label={t(preset.key)}
 						aria-pressed={active}
-						title={preset.name}
+						title={t(preset.key)}
 						className={`grid h-8 w-8 place-items-center rounded-sm border transition-[border-color,transform] hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${active ? "border-text-1" : "border-border"}`}
 						style={{ backgroundColor: preset.value }}
 					>

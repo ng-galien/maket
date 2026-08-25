@@ -1,5 +1,6 @@
 import type { DesktopCommand, DesktopRuntimeState } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
+import { createDesktopTranslate } from "./i18n.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
 
 describe("native application menu", () => {
@@ -11,14 +12,18 @@ describe("native application menu", () => {
       url: "http://127.0.0.1:24842",
       version: "2.0.0",
     };
-    const template = buildApplicationMenuTemplate(state, {
-      openHome: vi.fn(),
-      chooseWorkspace: vi.fn(),
-      openInBrowser: vi.fn(),
-      copyServerUrl: vi.fn(),
-      checkForUpdates: vi.fn(),
-      sendCommand: (command) => sent.push(command),
-    });
+    const template = buildApplicationMenuTemplate(
+      state,
+      {
+        openHome: vi.fn(),
+        chooseWorkspace: vi.fn(),
+        openInBrowser: vi.fn(),
+        copyServerUrl: vi.fn(),
+        checkForUpdates: vi.fn(),
+        sendCommand: (command) => sent.push(command),
+      },
+      createDesktopTranslate("fr"),
+    );
     expect(template.map((item) => item.label)).toEqual([
       "Maket",
       "Édition",

@@ -16,7 +16,7 @@ import {
 	useState,
 } from "react";
 import { createPortal, flushSync } from "react-dom";
-import { useT } from "../i18n/useT";
+import { translate, useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import {
 	hasPendingStatePatchForDocument,
@@ -83,7 +83,7 @@ function collectionPreviewHtml(
 			html: showTemplateMarkers
 				? markedTemplateHtml(rawHtml, null).html
 				: rawHtml,
-			error: `Collection "${collectionName ?? ""}" not found.`,
+			error: translate("collection_not_found", { name: collectionName ?? "" }),
 		};
 	}
 	if (preview?.mode === "rendered" && collection) {
