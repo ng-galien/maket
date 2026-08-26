@@ -31,7 +31,9 @@ An unreachable or incomplete release feed is reported as neutral `unavailable` s
 
 `desktop-snapshot.yml` runs on every push to `main` and can also be dispatched manually. Its four unsigned artifacts are the inspection surface before a release; they are not attached to a GitHub Release and are not a substitute for signing validation.
 
-The existing `publish.yml` workflow remains responsible for the npm/MCP package and the GitHub Release. Prerelease packages use the npm `next` tag and GitHub prerelease classification. After that release exists, the desktop matrix builds signed installers for macOS Intel, macOS Apple Silicon, and Windows x64 plus unsigned Linux x64 DEB and RPM packages, then attaches them to the same GitHub Release. For prereleases, a final job generates the macOS and Windows updater metadata, deploys the candidate feed through GitHub Pages, and preserves that feed across later documentation deployments. Linux updates remain manual.
+The existing `publish.yml` workflow remains responsible for the npm/MCP package and the GitHub Release. A version tag first passes a preflight that checks its version, ancestry on `main`, changelog section, and the presence of every signing credential. The desktop matrix must then finish signed installers for macOS Intel, macOS Apple Silicon, and Windows x64 plus unsigned Linux x64 DEB and RPM packages. Only after all four builds succeed may the workflow publish npm, publish the MCP Registry entry, and create the GitHub Release; a final job attaches the already-built installers. This ordering prevents a missing certificate or broken desktop package from leaving a registry-only release.
+
+Prerelease packages use the npm `next` tag and GitHub prerelease classification. For prereleases, a final job generates the macOS and Windows updater metadata, deploys the candidate feed through GitHub Pages, and preserves that feed across later documentation deployments. Linux updates remain manual. The manual `workflow_dispatch` path is only a registry catch-up from `main`; it does not create a release, build installers, or require signing credentials.
 
 Each build keeps the Forge filenames needed by the update services and adds stable, version-independent names for human downloads:
 
@@ -47,15 +49,16 @@ Required GitHub Actions secrets:
 - `APPLE_ID`, `APPLE_PASSWORD`, and `APPLE_TEAM_ID` for notarization;
 - `WINDOWS_CERTIFICATE` and `WINDOWS_CERTIFICATE_PASSWORD` for the base64 PFX certificate.
 
-The release matrix validates these credentials before packaging and fails with the exact missing secret. A stable or candidate tag must not be pushed until all macOS and Windows signing credentials are configured and the snapshot installers have been inspected.
+The preflight validates that these credentials are configured before any packaging or publication and fails with the exact missing secret. The platform jobs then import and exercise the certificates while building. A stable or candidate tag must not be pushed until all macOS and Windows signing credentials are configured and the snapshot installers have been inspected.
 
 The same entry point exposes `npm run desktop -- publish` for a manually reviewed draft release. CI uses `npm run desktop -- make` followed by an explicit upload so all platform artifacts converge on one release.
 
 ## Release-candidate rollout
 
-1. Align all workspace versions to `X.Y.Z-rc.N` with the repository version command.
-2. Create and push `vX.Y.Z-rc.N`; CI publishes npm on `next` and marks the GitHub Release as a prerelease.
-3. CI builds, signs, notarizes, and attaches the macOS and Windows installers, plus the Linux DEB and RPM packages.
-4. CI deploys the Squirrel update assets and macOS `RELEASES.json` into the candidate static feed.
-5. Verify the three public feed endpoints and manually install all five canonical downloads. From RC2 onward, test an update from the previous candidate on macOS and Windows before promotion.
-6. Publish `vX.Y.Z` as a normal release; stable clients will then discover it through the public Electron service.
+1. Align all workspace versions to `X.Y.Z-rc.N`, prepare that changelog section, configure every signing secret, and inspect the latest four-platform snapshot.
+2. Create and push `vX.Y.Z-rc.N`; preflight validates the tag and release contract without publishing anything.
+3. CI builds, signs and notarizes the macOS and Windows installers and builds the Linux DEB and RPM packages. Any failure stops the release before registry publication.
+4. CI publishes npm on `next`, publishes the MCP Registry entry, creates the GitHub prerelease, and attaches the already-built installers.
+5. CI deploys the Squirrel update assets and macOS `RELEASES.json` into the candidate static feed.
+6. Verify the three public feed endpoints and manually install all five canonical downloads. From RC2 onward, test an update from the previous candidate on macOS and Windows before promotion.
+7. Publish `vX.Y.Z` as a normal release; stable clients will then discover it through the public Electron service.

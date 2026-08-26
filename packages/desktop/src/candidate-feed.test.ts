@@ -165,6 +165,49 @@ describe("candidate update feed", () => {
     expect(workflow).toContain("collect-desktop-installers.ts");
     expect(collector).toMatch(/SHA256SUMS-\$\{options\.platform}-\$\{options\.arch}\.txt/);
   });
+
+  it("builds signed installers before publishing a version tag", async () => {
+    const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+    const rootPackage = JSON.parse(await readFile(resolve(import.meta.dirname, "../../../package.json"), "utf8")) as {
+      version: string;
+    };
+
+    const preflight = workflow.indexOf("  preflight:");
+    const publish = workflow.indexOf("  publish:");
+    const desktopBuild = workflow.indexOf("  desktop-build:");
+    const desktopUpload = workflow.indexOf("  desktop-upload:");
+    const candidateFeed = workflow.indexOf("  candidate-feed:");
+    expect(preflight).toBeGreaterThan(-1);
+    expect(publish).toBeGreaterThan(-1);
+    expect(desktopBuild).toBeGreaterThan(-1);
+    expect(desktopUpload).toBeGreaterThan(-1);
+    expect(candidateFeed).toBeGreaterThan(-1);
+
+    const preflightBody = workflow.slice(preflight, publish);
+    const publishHeader = workflow.slice(publish, workflow.indexOf("    steps:", publish));
+    const desktopBuildHeader = workflow.slice(desktopBuild, workflow.indexOf("    strategy:", desktopBuild));
+    const desktopUploadHeader = workflow.slice(desktopUpload, workflow.indexOf("    runs-on:", desktopUpload));
+    const candidateFeedHeader = workflow.slice(candidateFeed, workflow.indexOf("    runs-on:", candidateFeed));
+
+    expect(preflightBody).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
+    expect(preflightBody).toContain('node scripts/release-notes.mjs "$VERSION"');
+    expect(preflightBody).toContain("Validate desktop signing credentials are configured");
+    expect(publishHeader).toContain("needs: [preflight, desktop-build]");
+    expect(publishHeader).toContain("!cancelled()");
+    expect(publishHeader).not.toContain("always()");
+    expect(publishHeader).toContain("needs.desktop-build.result == 'success'");
+    expect(desktopBuildHeader).toContain("needs: preflight");
+    expect(desktopUploadHeader).toContain("needs: [publish, desktop-build]");
+    expect(candidateFeedHeader).toContain("needs: [preflight, publish, desktop-build]");
+
+    const releaseNotes = spawnSync(
+      process.execPath,
+      [resolve(import.meta.dirname, "../../../scripts/release-notes.mjs"), rootPackage.version],
+      { encoding: "utf8" },
+    );
+    expect(releaseNotes.status, releaseNotes.stderr).toBe(0);
+    expect(releaseNotes.stdout).toContain("Maket App is now the primary way to install Maket");
+  });
 });
 
 async function writeArtifact(root: string, directory: string, name: string, content: string): Promise<void> {

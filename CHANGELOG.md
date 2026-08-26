@@ -13,8 +13,23 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.0.0] — 2026-08-26
+
 ### Added
 
+- **Maket App is now the primary way to install Maket.** The standalone
+  Electron application packages the Maket server, client, Node runtime, MCP
+  bridge and rendering engine for macOS Apple Silicon, macOS Intel, Windows
+  x64 and Linux x64. The normal desktop experience no longer requires a
+  separate Node.js installation or server command.
+- Maket App starts in `~/.maket`, owns one embedded server and one workspace at
+  a time, stays available when its window closes, and shuts its server down on
+  explicit quit. Native menus and the desktop interface can switch workspace,
+  reopen the window, open Maket in a browser, copy the server URL, print, and
+  manage application updates.
+- The desktop interface diagnoses supported agent configurations and applies
+  reviewed, backed-up corrections. Its packaged connect-only MCP bridge waits
+  for Maket App and reconnects without starting a competing server.
 - **Your preferences now follow you.** Language, theme, accent colour,
   automatic repositioning and the update channel are stored once in
   `~/.maket/settings.json` instead of the browser's local storage. They no
@@ -24,6 +39,18 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 - The Agent Journal is now available through discreet, consistently marked
   links in the README, the bilingual product site footer, and Maket's built-in
   Help document.
+- Every push to `main` now produces inspectable, unsigned desktop snapshots for
+  all four targets. Version tags build signed macOS and Windows installers,
+  notarize the macOS applications, package Linux, and publish checksums, updater
+  metadata and GitHub Release assets.
+
+### Changed
+
+- Installation guidance is desktop-first in the README and bilingual product
+  site. The existing `@ng-galien/maket` npm package and `maket` command remain
+  the supported advanced server/headless installation.
+- Browser clients and Maket App now share the same server-authored preferences,
+  activity messages and localized toast contract.
 
 ### Fixed
 
@@ -39,11 +66,28 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 - Maket reports its real version to AI clients instead of a hardcoded `1.0.0`.
 - The empty Documents panel showed a raw translation key.
 - `maket help` and `maket version` work as the CLI reference documents.
-
-### Changed
-
+- Packaged PDF exports, thumbnails, layout checks and preview snapshots no
+  longer hang while enabling Chromium's debugger, and large image-rich
+  documents no longer exceed `data:` URL limits.
+- Maket App no longer starts a second server against a workspace already owned
+  by the npm/headless server. Taking control verifies the process identity
+  before stopping it, so a recycled PID cannot terminate an unrelated process.
+- A refused or unavailable updater no longer prevents Maket App from starting
+  or leaves manual update checks permanently disabled.
+- Agent configuration replacement is atomic across macOS, Linux and Windows,
+  including transient antivirus locks, and preserves the destination's
+  permissions.
+- The Documents panel can no longer collapse permanently when the viewport is
+  initially measured at zero, and moving an empty category no longer rewrites
+  every root-level document.
 - Automatic repositioning is now an On/Off control consistent with the other
   settings instead of a coloured switch.
+
+### Internal
+
+- The desktop packaging contract is pinned to Node 22 and verified through the
+  same Electron Forge entry point locally and in CI. Windows avoids `.cmd`
+  process spawning and Linux makers use the packaged `Maket` executable name.
 
 ## [1.7.4] — 2026-08-14
 
@@ -560,7 +604,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v1.7.4...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ng-galien/maket/compare/v1.7.4...v2.0.0
 [1.7.4]: https://github.com/ng-galien/maket/compare/v1.7.3...v1.7.4
 [1.4.5]: https://github.com/ng-galien/maket/compare/v1.4.4...v1.4.5
 [1.4.4]: https://github.com/ng-galien/maket/compare/v1.4.3...v1.4.4

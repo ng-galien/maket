@@ -43,7 +43,7 @@ describe("LayoutService — Chromium measurement", () => {
 
 	afterAll(async () => {
 		await browser?.close();
-	});
+	}, 30_000);
 
 	async function check(html: string) {
 		const store = createSQLiteStore(":memory:");
