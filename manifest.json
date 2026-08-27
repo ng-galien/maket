@@ -54,14 +54,17 @@
     },
     {
       "name": "maket_learn",
-      "description": "Agent onboarding and operating guidance for Maket: workflow, HTML composition, chartes, collections, living document state, review, and MCP client installation."
+      "description": "Structured Markdown documentation for Maket agents: workflow, HTML composition, chartes, diagram styling, collections, living document state, review, and MCP client installation."
     },
     {
       "name": "maket_image",
       "description": "Manage the asset library: list, view, meta (requires context_token), import, delete."
     },
     { "name": "maket_preview", "description": "Open the live preview URL or snapshot a page to PNG." },
-    { "name": "maket_mermaid", "description": "Render a Mermaid diagram to SVG and inject it into a page." },
+    {
+      "name": "maket_mermaid",
+      "description": "Render a durable, charte-aware Mermaid diagram with semantic tokens and safe visual controls."
+    },
     { "name": "maket_pdf", "description": "Export the document to PDF via headless Chromium." },
     { "name": "maket_gmail", "description": "Gmail integration: connect, search, read, draft." }
   ],

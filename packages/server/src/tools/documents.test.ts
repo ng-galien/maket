@@ -404,7 +404,7 @@ describe("maket_doc — action=meta", () => {
 		store.close();
 	});
 
-	it("updates in-memory meta fields and emits meta:updated", async () => {
+	it("persists metadata and emits updates when attaching and detaching a charte", async () => {
 		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("poster"));
 		documents.loadAll();
@@ -437,6 +437,12 @@ describe("maket_doc — action=meta", () => {
 		expect(reloaded?.category).toBe("affiche");
 		expect(reloaded?.meta.charte).toBe("primary");
 		expect(listener).toHaveBeenCalledWith({ docName: "poster" });
+		expect(store.loadOne("poster")?.meta.charte).toBe("primary");
+
+		await tool.handler({ action: "meta", doc: "poster", charte: "" }, NO_EXTRA);
+		expect(documents.resolve("poster")?.meta.charte).toBeUndefined();
+		expect(store.loadOne("poster")?.meta.charte).toBeUndefined();
+		expect(listener).toHaveBeenCalledTimes(2);
 		store.close();
 	});
 

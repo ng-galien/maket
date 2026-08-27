@@ -30,6 +30,11 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 - The desktop interface diagnoses supported agent configurations and applies
   reviewed, backed-up corrections. Its packaged connect-only MCP bridge waits
   for Maket App and reconnects without starting a competing server.
+- Mermaid diagrams now inherit documented colour, font, and density tokens from
+  their document charte. Agents can also select explicit charte tokens and use
+  the renderer's safe transparency and supported flowchart/state spacing
+  controls. Their Mermaid source and semantic choices persist for deterministic
+  rerendering after charte changes and through `.maket` bundles.
 - **Your preferences now follow you.** Language, theme, accent colour,
   automatic repositioning and the update channel are stored once in
   `~/.maket/settings.json` instead of the browser's local storage. They no
@@ -54,6 +59,8 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ### Fixed
 
+- Compact valid Mermaid edges such as `A-->B` render as real connections again
+  instead of collapsing into a malformed source node.
 - **`npm install -g @ng-galien/maket` works again.** The published package
   declared a private workspace dependency that does not exist on the registry,
   so every global install failed. The package also kept its original name and

@@ -59,7 +59,7 @@ export function handleUpdateMeta(
 	if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
 	if (msg.rating !== undefined)
 		d.meta.rating = Math.max(0, Math.min(5, Number(msg.rating) || 0));
-	if (msg.charte !== undefined) d.meta.charte = msg.charte;
+	if (msg.charte !== undefined) d.meta.charte = msg.charte || undefined;
 	if (msg.category !== undefined)
 		d.category = normalizeCategoryPath(msg.category);
 	ctx.documents.persist(d.name);

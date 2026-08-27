@@ -61,6 +61,20 @@ describe("maket-format v1 (legacy gzip-JSON)", () => {
 		expect(decoded.assets).toEqual([]);
 	});
 
+	it("preserves durable Mermaid source metadata", async () => {
+		const doc = makeDoc("diagram");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html =
+			'<div data-id="diagram" data-maket-mermaid="eyJ2ZXJzaW9uIjoxfQ"><svg></svg></div>';
+
+		const decoded = await decodeBundle(encodeBundleV1([doc], []));
+
+		expect(decoded.documents[0]?.pages[0]?.html).toContain(
+			'data-maket-mermaid="eyJ2ZXJzaW9uIjoxfQ"',
+		);
+	});
+
 	it("strips runtime fields from documents", async () => {
 		const doc = makeDoc("with-runtime");
 		doc._displayed = true;

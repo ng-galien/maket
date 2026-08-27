@@ -12,7 +12,7 @@
   "tools": [
     {
       "name": "maket_mermaid",
-      "description": "When to use: add a diagram to a page. Works for flowcharts, sequence, class, ER, state, and XY chart diagrams. Pick this over manual SVG or nested divs when the thing you want is conceptually a graph.\n\nRenders Mermaid syntax to SVG and injects it into the page HTML. The diagram scales with its wrapper (width/height drive the frame, not the SVG itself). If dataId already exists, the diagram is replaced in place — idempotent edits.\nHeader on its own line:  graph TD\\n  A-->B    (NOT graph TD; A-->B)",
+      "description": "When to use: add a diagram to a page. Works for flowcharts, sequence, class, ER, state, and XY chart diagrams. Pick this over manual SVG or nested divs when the thing you want is conceptually a graph.\n\nRenders Mermaid syntax to durable inline SVG. The source and semantic rendering choices stay on the wrapper so an attached document charte can rerender the diagram. Charte tokens apply automatically; tokenRefs and safe direct values override them. Density controls are limited to flowchart and state diagrams by the current renderer. Mermaid styling directives must use this semantic surface instead.\nHeader on its own line:  graph TD\\n  A-->B    (NOT graph TD; A-->B)",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -41,7 +41,7 @@
             "type": "string"
           },
           "theme": {
-            "description": "Built-in theme name. Can be combined with custom color overrides.",
+            "description": "Optional built-in diagram profile. Overrides automatic charte defaults; tokenRefs and direct values override it.",
             "type": "string",
             "enum": [
               "zinc-light",
@@ -61,21 +61,78 @@
               "one-dark"
             ]
           },
+          "tokenRefs": {
+            "description": "Explicit charte token references keyed by diagram role, using group.key.",
+            "type": "object",
+            "properties": {
+              "bg": { "type": "string" },
+              "fg": { "type": "string" },
+              "line": { "type": "string" },
+              "accent": { "type": "string" },
+              "muted": { "type": "string" },
+              "surface": { "type": "string" },
+              "border": { "type": "string" },
+              "font": { "type": "string" },
+              "padding": { "type": "string" },
+              "nodeSpacing": { "type": "string" },
+              "layerSpacing": { "type": "string" },
+              "transparent": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
           "bg": {
-            "description": "Background color (hex). Overrides theme bg.",
+            "description": "Safe background colour. Overrides charte, profile, or tokenRefs.",
             "type": "string"
           },
           "fg": {
-            "description": "Text/foreground color (hex). Overrides theme fg.",
+            "description": "Safe foreground colour. Overrides charte, profile, or tokenRefs.",
             "type": "string"
           },
           "line": {
-            "description": "Line/connection color (hex). Overrides theme line.",
+            "description": "Safe connector colour. Overrides charte, profile, or tokenRefs.",
             "type": "string"
           },
           "accent": {
-            "description": "Arrow/accent color (hex). Overrides theme accent.",
+            "description": "Safe arrow/accent colour. Overrides charte, profile, or tokenRefs.",
             "type": "string"
+          },
+          "muted": {
+            "description": "Secondary text colour. Overrides charte, profile, or tokenRefs.",
+            "type": "string"
+          },
+          "surface": {
+            "description": "Node surface colour. Overrides charte, profile, or tokenRefs.",
+            "type": "string"
+          },
+          "border": {
+            "description": "Node and group border colour. Overrides charte, profile, or tokenRefs.",
+            "type": "string"
+          },
+          "font": {
+            "description": "Primary font family. Overrides charte, profile, or tokenRefs.",
+            "type": "string"
+          },
+          "transparent": {
+            "description": "Render without an SVG background. Default false.",
+            "type": "boolean"
+          },
+          "padding": {
+            "description": "Flowchart/state canvas padding in px.",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "nodeSpacing": {
+            "description": "Flowchart/state sibling-node spacing in px.",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "layerSpacing": {
+            "description": "Flowchart/state layer spacing in px.",
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000
           },
           "targetId": {
             "description": "data-id of parent element to insert into. Default: page root.",
@@ -162,7 +219,7 @@
     },
     {
       "name": "maket_charte",
-      "description": "When to use: manage brand style guides (chartes). `view` is a prerequisite for any charte-aware HTML edit — it returns the context_token required by maket_html set/patch.\n\nDesign tokens become CSS variables (--charte-color-primary, etc.) injected into every page. Voice and rules guide content composition.\n  list   — list all chartes with a short colour-palette preview.\n  view   — read one charte; returns tokens, voice, rules, and context_token.\n  set    — create or overwrite a charte.\n  delete — remove a charte.",
+      "description": "When to use: manage brand style guides (chartes). `view` is a prerequisite for any charte-aware HTML edit — it returns the context_token required by maket_html set/patch.\n\nDesign tokens become CSS variables (--charte-color-primary, etc.) injected into every page. Voice and rules guide content composition. maket_mermaid consumes canonical diagram tokens and documented color/font fallbacks automatically; tokenRefs can target any existing safe token explicitly.\n  list   — list all chartes with a short colour-palette preview.\n  view   — read one charte; returns tokens, voice, rules, and context_token.\n  set    — create or overwrite a charte.\n  delete — remove a charte.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -180,7 +237,7 @@
             "type": "string"
           },
           "tokens": {
-            "description": "For set: design tokens grouped by category. Become CSS variables --charte-<group>-<key>. Example: {\"color\": {\"primary\": \"#2563EB\"}, \"font\": {\"heading\": \"Montserrat\"}, \"spacing\": {\"page\": \"20mm\"}}.",
+            "description": "For set: design tokens grouped by category. Become CSS variables --charte-<group>-<key>. Diagram roles can use the canonical diagram group: bg, fg, line, accent, muted, surface, border, font, padding, nodeSpacing, layerSpacing, transparent.",
             "type": "object",
             "propertyNames": {
               "type": "string"
@@ -495,7 +552,7 @@
     },
     {
       "name": "maket_learn",
-      "description": "When to use: first call for any agent entering Maket; source of operational guidance for using Maket MCP tools correctly.\n\nThis is not the user-facing Help document. It teaches agents how to operate Maket: workflow, HTML composition, chartes, collections, living document state, review loop, and client installation.\n\nActions:\n  overview — short operating model.\n  topics   — list available topics.\n  topic    — read one topic with topic=<name>.",
+      "description": "When to use: first call for any agent entering Maket; source of operational guidance for using Maket MCP tools correctly.\n\nReturns structured Markdown inside MCP text content. It teaches agents how to operate Maket: workflow, HTML composition, chartes, diagram styling, collections, living document state, review loop, and client installation.\nThis is not the user-facing Help document opened from the Maket UI.\n\nActions:\n  overview — short operating model.\n  topics   — list available topics.\n  topic    — read one topic with topic=<name>.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -507,7 +564,19 @@
           "topic": {
             "description": "Required for action=topic.",
             "type": "string",
-            "enum": ["overview", "workflow", "html", "chartes", "collections", "state", "review", "install", "gemini"]
+            "enum": [
+              "overview",
+              "workflow",
+              "tools",
+              "html",
+              "chartes",
+              "diagrams",
+              "collections",
+              "state",
+              "review",
+              "install",
+              "gemini"
+            ]
           },
           "audience": {
             "description": "Default: agent.",

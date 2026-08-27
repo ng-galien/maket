@@ -626,6 +626,11 @@ describe("ws-handler — document and canvas flows", () => {
 		});
 		expect(store.loadOne("meta")?.meta.rating).toBe(5);
 		expect(updated).toHaveBeenCalledWith({ docName: "meta" });
+
+		handler({ type: "update_meta", docName: "meta", charte: "" }, STUB_WS);
+		expect(documents.resolve("meta")?.meta.charte).toBeUndefined();
+		expect(store.loadOne("meta")?.meta.charte).toBeUndefined();
+		expect(updated).toHaveBeenCalledTimes(2);
 		dispose();
 	});
 
@@ -850,6 +855,10 @@ describe("ws-handler — file and document mutations", () => {
 			collectionCursors: createCollectionCursors({ bus, documents, store }),
 			documents,
 			documentRenderer,
+			mermaidDiagrams: {
+				refreshCharte: () => ({ docNames: [], errors: [] }),
+				refreshDocument: () => ({ docNames: [], errors: [] }),
+			},
 			wsRegistry,
 			pending,
 		});
