@@ -7,7 +7,6 @@
  * reads for the update channel.
  */
 
-import { unwatchFile, watchFile } from "node:fs";
 import { readSettingsFile } from "@maket/server";
 import type { SettingsLanguage } from "@maket/shared";
 
@@ -111,10 +110,13 @@ export function watchDesktopLanguage(
   onChange: (language: SettingsLanguage) => void,
   interval = 1_000,
 ): () => void {
-  const listener = () => {
-    onChange(readSettingsFile(settingsPath).language);
-  };
-  watchFile(settingsPath, { interval }, listener);
-  listener();
-  return () => unwatchFile(settingsPath, listener);
+  let language = readSettingsFile(settingsPath).language;
+  onChange(language);
+  const timer = setInterval(() => {
+    const nextLanguage = readSettingsFile(settingsPath).language;
+    if (nextLanguage === language) return;
+    language = nextLanguage;
+    onChange(language);
+  }, interval);
+  return () => clearInterval(timer);
 }

@@ -430,6 +430,7 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 		d.meta.rating = Math.max(0, Math.min(5, Number(args.rating) || 0));
 	if (args.category != null) d.category = normalizeCategoryPath(args.category);
 	if (args.charte != null) d.meta.charte = args.charte || undefined;
+	documents.persist(d.name);
 	bus.emit("meta:updated", { docName: d.name });
 	return text(
 		`Meta updated: category=${d.category}, rating=${d.meta.rating || 0}/5, charte=${d.meta.charte || "none"}, designNotes=${(d.meta.designNotes || "").length}c, teamNotes=${(d.meta.teamNotes || "").length}c`,

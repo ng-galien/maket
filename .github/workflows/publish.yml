@@ -16,28 +16,23 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: Publish @ng-galien/maket and create release
+  preflight:
+    name: Validate release contract
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
-
-    # `id-token: write` is what lets GitHub mint the short-lived OIDC token
-    # that npm verifies against the trusted publisher config. Without it,
-    # `npm publish` falls back to token auth and fails.
-    permissions:
-      contents: write
-      id-token: write
-
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v7
         with:
           node-version: "26"
           cache: "npm"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Validate trigger
         run: |
@@ -67,6 +62,63 @@ jobs:
           fi
           npm run version:check
 
+      - name: Validate tagged release source and notes
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git fetch origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            echo "::error::Release tag $GITHUB_REF_NAME must point to a commit on main."
+            exit 1
+          fi
+          node scripts/release-notes.mjs "$VERSION" >/dev/null
+
+      - name: Validate desktop signing credentials are configured
+        if: github.ref_type == 'tag'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
+            if [[ -z "${!NAME}" ]]; then
+              echo "::error::Missing required release secret ${NAME}."
+              exit 1
+            fi
+          done
+          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode >/dev/null
+          printf '%s' "$WINDOWS_CERTIFICATE" | base64 --decode >/dev/null
+
+  publish:
+    name: Publish @ng-galien/maket and create release
+    needs: [preflight, desktop-build]
+    if: >-
+      !cancelled() &&
+      needs.preflight.result == 'success' &&
+      (github.ref_type != 'tag' || needs.desktop-build.result == 'success')
+    runs-on: ubuntu-latest
+
+    # `id-token: write` is what lets GitHub mint the short-lived OIDC token
+    # that npm verifies against the trusted publisher config. Without it,
+    # `npm publish` falls back to token auth and fails.
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
       # Trusted publishing requires npm CLI >= 11.5.1. Pin the current npm
       # release so publication and install-script policy stay reproducible.
       # `--force` avoids the self-modification
@@ -80,7 +132,7 @@ jobs:
       - name: Check npm publication
         id: npm
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           ERROR_FILE="$(mktemp)"
           if npm view "@ng-galien/maket@${VERSION}" version >/dev/null 2>"$ERROR_FILE"; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -108,7 +160,7 @@ jobs:
         if: steps.npm.outputs.publish == 'true'
         working-directory: dist/npm
         env:
-          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+          PRERELEASE: ${{ needs.preflight.outputs.prerelease }}
         run: |
           if [[ "$PRERELEASE" == "true" ]]; then
             npm publish --access public --tag next
@@ -119,7 +171,7 @@ jobs:
       - name: Verify published MCP package identity
         id: mcp_package
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
+          VERSION="${{ needs.preflight.outputs.version }}"
           MCP_NAME="$(node -p "require('./server.json').name")"
           PACKAGE_NAME="$(node -p "require('./server.json').packages.find(({ registryType }) => registryType === 'npm')?.identifier ?? ''")"
           if [[ -z "$PACKAGE_NAME" ]]; then
@@ -165,7 +217,7 @@ jobs:
       - name: Check MCP Registry publication
         id: mcp
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.preflight.outputs.version }}
           ENCODED_MCP_NAME: ${{ steps.mcp_package.outputs.encoded_name }}
         run: |
           RESPONSE_FILE="$(mktemp)"
@@ -206,7 +258,7 @@ jobs:
 
       - name: Verify MCP Registry publication
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.preflight.outputs.version }}
           MCP_NAME: ${{ steps.mcp_package.outputs.name }}
           ENCODED_MCP_NAME: ${{ steps.mcp_package.outputs.encoded_name }}
         run: |
@@ -227,10 +279,10 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+            if [[ "${{ needs.preflight.outputs.prerelease }}" == "true" ]]; then
               gh release edit "$GITHUB_REF_NAME" --prerelease
             else
               gh release edit "$GITHUB_REF_NAME" --prerelease=false
@@ -247,7 +299,7 @@ jobs:
             --title "$GITHUB_REF_NAME"
             --notes-file release-notes.md
           )
-          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
+          if [[ "${{ needs.preflight.outputs.prerelease }}" == "true" ]]; then
             RELEASE_ARGS+=(--prerelease)
           fi
           gh release create "${RELEASE_ARGS[@]}"
@@ -255,7 +307,7 @@ jobs:
   desktop-build:
     name: Build Maket App (${{ matrix.label }})
     if: github.ref_type == 'tag'
-    needs: publish
+    needs: preflight
     strategy:
       fail-fast: false
       matrix:
@@ -374,7 +426,7 @@ jobs:
   desktop-upload:
     name: Attach Maket App installers
     if: github.ref_type == 'tag'
-    needs: desktop-build
+    needs: [publish, desktop-build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -392,8 +444,8 @@ jobs:
 
   candidate-feed:
     name: Deploy candidate update feed
-    if: github.ref_type == 'tag' && needs.publish.outputs.prerelease == 'true'
-    needs: [publish, desktop-build]
+    if: github.ref_type == 'tag' && needs.preflight.outputs.prerelease == 'true'
+    needs: [preflight, publish, desktop-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -427,7 +479,7 @@ jobs:
 
       - name: Prepare candidate update feed
         env:
-          VERSION: ${{ needs.publish.outputs.version }}
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: npx tsx scripts/prepare-candidate-update-feed.ts desktop-artifacts docs/updates/candidate "$VERSION"
 
       - name: Setup Pages

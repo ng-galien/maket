@@ -4,6 +4,7 @@ import type { CollectionCursors } from "./services/collection-cursor.js";
 import type { Collections } from "./services/collections.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
+import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { WsRegistry } from "./services/ws-registry.js";
 
 export interface ServerEventDeps {
@@ -12,11 +13,12 @@ export interface ServerEventDeps {
 	collectionCursors: CollectionCursors;
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
+	mermaidDiagrams: MermaidDiagrams;
 	wsRegistry: WsRegistry;
 	pending: Annotations;
 }
 
-type BroadcastDeps = Omit<ServerEventDeps, "bus">;
+type BroadcastDeps = Omit<ServerEventDeps, "bus" | "mermaidDiagrams">;
 
 // State broadcasts deliberately assemble one wire snapshot from domain-owned services.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -82,15 +84,17 @@ function broadcastRenamedDoc(
 
 // This listener adapter is the intentional fan-out boundary between the bus and WebSocket clients.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-export function registerServerEvents({
-	bus,
-	collections,
-	collectionCursors,
-	documents,
-	documentRenderer,
-	wsRegistry,
-	pending,
-}: ServerEventDeps): void {
+export function registerServerEvents(deps: ServerEventDeps): void {
+	const {
+		bus,
+		collections,
+		collectionCursors,
+		documents,
+		documentRenderer,
+		mermaidDiagrams,
+		wsRegistry,
+		pending,
+	} = deps;
 	const broadcasters: BroadcastDeps = {
 		collections,
 		collectionCursors,
@@ -106,7 +110,6 @@ export function registerServerEvents({
 		"document:deleted",
 		"canvas:changed",
 		"element:updated",
-		"meta:updated",
 	] as const;
 
 	for (const event of loadEvents) {
@@ -115,6 +118,10 @@ export function registerServerEvents({
 	for (const event of mutationEvents) {
 		bus.on(event, ({ docName }) => broadcastDoc(broadcasters, docName));
 	}
+	bus.on("meta:updated", ({ docName }) => {
+		mermaidDiagrams.refreshDocument(docName);
+		broadcastDoc(broadcasters, docName);
+	});
 	bus.on("document:renamed", ({ oldName, docName }) =>
 		broadcastRenamedDoc(broadcasters, oldName, docName),
 	);
@@ -142,12 +149,20 @@ export function registerServerEvents({
 	bus.on("workspace:fit-view", () =>
 		wsRegistry.broadcast({ type: "fit_view" }),
 	);
-	bus.on("charte:updated", ({ name, css }) =>
-		wsRegistry.broadcast({ type: "charte_updated", name, css }),
-	);
-	bus.on("charte:removed", ({ name }) =>
-		wsRegistry.broadcast({ type: "charte_removed", name }),
-	);
+	bus.on("charte:updated", ({ name, css }) => {
+		const refreshed = mermaidDiagrams.refreshCharte(name);
+		for (const docName of refreshed.docNames) {
+			bus.emit("element:updated", { docName, id: "html" });
+		}
+		wsRegistry.broadcast({ type: "charte_updated", name, css });
+	});
+	bus.on("charte:removed", ({ name }) => {
+		const refreshed = mermaidDiagrams.refreshCharte(name);
+		for (const docName of refreshed.docNames) {
+			bus.emit("element:updated", { docName, id: "html" });
+		}
+		wsRegistry.broadcast({ type: "charte_removed", name });
+	});
 
 	const broadcastCollections = () => {
 		wsRegistry.broadcast({

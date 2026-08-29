@@ -264,7 +264,7 @@ Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 | Tool | What it does |
 |------|--------------|
 | `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
-| `maket_learn` | Agent onboarding — workflow, HTML composition, chartes, collections, review, install |
+| `maket_learn` | Structured Markdown documentation for agents — workflow, HTML, chartes, diagrams, data, review, install |
 | `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
 | `maket_page` | Page structure — add, remove, rename, reorder, list |
 | `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
@@ -274,7 +274,7 @@ Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 | `maket_state` | Document-owned state — initialize, get, update or JSON Patch, validate/change schema, inspect history and revisions, restore |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
-| `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
+| `maket_mermaid` | Render a durable, charte-aware Mermaid diagram with semantic tokens and safe visual controls |
 | `maket_pdf` | Export a document to PDF via headless Chromium |
 | `maket_gmail` | Gmail — connect, search, read, draft |
 

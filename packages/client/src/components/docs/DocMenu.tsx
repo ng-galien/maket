@@ -1,3 +1,4 @@
+import { normalizeCategoryPath } from "@maket/shared";
 import {
 	Copy,
 	Download,
@@ -223,7 +224,9 @@ function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
 	const t = useT();
 	const stateBacked = model.doc.dataModel === "state";
 	const copy = async () => {
-		await copyToClipboard(model.doc.name);
+		await copyToClipboard(
+			`${normalizeCategoryPath(model.doc.category)}/${model.doc.name}`,
+		);
 		actions.close();
 	};
 
