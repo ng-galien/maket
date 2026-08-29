@@ -391,7 +391,7 @@ test.describe("Document library", () => {
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
-			.toBe(docName);
+			.toBe(`clients/menu/${docName}`);
 
 		await openDocumentMenu(row());
 		await page.getByRole("menuitem", { name: /^(Move…|Déplacer…)$/i }).click();
