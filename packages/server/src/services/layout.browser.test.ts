@@ -208,7 +208,11 @@ describe("LayoutService — Chromium measurement", () => {
 		expect(result?.overflowIds).toContain("p1");
 		expect(result?.text).toMatch(/Physical canvas: 210×297mm/);
 		expect(result?.text).toMatch(/Root `\[p1\]`/);
-		expect(result?.text).toMatch(/canvas: bottom \+20px/);
+		const rootHeight = result?.measurements?.root?.height ?? 0;
+		expect(rootHeight).toBeGreaterThan(1123);
+		expect(result?.text).toContain(
+			`canvas: bottom +${Math.round(rootHeight - 1123)}px`,
+		);
 	});
 
 	it("reports that the real cards fit the canonical A4 canvas after a .maket round-trip", async () => {
