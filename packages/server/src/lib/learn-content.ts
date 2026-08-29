@@ -177,6 +177,12 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Then run `maket_html action=check` again.",
 		),
 		section(
+			"Layout measurement report",
+			"Run `maket_html action=check doc=<doc> page=<n>` after composition and before export. The returned Markdown report records the physical canvas and total content extents, root position and size, and every problematic addressable block.",
+			"For each problem, compare the measured box with both the physical canvas and its nearest `data-id` parent. Per-side excess identifies whether the block escapes the page or only its intended container; clipping and overlap pairs are reported separately.",
+			"Treat `overflow` and clipped content as non-shippable. A page can be `ok` even when the application preview was previously wrong; in that case compare the canonical report with a snapshot and fix the preview/runtime mismatch instead of distorting the document.",
+		),
+		section(
 			"Placeholders",
 			"Placeholders are template variables inside element content. The renderer wraps resolved placeholders with `data-collection-marker` attributes so the client can locate collection-driven content.",
 		),
@@ -432,6 +438,10 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Output",
 			"The same authored HTML drives live preview, print, and PDF.",
+		),
+		section(
+			"Layout report",
+			"The layout check returns a Markdown measurement report with canvas size, content extent, root geometry, and exact excess for problematic elements. It distinguishes page overflow, container overflow, clipping, and overlap.",
 		),
 	),
 	chartes: document(

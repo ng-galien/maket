@@ -40,6 +40,9 @@ describe("maket_learn", () => {
 		expect(htmlBody).toContain("no child elements or text");
 		expect(htmlBody).toContain("`data-maket-bind` elements");
 		expect(htmlBody).toContain("## Authored structure");
+		expect(htmlBody).toContain("## Layout measurement report");
+		expect(htmlBody).toContain("physical canvas and total content extents");
+		expect(htmlBody).toContain("nearest `data-id` parent");
 		expect(htmlBody).toContain("```text");
 	});
 

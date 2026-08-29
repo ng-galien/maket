@@ -34,7 +34,7 @@
     { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },
     {
       "name": "maket_html",
-      "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (layout overflow)."
+      "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (detailed layout measurements and overflow)."
     },
     {
       "name": "maket_workspace",
