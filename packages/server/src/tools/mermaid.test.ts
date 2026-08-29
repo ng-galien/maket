@@ -204,6 +204,29 @@ describe("createMaketMermaidTool — happy path", () => {
 		expect(html).not.toContain("background:var(--bg)");
 	});
 
+	it("keeps wrapper dimensions and data-id inside their HTML attributes", async () => {
+		const { documents, bus } = fixture();
+		const tool = createMaketMermaidTool({ documents, bus });
+
+		const res = await tool.handler(
+			{
+				doc: "test",
+				page: 1,
+				code: "graph TD\n  A-->B",
+				dataId: 'diagram" data-review="id-injected',
+				width: '100%" data-review="width-injected',
+				height: '120mm"></div><img src="https://example.test/probe',
+			},
+			{} as any,
+		);
+
+		expect(res.isError).toBeUndefined();
+		const html = documents.resolve("test")?.pages[0]?.html ?? "";
+		expect(html).not.toContain('data-review="id-injected"');
+		expect(html).not.toContain('data-review="width-injected"');
+		expect(html).not.toContain("<img");
+	});
+
 	it("rejects a missing or unsafe token reference without mutating the page", async () => {
 		const fx = fixture();
 		attachCharte(fx, { color: { primary: "#2563eb" } });

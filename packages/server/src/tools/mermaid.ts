@@ -11,6 +11,7 @@ import { parseHTML } from "linkedom";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { escapeCssValue } from "../lib/css-escape.js";
 import {
 	createMermaidDiagramSpec,
 	mermaidSpecAttribute,
@@ -191,6 +192,15 @@ function cssEscape(s: string): string {
 	return s.replace(/["\\]/g, "\\$&");
 }
 
+function escapeHtmlAttribute(s: string): string {
+	return s.replace(
+		/[&"<>]/g,
+		(character) =>
+			({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[character] ??
+			character,
+	);
+}
+
 function generateId(existingIds: string[]): string {
 	let n = 1;
 	while (existingIds.includes(`mermaid-${n}`)) n++;
@@ -290,9 +300,9 @@ function createMermaidWrapper(
 	spec: ReturnType<typeof createMermaidDiagramSpec>,
 ): string {
 	const styleParts: string[] = ["overflow:hidden"];
-	if (args.width) styleParts.push(`width:${args.width}`);
-	if (args.height) styleParts.push(`height:${args.height}`);
-	return `<div data-id="${dataId}" ${mermaidSpecAttribute(spec)} style="${styleParts.join(";")}">${svg}</div>`;
+	if (args.width) styleParts.push(`width:${escapeCssValue(args.width)}`);
+	if (args.height) styleParts.push(`height:${escapeCssValue(args.height)}`);
+	return `<div data-id="${escapeHtmlAttribute(dataId)}" ${mermaidSpecAttribute(spec)} style="${escapeHtmlAttribute(styleParts.join(";"))}">${svg}</div>`;
 }
 
 function renderingInput(
