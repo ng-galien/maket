@@ -24,6 +24,7 @@ import {
 	useStore,
 } from "../store/useStore";
 import { sendStateValuePatch, sendTextEdit } from "../store/ws";
+import { scopePageStyles } from "../viewer/scope-page-styles";
 import {
 	type PresentationPolicy,
 	presentationPolicy,
@@ -156,11 +157,12 @@ const AuthoredPageHtml = memo(
 		{ html },
 		ref,
 	) {
+		const scopedHtml = useMemo(() => scopePageStyles(html), [html]);
 		return (
 			<div
 				ref={ref}
 				className="page-authored-content"
-				dangerouslySetInnerHTML={{ __html: html }}
+				dangerouslySetInnerHTML={{ __html: scopedHtml }}
 			/>
 		);
 	}),

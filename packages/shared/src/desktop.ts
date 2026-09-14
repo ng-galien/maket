@@ -7,6 +7,7 @@ export const DESKTOP_CHANNELS = {
 	runtimeOpenWorkspace: "maket:runtime:open-workspace",
 	runtimeOpenBrowser: "maket:runtime:open-browser",
 	runtimeCopyUrl: "maket:runtime:copy-url",
+	runtimeExportPdf: "maket:runtime:export-pdf",
 	runtimePrintDocument: "maket:runtime:print-document",
 	command: "maket:command",
 	mcpDiagnose: "maket:mcp:diagnose",
@@ -37,6 +38,7 @@ export type DesktopCommand =
 	| "reading-view"
 	| "fit-view"
 	| "toggle-document-lock"
+	| "export-pdf"
 	| "print-document"
 	| "toggle-auto-fit"
 	| "open-help"
@@ -143,6 +145,7 @@ export interface DesktopApi {
 		openWorkspace(path: string): Promise<void>;
 		openInBrowser(): Promise<void>;
 		copyServerUrl(): Promise<void>;
+		exportPdf(name: string): Promise<void>;
 		printDocument(name: string): Promise<void>;
 	};
 	commands: {

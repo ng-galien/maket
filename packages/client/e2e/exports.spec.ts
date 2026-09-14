@@ -1,5 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { createDocument, expect, openWorkspace, test } from "./workspace-test";
+import type { Locator, Page } from "@playwright/test";
+import {
+	createDocument,
+	expect,
+	openLibraryView,
+	openWorkspace,
+	test,
+} from "./workspace-test";
 
 test.describe("Preview and PDF export", () => {
 	test("renders the visible document through print, snapshot and PDF", async ({
@@ -74,6 +81,68 @@ test.describe("Preview and PDF export", () => {
 			)
 			.toBeGreaterThan(100_000);
 
+		await expectOutputStyleParity(
+			page,
+			page.locator("[data-workspace-header]"),
+			page.getByRole("button", { name: /Fit to view|Ajuster/i }),
+		);
+		await page
+			.locator("[data-workspace-header]")
+			.screenshot({ path: test.info().outputPath("output-toolbar.png") });
+		await expect(
+			page.getByRole("button", {
+				name: /Document actions|Actions du document/i,
+			}),
+		).toHaveCount(0);
+		const downloadReady = page.waitForEvent("download");
+		await page
+			.getByRole("button", { name: /Export PDF|Exporter en PDF/i })
+			.click();
+		const download = await downloadReady;
+		expect(download.suggestedFilename()).toMatch(/\.pdf$/);
+		const downloadedPath = await download.path();
+		if (!downloadedPath) throw new Error("PDF download failed");
+		const downloadedPdf = await readFile(downloadedPath);
+		expect(downloadedPdf.subarray(0, 5).toString()).toBe("%PDF-");
+
+		await page
+			.getByRole("button", { name: /Reading view|Vue lecture/i })
+			.click();
+		const reader = page.getByRole("navigation", {
+			name: /Reader navigation|Navigation du lecteur/i,
+		});
+		await expect(
+			reader.getByRole("button", { name: /Print|Imprimer/i }),
+		).toHaveText("");
+		await expect(
+			reader.getByRole("button", { name: /Export PDF|Exporter en PDF/i }),
+		).toHaveText("PDF");
+		await expectOutputStyleParity(
+			page,
+			reader,
+			reader.getByRole("button", { name: /Close reader|Fermer/i }),
+		);
+		await reader.screenshot({
+			path: test.info().outputPath("reader-output.png"),
+		});
+		const readerDownloadReady = page.waitForEvent("download");
+		await reader
+			.getByRole("button", { name: /Export PDF|Exporter en PDF/i })
+			.click();
+		const readerDownload = await readerDownloadReady;
+		expect(await readerDownload.failure()).toBeNull();
+		expect(readerDownload.suggestedFilename()).toBe(
+			download.suggestedFilename(),
+		);
+		await context.addInitScript(() => {
+			window.print = () => undefined;
+		});
+		const readerPrintReady = context.waitForEvent("page");
+		await reader.getByRole("button", { name: /Print|Imprimer/i }).click();
+		const readerPrint = await readerPrintReady;
+		await expect(readerPrint.getByText("Export proof cover")).toBeVisible();
+		await expect(readerPrint.getByText("Export proof details")).toBeVisible();
+
 		const pdfResult = await mcp.callText("maket_pdf", {
 			doc: docName,
 			quality: "screen",
@@ -88,3 +157,82 @@ test.describe("Preview and PDF export", () => {
 		expect(pdf.length).toBeGreaterThan(1_000);
 	});
 });
+
+test("exports the document chosen in the library menu even when another document is focused", async ({
+	mcp,
+	page,
+}) => {
+	await createDocument(mcp, "Focused document", { category: "Output" });
+	await createDocument(mcp, "Library export target", { category: "Output" });
+	await openWorkspace(page);
+	await mcp.call("maket_workspace", {
+		action: "focus",
+		doc: "Focused document",
+		page: 1,
+	});
+	await openLibraryView(page, "docs");
+	await page
+		.locator('[data-doc-row="Library export target"]')
+		.getByRole("button", { name: "Actions", exact: true })
+		.click();
+	await expect(
+		page.getByRole("menuitem", { name: /Print|Imprimer/i }),
+	).toBeVisible();
+	const downloadReady = page.waitForEvent("download");
+	await page
+		.getByRole("menuitem", { name: /Export PDF|Exporter en PDF/i })
+		.click();
+	const download = await downloadReady;
+	expect(download.suggestedFilename()).toBe("Library_export_target.pdf");
+	expect(await download.failure()).toBeNull();
+});
+
+async function expectOutputStyleParity(
+	page: Page,
+	toolbar: Locator,
+	reference: Locator,
+) {
+	for (const colorScheme of ["light", "dark"] as const) {
+		await page.emulateMedia({ colorScheme });
+		await expect(page.locator("html")).toHaveAttribute(
+			"data-theme",
+			colorScheme,
+		);
+		await page.mouse.move(0, 0);
+		const rest = await settledButtonStyle(reference);
+		const iconSize = await reference.locator("svg").getAttribute("width");
+		for (const name of [/Print|Imprimer/i, /Export PDF|Exporter en PDF/i]) {
+			const button = toolbar.getByRole("button", { name });
+			await expect(button).toHaveCSS("color", rest.color);
+			await expect(button).toHaveCSS("width", rest.width);
+			await expect(button).toHaveCSS("height", rest.height);
+			await expect(button.locator("svg")).toHaveAttribute(
+				"width",
+				iconSize ?? "",
+			);
+			await reference.hover();
+			const hovered = await settledButtonStyle(reference);
+			await button.hover();
+			await expect(button).toHaveCSS("color", hovered.color);
+			await expect(button).toHaveCSS("background-color", hovered.background);
+			await page.mouse.move(0, 0);
+			await settledButtonStyle(button);
+		}
+	}
+}
+
+async function settledButtonStyle(button: Locator) {
+	return button.evaluate(async (element) => {
+		getComputedStyle(element).color;
+		await Promise.all(
+			element.getAnimations().map((animation) => animation.finished),
+		);
+		const style = getComputedStyle(element);
+		return {
+			color: style.color,
+			background: style.backgroundColor,
+			width: style.width,
+			height: style.height,
+		};
+	});
+}

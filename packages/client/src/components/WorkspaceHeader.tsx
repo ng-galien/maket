@@ -1,13 +1,15 @@
-import { BookOpen, Lock, Maximize, Printer, Unlock } from "lucide-react";
-import { openReadingView, printFocusedDocument } from "../desktopCommands";
+import { BookOpen, Lock, Maximize, Unlock } from "lucide-react";
+import { openReadingView } from "../desktopCommands";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { sendLockDoc } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 import { CollectionDockButton } from "./CollectionDataControls";
+import { DocumentOutputButtons } from "./DocumentOutputControls";
 import { ReaderDocumentPicker } from "./ReadingWorkspace";
 import { StateDockButton } from "./StateDataControls";
+import { WORKSPACE_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
 
 /** Stable document toolbar composed from the existing commands. */
 // This shell adapter intentionally composes document controls owned by existing modules.
@@ -133,7 +135,7 @@ export function WorkspaceHeader({
 					<ReadingButton doc={focusedDoc} />
 					<FitButton />
 					<DocumentLockButton doc={focusedDoc} onToggle={onDocumentLock} />
-					<PrintLink href={printHrefForDoc(focusedDoc)} label={t("print")} />
+					<DocumentOutputButtons docName={focusedDoc.name} />
 				</div>
 			)}
 		</header>
@@ -223,7 +225,7 @@ function ReadingButton({ doc }: { doc: Document }) {
 			title={t("reading_view")}
 			aria-label={t("reading_view")}
 			data-doc-name={doc.name}
-			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
+			className={WORKSPACE_ICON_BUTTON_CLASS}
 		>
 			<BookOpen size={19} strokeWidth={1.8} />
 		</button>
@@ -238,7 +240,7 @@ function FitButton() {
 			onClick={fitToView}
 			title={t("fit")}
 			aria-label={t("fit")}
-			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
+			className={WORKSPACE_ICON_BUTTON_CLASS}
 		>
 			<Maximize size={19} strokeWidth={1.8} />
 		</button>
@@ -275,37 +277,4 @@ function DocumentLockButton({
 			)}
 		</button>
 	);
-}
-
-function PrintLink({ href, label }: { href: string; label: string }) {
-	if (window.maketDesktop) {
-		return (
-			<button
-				type="button"
-				onClick={() => void printFocusedDocument()}
-				title={label}
-				aria-label={label}
-				className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 transition-colors hover:bg-input hover:text-text-1"
-			>
-				<Printer size={19} strokeWidth={1.8} />
-			</button>
-		);
-	}
-	return (
-		<a
-			href={href}
-			target="_blank"
-			rel="noopener"
-			title={label}
-			aria-label={label}
-			className="flex h-9 w-9 items-center justify-center rounded-md text-text-2 no-underline transition-colors hover:bg-input hover:text-text-1"
-		>
-			<Printer size={19} strokeWidth={1.8} />
-		</a>
-	);
-}
-
-/** The server owns page↔collection cursors and `/print` follows them. */
-export function printHrefForDoc(doc: Document): string {
-	return `/print?${new URLSearchParams({ name: doc.name }).toString()}`;
 }

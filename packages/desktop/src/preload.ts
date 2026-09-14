@@ -18,6 +18,7 @@ const api: DesktopApi = {
     openWorkspace: (path) => ipcRenderer.invoke(DESKTOP_CHANNELS.runtimeOpenWorkspace, path),
     openInBrowser: () => ipcRenderer.invoke(DESKTOP_CHANNELS.runtimeOpenBrowser),
     copyServerUrl: () => ipcRenderer.invoke(DESKTOP_CHANNELS.runtimeCopyUrl),
+    exportPdf: (name) => ipcRenderer.invoke(DESKTOP_CHANNELS.runtimeExportPdf, name),
     printDocument: (name) => ipcRenderer.invoke(DESKTOP_CHANNELS.runtimePrintDocument, name),
   },
   commands: {
