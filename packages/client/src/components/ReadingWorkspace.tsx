@@ -18,7 +18,9 @@ import { useT } from "../i18n/useT";
 import { exitReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
+import { DocumentOutputButtons } from "./DocumentOutputControls";
 import type { PresentationDataSource } from "./presentation-policy";
+import { READER_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
 import {
 	collectionPageViews,
 	type PageView,
@@ -312,6 +314,7 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				onPageChange={model.onPageChange}
 			/>
 			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
+			<DocumentOutputButtons docName={model.docName} surface="reader" />
 			<ReaderButton label={t("close_reader")} onClick={model.onExit}>
 				<X size={17} strokeWidth={1.8} />
 			</ReaderButton>
@@ -742,7 +745,7 @@ function ReaderButton({
 			aria-label={label}
 			disabled={disabled}
 			onClick={onClick}
-			className={`size-9 shrink-0 items-center justify-center rounded-md text-text-3 transition-[background-color,color,opacity] hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-25 disabled:hover:bg-transparent ${className || "flex"}`}
+			className={`${READER_ICON_BUTTON_CLASS} ${className || "flex"}`}
 		>
 			{children}
 		</button>

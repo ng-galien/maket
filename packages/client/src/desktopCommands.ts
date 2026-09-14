@@ -1,4 +1,5 @@
 import type { DesktopCommand } from "@maket/shared";
+import { exportDocumentPdf, printDocument } from "./documentOutput";
 import { getLang, toggleLang } from "./i18n/useT";
 import { enterReadingSession } from "./store/readingSession";
 import { useStore } from "./store/useStore";
@@ -63,8 +64,11 @@ export function handleDesktopCommand(
 		case "toggle-document-lock":
 			toggleFocusedDocumentLock(dependencies.lockDocument);
 			return;
+		case "export-pdf":
+			if (state.focusedDocName) void exportDocumentPdf(state.focusedDocName);
+			return;
 		case "print-document":
-			void printFocusedDocument();
+			if (state.focusedDocName) void printDocument(state.focusedDocName);
 			return;
 		case "toggle-auto-fit":
 			state.setAutoFocusFit(!state.autoFocusFit);
@@ -93,18 +97,4 @@ export function toggleFocusedDocumentLock(
 		? state.docs.get(state.focusedDocName)
 		: null;
 	if (document) lockDocument(document.name, document.meta?.locked !== true);
-}
-
-export async function printFocusedDocument(): Promise<void> {
-	const document = useStore.getState().focusedDocName;
-	if (!document) return;
-	if (window.maketDesktop) {
-		await window.maketDesktop.runtime.printDocument(document);
-		return;
-	}
-	window.open(
-		`/print?${new URLSearchParams({ name: document }).toString()}`,
-		"_blank",
-		"noopener",
-	);
 }

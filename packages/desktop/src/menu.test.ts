@@ -42,5 +42,14 @@ describe("native application menu", () => {
     }
     collections.click({} as never, {} as never, {} as never);
     expect(sent).toEqual(["show-collections"]);
+    const documentMenu = template.find((item) => item.label === "Document");
+    for (const label of ["Exporter en PDF…", "Imprimer…"]) {
+      const item = Array.isArray(documentMenu?.submenu)
+        ? documentMenu.submenu.find((item) => "label" in item && item.label === label)
+        : null;
+      if (!item || !("click" in item) || !item.click) throw new Error(`Missing document command: ${label}`);
+      item.click({} as never, {} as never, {} as never);
+    }
+    expect(sent).toEqual(["show-collections", "export-pdf", "print-document"]);
   });
 });
