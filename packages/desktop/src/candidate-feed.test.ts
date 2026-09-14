@@ -185,6 +185,7 @@ describe("candidate update feed", () => {
 
     const preflightBody = workflow.slice(preflight, publish);
     const publishHeader = workflow.slice(publish, workflow.indexOf("    steps:", publish));
+    const publishBody = workflow.slice(publish, desktopBuild);
     const desktopBuildHeader = workflow.slice(desktopBuild, workflow.indexOf("    strategy:", desktopBuild));
     const desktopUploadHeader = workflow.slice(desktopUpload, workflow.indexOf("    runs-on:", desktopUpload));
     const candidateFeedHeader = workflow.slice(candidateFeed, workflow.indexOf("    runs-on:", candidateFeed));
@@ -196,6 +197,8 @@ describe("candidate update feed", () => {
     expect(publishHeader).toContain("!cancelled()");
     expect(publishHeader).not.toContain("always()");
     expect(publishHeader).toContain("needs.desktop-build.result == 'success'");
+    expect(publishBody).toContain("NPM_CONFIG_ALLOW_GIT: all");
+    expect(publishBody).toContain("npm ci --no-audit");
     expect(desktopBuildHeader).toContain("needs: preflight");
     expect(desktopUploadHeader).toContain("needs: [publish, desktop-build]");
     expect(candidateFeedHeader).toContain("needs: [preflight, publish, desktop-build]");

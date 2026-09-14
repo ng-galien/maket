@@ -130,7 +130,12 @@ jobs:
 
       - name: Install dependencies
         if: steps.npm.outputs.publish == 'true'
-        run: npm install --no-audit
+        env:
+          # npm 12 disables Git dependencies unless explicitly allowed. The
+          # Electron Forge toolchain pins @electron/node-gyp to an exact commit
+          # in package-lock.json, and npm ci preserves that reviewed identity.
+          NPM_CONFIG_ALLOW_GIT: all
+        run: npm ci --no-audit
 
       - name: Stage & verify installable package
         if: steps.npm.outputs.publish == 'true'
