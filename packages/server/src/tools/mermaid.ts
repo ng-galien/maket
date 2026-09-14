@@ -11,6 +11,16 @@ import { parseHTML } from "linkedom";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { escapeCssValue } from "../lib/css-escape.js";
+import {
+	createMermaidDiagramSpec,
+	mermaidSpecAttribute,
+	renderMermaidDiagram,
+} from "../lib/mermaid-document.js";
+import {
+	MERMAID_TOKEN_ROLES,
+	type MermaidRenderingInput,
+} from "../lib/mermaid-rendering.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
@@ -38,6 +48,23 @@ const MERMAID_THEMES = [
 	"solarized-dark",
 	"one-dark",
 ] as const;
+
+const MermaidTokenRefsSchema = z
+	.object(
+		Object.fromEntries(
+			MERMAID_TOKEN_ROLES.map((role) => [
+				role,
+				z
+					.string()
+					.optional()
+					.describe(`Charte token reference for ${role}, as "group.key".`),
+			]),
+		) as Record<
+			(typeof MERMAID_TOKEN_ROLES)[number],
+			z.ZodOptional<z.ZodString>
+		>,
+	)
+	.strict();
 
 const MermaidSchema = z.object({
 	doc: z.string().describe("Document name"),
@@ -67,24 +94,81 @@ const MermaidSchema = z.object({
 		.enum(MERMAID_THEMES)
 		.optional()
 		.describe(
-			"Built-in theme name. Can be combined with custom color overrides.",
+			"Optional built-in diagram profile. Overrides automatic charte defaults; tokenRefs and direct values override it.",
 		),
+	tokenRefs: MermaidTokenRefsSchema.optional().describe(
+		'Explicit references to tokens on the document charte, keyed by diagram role. Example: {"bg":"color.paper","accent":"color.primary","font":"font.body"}.',
+	),
 	bg: z
 		.string()
 		.optional()
-		.describe("Background color (hex). Overrides theme bg."),
+		.describe(
+			"Safe background colour. Overrides charte, profile, or tokenRefs.",
+		),
 	fg: z
 		.string()
 		.optional()
-		.describe("Text/foreground color (hex). Overrides theme fg."),
+		.describe(
+			"Safe foreground colour. Overrides charte, profile, or tokenRefs.",
+		),
 	line: z
 		.string()
 		.optional()
-		.describe("Line/connection color (hex). Overrides theme line."),
+		.describe(
+			"Safe connector colour. Overrides charte, profile, or tokenRefs.",
+		),
 	accent: z
 		.string()
 		.optional()
-		.describe("Arrow/accent color (hex). Overrides theme accent."),
+		.describe(
+			"Safe arrow/accent colour. Overrides charte, profile, or tokenRefs.",
+		),
+	muted: z
+		.string()
+		.optional()
+		.describe(
+			"Secondary text colour. Overrides charte, profile, or tokenRefs.",
+		),
+	surface: z
+		.string()
+		.optional()
+		.describe("Node surface colour. Overrides charte, profile, or tokenRefs."),
+	border: z
+		.string()
+		.optional()
+		.describe(
+			"Node and group border colour. Overrides charte, profile, or tokenRefs.",
+		),
+	font: z
+		.string()
+		.optional()
+		.describe(
+			"Safe primary font family. A fallback stack is normalized to its first family. Overrides charte, profile, or tokenRefs.",
+		),
+	transparent: z
+		.boolean()
+		.optional()
+		.describe("Render without an SVG background. Default: false."),
+	padding: z
+		.number()
+		.min(0)
+		.max(1000)
+		.optional()
+		.describe("Flowchart/state canvas padding in px."),
+	nodeSpacing: z
+		.number()
+		.min(0)
+		.max(1000)
+		.optional()
+		.describe(
+			"Flowchart/state horizontal spacing between sibling nodes in px.",
+		),
+	layerSpacing: z
+		.number()
+		.min(0)
+		.max(1000)
+		.optional()
+		.describe("Flowchart/state vertical spacing between diagram layers in px."),
 	targetId: z
 		.string()
 		.optional()
@@ -98,12 +182,23 @@ const MermaidSchema = z.object({
 const DESCRIPTION = [
 	"When to use: add a diagram to a page. Works for flowcharts, sequence, class, ER, state, and XY chart diagrams. Pick this over manual SVG or nested divs when the thing you want is conceptually a graph.",
 	"",
-	"Renders Mermaid syntax to SVG and injects it into the page HTML. The diagram scales with its wrapper (width/height drive the frame, not the SVG itself). If dataId already exists, the diagram is replaced in place — idempotent edits.",
+	"Renders Mermaid syntax to durable inline SVG and injects it into the page HTML. The source and semantic rendering choices stay on the wrapper so charte changes can rerender the diagram. The diagram scales with its wrapper (width/height drive the frame, not the SVG itself). If dataId already exists, the diagram is replaced in place — idempotent edits.",
+	"A document charte is applied automatically through canonical diagram tokens and documented color/font fallbacks. tokenRefs selects any existing charte token explicitly; direct safe values take final precedence.",
+	"Density controls are supported for flowchart and state diagrams by the current renderer. Source-level Mermaid styling directives are rejected; use charte tokens or safe diagram options.",
 	"Header on its own line:  graph TD\\n  A-->B    (NOT graph TD; A-->B)",
 ].join("\n");
 
 function cssEscape(s: string): string {
 	return s.replace(/["\\]/g, "\\$&");
+}
+
+function escapeHtmlAttribute(s: string): string {
+	return s.replace(
+		/[&"<>]/g,
+		(character) =>
+			({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[character] ??
+			character,
+	);
 }
 
 function generateId(existingIds: string[]): string {
@@ -149,9 +244,10 @@ async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 	}
 	if (!page.html) page.html = "";
 
-	const rendered = await renderMermaid(args);
+	const spec = createMermaidDiagramSpec(args.code, renderingInput(args));
+	const rendered = await renderMermaid(spec, deps.documents.charte(doc));
 	if (typeof rendered !== "string") return rendered;
-	const result = insertMermaidSvg(page.html, args, rendered);
+	const result = insertMermaidSvg(page.html, args, rendered, spec);
 	page.html = stripActiveHtml(result.html);
 	try {
 		deps.documents.persist(doc.name);
@@ -164,46 +260,29 @@ async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 	);
 }
 
-async function renderMermaid(args: z.infer<typeof MermaidSchema>) {
+async function renderMermaid(
+	spec: ReturnType<typeof createMermaidDiagramSpec>,
+	charte: ReturnType<Documents["charte"]>,
+) {
 	try {
-		const { renderMermaidSVG, THEMES } = await import("beautiful-mermaid");
-		const themeObj = buildMermaidTheme(args, THEMES);
-		return renderMermaidSVG(args.code, themeObj);
+		return renderMermaidDiagram(spec, charte);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message : String(e);
 		return text(`Mermaid render failed: ${msg}`, true);
 	}
 }
 
-function buildMermaidTheme(
-	args: z.infer<typeof MermaidSchema>,
-	themes: unknown,
-): Record<string, string> | undefined {
-	let themeObj: Record<string, string> | undefined;
-	if (args.theme && args.theme in (themes as Record<string, unknown>)) {
-		const base = (themes as Record<string, Record<string, string>>)[args.theme];
-		themeObj = { ...base };
-	}
-	if (args.bg || args.fg || args.line || args.accent) {
-		themeObj = themeObj || {};
-		if (args.bg) themeObj.bg = args.bg;
-		if (args.fg) themeObj.fg = args.fg;
-		if (args.line) themeObj.line = args.line;
-		if (args.accent) themeObj.accent = args.accent;
-	}
-	return themeObj;
-}
-
 function insertMermaidSvg(
 	html: string,
 	args: z.infer<typeof MermaidSchema>,
 	svg: string,
+	spec: ReturnType<typeof createMermaidDiagramSpec>,
 ) {
 	const existingIds = [...html.matchAll(/data-id=["']([^"']+)["']/g)].map(
 		(match) => match[1] ?? "",
 	);
 	const dataId = args.dataId || generateId(existingIds);
-	const wrapper = createMermaidWrapper(dataId, args, normalizeMermaidSvg(svg));
+	const wrapper = createMermaidWrapper(dataId, args, svg, spec);
 	const { document } = parseHTML(`<html><body>${html}</body></html>`);
 	const root = document.body;
 	insertMermaidWrapper(root, dataId, args, wrapper);
@@ -214,21 +293,37 @@ function insertMermaidSvg(
 	return { html: root.innerHTML, dataId, addressableIds };
 }
 
-function normalizeMermaidSvg(svg: string): string {
-	return svg
-		.replace(/<svg([^>]*)\swidth="[^"]*"/, '<svg$1 width="100%"')
-		.replace(/<svg([^>]*)\sheight="[^"]*"/, '<svg$1 height="100%"');
-}
-
 function createMermaidWrapper(
 	dataId: string,
 	args: z.infer<typeof MermaidSchema>,
 	svg: string,
+	spec: ReturnType<typeof createMermaidDiagramSpec>,
 ): string {
 	const styleParts: string[] = ["overflow:hidden"];
-	if (args.width) styleParts.push(`width:${args.width}`);
-	if (args.height) styleParts.push(`height:${args.height}`);
-	return `<div data-id="${dataId}" style="${styleParts.join(";")}">${svg}</div>`;
+	if (args.width) styleParts.push(`width:${escapeCssValue(args.width)}`);
+	if (args.height) styleParts.push(`height:${escapeCssValue(args.height)}`);
+	return `<div data-id="${escapeHtmlAttribute(dataId)}" ${mermaidSpecAttribute(spec)} style="${escapeHtmlAttribute(styleParts.join(";"))}">${svg}</div>`;
+}
+
+function renderingInput(
+	args: z.infer<typeof MermaidSchema>,
+): MermaidRenderingInput {
+	return {
+		theme: args.theme,
+		tokenRefs: args.tokenRefs,
+		bg: args.bg,
+		fg: args.fg,
+		line: args.line,
+		accent: args.accent,
+		muted: args.muted,
+		surface: args.surface,
+		border: args.border,
+		font: args.font,
+		transparent: args.transparent,
+		padding: args.padding,
+		nodeSpacing: args.nodeSpacing,
+		layerSpacing: args.layerSpacing,
+	};
 }
 
 function insertMermaidWrapper(

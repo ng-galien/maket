@@ -24,7 +24,8 @@ const MaketLearnSchema = z.object({
 const DESCRIPTION = [
 	"When to use: first call for any agent entering Maket; source of operational guidance for using Maket MCP tools correctly.",
 	"",
-	"This is not the user-facing Help document. It teaches agents how to operate Maket: workflow, HTML composition, chartes, collections, living document state, review loop, and client installation.",
+	"Returns structured Markdown inside MCP text content. It teaches agents how to operate Maket: workflow, HTML composition, chartes, diagram styling, collections, living document state, review loop, and client installation.",
+	"This is not the user-facing Help document opened from the Maket UI.",
 	"",
 	"Actions:",
 	"  overview — short operating model.",
@@ -67,14 +68,26 @@ function runOverview(args: Args) {
 
 function runTopics() {
 	const lines = LEARN_TOPICS.map(
-		(topic) => `- ${topic}: ${learnTopicTitle(topic)}`,
+		(topic) => `- \`${topic}\` — ${learnTopicTitle(topic)}`,
 	);
-	return text(`Available Maket learning topics:\n${lines.join("\n")}`, {
-		next: [
-			"maket_learn action=topic topic=html",
-			"maket_learn action=topic topic=state",
-		],
-	});
+	return text(
+		[
+			"# Maket Learn topics",
+			"Choose the smallest topic that covers the current task. Read multiple focused topics when a workflow crosses boundaries.",
+			"## Available topics",
+			lines.join("\n"),
+			"## Recommended path",
+			"Start with `overview`, use `tools` to choose the public surface, continue with `workflow`, then read the capability-specific topic.",
+		].join("\n\n"),
+		{
+			next: [
+				"maket_learn action=topic topic=tools",
+				"maket_learn action=topic topic=html",
+				"maket_learn action=topic topic=diagrams",
+				"maket_learn action=topic topic=state",
+			],
+		},
+	);
 }
 
 function runTopic(args: Args) {

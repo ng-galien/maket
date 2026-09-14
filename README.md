@@ -38,9 +38,9 @@ runtime, and agent setup — Node.js is not required.
 
 [Download the newest snapshot](https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml)
 to test Maket App now. Snapshot installers are unsigned, built from `main`, and
-retained for 14 days. Signed macOS and Windows installers, plus Linux packages,
-will appear on the [latest release](https://github.com/ng-galien/maket/releases/latest)
-once the desktop release is published.
+retained for 14 days. The same unsigned installers for macOS and Windows, plus
+Linux packages, appear on the
+[latest release](https://github.com/ng-galien/maket/releases/latest).
 
 Open the installer, launch **Maket**, then follow the first-run agent setup.
 
@@ -153,10 +153,11 @@ using the filename for your platform:
 
 On macOS, open the `.dmg` and drag **Maket** onto **Applications**. On Windows,
 run the installer; it sets up the Start menu entry and a desktop shortcut. The
-macOS build is signed and notarised, the Windows build is signed, so neither
-should trigger a security warning. On Linux, install the package with your
-distribution's package manager; updates are downloaded manually from the latest
-release.
+macOS and Windows installers are currently unsigned. On macOS, if Gatekeeper
+blocks the first launch, Control-click **Maket**, choose **Open**, then confirm
+once. Windows may show a SmartScreen warning that must be confirmed manually.
+On Linux, install the package with your distribution's package manager; updates
+are downloaded manually from the latest release.
 
 Maket App carries its own runtime — **you do not need Node.js installed**. On
 first launch it offers to wire the AI clients it finds on your machine (Claude
@@ -264,7 +265,7 @@ Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 | Tool | What it does |
 |------|--------------|
 | `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
-| `maket_learn` | Agent onboarding — workflow, HTML composition, chartes, collections, review, install |
+| `maket_learn` | Structured Markdown documentation for agents — workflow, HTML, chartes, diagrams, data, review, install |
 | `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
 | `maket_page` | Page structure — add, remove, rename, reorder, list |
 | `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
@@ -274,7 +275,7 @@ Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 | `maket_state` | Document-owned state — initialize, get, update or JSON Patch, validate/change schema, inspect history and revisions, restore |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
-| `maket_mermaid` | Render a Mermaid diagram to SVG and inject it |
+| `maket_mermaid` | Render a durable, charte-aware Mermaid diagram with semantic tokens and safe visual controls |
 | `maket_pdf` | Export a document to PDF via headless Chromium |
 | `maket_gmail` | Gmail — connect, search, read, draft |
 

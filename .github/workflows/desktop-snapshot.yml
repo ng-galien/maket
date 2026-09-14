@@ -40,10 +40,6 @@ jobs:
             arch: x64
             artifact: linux-x64
     runs-on: ${{ matrix.os }}
-    env:
-      # Snapshots are installable test builds. Production signing remains a
-      # release-only gate so main builds do not depend on long-lived secrets.
-      MAKET_SIGN_DESKTOP: "0"
     steps:
       - uses: actions/checkout@v7
 

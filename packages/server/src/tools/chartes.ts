@@ -72,7 +72,7 @@ const MaketCharteSchema = z.object({
 		.record(z.string(), z.record(z.string(), z.string()))
 		.optional()
 		.describe(
-			'For set: design tokens grouped by category. Become CSS variables --charte-<group>-<key>. Example: {"color": {"primary": "#2563EB"}, "font": {"heading": "Montserrat"}, "spacing": {"page": "20mm"}}.',
+			'For set: design tokens grouped by category. Become CSS variables --charte-<group>-<key>. Diagram roles can use a canonical "diagram" group (bg, fg, line, accent, muted, surface, border, font, padding, nodeSpacing, layerSpacing, transparent). Example: {"color":{"primary":"#2563EB"},"font":{"body":"Montserrat"},"diagram":{"surface":"#EFF6FF","nodeSpacing":"32px"}}.',
 		),
 	voice: CharteVoiceSchema.describe(
 		"For set: voice guidelines (personality, formality, do/dont, vocabulary, examples).",
@@ -86,6 +86,7 @@ const DESCRIPTION = [
 	"When to use: manage brand style guides (chartes). `view` is a prerequisite for any charte-aware HTML edit — it returns the context_token required by maket_html set/patch.",
 	"",
 	"Design tokens become CSS variables (--charte-color-primary, etc.) injected into every page. Voice and rules guide content composition.",
+	"maket_mermaid automatically consumes canonical diagram tokens and documented fallbacks from color/font groups; its tokenRefs option can target any existing safe token explicitly.",
 	"  list   — list all chartes with a short colour-palette preview.",
 	"  view   — read one charte; returns tokens, voice, rules, and context_token.",
 	"  set    — create or overwrite a charte.",

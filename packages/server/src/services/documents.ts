@@ -12,7 +12,7 @@
  */
 
 import { charteFontImport, charteToCSS } from "../lib/charte-css.js";
-import type { DocSummary, Document } from "../types.js";
+import type { Charte, DocSummary, Document } from "../types.js";
 import { normalizeCanvas, normalizeDocumentDataModel } from "../types.js";
 import { validateStateTemplateUpdate } from "./document-states.js";
 import type { Store } from "./store.js";
@@ -46,6 +46,8 @@ export interface Documents {
 	lightView(doc: Document | null, focusPage?: number): Document | null;
 	/** Resolve a doc's charte CSS (empty string if none, or on store failure). */
 	charteCss(doc: Document | null): string;
+	/** Resolve a doc's persistent charte (null if none, missing, or unreadable). */
+	charte(doc: Document | null): Charte | null;
 }
 
 export interface DocumentsDeps {
@@ -221,6 +223,14 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				return fontImport ? `${fontImport}\n${css}` : css;
 			} catch {
 				return "";
+			}
+		},
+		charte(doc) {
+			if (!doc?.meta?.charte) return null;
+			try {
+				return store.loadCharte(doc.meta.charte);
+			} catch {
+				return null;
 			}
 		},
 	};

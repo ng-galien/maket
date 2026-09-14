@@ -31,6 +31,7 @@ import type { Config } from "./services/config.js";
 import { createConfig, loadEnvFile } from "./services/config.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
+import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { SettingsService } from "./services/settings.js";
 import type { WorkspaceCommandHandler } from "./services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./services/ws-registry.js";
@@ -92,6 +93,7 @@ interface RuntimeServices {
 	collectionCursors: CollectionCursors;
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
+	mermaidDiagrams: MermaidDiagrams;
 	pending: Annotations;
 	settings: SettingsService;
 	wsHandler: WorkspaceCommandHandler;
@@ -174,6 +176,7 @@ function resolveRuntimeServices(container: AppContainer): RuntimeServices {
 			container.resolve<CollectionCursors>("collectionCursors"),
 		documents: container.resolve<Documents>("documents"),
 		documentRenderer: container.resolve<DocumentRenderer>("documentRenderer"),
+		mermaidDiagrams: container.resolve<MermaidDiagrams>("mermaidDiagrams"),
 		pending: container.resolve<Annotations>("pending"),
 		settings: container.resolve<SettingsService>("settings"),
 		wsHandler: container.resolve<WorkspaceCommandHandler>("wsHandler"),

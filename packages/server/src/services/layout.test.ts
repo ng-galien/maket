@@ -131,6 +131,45 @@ describe("formatLayoutReport (pure)", () => {
 		expect(result.overflowIds).toContain("footer");
 	});
 
+	it("formats exact canvas and parent excess as a Markdown measurement report", () => {
+		const result = formatLayoutReport(
+			{
+				overflow: true,
+				containerHeight: 1123,
+				containerWidth: 794,
+				contentHeight: 1143,
+				contentWidth: 794,
+				overflowBy: 20,
+				overflowing: ["diagram"],
+				root: { id: "page", left: 0, top: 0, width: 794, height: 1143 },
+				elements: [
+					{
+						id: "diagram",
+						parentId: "page",
+						left: 53,
+						top: 48,
+						width: 688,
+						height: 1095,
+						canvasExcess: { top: 0, right: 0, bottom: 20, left: 0 },
+						parentExcess: { top: 0, right: 0, bottom: 0, left: 0 },
+						overflow: true,
+						canvasOverflow: true,
+					},
+				],
+			},
+			A4,
+		);
+
+		expect(result.text).toContain("### Measurements");
+		expect(result.text).toContain("Physical canvas: 210×297mm (794×1123px)");
+		expect(result.text).toContain(
+			"Root `[page]`: x=0px, y=0px, w=794px, h=1143px",
+		);
+		expect(result.text).toContain("| `[diagram]` | physical canvas |");
+		expect(result.text).toContain("canvas: bottom +20px");
+		expect(result.measurements?.elements?.[0]?.parentId).toBe("page");
+	});
+
 	it("flags clipped internal content as non-shippable and surfaces the id", () => {
 		const result = formatLayoutReport(
 			{
@@ -272,6 +311,16 @@ describe("LayoutService — measure", () => {
 		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
 		await service.measure(doc(html), html, 0);
 		expect(browserLaunch).not.toHaveBeenCalled();
+		cleanup();
+	});
+
+	it("runs headless for an explicit check so the public result can include measurements", async () => {
+		const { service, browserLaunch, cleanup } = fixture();
+		const html = `<div data-id="big" style="width:400mm;height:50mm"></div>`;
+		const result = await service.check(doc(html), html, 0);
+		expect(browserLaunch).toHaveBeenCalledOnce();
+		expect(result.status).toBe("overflow");
+		expect(result.text).toMatch(/Full layout check unavailable/);
 		cleanup();
 	});
 

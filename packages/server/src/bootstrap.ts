@@ -35,6 +35,7 @@ import {
 	type GmailClient,
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
+import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
 import { createPdfService } from "./services/pdf.js";
 import { createSettings } from "./services/settings.js";
 import { createStateRenderer } from "./services/state-renderer.js";
@@ -129,6 +130,8 @@ export function createAppContainer(
 				).singleton(),
 
 		layout: asFunction(createLayoutService).singleton(),
+
+		mermaidDiagrams: asFunction(createMermaidDiagrams).singleton(),
 
 		browserPool: inputs.browserPool
 			? asValue(inputs.browserPool)

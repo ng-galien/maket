@@ -238,36 +238,36 @@ button[data-library-pin]:focus-visible {
    workspace was inheriting Tailwind's resets, which made headings lighter,
    bulleted lists lose their markers, etc. Revert the specific resets so what
    you see in the workspace matches what you get in print. */
-.page-canvas h1,
-.page-canvas h2,
-.page-canvas h3,
-.page-canvas h4,
-.page-canvas h5,
-.page-canvas h6 {
+:where(.page-canvas) h1,
+:where(.page-canvas) h2,
+:where(.page-canvas) h3,
+:where(.page-canvas) h4,
+:where(.page-canvas) h5,
+:where(.page-canvas) h6 {
   font-size: revert;
   font-weight: revert;
   margin: revert;
 }
-.page-canvas p,
-.page-canvas blockquote,
-.page-canvas pre,
-.page-canvas figure,
-.page-canvas dl,
-.page-canvas dd {
+:where(.page-canvas) p,
+:where(.page-canvas) blockquote,
+:where(.page-canvas) pre,
+:where(.page-canvas) figure,
+:where(.page-canvas) dl,
+:where(.page-canvas) dd {
   margin: revert;
 }
-.page-canvas ul,
-.page-canvas ol,
-.page-canvas menu {
+:where(.page-canvas) ul,
+:where(.page-canvas) ol,
+:where(.page-canvas) menu {
   list-style: revert;
   padding: revert;
   margin: revert;
 }
-.page-canvas b,
-.page-canvas strong {
+:where(.page-canvas) b,
+:where(.page-canvas) strong {
   font-weight: revert;
 }
-.page-canvas small {
+:where(.page-canvas) small {
   font-size: revert;
 }
 

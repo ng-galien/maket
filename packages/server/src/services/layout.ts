@@ -66,6 +66,8 @@ export interface LayoutResult {
 	overlapIds: string[];
 	/** Block ids that cross a declared margin band (flat unique list). */
 	tightIds?: string[];
+	/** Raw Chromium geometry behind the human-readable measurement report. */
+	measurements?: LayoutReport;
 }
 
 export interface LayoutService {
@@ -240,9 +242,10 @@ export function createLayoutService(
 	async function runMeasure(
 		doc: Document,
 		pageHtml: string,
+		detailed = false,
 	): Promise<LayoutResult> {
 		const serverResult = serverLayoutCheck(pageHtml, doc.canvas);
-		if (serverResult.status === "overflow") return serverResult;
+		if (serverResult.status === "overflow" && !detailed) return serverResult;
 		const headless = await headlessCheck(doc, pageHtml);
 		if (headless.ok) return formatLayoutReport(headless.report, doc.canvas);
 		if (serverResult.status === "ok") {
@@ -265,7 +268,7 @@ export function createLayoutService(
 			return runMeasure(doc, pageHtml);
 		},
 		async check(doc, pageHtml, _pageIdx) {
-			return runMeasure(doc, pageHtml);
+			return runMeasure(doc, pageHtml, true);
 		},
 	};
 }
@@ -301,10 +304,36 @@ export interface LayoutReport {
 		bottom: string[];
 		left: string[];
 	};
+	root?: {
+		id?: string;
+		left: number;
+		top: number;
+		width: number;
+		height: number;
+	};
 	elements?: {
 		id?: string;
 		name?: string;
+		parentId?: string;
+		left?: number;
+		top?: number;
+		width?: number;
+		height?: number;
+		canvasExcess?: {
+			top: number;
+			right: number;
+			bottom: number;
+			left: number;
+		};
+		parentExcess?: {
+			top: number;
+			right: number;
+			bottom: number;
+			left: number;
+		};
 		overflow?: boolean;
+		canvasOverflow?: boolean;
+		containerOverflow?: boolean;
 		clipped?: boolean;
 	}[];
 }
@@ -444,7 +473,7 @@ export function serverLayoutCheck(
 // Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
-	_canvas: { w: number; h: number },
+	canvas: { w: number; h: number },
 ): LayoutResult {
 	if (!resp) {
 		return {
@@ -530,9 +559,10 @@ export function formatLayoutReport(
 					: "Layout overlap — not shippable";
 		return {
 			status: "overflow",
-			text: `\n⛔ ${headline}:\n${details.join("\n")}`,
+			text: `\n⛔ ${headline}:\n${details.join("\n")}${formatMeasurementDetails(resp, canvas)}`,
 			overflowIds: [...new Set([...overflowing, ...clipped])],
 			overlapIds,
+			measurements: resp,
 		};
 	}
 	const tight = resp.tight;
@@ -549,18 +579,108 @@ export function formatLayoutReport(
 			.join(" • ");
 		return {
 			status: "tight",
-			text: `\n⚠ Layout tight — blocks cross declared margins (${sideText}). Tighten or move content inside the safe zone before shipping.`,
+			text: `\n⚠ Layout tight — blocks cross declared margins (${sideText}). Tighten or move content inside the safe zone before shipping.${formatMeasurementDetails(resp, canvas)}`,
 			overflowIds: [],
 			overlapIds: [],
 			tightIds: ids,
+			measurements: resp,
 		};
 	}
 	return {
 		status: "ok",
-		text: "\n✓ Layout OK",
+		text: `\n✓ Layout OK${formatMeasurementDetails(resp, canvas)}`,
 		overflowIds: [],
 		overlapIds: [],
+		measurements: resp,
 	};
+}
+
+function formatMeasurementDetails(
+	resp: LayoutReport,
+	canvas: { w: number; h: number },
+): string {
+	const lines = [
+		"",
+		"### Measurements",
+		`- Physical canvas: ${canvas.w}×${canvas.h}mm (${measurementPx(resp.containerWidth)}×${measurementPx(resp.containerHeight)}px)`,
+		`- Content extent: ${measurementPx(resp.contentWidth)}×${measurementPx(resp.contentHeight)}px`,
+		`- Measured addressable blocks: ${resp.elements?.length ?? 0}`,
+		...(resp.root ? [formatMeasurementRoot(resp.root)] : []),
+		...formatMeasurementProblems(resp.elements ?? []),
+		...formatMeasurementOverlaps(resp.overlaps ?? []),
+	];
+	return `\n${lines.join("\n")}`;
+}
+
+function measurementPx(value: number | undefined): number {
+	return Math.round(value ?? 0);
+}
+
+function formatMeasurementRoot(
+	root: NonNullable<LayoutReport["root"]>,
+): string {
+	return `- Root \`[${root.id || "unnamed"}]\`: x=${measurementPx(root.left)}px, y=${measurementPx(root.top)}px, w=${measurementPx(root.width)}px, h=${measurementPx(root.height)}px`;
+}
+
+function formatMeasurementProblems(
+	elements: NonNullable<LayoutReport["elements"]>,
+): string[] {
+	const problems = elements.filter(
+		(element) => element.overflow || element.clipped,
+	);
+	if (problems.length === 0) return [];
+	return [
+		"",
+		"| Element | Problem | Measured box | Excess |",
+		"| --- | --- | --- | --- |",
+		...problems.map(formatMeasurementProblem),
+	];
+}
+
+function formatMeasurementProblem(
+	element: NonNullable<LayoutReport["elements"]>[number],
+): string {
+	const problem = [
+		element.canvasOverflow ? "physical canvas" : "",
+		element.containerOverflow
+			? `container [${element.parentId || "unnamed"}]`
+			: "",
+		element.clipped ? "clipped content" : "",
+	]
+		.filter(Boolean)
+		.join(" + ");
+	const excess = [
+		formatMeasurementExcess("canvas", element.canvasExcess),
+		formatMeasurementExcess("container", element.parentExcess),
+	]
+		.filter(Boolean)
+		.join("; ");
+	return `| \`[${escapeMeasurementCell(element.id || element.name || "unnamed")}]\` | ${escapeMeasurementCell(problem)} | x=${measurementPx(element.left)}, y=${measurementPx(element.top)}, w=${measurementPx(element.width)}, h=${measurementPx(element.height)}px | ${escapeMeasurementCell(excess || "n/a")} |`;
+}
+
+function formatMeasurementExcess(
+	label: string,
+	value:
+		| { top: number; right: number; bottom: number; left: number }
+		| undefined,
+): string {
+	if (!value) return "";
+	const sides = (["top", "right", "bottom", "left"] as const)
+		.filter((side) => value[side] > 2)
+		.map((side) => `${side} +${measurementPx(value[side])}px`);
+	return sides.length > 0 ? `${label}: ${sides.join(", ")}` : "";
+}
+
+function formatMeasurementOverlaps(overlaps: [string, string][]): string[] {
+	if (overlaps.length === 0) return [];
+	return [
+		"",
+		`- Overlap pairs: ${overlaps.map(([a, b]) => `\`[${a}]\` ↔ \`[${b}]\``).join(", ")}`,
+	];
+}
+
+function escapeMeasurementCell(value: string): string {
+	return value.replaceAll("|", "\\|").replaceAll("\n", " ");
 }
 
 // Run inside puppeteer — has access to `document`. Selector + margins passed
@@ -568,8 +688,9 @@ export function formatLayoutReport(
 //
 // Format contract (see html.ts tool description): the agent's HTML root is
 // `<div data-id="page" style="width:Wmm;height:Hmm">…</div>` — a single block
-// declaring its own measurement zone. Falls back to firstElementChild for
-// legacy / non-canonical content.
+// declaring its own measurement zone. Falls back to the first addressable
+// block for legacy / non-canonical roots such as `data-id="p4"`; page HTML
+// commonly starts with a `<style>`, which is not a measurement container.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Layout `measureInBrowser`: multi-step HTML/browser measurement pipeline, not a Document method.
 // code-moniker: ignore[maket-hygiene-limits-callable-size]
@@ -584,12 +705,36 @@ function measureInBrowser(
 	} | null,
 ) {
 	const TOLERANCE_PX = 2;
-	const root = (document.body.querySelector(pageSelector) ??
-		document.body.firstElementChild) as HTMLElement | null;
+	const isMeasurableRoot = (node: Element | null): node is HTMLElement => {
+		if (!(node instanceof HTMLElement) || node.parentElement !== document.body)
+			return false;
+		if (["SCRIPT", "STYLE", "TEMPLATE"].includes(node.tagName)) return false;
+		const rect = node.getBoundingClientRect();
+		return (
+			getComputedStyle(node).display !== "none" &&
+			rect.width > TOLERANCE_PX &&
+			rect.height > TOLERANCE_PX
+		);
+	};
+	const canonicalRoot = document.body.querySelector(pageSelector);
+	const legacyRoots = [...document.body.children].filter(
+		(node) => node.hasAttribute("data-id") && isMeasurableRoot(node),
+	);
+	const root = isMeasurableRoot(canonicalRoot)
+		? canonicalRoot
+		: legacyRoots.length === 1
+			? legacyRoots[0]
+			: null;
 	if (!root) return null;
+	const canvasRect = {
+		top: 0,
+		right: window.innerWidth,
+		bottom: window.innerHeight,
+		left: 0,
+	};
 	const rootRect = root.getBoundingClientRect();
-	const containerHeight = Math.round(rootRect.height);
-	const containerWidth = Math.round(rootRect.width);
+	const containerHeight = Math.round(window.innerHeight);
+	const containerWidth = Math.round(window.innerWidth);
 	const isVisuallyHidden = (rect: DOMRect, style: CSSStyleDeclaration) =>
 		style.position === "absolute" &&
 		rect.width <= TOLERANCE_PX &&
@@ -620,7 +765,7 @@ function measureInBrowser(
 		"tabindex",
 	];
 	const hasClippedText = (
-		el: HTMLElement,
+		el: Element,
 		rect: DOMRect,
 		overflowX: string,
 		overflowY: string,
@@ -645,13 +790,44 @@ function measureInBrowser(
 		}
 		return false;
 	};
-	const blocks = [...root.querySelectorAll("[data-id]")].map((node) => {
-		const el = node as HTMLElement;
+	const excess = (
+		top: number,
+		right: number,
+		bottom: number,
+		left: number,
+		bounds: { top: number; right: number; bottom: number; left: number },
+	) => ({
+		top: Math.max(0, Math.round(bounds.top - top)),
+		right: Math.max(0, Math.round(right - bounds.right)),
+		bottom: Math.max(0, Math.round(bottom - bounds.bottom)),
+		left: Math.max(0, Math.round(bounds.left - left)),
+	});
+	const hasExcess = (value: {
+		top: number;
+		right: number;
+		bottom: number;
+		left: number;
+	}) => Object.values(value).some((amount) => amount > TOLERANCE_PX);
+	const addressableParent = (el: Element) => {
+		for (
+			let parent = el.parentElement;
+			parent && parent !== document.body;
+			parent = parent.parentElement
+		) {
+			if (!parent.hasAttribute("data-id")) continue;
+			const rect = parent.getBoundingClientRect();
+			if (rect.width > TOLERANCE_PX && rect.height > TOLERANCE_PX) {
+				return { element: parent, rect };
+			}
+		}
+		return null;
+	};
+	const blocks = [...root.querySelectorAll("[data-id]"), root].map((el) => {
 		const rect = el.getBoundingClientRect();
-		const top = Math.round(rect.top - rootRect.top);
-		const left = Math.round(rect.left - rootRect.left);
-		const bottom = Math.round(rect.bottom - rootRect.top);
-		const right = Math.round(rect.right - rootRect.left);
+		const top = Math.round(rect.top - canvasRect.top);
+		const left = Math.round(rect.left - canvasRect.left);
+		const bottom = Math.round(rect.bottom - canvasRect.top);
+		const right = Math.round(rect.right - canvasRect.left);
 		const style = getComputedStyle(el);
 		const visuallyHidden = isVisuallyHidden(rect, style);
 		const interactive =
@@ -662,14 +838,42 @@ function measureInBrowser(
 			el.children.length === 0 &&
 			!el.textContent?.trim() &&
 			!interactive;
+		const scrollHeight =
+			"scrollHeight" in el && typeof el.scrollHeight === "number"
+				? el.scrollHeight
+				: rect.height;
+		const scrollWidth =
+			"scrollWidth" in el && typeof el.scrollWidth === "number"
+				? el.scrollWidth
+				: rect.width;
 		const visualBottom =
 			style.overflowY === "visible"
-				? Math.max(bottom, top + el.scrollHeight)
+				? Math.max(bottom, top + scrollHeight)
 				: bottom;
 		const visualRight =
 			style.overflowX === "visible"
-				? Math.max(right, left + el.scrollWidth)
+				? Math.max(right, left + scrollWidth)
 				: right;
+		const parent = el === root ? null : addressableParent(el);
+		const parentBounds = parent
+			? {
+					top: Math.round(parent.rect.top - canvasRect.top),
+					right: Math.round(parent.rect.right - canvasRect.left),
+					bottom: Math.round(parent.rect.bottom - canvasRect.top),
+					left: Math.round(parent.rect.left - canvasRect.left),
+				}
+			: null;
+		const canvasExcess = excess(top, visualRight, visualBottom, left, {
+			top: 0,
+			right: containerWidth,
+			bottom: containerHeight,
+			left: 0,
+		});
+		const parentExcess = parentBounds
+			? excess(top, visualRight, visualBottom, left, parentBounds)
+			: { top: 0, right: 0, bottom: 0, left: 0 };
+		const canvasOverflow = hasExcess(canvasExcess);
+		const containerOverflow = hasExcess(parentExcess);
 		const clipped =
 			!visuallyHidden &&
 			!layoutIgnored &&
@@ -678,19 +882,20 @@ function measureInBrowser(
 			el,
 			visuallyHidden,
 			layoutIgnored,
-			id: el.dataset.id || "",
-			name: el.dataset.name || "",
+			id: el.getAttribute("data-id") || "",
+			name: el.getAttribute("data-name") || "",
+			parentId: parent?.element.getAttribute("data-id") || "",
 			top,
 			left,
 			bottom,
 			right,
 			visualBottom,
 			visualRight,
-			overflow:
-				top < -TOLERANCE_PX ||
-				left < -TOLERANCE_PX ||
-				visualBottom > containerHeight + TOLERANCE_PX ||
-				visualRight > containerWidth + TOLERANCE_PX,
+			canvasExcess,
+			parentExcess,
+			canvasOverflow,
+			containerOverflow,
+			overflow: canvasOverflow || containerOverflow,
 			clipped,
 		};
 	});
@@ -743,7 +948,7 @@ function measureInBrowser(
 	};
 	if (marginsPx) {
 		for (const b of measuredBlocks) {
-			if (!b.id || b.overflow) continue;
+			if (b.el === root || !b.id || b.overflow) continue;
 			if (b.top < marginsPx.top - TOLERANCE_PX) tight.top.push(b.id);
 			if (b.left < marginsPx.left - TOLERANCE_PX) tight.left.push(b.id);
 			if (b.bottom > containerHeight - marginsPx.bottom + TOLERANCE_PX)
@@ -765,10 +970,26 @@ function measureInBrowser(
 		clipped,
 		overlaps,
 		tight,
+		root: {
+			id: root.getAttribute("data-id") || "",
+			left: Math.round(rootRect.left - canvasRect.left),
+			top: Math.round(rootRect.top - canvasRect.top),
+			width: Math.round(rootRect.width),
+			height: Math.round(rootRect.height),
+		},
 		elements: measuredBlocks.map((b) => ({
 			id: b.id,
 			name: b.name,
+			parentId: b.parentId,
+			left: b.left,
+			top: b.top,
+			width: Math.round(b.right - b.left),
+			height: Math.round(b.bottom - b.top),
+			canvasExcess: b.canvasExcess,
+			parentExcess: b.parentExcess,
 			overflow: b.overflow,
+			canvasOverflow: b.canvasOverflow,
+			containerOverflow: b.containerOverflow,
 			clipped: b.clipped,
 		})),
 	};

@@ -881,7 +881,22 @@ describe("maket_html — action=patch", () => {
 
 describe("maket_html — action=check", () => {
 	it("delegates to layout.check and returns its text", async () => {
-		const { store, documents, layout, assets } = fixture();
+		const report = [
+			"\n⛔ Layout overflow — not shippable:",
+			"  Overflowing: diagram",
+			"",
+			"### Measurements",
+			"- Physical canvas: 210×297mm (794×1123px)",
+			"| Element | Problem | Measured box | Excess |",
+			"| --- | --- | --- | --- |",
+			"| `[diagram]` | physical canvas | x=53, y=48, w=688, h=1095px | canvas: bottom +20px |",
+		].join("\n");
+		const { store, documents, layout, assets } = fixture({
+			status: "overflow",
+			text: report,
+			overflowIds: ["diagram"],
+			overlapIds: [],
+		});
 		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
 		documents.loadAll();
 		const tool = createMaketHtmlTool({ documents, store, layout, assets });
@@ -890,7 +905,8 @@ describe("maket_html — action=check", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		expect((res.content[0] as any).text).toMatch(/Layout OK/);
+		expect((res.content[0] as any).text.startsWith(report.trim())).toBe(true);
+		expect((res.content[0] as any).text).toContain("canvas: bottom +20px");
 		expect(layout.check).toHaveBeenCalled();
 		store.close();
 	});

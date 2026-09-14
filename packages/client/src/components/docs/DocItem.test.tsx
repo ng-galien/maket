@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
@@ -103,5 +109,56 @@ describe("DocRow", () => {
 		expect(screen.getByRole("tooltip")).not.toHaveClass(
 			"doc-row-tooltip--visible",
 		);
+	});
+
+	it("keeps the Copy name label and copies the complete category path", async () => {
+		const writeText = vi.fn(async () => {});
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: { writeText },
+		});
+		const doc: DocSummary = {
+			id: "proposal-id",
+			name: "Proposal",
+			category: "clients/acme/proposals",
+			dataModel: "static",
+			format: "A4",
+			pageCount: 1,
+			elementCount: 0,
+			collectionBindings: [],
+		};
+		const actions: DocItemActions = {
+			click: vi.fn(),
+			focus: vi.fn(),
+			openMenu: vi.fn(),
+			closeMenu: vi.fn(),
+			changeMode: vi.fn(),
+			moveCategory: vi.fn(),
+			dragStart: vi.fn(),
+			dragEnd: vi.fn(),
+		};
+
+		render(
+			<DocRow
+				model={{
+					doc,
+					onWs: false,
+					focused: false,
+					selected: false,
+					menuOpen: true,
+					mode: { kind: "idle" },
+					canDelete: true,
+					dragging: false,
+				}}
+				actions={actions}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("menuitem", { name: "Copy name" }));
+
+		await waitFor(() =>
+			expect(writeText).toHaveBeenCalledWith("clients/acme/proposals/Proposal"),
+		);
+		expect(actions.closeMenu).toHaveBeenCalledOnce();
 	});
 });
