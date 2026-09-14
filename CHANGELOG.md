@@ -13,7 +13,7 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
-## [2.0.0] — 2026-08-26
+## [2.0.0] — 2026-09-14
 
 ### Added
 
@@ -59,6 +59,12 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ### Fixed
 
+- Document styles are now confined to their page content, so authored CSS can
+  no longer move or restyle the document-tree chevrons and surrounding Maket
+  interface.
+- Maket App restores direct print and PDF buttons in the document and Reading
+  toolbars, keeps the same actions in the document and native menus, and sends
+  page size, orientation, and margins to Electron's native print workflow.
 - Compact valid Mermaid edges such as `A-->B` render as real connections again
   instead of collapsing into a malformed source node.
 - **`npm install -g @ng-galien/maket` works again.** The published package
