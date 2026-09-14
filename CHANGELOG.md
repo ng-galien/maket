@@ -45,9 +45,9 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
   links in the README, the bilingual product site footer, and Maket's built-in
   Help document.
 - Every push to `main` now produces inspectable, unsigned desktop snapshots for
-  all four targets. Version tags build signed macOS and Windows installers,
-  notarize the macOS applications, package Linux, and publish checksums, updater
-  metadata and GitHub Release assets.
+  all four targets. Version tags build unsigned macOS and Windows installers,
+  package Linux, and publish checksums, updater metadata and GitHub Release
+  assets without requiring paid signing certificates.
 
 ### Changed
 

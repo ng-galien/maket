@@ -10,17 +10,7 @@ const repositoryNodeModules = join(repositoryDir, "node_modules");
 
 const releaseVersion = process.env.npm_package_version ?? "0.0.0";
 const prerelease = releaseVersion.includes("-");
-const signDesktop = process.env.MAKET_SIGN_DESKTOP === "1";
 const localInstall = process.env.MAKET_LOCAL_INSTALL === "1";
-const notarizeMac =
-  signDesktop && process.env.APPLE_ID && process.env.APPLE_PASSWORD && process.env.APPLE_TEAM_ID
-    ? {
-        appleId: process.env.APPLE_ID,
-        appleIdPassword: process.env.APPLE_PASSWORD,
-        teamId: process.env.APPLE_TEAM_ID,
-      }
-    : undefined;
-const signWindows = signDesktop && process.env.WINDOWS_CERTIFICATE_FILE && process.env.WINDOWS_CERTIFICATE_PASSWORD;
 
 function nativeRendererPackage(platform, arch) {
   const key = `${platform}-${arch}`;
@@ -78,7 +68,7 @@ export default {
     afterComplete: [
       (buildPath, _electronVersion, platform, _arch, done) => {
         try {
-          if (platform === "darwin" && !signDesktop) {
+          if (platform === "darwin") {
             const appPath = join(buildPath, "Maket.app");
             execFileSync("codesign", ["--force", "--deep", "--sign", "-", "--timestamp=none", appPath], {
               stdio: "inherit",
@@ -90,8 +80,6 @@ export default {
         }
       },
     ],
-    osxSign: process.platform === "darwin" && signDesktop ? {} : undefined,
-    osxNotarize: process.platform === "darwin" ? notarizeMac : undefined,
   },
   rebuildConfig: {},
   makers: [
@@ -99,8 +87,6 @@ export default {
       name: "@electron-forge/maker-squirrel",
       config: {
         name: "maket_app",
-        certificateFile: signWindows ? process.env.WINDOWS_CERTIFICATE_FILE : undefined,
-        certificatePassword: signWindows ? process.env.WINDOWS_CERTIFICATE_PASSWORD : undefined,
       },
     },
     {

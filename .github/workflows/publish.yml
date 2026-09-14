@@ -74,26 +74,6 @@ jobs:
           fi
           node scripts/release-notes.mjs "$VERSION" >/dev/null
 
-      - name: Validate desktop signing credentials are configured
-        if: github.ref_type == 'tag'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
-            if [[ -z "${!NAME}" ]]; then
-              echo "::error::Missing required release secret ${NAME}."
-              exit 1
-            fi
-          done
-          printf '%s' "$MACOS_CERTIFICATE" | base64 --decode >/dev/null
-          printf '%s' "$WINDOWS_CERTIFICATE" | base64 --decode >/dev/null
-
   publish:
     name: Publish @ng-galien/maket and create release
     needs: [preflight, desktop-build]
@@ -335,8 +315,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
-    env:
-      MAKET_SIGN_DESKTOP: "1"
     steps:
       - uses: actions/checkout@v7
 
@@ -352,59 +330,15 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit
 
-      - name: Validate credentials and import macOS signing certificate
-        if: runner.os == 'macOS'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: |
-          for NAME in MACOS_CERTIFICATE MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-            if [[ -z "${!NAME}" ]]; then
-              echo "::error::Missing required release secret ${NAME}."
-              exit 1
-            fi
-          done
-          CERTIFICATE_PATH="$RUNNER_TEMP/maket-app.p12"
-          KEYCHAIN_PATH="$RUNNER_TEMP/maket-app.keychain-db"
-          echo "$MACOS_CERTIFICATE" | base64 --decode > "$CERTIFICATE_PATH"
-          security create-keychain -p runner "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p runner "$KEYCHAIN_PATH"
-          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
-          security set-key-partition-list -S apple-tool:,apple: -s -k runner "$KEYCHAIN_PATH"
-
-      - name: Validate credentials and prepare Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if (-not $env:WINDOWS_CERTIFICATE) { throw "Missing required release secret WINDOWS_CERTIFICATE." }
-          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw "Missing required release secret WINDOWS_CERTIFICATE_PASSWORD." }
-          $certificatePath = Join-Path $env:RUNNER_TEMP "maket-app.pfx"
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          "WINDOWS_CERTIFICATE_FILE=$certificatePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
       - name: Verify desktop Node runtime
         run: npm run desktop -- check
 
       - name: Make macOS installers
         if: runner.os == 'macOS'
-        env:
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run desktop -- make --arch=${{ matrix.arch }}
 
       - name: Make Windows installers
         if: runner.os == 'Windows'
-        env:
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: npm run desktop -- make --arch=${{ matrix.arch }}
 
       - name: Make Linux installers

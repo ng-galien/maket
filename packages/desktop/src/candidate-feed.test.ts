@@ -134,7 +134,7 @@ describe("candidate update feed", () => {
     );
 
     expect(workflow).toContain("branches: [main]");
-    expect(workflow).toContain('MAKET_SIGN_DESKTOP: "0"');
+    expect(workflow).not.toContain("MAKET_SIGN_DESKTOP");
     expect(workflow).toContain("--local-install");
     expect(workflow).toContain("retention-days: 14");
     expect(workflow).toContain("collect-desktop-installers.ts");
@@ -143,30 +143,30 @@ describe("candidate update feed", () => {
     expect(workflow).toContain("platform: linux");
   });
 
-  it("publishes signed macOS and Windows installers plus Linux packages", async () => {
+  it("publishes unsigned desktop installers plus Linux packages", async () => {
     const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
+    const forgeConfig = await readFile(resolve(import.meta.dirname, "../forge.config.mjs"), "utf8");
     const collector = await readFile(
       resolve(import.meta.dirname, "../../../scripts/collect-desktop-installers.ts"),
       "utf8",
     );
 
-    const desktopBuild = workflow.indexOf("  desktop-build:");
-    const desktopSteps = workflow.indexOf("    steps:", desktopBuild);
-    const desktopJobHeader = workflow.slice(desktopBuild, desktopSteps);
-
-    expect(workflow).toContain("Validate credentials and import macOS signing certificate");
-    expect(workflow).toContain("Validate credentials and prepare Windows signing certificate");
-    expect(workflow).toContain("MACOS_CERTIFICATE_PASSWORD");
-    expect(workflow).toContain("WINDOWS_CERTIFICATE_PASSWORD");
-    expect(desktopJobHeader).not.toContain("MACOS_CERTIFICATE");
-    expect(desktopJobHeader).not.toContain("WINDOWS_CERTIFICATE");
-    expect(desktopJobHeader).not.toContain("APPLE_ID");
+    expect(workflow).not.toContain("MAKET_SIGN_DESKTOP");
+    expect(workflow).not.toContain("MACOS_CERTIFICATE");
+    expect(workflow).not.toContain("WINDOWS_CERTIFICATE");
+    expect(workflow).not.toContain("APPLE_ID");
+    expect(forgeConfig).not.toContain("MAKET_SIGN_DESKTOP");
+    expect(forgeConfig).not.toContain("osxSign");
+    expect(forgeConfig).not.toContain("osxNotarize");
+    expect(forgeConfig).not.toContain("certificateFile");
+    expect(forgeConfig).not.toContain("certificatePassword");
+    expect(forgeConfig).toContain('execFileSync("codesign", ["--force", "--deep", "--sign", "-"');
     expect(workflow).toContain("platform: linux");
     expect(workflow).toContain("collect-desktop-installers.ts");
     expect(collector).toMatch(/SHA256SUMS-\$\{options\.platform}-\$\{options\.arch}\.txt/);
   });
 
-  it("builds signed installers before publishing a version tag", async () => {
+  it("builds every installer before publishing a version tag", async () => {
     const workflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/publish.yml"), "utf8");
     const rootPackage = JSON.parse(await readFile(resolve(import.meta.dirname, "../../../package.json"), "utf8")) as {
       version: string;
@@ -191,7 +191,7 @@ describe("candidate update feed", () => {
 
     expect(preflightBody).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
     expect(preflightBody).toContain('node scripts/release-notes.mjs "$VERSION"');
-    expect(preflightBody).toContain("Validate desktop signing credentials are configured");
+    expect(preflightBody).not.toContain("signing credentials");
     expect(publishHeader).toContain("needs: [preflight, desktop-build]");
     expect(publishHeader).toContain("!cancelled()");
     expect(publishHeader).not.toContain("always()");
