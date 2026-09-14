@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	handleDesktopCommand,
 	installDesktopCommands,
-	printFocusedDocument,
 } from "./desktopCommands";
 import { getLang, setLang } from "./i18n/useT";
 import { useStore } from "./store/useStore";
@@ -146,7 +145,7 @@ describe("desktop command parity", () => {
 			focusedDocName: document.name,
 		});
 		const open = vi.spyOn(window, "open").mockImplementation(() => null);
-		await printFocusedDocument();
+		handleDesktopCommand("print-document");
 		expect(open).toHaveBeenCalledWith(
 			"/print?name=Print+%C3%A9t%C3%A9",
 			"_blank",
@@ -154,20 +153,23 @@ describe("desktop command parity", () => {
 		);
 
 		const printDocument = vi.fn(async () => undefined);
+		const exportPdf = vi.fn(async () => undefined);
 		window.maketDesktop = {
 			version: 1,
 			platform: "darwin",
-			runtime: { printDocument } as never,
+			runtime: { printDocument, exportPdf } as never,
 			commands: {} as never,
 			mcp: {} as never,
 			configuration: {} as never,
 			updates: {} as never,
 		};
-		await printFocusedDocument();
+		handleDesktopCommand("print-document");
 		expect(printDocument).toHaveBeenCalledWith(document.name);
+		handleDesktopCommand("export-pdf");
+		expect(exportPdf).toHaveBeenCalledWith(document.name);
 
 		useStore.setState({ focusedDocName: null });
-		await printFocusedDocument();
+		handleDesktopCommand("print-document");
 		handleDesktopCommand("reading-view");
 		handleDesktopCommand("toggle-document-lock", {
 			lockDocument: vi.fn(),

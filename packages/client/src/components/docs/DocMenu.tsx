@@ -19,6 +19,7 @@ import {
 	sendRenameDoc,
 } from "../../store/ws";
 import { copyToClipboard } from "../../utils";
+import { DocumentOutputMenuItems } from "../DocumentOutputControls";
 import { AnchoredMenu, AnchoredMenuItem } from "../shared/AnchoredMenu";
 import { HoldToDelete } from "../shared/HoldToDelete";
 import { exportMaketBundle } from "./docsImportExport";
@@ -241,6 +242,11 @@ function DocMenu({ model, actions, anchorRef }: DocMenuProps) {
 			className="w-48"
 			ariaLabel={t("doc_menu")}
 		>
+			<DocumentOutputMenuItems
+				docName={model.doc.name}
+				onAction={actions.close}
+			/>
+			<hr className="my-1 border-0 border-t border-border" />
 			<AnchoredMenuItem icon={<Copy size={13} />} onClick={copy}>
 				{t("doc_copy_name")}
 			</AnchoredMenuItem>

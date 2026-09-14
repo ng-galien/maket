@@ -74,6 +74,7 @@ export function buildApplicationMenuTemplate(
         command(t("menu_auto_fit"), "toggle-auto-fit"),
         command(t("menu_toggle_lock"), "toggle-document-lock"),
         { type: "separator" },
+        command(t("menu_export_pdf"), "export-pdf"),
         command(t("menu_print"), "print-document", "CmdOrCtrl+P"),
       ],
     },

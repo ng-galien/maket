@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
@@ -168,6 +169,25 @@ async function openInBrowser(): Promise<void> {
   await shell.openExternal(runtime.state().url);
 }
 
+async function exportDocumentPdf(name: string): Promise<void> {
+  try {
+    const options: Electron.SaveDialogOptions = {
+      title: translate("menu_export_pdf"),
+      defaultPath: `${name.replace(/[\\/:*?"<>|]/g, "_")}.pdf`,
+      filters: [{ name: "PDF", extensions: ["pdf"] }],
+    };
+    const result = mainWindow ? await dialog.showSaveDialog(mainWindow, options) : await dialog.showSaveDialog(options);
+    if (result.canceled || !result.filePath) return;
+    const url = new URL("/api/export-pdf", runtime.state().url);
+    url.searchParams.set("name", name);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(await response.text());
+    await writeFile(result.filePath, Buffer.from(await response.arrayBuffer()));
+  } catch (error) {
+    dialog.showErrorBox(translate("menu_export_pdf"), error instanceof Error ? error.message : String(error));
+  }
+}
+
 async function printDocument(name: string): Promise<void> {
   await printWithNativeDialog(
     runtime.state().url,
@@ -268,11 +288,21 @@ function registerIpc(): void {
   handleTrustedIpc(DESKTOP_CHANNELS.runtimeCopyUrl, () => {
     clipboard.writeText(runtime.state().url);
   });
-  handleTrustedIpc(DESKTOP_CHANNELS.runtimePrintDocument, (name: unknown) => {
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimeExportPdf, async (name: unknown) => {
     if (typeof name !== "string" || name.length === 0) {
       throw new TypeError("Document name must be a non-empty string");
     }
-    return printDocument(name);
+    return exportDocumentPdf(name);
+  });
+  handleTrustedIpc(DESKTOP_CHANNELS.runtimePrintDocument, async (name: unknown) => {
+    if (typeof name !== "string" || name.length === 0) {
+      throw new TypeError("Document name must be a non-empty string");
+    }
+    try {
+      await printDocument(name);
+    } catch (error) {
+      dialog.showErrorBox(translate("menu_print"), error instanceof Error ? error.message : String(error));
+    }
   });
   handleTrustedIpc(DESKTOP_CHANNELS.mcpDiagnose, (): McpConfigurationFinding[] => {
     if (!agentSetup) throw new Error("Agent setup is not initialized");

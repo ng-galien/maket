@@ -268,7 +268,9 @@ describe("WorkspaceHeader", () => {
 		expect(document.querySelector("[data-maket-activity]")).toBeNull();
 	});
 
-	it("keeps print server-owned and URL-encodes the focused document name", () => {
+	it("keeps print server-owned and URL-encodes the focused document name", async () => {
+		const user = userEvent.setup();
+		const open = vi.spyOn(window, "open").mockImplementation(() => null);
 		const doc = makeDoc("flyer été 2026");
 		doc.category = "Produits/Maket/Conception";
 		doc.pages[0].collection = { name: "clients" };
@@ -282,9 +284,16 @@ describe("WorkspaceHeader", () => {
 		expect(
 			screen.getByRole("navigation", { name: "Document location" }),
 		).toHaveAttribute("title", "Maket / Produits / Maket / Conception");
-		expect(screen.getByRole("link", { name: "Print" })).toHaveAttribute(
-			"href",
+		expect(screen.queryByText(/\d+ × \d+ mm/)).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Document actions" }),
+		).toBeNull();
+		expect(screen.getByRole("button", { name: "Export PDF…" })).toBeVisible();
+		await user.click(screen.getByRole("button", { name: "Print" }));
+		expect(open).toHaveBeenCalledWith(
 			"/print?name=flyer+%C3%A9t%C3%A9+2026",
+			"_blank",
+			"noopener",
 		);
 	});
 
