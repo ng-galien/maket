@@ -40,6 +40,28 @@ describe("buildRenderSurfaceHtml", () => {
 		expect(html).toContain("page-break-before:always");
 	});
 
+	it("scopes competing classes to their own printed page", () => {
+		const first =
+			'<style>:root { --tone: red } .top { display: grid; grid-template-columns: 1fr 1fr } .kicker { color: var(--tone) }</style><main class="top"><p class="kicker">First</p></main>';
+		const second =
+			'<style media="all">html body { --tone: blue } .top { display: flex } .kicker { color: var(--tone) }</style><main class="top"><p class="kicker">Second</p></main>';
+		const html = buildRenderSurfaceHtml({
+			canvas,
+			pageHtmls: [first, second],
+			charteCss: ":root { --accent: gold; }",
+			surface: { kind: "print" },
+		});
+
+		expect(html).toContain(
+			'@scope (maket-render-page[data-maket-render-page="1"]) {\n:scope { --tone: red } .top { display: grid; grid-template-columns: 1fr 1fr } .kicker { color: var(--tone) }\n}',
+		);
+		expect(html).toContain(
+			'<style media="all">@scope (maket-render-page[data-maket-render-page="2"]) {\n:scope { --tone: blue } .top { display: flex } .kicker { color: var(--tone) }\n}</style>',
+		);
+		expect(html).toContain(":root { --accent: gold; }");
+		expect(html.match(/class="top"/g)).toHaveLength(2);
+	});
+
 	it("keeps informational print-safe margins out of physical PDF geometry", () => {
 		const html = buildRenderSurfaceHtml({
 			canvas: {

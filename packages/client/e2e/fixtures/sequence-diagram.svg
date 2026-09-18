@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="170" height="90" viewBox="0 0 170 90">
+  <title>Sequence diagram export proof</title>
+  <rect width="170" height="90" fill="#ffffff"/>
+  <rect x="12" y="8" width="48" height="18" fill="#dbeafe" stroke="#1e3a8a"/>
+  <rect x="110" y="8" width="48" height="18" fill="#dbeafe" stroke="#1e3a8a"/>
+  <text x="36" y="20" text-anchor="middle" font-size="8">Agent</text>
+  <text x="134" y="20" text-anchor="middle" font-size="8">Maket</text>
+  <path d="M36 26v55M134 26v55" stroke="#94a3b8" stroke-dasharray="3 3"/>
+  <path d="M36 44h98l-8-5m8 5-8 5" fill="none" stroke="#1e3a8a" stroke-width="2"/>
+  <rect x="80" y="40" width="10" height="10" fill="#e11d48"/>
+  <text x="85" y="65" text-anchor="middle" font-size="8">render SVG</text>
+</svg>
