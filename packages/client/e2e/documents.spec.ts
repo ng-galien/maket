@@ -613,14 +613,18 @@ test.describe("Document library", () => {
 		expect(panelSize.scrollWidth).toBeLessThanOrEqual(panelSize.clientWidth);
 	});
 
-	test("turns breadcrumb levels into cumulative removable category filters", async ({
+	test("navigates breadcrumb levels as a removable document folder scope", async ({
 		mcp,
 		page,
 	}) => {
 		const docName = "Breadcrumb filters";
+		const outsideDocName = "Outside breadcrumb filters";
 		await openWorkspace(page);
 		await createDocument(mcp, docName, {
 			category: "clients/acme/campaigns",
+		});
+		await createDocument(mcp, outsideDocName, {
+			category: "products",
 		});
 		await mcp.call("maket_workspace", {
 			action: "focus",
@@ -642,17 +646,23 @@ test.describe("Document library", () => {
 		const search = page.getByRole("combobox", {
 			name: /@category|@catégorie/i,
 		});
-		await expect(search).toHaveValue("@clients @clients/acme ");
-		await expect(
-			page.getByRole("button", { name: "@clients", exact: true }),
-		).toBeVisible();
-		await expect(
-			page.getByRole("button", { name: "@clients/acme", exact: true }),
-		).toBeVisible();
-
-		await page.getByRole("button", { name: "@clients", exact: true }).click();
-		await expect(search).toHaveValue("@clients/acme ");
+		await expect(search).toHaveValue("");
+		await expect(page.locator('span[title="clients/acme"]')).toBeVisible();
 		await expect(page.locator(`[data-doc-row="${docName}"]`)).toBeVisible();
+		await expect(
+			page.locator(`[data-doc-row="${outsideDocName}"]`),
+		).toHaveCount(0);
+
+		await page
+			.getByRole("button", {
+				name: /Show all document folders|Afficher tous les dossiers de documents/i,
+			})
+			.click();
+		await expect(page.locator('span[title="clients/acme"]')).toHaveCount(0);
+		await expect(page.locator(`[data-doc-row="${docName}"]`)).toBeVisible();
+		await expect(
+			page.locator(`[data-doc-row="${outsideDocName}"]`),
+		).toBeVisible();
 	});
 
 	test("centers an open document without a heavy row treatment", async ({

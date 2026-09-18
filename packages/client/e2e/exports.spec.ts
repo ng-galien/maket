@@ -25,6 +25,7 @@ test.describe("Preview and PDF export", () => {
 		page,
 	}, testInfo) => {
 		const docName = "Sequence SVG print isolation proof";
+		await openWorkspace(page);
 		await mcp.call("maket_image", {
 			action: "import",
 			path: sequenceSvg,
@@ -73,7 +74,6 @@ test.describe("Preview and PDF export", () => {
 				outlineStyle: "none",
 			},
 		]);
-		await printPage.close();
 		const result = await mcp.callText("maket_pdf", {
 			doc: docName,
 			quality: "screen",
@@ -137,6 +137,7 @@ test.describe("Preview and PDF export", () => {
 		page,
 	}, testInfo) => {
 		const docName = "Generated Mermaid PDF proof";
+		await openWorkspace(page);
 		await createDocument(mcp, docName, {
 			html: '<main data-id="cover" style="width:210mm;height:297mm;background:#fff">Cover</main>',
 		});
