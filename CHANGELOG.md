@@ -13,6 +13,25 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-09-18
+
+### Added
+
+- Browser installation as a PWA, with document navigation scoped to the selected category and search.
+- Persistent Mermaid diagrams that follow the document charte and survive document export and import.
+
+### Fixed
+
+- PDF printing isolates each page's authored CSS, so styles from one page cannot change another page. Browser coverage verifies SVG and diagram rendering in the exported PDF.
+- Layout checks report physical overflow and overlap more precisely, including for cards and diagrams.
+- Copying a document path includes the complete hierarchy.
+- Mermaid wrapper attributes are escaped before rendering.
+
+### Internal
+
+- Stabilized cross-platform quality checks and the document-path browser test.
+- Made release publication checks and recovery safer.
+
 ## [2.0.0] — 2026-09-14
 
 ### Added
@@ -617,7 +636,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/ng-galien/maket/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ng-galien/maket/compare/v1.7.4...v2.0.0
 [1.7.4]: https://github.com/ng-galien/maket/compare/v1.7.3...v1.7.4
 [1.4.5]: https://github.com/ng-galien/maket/compare/v1.4.4...v1.4.5
