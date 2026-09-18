@@ -22,13 +22,63 @@ function rebasePageRootSelectors(css: string): string {
 	}
 }
 
+function authoredImportUrl(params: string): string | undefined {
+	const match = params.match(
+		/^\s*(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s)]*))\s*\)|"([^"]*)"|'([^']*)')/i,
+	);
+	return match?.slice(1).find((part) => part !== undefined);
+}
+
+function inlineDataCss(url: string): string | undefined {
+	const match = url.match(/^data:(text\/css(?:;[^,]*)?),(.*)$/is);
+	const header = match?.[1];
+	const data = match?.[2];
+	if (header === undefined || data === undefined) return undefined;
+	try {
+		const body = /;base64$/i.test(header)
+			? Buffer.from(data, "base64").toString("utf8")
+			: decodeURIComponent(data);
+		return rebasePageRootSelectors(stripStyleClose(body));
+	} catch {
+		return undefined;
+	}
+}
+
+function scopedPageCss(css: string, scope: string): string {
+	const rebased = rebasePageRootSelectors(css);
+	try {
+		const stylesheet = postcss.parse(rebased);
+		const fontImports: string[] = [];
+		const dataImports: string[] = [];
+		for (const rule of [...stylesheet.nodes]) {
+			if (rule.type !== "atrule" || rule.name.toLowerCase() !== "import")
+				continue;
+			const url = authoredImportUrl(rule.params);
+			const dataCss = url ? inlineDataCss(url) : undefined;
+			if (dataCss !== undefined) dataImports.push(dataCss);
+			else if (
+				url &&
+				/^https:\/\/fonts\.googleapis\.com\/css2?(?:\?|$)/i.test(url)
+			) {
+				const importCss = rule.toString().trim();
+				fontImports.push(importCss.endsWith(";") ? importCss : `${importCss};`);
+			}
+			rule.remove();
+		}
+		const scopedCss = [...dataImports, stylesheet.toString()].join("\n");
+		return `${fontImports.join("\n")}${fontImports.length ? "\n" : ""}@scope (${scope}) {\n${scopedCss}\n}`;
+	} catch {
+		return `@scope (${scope}) {\n${rebased}\n}`;
+	}
+}
+
 /** Keep each authored style sheet on its own page in a multi-page print DOM. */
 function scopeAuthoredStyles(html: string, pageNumber: number): string {
 	const scope = `${RENDER_PAGE_TAG}[data-maket-render-page="${pageNumber}"]`;
 	return html.replace(
 		/(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
 		(_match, open: string, css: string, close: string) =>
-			`${open}@scope (${scope}) {\n${rebasePageRootSelectors(css)}\n}${close}`,
+			`${open}${scopedPageCss(css, scope)}${close}`,
 	);
 }
 

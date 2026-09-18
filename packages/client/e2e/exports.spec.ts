@@ -31,13 +31,13 @@ test.describe("Preview and PDF export", () => {
 			filename: "sequence-diagram.svg",
 		});
 		await createDocument(mcp, docName, {
-			html: '<style>:root{--ink:#b91c1c}.sheet{width:210mm;height:297mm;background:#fef3c7}.top{display:flex;color:var(--ink)}</style><main class="sheet"><div class="top">Cover</div></main>',
+			html: '<style>@import url("data:text/css,.top%7Boutline%3A4px%20solid%20%2316a34a%7D");:root{--ink:#b91c1c}.sheet{width:210mm;height:297mm;background:#fef3c7}.top{display:flex;color:var(--ink)}</style><main class="sheet"><div class="top">Cover</div></main>',
 		});
 		await mcp.call("maket_page", {
 			action: "add",
 			doc: docName,
 			name: "Sequence",
-			html: '<style>body{--ink:#1e3a8a}.sheet{width:210mm;height:297mm;background:#ffffff}.top{display:grid;color:var(--ink)}</style><main class="sheet"><div class="top">Sequence</div><img data-id="sequence" src="/assets/sequence-diagram.svg" alt="Sequence diagram" style="display:block;width:170mm;height:90mm;margin:30mm 20mm 0"></main>',
+			html: '<style>@import url("data:text/css,.imported%7Bbackground%3A%237c3aed%7D");body{--ink:#1e3a8a}.sheet{width:210mm;height:297mm;background:#ffffff}.top{display:grid;color:var(--ink)}</style><main class="sheet"><div class="top">Sequence</div><div class="imported" style="width:10mm;height:10mm"></div><img data-id="sequence" src="/assets/sequence-diagram.svg" alt="Sequence diagram" style="display:block;width:170mm;height:90mm;margin:30mm 20mm 0"></main>',
 		});
 		const printPage = await page.context().newPage();
 		await printPage.goto(
@@ -55,6 +55,7 @@ test.describe("Preview and PDF export", () => {
 						background: getComputedStyle(sheet).backgroundColor,
 						display: getComputedStyle(top).display,
 						color: getComputedStyle(top).color,
+						outlineStyle: getComputedStyle(top).outlineStyle,
 					};
 				}),
 			);
@@ -63,11 +64,13 @@ test.describe("Preview and PDF export", () => {
 				background: "rgb(254, 243, 199)",
 				display: "flex",
 				color: "rgb(185, 28, 28)",
+				outlineStyle: "solid",
 			},
 			{
 				background: "rgb(255, 255, 255)",
 				display: "grid",
 				color: "rgb(30, 58, 138)",
+				outlineStyle: "none",
 			},
 		]);
 		await printPage.close();
@@ -96,8 +99,92 @@ test.describe("Preview and PDF export", () => {
 		await page.setContent(
 			`<img alt="PDF page 2" src="data:image/png;base64,${raster.toString("base64")}">`,
 		);
-		const sequenceMarkerPixels = await page
+		const markerPixels = await page
 			.getByRole("img", { name: "PDF page 2" })
+			.evaluate((image: HTMLImageElement) => {
+				const canvas = document.createElement("canvas");
+				canvas.width = image.naturalWidth;
+				canvas.height = image.naturalHeight;
+				const context = canvas.getContext("2d");
+				if (!context) throw new Error("Canvas context unavailable");
+				context.drawImage(image, 0, 0);
+				const pixels = context.getImageData(
+					0,
+					0,
+					canvas.width,
+					canvas.height,
+				).data;
+				let sequence = 0;
+				let importedStyle = 0;
+				for (let i = 0; i < pixels.length; i += 4) {
+					if (pixels[i] === 225 && pixels[i + 1] === 29 && pixels[i + 2] === 72)
+						sequence++;
+					if (
+						pixels[i] === 124 &&
+						pixels[i + 1] === 58 &&
+						pixels[i + 2] === 237
+					)
+						importedStyle++;
+				}
+				return { sequence, importedStyle };
+			});
+		expect(markerPixels.sequence).toBeGreaterThan(100);
+		expect(markerPixels.importedStyle).toBeGreaterThan(100);
+	});
+
+	test("renders a generated Mermaid diagram in the final multipage PDF", async ({
+		mcp,
+		page,
+	}, testInfo) => {
+		const docName = "Generated Mermaid PDF proof";
+		await createDocument(mcp, docName, {
+			html: '<main data-id="cover" style="width:210mm;height:297mm;background:#fff">Cover</main>',
+		});
+		await mcp.call("maket_page", {
+			action: "add",
+			doc: docName,
+			name: "Diagram",
+			html: '<main data-id="diagram-page" style="width:210mm;height:297mm;background:#fff;display:flex;align-items:center;justify-content:center"></main>',
+		});
+		await mcp.call("maket_mermaid", {
+			doc: docName,
+			page: 2,
+			code: "sequenceDiagram\n  Alice->>Bob: Hello",
+			dataId: "generated-diagram",
+			targetId: "diagram-page",
+			width: "170mm",
+			height: "90mm",
+			bg: "#ffffff",
+			fg: "#111827",
+			line: "#b91c1c",
+		});
+		const result = await mcp.callText("maket_pdf", {
+			doc: docName,
+			quality: "screen",
+		});
+		expect(result).toContain("2 pages");
+		const pdfPath = result.match(/^PDF exported:\s*(.+?)\s+\(/)?.[1];
+		if (!pdfPath) throw new Error("PDF path is missing");
+		const prefix = testInfo.outputPath("generated-mermaid-page-2");
+		await mkdir(dirname(prefix), { recursive: true });
+		await execFileAsync("pdftoppm", [
+			"-f",
+			"2",
+			"-l",
+			"2",
+			"-singlefile",
+			"-png",
+			"-r",
+			"96",
+			pdfPath,
+			prefix,
+		]);
+		const raster = await readFile(`${prefix}.png`);
+		await page.setContent(
+			`<img alt="Generated Mermaid PDF page" src="data:image/png;base64,${raster.toString("base64")}">`,
+		);
+		const diagramPixels = await page
+			.getByRole("img", { name: "Generated Mermaid PDF page" })
 			.evaluate((image: HTMLImageElement) => {
 				const canvas = document.createElement("canvas");
 				canvas.width = image.naturalWidth;
@@ -113,12 +200,12 @@ test.describe("Preview and PDF export", () => {
 				).data;
 				let count = 0;
 				for (let i = 0; i < pixels.length; i += 4) {
-					if (pixels[i] === 225 && pixels[i + 1] === 29 && pixels[i + 2] === 72)
+					if (pixels[i] < 120 && pixels[i + 1] < 120 && pixels[i + 2] < 120)
 						count++;
 				}
 				return count;
 			});
-		expect(sequenceMarkerPixels).toBeGreaterThan(100);
+		expect(diagramPixels).toBeGreaterThan(100);
 	});
 
 	test("renders the visible document through print, snapshot and PDF", async ({

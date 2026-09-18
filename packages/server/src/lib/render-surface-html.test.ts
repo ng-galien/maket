@@ -62,6 +62,42 @@ describe("buildRenderSurfaceHtml", () => {
 		expect(html.match(/class="top"/g)).toHaveLength(2);
 	});
 
+	it("inlines data CSS imports inside their printed page scope", () => {
+		const html = buildRenderSurfaceHtml({
+			canvas,
+			pageHtmls: [
+				'<style>@import url("data:text/css,.shared%7Bcolor%3Ared%7D");</style><main class="shared">First</main>',
+				'<style>@import url("data:text/css,.shared%7Bcolor%3Ablue%7D");</style><main class="shared">Second</main>',
+			],
+			charteCss: "",
+			surface: { kind: "print" },
+		});
+
+		expect(html).toContain(
+			'@scope (maket-render-page[data-maket-render-page="1"]) {\n.shared{color:red}',
+		);
+		expect(html).toContain(
+			'@scope (maket-render-page[data-maket-render-page="2"]) {\n.shared{color:blue}',
+		);
+		expect(html).not.toContain("@import");
+	});
+
+	it("keeps Google Font imports valid before a printed page scope", () => {
+		const html = buildRenderSurfaceHtml({
+			canvas,
+			pageHtmls: [
+				'<style>@import url("https://fonts.googleapis.com/css2?family=Inter"); .sheet{font-family:Inter}</style><main class="sheet">First</main>',
+				'<style>.sheet{font-family:serif}</style><main class="sheet">Second</main>',
+			],
+			charteCss: "",
+			surface: { kind: "print" },
+		});
+
+		expect(html).toContain(
+			'@import url("https://fonts.googleapis.com/css2?family=Inter");\n@scope (maket-render-page[data-maket-render-page="1"])',
+		);
+	});
+
 	it("keeps informational print-safe margins out of physical PDF geometry", () => {
 		const html = buildRenderSurfaceHtml({
 			canvas: {
