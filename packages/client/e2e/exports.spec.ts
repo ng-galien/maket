@@ -1,4 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import type { Locator, Page } from "@playwright/test";
 import {
 	createDocument,
@@ -8,7 +12,115 @@ import {
 	test,
 } from "./workspace-test";
 
+const execFileAsync = promisify(execFile);
+const sequenceSvg = join(
+	dirname(fileURLToPath(import.meta.url)),
+	"fixtures",
+	"sequence-diagram.svg",
+);
+
 test.describe("Preview and PDF export", () => {
+	test("keeps a sequence SVG visible in a PDF with competing page classes", async ({
+		mcp,
+		page,
+	}, testInfo) => {
+		const docName = "Sequence SVG print isolation proof";
+		await mcp.call("maket_image", {
+			action: "import",
+			path: sequenceSvg,
+			filename: "sequence-diagram.svg",
+		});
+		await createDocument(mcp, docName, {
+			html: '<style>:root{--ink:#b91c1c}.sheet{width:210mm;height:297mm;background:#fef3c7}.top{display:flex;color:var(--ink)}</style><main class="sheet"><div class="top">Cover</div></main>',
+		});
+		await mcp.call("maket_page", {
+			action: "add",
+			doc: docName,
+			name: "Sequence",
+			html: '<style>body{--ink:#1e3a8a}.sheet{width:210mm;height:297mm;background:#ffffff}.top{display:grid;color:var(--ink)}</style><main class="sheet"><div class="top">Sequence</div><img data-id="sequence" src="/assets/sequence-diagram.svg" alt="Sequence diagram" style="display:block;width:170mm;height:90mm;margin:30mm 20mm 0"></main>',
+		});
+		const printPage = await page.context().newPage();
+		await printPage.goto(
+			`/print?name=${encodeURIComponent(docName)}&auto_print=false`,
+		);
+		const printedStyles = await printPage
+			.locator("maket-render-page")
+			.evaluateAll((frames) =>
+				frames.map((frame) => {
+					const sheet = frame.querySelector(".sheet");
+					const top = frame.querySelector(".top");
+					if (!sheet || !top)
+						throw new Error("Printed page content is missing");
+					return {
+						background: getComputedStyle(sheet).backgroundColor,
+						display: getComputedStyle(top).display,
+						color: getComputedStyle(top).color,
+					};
+				}),
+			);
+		expect(printedStyles).toEqual([
+			{
+				background: "rgb(254, 243, 199)",
+				display: "flex",
+				color: "rgb(185, 28, 28)",
+			},
+			{
+				background: "rgb(255, 255, 255)",
+				display: "grid",
+				color: "rgb(30, 58, 138)",
+			},
+		]);
+		await printPage.close();
+		const result = await mcp.callText("maket_pdf", {
+			doc: docName,
+			quality: "screen",
+		});
+		expect(result).toContain("2 pages");
+		const pdfPath = result.match(/^PDF exported:\s*(.+?)\s+\(/)?.[1];
+		if (!pdfPath) throw new Error("PDF path is missing");
+		const prefix = testInfo.outputPath("sequence-svg-page-2");
+		await mkdir(dirname(prefix), { recursive: true });
+		await execFileAsync("pdftoppm", [
+			"-f",
+			"2",
+			"-l",
+			"2",
+			"-singlefile",
+			"-png",
+			"-r",
+			"96",
+			pdfPath,
+			prefix,
+		]);
+		const raster = await readFile(`${prefix}.png`);
+		await page.setContent(
+			`<img alt="PDF page 2" src="data:image/png;base64,${raster.toString("base64")}">`,
+		);
+		const sequenceMarkerPixels = await page
+			.getByRole("img", { name: "PDF page 2" })
+			.evaluate((image: HTMLImageElement) => {
+				const canvas = document.createElement("canvas");
+				canvas.width = image.naturalWidth;
+				canvas.height = image.naturalHeight;
+				const context = canvas.getContext("2d");
+				if (!context) throw new Error("Canvas context unavailable");
+				context.drawImage(image, 0, 0);
+				const pixels = context.getImageData(
+					0,
+					0,
+					canvas.width,
+					canvas.height,
+				).data;
+				let count = 0;
+				for (let i = 0; i < pixels.length; i += 4) {
+					if (pixels[i] === 225 && pixels[i + 1] === 29 && pixels[i + 2] === 72)
+						count++;
+				}
+				return count;
+			});
+		expect(sequenceMarkerPixels).toBeGreaterThan(100);
+	});
+
 	test("renders the visible document through print, snapshot and PDF", async ({
 		context,
 		mcp,

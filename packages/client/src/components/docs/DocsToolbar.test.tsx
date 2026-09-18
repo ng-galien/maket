@@ -44,14 +44,33 @@ describe("DocsToolbar search suggestions", () => {
 		await user.keyboard("{Escape}");
 		expect(search).toHaveAttribute("aria-expanded", "false");
 	});
+
+	it("shows breadcrumb navigation as a folder scope outside the search", async () => {
+		const user = userEvent.setup();
+		render(<ToolbarHarness initialCategoryScope="clients/acme" />);
+
+		expect(screen.getByRole("combobox")).toHaveValue("");
+		expect(screen.getByText("Folder: clients/acme")).toBeVisible();
+		await user.click(
+			screen.getByRole("button", { name: "Show all document folders" }),
+		);
+		expect(screen.queryByText("Folder: clients/acme")).toBeNull();
+	});
 });
 
-function ToolbarHarness() {
+function ToolbarHarness({
+	initialCategoryScope = null,
+}: {
+	initialCategoryScope?: string | null;
+}) {
 	const [search, setSearch] = useState("");
+	const [categoryScope, setCategoryScope] = useState(initialCategoryScope);
 	const importInputRef = useRef<HTMLInputElement>(null);
 	const model = createToolbarModel({
 		search,
 		setSearch,
+		categoryScope,
+		clearCategoryScope: () => setCategoryScope(null),
 		categories: ["clients", "clients/acme", "products"],
 		query: parseQuery(search, { deferLastFilterToken: true }),
 		view: "list",

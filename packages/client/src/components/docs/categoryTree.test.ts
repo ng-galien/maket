@@ -3,6 +3,7 @@ import type { DocSummary } from "../../store/types";
 import {
 	buildCategoryTree,
 	categoryPathsForDocs,
+	collapsedPathsOutsideScope,
 	visibleDocOrder,
 } from "./categoryTree";
 
@@ -49,6 +50,24 @@ describe("category tree", () => {
 		const tree = buildCategoryTree(docs);
 		expect(visibleDocOrder(tree, new Set(["clients/acme"]))).toEqual([
 			"Poster",
+		]);
+	});
+
+	it("reveals a scoped category without changing persisted collapse state", () => {
+		const collapsed = new Set([
+			"campaigns",
+			"clients",
+			"clients/acme",
+			"other",
+		]);
+		expect([
+			...collapsedPathsOutsideScope(collapsed, "clients/acme/proposals"),
+		]).toEqual(["campaigns", "other"]);
+		expect([...collapsed]).toEqual([
+			"campaigns",
+			"clients",
+			"clients/acme",
+			"other",
 		]);
 	});
 });

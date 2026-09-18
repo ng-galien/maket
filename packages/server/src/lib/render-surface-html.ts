@@ -1,6 +1,36 @@
+import postcss from "postcss";
 import { escapeCssValue, stripStyleClose } from "./css-escape.js";
 
 export const RENDER_PAGE_TAG = "maket-render-page";
+
+/** Body-level page declarations need to follow the new page root. */
+function rebasePageRootSelectors(css: string): string {
+	if (!/(?:\bhtml\b|\bbody\b|:root)/i.test(css)) return css;
+	try {
+		const stylesheet = postcss.parse(css);
+		stylesheet.walkRules((rule) => {
+			rule.selectors = rule.selectors.map((selector) =>
+				selector.replace(
+					/^(\s*)(?:(?:html|:root)\s+body|html|body|:root)(?=$|[\s>+~.#[:])/i,
+					"$1:scope",
+				),
+			);
+		});
+		return stylesheet.toString();
+	} catch {
+		return css;
+	}
+}
+
+/** Keep each authored style sheet on its own page in a multi-page print DOM. */
+function scopeAuthoredStyles(html: string, pageNumber: number): string {
+	const scope = `${RENDER_PAGE_TAG}[data-maket-render-page="${pageNumber}"]`;
+	return html.replace(
+		/(<style\b[^>]*>)([\s\S]*?)(<\/style\s*>)/gi,
+		(_match, open: string, css: string, close: string) =>
+			`${open}@scope (${scope}) {\n${rebasePageRootSelectors(css)}\n}${close}`,
+	);
+}
 
 export type RenderSurface =
 	| { kind: "snapshot" }
@@ -67,7 +97,11 @@ export function buildRenderSurfaceHtml({
 			]
 				.filter(Boolean)
 				.join(";");
-			return `<${RENDER_PAGE_TAG} data-maket-render-page="${index + 1}" style="${style}">${html}</${RENDER_PAGE_TAG}>`;
+			const pageHtml =
+				print && pageHtmls.length > 1
+					? scopeAuthoredStyles(html, index + 1)
+					: html;
+			return `<${RENDER_PAGE_TAG} data-maket-render-page="${index + 1}" style="${style}">${pageHtml}</${RENDER_PAGE_TAG}>`;
 		})
 		.join("\n");
 

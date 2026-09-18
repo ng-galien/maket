@@ -215,6 +215,11 @@ export function addCategoryFilter(search: string, path: string): string {
 	return `${[search.trim(), quoteSearchToken(token)].filter(Boolean).join(" ")} `;
 }
 
+/** Remove explicit category tokens while preserving every other criterion. */
+export function clearCategoryFilters(search: string): string {
+	return stripToken(search, (token) => token.startsWith("@")).trim();
+}
+
 export function buildQueryChips(
 	query: Query,
 	search: string,

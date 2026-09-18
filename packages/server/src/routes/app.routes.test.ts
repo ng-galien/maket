@@ -19,6 +19,8 @@ describe("app routes", () => {
 			"<html><head><title>{{TITLE}}</title></head><body>{{SUBTITLE}}</body></html>",
 			"utf-8",
 		);
+		writeFileSync(join(publicDir, "manifest.webmanifest"), "{}", "utf-8");
+		writeFileSync(join(publicDir, "service-worker.js"), "// worker", "utf-8");
 		const config = {
 			PUBLIC_DIR: publicDir,
 			APP_TITLE: "Maket Test",
@@ -42,4 +44,13 @@ describe("app routes", () => {
 		expect(html).toContain("<title>Maket Test</title>");
 		expect(html).toContain("Design faster");
 	});
+
+	it.each(["manifest.webmanifest", "service-worker.js"])(
+		"serves %s without a stale application identity cache",
+		async (filename) => {
+			const res = await fetch(`${baseUrl}/${filename}`);
+			expect(res.status).toBe(200);
+			expect(res.headers.get("cache-control")).toBe("no-cache");
+		},
+	);
 });

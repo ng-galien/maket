@@ -15,6 +15,7 @@ import {
 	applyColorScheme,
 	resolveDarkMode,
 } from "./lib/colorScheme";
+import { initializePwa } from "./pwa";
 import { useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
@@ -56,10 +57,12 @@ export default function App() {
 		const removeCommands = installDesktopCommands();
 		const removeConfiguration = initializeDesktopConfiguration();
 		const removeUpdates = initializeDesktopUpdates();
+		const removePwa = initializePwa();
 		return () => {
 			removeCommands();
 			removeConfiguration();
 			removeUpdates();
+			removePwa();
 		};
 	}, []);
 

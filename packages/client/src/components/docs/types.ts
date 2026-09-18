@@ -45,6 +45,8 @@ export interface DocsTabModel {
 export interface DocsToolbarModel {
 	search: string;
 	setSearch: (value: string) => void;
+	categoryScope: string | null;
+	clearCategoryScope: () => void;
 	categories: string[];
 	chips: QueryChip[];
 	importInputRef: React.RefObject<HTMLInputElement | null>;

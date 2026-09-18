@@ -154,7 +154,7 @@ describe("WorkspaceHeader", () => {
 		expect(screen.getByRole("banner").firstElementChild).toHaveClass("flex-1");
 	});
 
-	it("uses the breadcrumb to request an additive document category filter", async () => {
+	it("uses the breadcrumb to request document category navigation", async () => {
 		const user = userEvent.setup();
 		const doc = makeDoc("category-navigation");
 		doc.category = "Produits/Maket/Conception";

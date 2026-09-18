@@ -1,4 +1,4 @@
-import { Upload } from "lucide-react";
+import { FolderOpen, Upload, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { translate, useT } from "../../i18n/useT";
@@ -19,6 +19,8 @@ import type { DocsToolbarModel, Query, QueryChip, View } from "./types";
 export interface ToolbarFactoryArgs {
 	search: string;
 	setSearch: (value: string) => void;
+	categoryScope: string | null;
+	clearCategoryScope: () => void;
 	categories: string[];
 	query: Query;
 	view: View;
@@ -38,6 +40,8 @@ export function createToolbarModel(args: ToolbarFactoryArgs): DocsToolbarModel {
 	return {
 		search: args.search,
 		setSearch: args.setSearch,
+		categoryScope: args.categoryScope,
+		clearCategoryScope: args.clearCategoryScope,
 		categories: args.categories,
 		chips: buildQueryChips(args.query, args.search, args.setSearch),
 		importInputRef: importState.importInputRef,
@@ -108,7 +112,29 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					{model.importError} ×
 				</button>
 			)}
+			<CategoryScope model={model} />
 			<QueryChips chips={model.chips} />
+		</div>
+	);
+}
+
+function CategoryScope({ model }: { model: DocsToolbarModel }) {
+	const t = useT();
+	if (!model.categoryScope) return null;
+	return (
+		<div className="mx-1 flex min-h-7 items-center gap-2 rounded-md border border-border/70 bg-black/[0.025] px-2.5 py-1.5 text-xs text-text-2">
+			<FolderOpen size={13} className="shrink-0 text-accent" />
+			<span className="min-w-0 flex-1 truncate" title={model.categoryScope}>
+				{t("document_category_scope", { category: model.categoryScope })}
+			</span>
+			<button
+				type="button"
+				onClick={model.clearCategoryScope}
+				aria-label={t("clear_document_category_scope")}
+				className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded text-text-3 transition hover:bg-black/[0.05] hover:text-text-1"
+			>
+				<X size={12} aria-hidden="true" />
+			</button>
 		</div>
 	);
 }

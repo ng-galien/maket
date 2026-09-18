@@ -192,6 +192,12 @@ maket start
 maket open
 ```
 
+In Chrome, Edge, or another supporting browser, use **Install Maket** in the
+browser UI or in Maket Settings to keep the workspace in its own application
+window. This PWA uses the same local server: it does not start, stop, or update
+the native process, so `maket start`, `maket stop`, and `maket update` remain
+explicit terminal commands.
+
 The explicit `--allow-scripts=puppeteer` is required by npm 11+'s dependency
 script policy. It lets Puppeteer download the exact headless Chromium build
 declared by the installed Maket release; no browser version is hard-coded by

@@ -1,3 +1,4 @@
+import { categoryPathContains, normalizeCategoryPath } from "@maket/shared";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
@@ -11,13 +12,18 @@ import {
 import {
 	buildCategoryTree,
 	categoryPathsForDocs,
+	collapsedPathsOutsideScope,
 	visibleDocOrder,
 } from "./docs/categoryTree";
 import { createDocItemProps } from "./docs/DocItem";
 import { buildCategoryModels, DocsCategory } from "./docs/DocsCategory";
 import { createToolbarModel, DocsToolbar } from "./docs/DocsToolbar";
 import { importMaketBundle } from "./docs/docsImportExport";
-import { addCategoryFilter, matchesQuery, parseQuery } from "./docs/docsQuery";
+import {
+	clearCategoryFilters,
+	matchesQuery,
+	parseQuery,
+} from "./docs/docsQuery";
 import { createBulkActions, handleDocSelection } from "./docs/docsSelection";
 import type { DocsTabModel, RowMode, View } from "./docs/types";
 import { COLLAPSED_KEY, VIEW_KEY } from "./docs/types";
@@ -61,7 +67,6 @@ function useDocsTabModel(): DocsTabModel {
 	const openWorkspaceDocument = useStore(
 		(state) => state.openWorkspaceDocument,
 	);
-	const [search, setSearch] = useState("");
 	const [menuFor, setMenuFor] = useState<string | null>(null);
 	const [categoryMenuFor, setCategoryMenuFor] = useState<string | null>(null);
 	const [categoryRenameFor, setCategoryRenameFor] = useState<string | null>(
@@ -79,22 +84,17 @@ function useDocsTabModel(): DocsTabModel {
 	const [view, setView] = usePersistedDocsView();
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [lastClicked, setLastClicked] = useState<string | null>(null);
-	const categoryFilterRequest = useStore(
-		(state) => state.documentCategoryFilterRequest,
-	);
-	const clearCategoryFilterRequest = useStore(
-		(state) => state.clearDocumentCategoryFilterRequest,
-	);
 	const importState = useMaketImport(t);
 	useClearSelectionOnEscape(selected.size, () => setSelected(new Set()));
-	useApplyDocumentCategoryFilter({
-		request: categoryFilterRequest,
-		clearRequest: clearCategoryFilterRequest,
+	const {
+		search,
 		setSearch,
-	});
-
-	const query = parseQuery(search, { deferLastFilterToken: true });
-	const filtered = docList.filter((doc) => matchesQuery(doc, query));
+		categoryScope,
+		setCategoryScope,
+		query,
+		filtered,
+		visibleCollapsed,
+	} = useDocumentFilters(docList, collapsed);
 	const categoryTree = buildCategoryTree(filtered);
 	const categoryPaths = categoryPathsForDocs(docList);
 	const categoryMove = useCategoryMove(
@@ -106,7 +106,7 @@ function useDocsTabModel(): DocsTabModel {
 		sendCategoryMove,
 	);
 	const openDocNames = new Set(workspaceDocNames);
-	const flatOrder = visibleDocOrder(categoryTree, collapsed);
+	const flatOrder = visibleDocOrder(categoryTree, visibleCollapsed);
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
@@ -132,6 +132,8 @@ function useDocsTabModel(): DocsTabModel {
 		toolbar: createToolbarModel({
 			search,
 			setSearch,
+			categoryScope,
+			clearCategoryScope: () => setCategoryScope(null),
 			categories: categoryPaths,
 			query,
 			view,
@@ -140,7 +142,7 @@ function useDocsTabModel(): DocsTabModel {
 		}),
 		categories: buildCategoryModels({
 			nodes: categoryTree,
-			collapsed,
+			collapsed: visibleCollapsed,
 			toggleCategory: (cat) => toggleCollapsedCategory(cat, setCollapsed),
 			dragOverCat,
 			setDragOverCat,
@@ -196,20 +198,58 @@ function sendCategoryMove(source: string, destination: string) {
 	wsSend({ type: "move_category", source, destination });
 }
 
+function useDocumentFilters(
+	docList: ReturnType<typeof useStore.getState>["docList"],
+	collapsed: Set<string>,
+) {
+	const [search, setSearch] = useState("");
+	const [categoryScope, setCategoryScope] = useState<string | null>(null);
+	const request = useStore((state) => state.documentCategoryFilterRequest);
+	const clearRequest = useStore(
+		(state) => state.clearDocumentCategoryFilterRequest,
+	);
+	useApplyDocumentCategoryFilter({
+		request,
+		clearRequest,
+		setSearch,
+		setCategoryScope,
+	});
+	const query = parseQuery(search, { deferLastFilterToken: true });
+	const filtered = docList.filter(
+		(doc) =>
+			(!categoryScope || categoryPathContains(doc.category, categoryScope)) &&
+			matchesQuery(doc, query),
+	);
+	return {
+		search,
+		setSearch,
+		categoryScope,
+		setCategoryScope,
+		query,
+		filtered,
+		visibleCollapsed: collapsedPathsOutsideScope(collapsed, categoryScope),
+	};
+}
+
 function useApplyDocumentCategoryFilter({
 	request,
 	clearRequest,
 	setSearch,
+	setCategoryScope,
 }: {
 	request: { path: string } | null;
 	clearRequest: () => void;
 	setSearch: React.Dispatch<React.SetStateAction<string>>;
+	setCategoryScope: React.Dispatch<React.SetStateAction<string | null>>;
 }) {
 	useEffect(() => {
 		if (!request) return;
-		setSearch((current) => addCategoryFilter(current, request.path));
+		setSearch((current) => clearCategoryFilters(current));
+		setCategoryScope(
+			request.path.trim() ? normalizeCategoryPath(request.path) : null,
+		);
 		clearRequest();
-	}, [clearRequest, request, setSearch]);
+	}, [clearRequest, request, setCategoryScope, setSearch]);
 }
 
 function usePersistedDocsView() {
