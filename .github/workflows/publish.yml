@@ -166,7 +166,8 @@ jobs:
 
           ERROR_FILE="$(mktemp)"
           trap 'rm -f "$ERROR_FILE"' EXIT
-          for attempt in {1..12}; do
+          # npm can accept a publish before its read API indexes the version.
+          for attempt in {1..30}; do
             if PUBLISHED_METADATA="$(npm view "${PACKAGE_NAME}@${VERSION}" version mcpName --json --prefer-online 2>"$ERROR_FILE")"; then
               break
             fi
@@ -174,13 +175,13 @@ jobs:
               cat "$ERROR_FILE" >&2
               exit 1
             fi
-            if [[ "$attempt" -eq 12 ]]; then
+            if [[ "$attempt" -eq 30 ]]; then
               cat "$ERROR_FILE" >&2
               echo "::error::${PACKAGE_NAME}@${VERSION} is still not visible from npm after ${attempt} attempts."
               exit 1
             fi
-            echo "::notice::${PACKAGE_NAME}@${VERSION} is not visible from npm yet; retrying in 5 seconds (${attempt}/12)."
-            sleep 5
+            echo "::notice::${PACKAGE_NAME}@${VERSION} is not visible from npm yet; retrying in 10 seconds (${attempt}/30)."
+            sleep 10
           done
 
           PUBLISHED_METADATA="$(node -p "const data = JSON.parse(process.argv[1]); JSON.stringify(Array.isArray(data) ? (data[0] ?? {}) : data)" "$PUBLISHED_METADATA")"
