@@ -39,6 +39,7 @@ const EXTERNALS = [
   "express",
   "jimp",
   "linkedom",
+  "postcss",
   "puppeteer",
   "ws",
   "zod",

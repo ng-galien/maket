@@ -123,8 +123,28 @@ try {
     env,
     stderr: "pipe",
   });
-  transport.stderr?.resume();
-  await client.connect(transport);
+  let bridgeStderr = "";
+  transport.stderr?.setEncoding("utf8");
+  transport.stderr?.on("data", (chunk) => {
+    bridgeStderr = `${bridgeStderr}${chunk}`.slice(-16_000);
+  });
+  try {
+    await client.connect(transport);
+  } catch (error) {
+    const bridgeLog = join(dataDir, "bridge.log");
+    const serverLog = join(dataDir, "server-spawn.log");
+    throw new Error(
+      [
+        `installed MCP bridge failed: ${error}`,
+        bridgeStderr,
+        existsSync(bridgeLog) ? readFileSync(bridgeLog, "utf8").slice(-16_000) : "",
+        existsSync(serverLog) ? readFileSync(serverLog, "utf8").slice(-16_000) : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      { cause: error },
+    );
+  }
 
   const listed = await client.listTools();
   const names = new Set(listed.tools.map((tool) => tool.name));
