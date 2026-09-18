@@ -6,6 +6,7 @@ import type {
 import {
 	Check,
 	Copy,
+	Download,
 	LoaderCircle,
 	Monitor,
 	Moon,
@@ -30,6 +31,7 @@ import {
 } from "../desktopUpdates";
 import { getLang, setLang, useT } from "../i18n/useT";
 import type { ThemeMode } from "../lib/colorScheme";
+import { promptPwaInstall, usePwaInstallStatus } from "../pwa";
 import { useStore } from "../store/useStore";
 import { sendSettings } from "../store/ws";
 import { copyToClipboard } from "../utils";
@@ -84,11 +86,40 @@ export function SettingsPage() {
 				<div className="mx-auto w-full max-w-4xl px-8 pb-10 max-sm:px-5">
 					<AppearanceSettings />
 					<WorkspaceSettings />
+					<PwaSettings />
 					<AgentSettings />
 					<UpdateSettings />
 				</div>
 			</div>
 		</main>
+	);
+}
+
+function PwaSettings() {
+	const t = useT();
+	const status = usePwaInstallStatus();
+	if (window.maketDesktop) return null;
+	return (
+		<SettingsSection
+			title={t("settings_pwa")}
+			description={t("settings_pwa_description")}
+		>
+			<SettingRow
+				label={t("settings_pwa_install")}
+				description={t(`settings_pwa_status_${status}`)}
+			>
+				{status === "installable" ? (
+					<UpdateActionButton onClick={() => void promptPwaInstall()}>
+						<Download size={13} />
+						{t("settings_pwa_install_action")}
+					</UpdateActionButton>
+				) : status === "installed" ? (
+					<span className="text-xs font-semibold text-accent">
+						{t("settings_pwa_installed")}
+					</span>
+				) : null}
+			</SettingRow>
+		</SettingsSection>
 	);
 }
 

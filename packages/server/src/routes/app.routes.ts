@@ -22,5 +22,12 @@ export function createAppRouter({ config }: AppRouterDeps): Router {
 		res.type("html").send(html);
 	});
 
+	for (const filename of ["manifest.webmanifest", "service-worker.js"]) {
+		router.get(`/${filename}`, (_req, res) => {
+			res.setHeader("Cache-Control", "no-cache");
+			res.sendFile(join(config.PUBLIC_DIR, filename));
+		});
+	}
+
 	return router;
 }

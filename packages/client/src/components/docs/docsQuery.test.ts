@@ -6,6 +6,7 @@ import {
 	applySearchSuggestion,
 	buildQueryChips,
 	buildSearchSuggestions,
+	clearCategoryFilters,
 	matchesQuery,
 	parseQuery,
 	relativeTime,
@@ -210,6 +211,12 @@ describe("docsQuery", () => {
 		expect(stripToken(search, (t) => t === "#locked")).toBe(
 			':3 brief "@Clients grands comptes/Acme" @flyer',
 		);
+	});
+
+	it("clears only category filters before breadcrumb navigation", () => {
+		const initial = '#locked :3 brief "@Clients grands comptes/Acme" @flyer';
+		expect(clearCategoryFilters(initial)).toBe("#locked :3 brief");
+		expect(clearCategoryFilters('"@Conseil municipal/Conception" ')).toBe("");
 	});
 
 	it("formats relative time in fr and en", () => {

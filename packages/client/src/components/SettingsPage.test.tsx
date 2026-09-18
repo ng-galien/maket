@@ -16,12 +16,14 @@ import {
 } from "../desktopUpdates";
 import { setLang } from "../i18n/useT";
 import { DEFAULT_ACCENT_COLOR } from "../lib/colorScheme";
+import { resetPwaForTests } from "../pwa";
 import { useStore } from "../store/useStore";
 import { SettingsPage } from "./SettingsPage";
 
 beforeEach(() => {
 	resetDesktopUpdatesForTests();
 	resetDesktopConfigurationForTests();
+	resetPwaForTests();
 	setLang("en");
 	useStore.setState({
 		settingsOpen: true,
@@ -47,6 +49,12 @@ describe("SettingsPage", () => {
 		expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
 		expect(screen.getByRole("heading", { name: "Appearance" })).toBeVisible();
 		expect(screen.getByRole("heading", { name: "Workspace" })).toBeVisible();
+		expect(
+			screen.getByRole("heading", { name: "Web application" }),
+		).toBeVisible();
+		expect(
+			screen.getByText(/local Maket server must remain active/i),
+		).toBeVisible();
 		expect(screen.getByRole("heading", { name: "Updates" })).toBeVisible();
 		expect(screen.getByRole("button", { name: "Stable" })).toHaveAttribute(
 			"aria-pressed",

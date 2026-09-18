@@ -76,6 +76,20 @@ export function flattenCategoryPaths<T>(nodes: CategoryNode<T>[]): string[] {
 	]);
 }
 
+export function collapsedPathsOutsideScope(
+	collapsed: Set<string>,
+	scope: string | null,
+): Set<string> {
+	if (!scope) return collapsed;
+	const visible = new Set(collapsed);
+	let path = "";
+	for (const segment of categoryPathSegments(normalizeCategoryPath(scope))) {
+		path = path ? `${path}/${segment}` : segment;
+		visible.delete(path);
+	}
+	return visible;
+}
+
 export function visibleDocOrder(
 	nodes: CategoryNode[],
 	collapsed: Set<string>,
