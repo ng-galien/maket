@@ -3,7 +3,7 @@ import type {
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceView,
 } from "@maket/shared";
-import { FileText, Layers3, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
@@ -289,7 +289,6 @@ function StructuredCollectionNode({
 					count: collection.items.length,
 				})}
 			/>
-			{active && collectionDocumentOpen && <ActiveCollectionLabel />}
 			{!collapsed && (
 				<div className="relative">
 					<TreeGuide depth={1} />
@@ -310,21 +309,6 @@ function StructuredCollectionNode({
 					</div>
 				</div>
 			)}
-		</div>
-	);
-}
-
-function ActiveCollectionLabel() {
-	const t = useT();
-	return (
-		<div
-			className="mb-0.5 flex items-center gap-1 text-xs font-medium text-accent"
-			style={{ paddingLeft: `${libraryCategoryLabelOffset(1)}px` }}
-		>
-			<Layers3 size={12} strokeWidth={1.8} />
-			<span className="truncate">
-				{t("structured_collection_root_visible")}
-			</span>
 		</div>
 	);
 }
@@ -356,7 +340,6 @@ function StructuredItemRow({
 					: t("structured_item_open", { document: item.documentName })
 			}
 		>
-			<FileText size={15} strokeWidth={1.7} className="shrink-0" />
 			<span className="min-w-0 flex-1 truncate text-sm font-medium">
 				{item.documentName}
 			</span>

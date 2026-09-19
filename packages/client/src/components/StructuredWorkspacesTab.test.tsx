@@ -100,7 +100,9 @@ describe("StructuredWorkspacesTab", () => {
 		expect(
 			container.querySelector('[data-structured-item="task-1"]'),
 		).not.toBeNull();
-		expect(screen.getByText("Collection view always open")).toBeInTheDocument();
+		expect(
+			screen.queryByText("Collection view always open"),
+		).not.toBeInTheDocument();
 	});
 
 	it("selects one workspace at a time and loads its collection projection", async () => {
