@@ -72,6 +72,8 @@ describe("WorkspaceDoc page focus", () => {
 		const title = band?.querySelector(".doc-label-name");
 
 		expect(band).not.toBeNull();
+		expect(label).toHaveClass("pointer-events-none");
+		expect(band).toHaveClass("pointer-events-auto");
 		expect(
 			Array.from(band?.children ?? []).map((child) => child.tagName),
 		).toEqual(["SPAN", "SPAN", "BUTTON"]);
@@ -103,6 +105,52 @@ describe("WorkspaceDoc page focus", () => {
 
 		fireEvent.click(close);
 		expect(useStore.getState().workspaceDocNames).toEqual([]);
+	});
+
+	it("limits the label hitbox to the visible band while preserving focus and close actions", () => {
+		const updater = makeDoc();
+		updater.id = "doc-updater";
+		updater.name = "Updater diagnostics";
+		const stabilize = makeDoc();
+		stabilize.id = "doc-stabilize";
+		stabilize.name = "Stabilize PDF export";
+		useStore.setState({
+			docs: new Map([
+				[updater.name, updater],
+				[stabilize.name, stabilize],
+			]),
+			workspaceDocNames: [updater.name, stabilize.name],
+			focusedDocName: stabilize.name,
+		});
+
+		const { container } = render(
+			<>
+				<WorkspaceDoc docName={updater.name} zoomK={0.25} />
+				<WorkspaceDoc docName={stabilize.name} zoomK={0.25} />
+			</>,
+		);
+		const updaterDoc = container.querySelector<HTMLElement>(
+			`[data-doc="${updater.name}"]`,
+		);
+		const wrapper = updaterDoc?.querySelector(".doc-label");
+		const band = wrapper?.firstElementChild;
+		const title = band?.querySelector(".doc-label-name");
+
+		expect(wrapper).toHaveClass("pointer-events-none");
+		expect(band).toHaveClass("pointer-events-auto");
+		fireEvent.click(title ?? (band as Element));
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: updater.name,
+			workspaceDocNames: [updater.name, stabilize.name],
+		});
+
+		fireEvent.click(
+			updaterDoc?.querySelector(".doc-close-btn") as HTMLButtonElement,
+		);
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: stabilize.name,
+			workspaceDocNames: [stabilize.name],
+		});
 	});
 
 	it("progressively hides secondary label content while keeping the close action visible", () => {

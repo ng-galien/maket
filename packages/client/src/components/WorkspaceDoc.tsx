@@ -412,7 +412,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 
 			{showDocumentLabel && (
 				<div
-					className="doc-label relative flex justify-center"
+					className="doc-label pointer-events-none relative flex justify-center"
 					style={{
 						width: docWidthPx,
 						marginTop: labelMarginTop,
@@ -421,7 +421,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					}}
 				>
 					<div
-						className={`flex shrink-0 items-center justify-center gap-1.5 px-3 py-1 rounded-xl whitespace-nowrap overflow-hidden transition-colors ${
+						className={`pointer-events-auto flex shrink-0 items-center justify-center gap-1.5 px-3 py-1 rounded-xl whitespace-nowrap overflow-hidden transition-colors ${
 							isFocused ? "bg-accent-soft" : "bg-black/[0.03]"
 						}`}
 						style={{ width: labelWidth }}
