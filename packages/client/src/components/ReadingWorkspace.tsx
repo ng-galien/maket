@@ -1,4 +1,12 @@
-import { Check, ChevronDown, ChevronLeft, ChevronRight, X } from "lucide-react";
+import {
+	Check,
+	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
+	Minus,
+	Plus,
+	X,
+} from "lucide-react";
 import type {
 	FocusEvent as ReactFocusEvent,
 	KeyboardEvent as ReactKeyboardEvent,
@@ -30,6 +38,9 @@ import {
 const CSS_PX_PER_MM = 96 / 25.4;
 const MIN_GUTTER = 12;
 const WIDE_GUTTER = 24;
+const READER_ZOOM_STEP = 0.1;
+const READER_MIN_SCALE = 0.25;
+const READER_MAX_SCALE = 2;
 
 export function readingScale(
 	viewportWidth: number,
@@ -204,12 +215,32 @@ export function ReaderSurface({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const initiallyPositioned = useRef(false);
+	const manualZoom = useRef(false);
+	const [fitScale, setFitScale] = useState(1);
 	const [scale, setScale] = useState(1);
 
 	const measure = useCallback(() => {
 		if (!scrollRef.current) return;
-		setScale(readingScale(scrollRef.current.clientWidth, doc.canvas.w));
+		const nextFitScale = readingScale(
+			scrollRef.current.clientWidth,
+			doc.canvas.w,
+		);
+		setFitScale(nextFitScale);
+		if (!manualZoom.current) setScale(nextFitScale);
 	}, [doc.canvas.w]);
+	const changeZoom = useCallback(
+		(direction: -1 | 1) => {
+			manualZoom.current = true;
+			setScale((current) =>
+				clampReaderScale(current + direction * READER_ZOOM_STEP, fitScale),
+			);
+		},
+		[fitScale],
+	);
+	const resetZoom = useCallback(() => {
+		manualZoom.current = false;
+		setScale(fitScale);
+	}, [fitScale]);
 
 	useLayoutEffect(() => {
 		measure();
@@ -230,6 +261,12 @@ export function ReaderSurface({
 	}, [doc.name, initialPageIndex]);
 
 	useVisiblePage({ doc, rootRef: scrollRef, onVisiblePage });
+	useReaderZoomKeyboard({
+		enabled: !embedded,
+		onZoomIn: () => changeZoom(1),
+		onZoomOut: () => changeZoom(-1),
+		onReset: resetZoom,
+	});
 
 	const toolbarClearance = barPosition
 		? barPosition === "top"
@@ -245,11 +282,16 @@ export function ReaderSurface({
 			data-reading-workspace
 			data-reader-appearance={embedded ? "embed" : "app"}
 			data-bar-position={barPosition}
-			className={`absolute inset-0 overflow-x-hidden overflow-y-auto ${embedded ? "bg-transparent px-0" : "bg-[var(--color-app)] px-3 sm:px-6"} ${toolbarClearance}`}
+			onWheel={(event) => {
+				if (embedded || (!event.ctrlKey && !event.metaKey)) return;
+				event.preventDefault();
+				changeZoom(event.deltaY < 0 ? 1 : -1);
+			}}
+			className={`absolute inset-0 overflow-auto ${embedded ? "bg-transparent px-0" : "bg-[var(--color-app)] px-3 sm:px-6"} ${toolbarClearance}`}
 		>
 			{status}
-			<div className="mx-auto flex min-h-full w-full justify-center">
-				<div style={{ zoom: scale }}>
+			<div className="mx-auto flex min-h-full w-max min-w-full justify-center">
+				<div data-reader-zoom style={{ zoom: scale }}>
 					<WorkspaceDoc
 						docName={doc.name}
 						zoomK={1}
@@ -260,6 +302,72 @@ export function ReaderSurface({
 					/>
 				</div>
 			</div>
+			{!embedded && barPosition && (
+				<ReaderZoomControls
+					scale={scale}
+					fitScale={fitScale}
+					position={barPosition === "top" ? "bottom" : "top"}
+					onZoomIn={() => changeZoom(1)}
+					onZoomOut={() => changeZoom(-1)}
+					onReset={resetZoom}
+				/>
+			)}
+		</div>
+	);
+}
+
+function clampReaderScale(scale: number, fitScale: number): number {
+	const minimum = Math.min(READER_MIN_SCALE, fitScale);
+	return Math.max(minimum, Math.min(READER_MAX_SCALE, scale));
+}
+
+function ReaderZoomControls({
+	scale,
+	fitScale,
+	position,
+	onZoomIn,
+	onZoomOut,
+	onReset,
+}: {
+	scale: number;
+	fitScale: number;
+	position: "top" | "bottom";
+	onZoomIn: () => void;
+	onZoomOut: () => void;
+	onReset: () => void;
+}) {
+	const t = useT();
+	const percentage = Math.round(scale * 100);
+	const minimum = Math.min(READER_MIN_SCALE, fitScale);
+	return (
+		<div
+			role="group"
+			aria-label={t("reader_zoom")}
+			className={`fixed right-[max(0.5rem,env(safe-area-inset-right))] z-[var(--z-bar)] flex h-12 items-center gap-0.5 rounded-lg border border-border/80 bg-panel/95 p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] backdrop-blur-lg ${position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
+		>
+			<ReaderButton
+				label={t("zoom_out")}
+				disabled={scale <= minimum}
+				onClick={onZoomOut}
+			>
+				<Minus size={16} />
+			</ReaderButton>
+			<button
+				type="button"
+				title={t("fit")}
+				aria-label={`${t("fit")} — ${percentage}%`}
+				onClick={onReset}
+				className="h-9 min-w-14 rounded-md px-2 text-xs font-semibold tabular-nums text-text-2 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+			>
+				{percentage}%
+			</button>
+			<ReaderButton
+				label={t("zoom_in")}
+				disabled={scale >= READER_MAX_SCALE}
+				onClick={onZoomIn}
+			>
+				<Plus size={16} />
+			</ReaderButton>
 		</div>
 	);
 }
@@ -844,6 +952,32 @@ export function useReadingKeyboard({
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [onExit, onPageChange, pageCount, pageIndex]);
+}
+
+function useReaderZoomKeyboard({
+	enabled,
+	onZoomIn,
+	onZoomOut,
+	onReset,
+}: {
+	enabled: boolean;
+	onZoomIn: () => void;
+	onZoomOut: () => void;
+	onReset: () => void;
+}) {
+	useEffect(() => {
+		if (!enabled) return;
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (readingShortcutBlocked(event.target)) return;
+			if (event.key === "+" || event.key === "=") onZoomIn();
+			else if (event.key === "-") onZoomOut();
+			else if (event.key === "0") onReset();
+			else return;
+			event.preventDefault();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [enabled, onReset, onZoomIn, onZoomOut]);
 }
 
 export function readingShortcutBlocked(target: EventTarget | null): boolean {

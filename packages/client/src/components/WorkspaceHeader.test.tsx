@@ -314,6 +314,28 @@ describe("WorkspaceHeader", () => {
 		expect(useStore.getState().stateDockOpen).toBe(true);
 	});
 
+	it("exposes live state controls for an instantiated collection document", () => {
+		const doc = makeDoc("Product Delivery — Delivery backlog");
+		doc.dataModel = "state";
+		doc.meta = {
+			structuredWorkspace: {
+				role: "collection",
+				workspaceId: "delivery",
+				collectionId: "backlog",
+			},
+		};
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			focusedDocName: doc.name,
+		});
+
+		render(<WorkspaceHeader />);
+
+		expect(
+			screen.getByRole("button", { name: "Open document state" }),
+		).toBeVisible();
+	});
+
 	it("hides the contextual data control for an unbound page", () => {
 		const doc = makeDoc("poster");
 		useStore.setState({

@@ -44,6 +44,7 @@ function WorkspaceViewHarness() {
 
 afterEach(() => {
 	cleanup();
+	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
 });
 
@@ -53,6 +54,57 @@ describe("ReadingWorkspace", () => {
 	it("fits a fixed-width page inside narrow viewports without enlarging it", () => {
 		expect(readingScale(320, 210)).toBeCloseTo(296 / (210 * (96 / 25.4)));
 		expect(readingScale(1440, 210)).toBe(1);
+	});
+
+	it("zooms the reading surface through controls, shortcuts, and modified wheel input", async () => {
+		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(900);
+		const user = userEvent.setup();
+		const doc = makeDoc("report");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			workspaceView: "reading",
+		});
+
+		const { container } = render(<ReadingWorkspace />);
+		const workspace = container.querySelector(
+			"[data-reading-workspace]",
+		) as HTMLElement;
+		const zoomed = container.querySelector("[data-reader-zoom]") as HTMLElement;
+
+		expect(zoomed.style.zoom).toBe("1");
+		await user.click(screen.getByRole("button", { name: "Zoom in" }));
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.1);
+		fireEvent.wheel(workspace, { ctrlKey: true, deltaY: -1 });
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.2);
+		fireEvent.keyDown(window, { key: "-" });
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.1);
+		await user.click(
+			screen.getByRole("button", { name: "Fit to view — 110%" }),
+		);
+		expect(zoomed.style.zoom).toBe("1");
+		expect(useStore.getState().zoom).toBe(100);
+	});
+
+	it("starts at the responsive reading fit and allows horizontal overflow after zooming", () => {
+		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(320);
+		const doc = makeDoc("report");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			workspaceView: "reading",
+		});
+
+		const { container } = render(<ReadingWorkspace />);
+		const workspace = container.querySelector("[data-reading-workspace]");
+		const zoomed = container.querySelector<HTMLElement>("[data-reader-zoom]");
+		expect(Number.parseFloat(zoomed?.style.zoom ?? "0")).toBeCloseTo(
+			readingScale(320, 210),
+		);
+		expect(workspace).toHaveClass("overflow-auto");
+		expect(screen.getByRole("group", { name: "Reader zoom" })).toBeVisible();
 	});
 
 	it("blocks global reading shortcuts while an interactive control owns focus", () => {

@@ -1,5 +1,13 @@
 import { appendJsonPointer, type DocumentStateClientView } from "@maket/shared";
-import { AlertTriangle, X } from "lucide-react";
+import {
+	AlertTriangle,
+	Braces,
+	ChevronsDownUp,
+	ChevronsUpDown,
+	ListTree,
+	Search,
+	X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useT } from "../i18n/useT";
 import {
@@ -11,8 +19,16 @@ import {
 import { sendStateValuePatch } from "../store/ws";
 import { BottomDock, useBottomDockHeight } from "./BottomDock";
 import { StateRenderControls } from "./StateDataControls";
+import {
+	allJsonContainerPaths,
+	countJsonMatches,
+	type JsonValue,
+	StateJsonTree,
+} from "./StateJsonTree";
+import { SegmentedControl } from "./shared/SegmentedControl";
 
 const STATE_DOCK_HEIGHT_KEY = "maket-state-height";
+type StateDataView = "fields" | "json";
 
 type StateValue = null | string | number | boolean;
 
@@ -36,6 +52,11 @@ export function StateWorkspace() {
 	);
 	const pendingByPointer = useStore((state) => state.statePatchPending);
 	const errorsByPointer = useStore((state) => state.statePatchErrors);
+	const [dataView, setDataView] = useState<StateDataView>("fields");
+	const [jsonQuery, setJsonQuery] = useState("");
+	const [collapsedJsonPaths, setCollapsedJsonPaths] = useState<Set<string>>(
+		new Set(),
+	);
 	const [height, setHeight] = useBottomDockHeight(
 		STATE_DOCK_HEIGHT_KEY,
 		Math.max(220, Math.min(360, Math.round(window.innerHeight * 0.34))),
@@ -44,16 +65,28 @@ export function StateWorkspace() {
 		() => (stateView ? flattenStateFields(stateView) : []),
 		[stateView],
 	);
+	const normalizedJsonQuery = jsonQuery.trim().toLocaleLowerCase();
+	const jsonValue = (stateView?.data ?? {}) as JsonValue;
+	const jsonMatchCount = useMemo(
+		() => countJsonMatches(jsonValue, normalizedJsonQuery),
+		[jsonValue, normalizedJsonQuery],
+	);
+	useEffect(() => {
+		if (normalizedJsonQuery) setCollapsedJsonPaths(new Set());
+	}, [normalizedJsonQuery]);
 
 	if (!open || focusedDoc?.dataModel !== "state" || !stateView) return null;
 	const documentPending = hasPendingStatePatchForDocument(
 		pendingByPointer,
 		focusedDoc.name,
 	);
+	const collectionState =
+		focusedDoc.meta?.structuredWorkspace?.role === "collection";
 
 	return (
 		<BottomDock
 			data-state-dock
+			aria-label={t("state_data_title")}
 			height={height}
 			resize={{
 				height,
@@ -63,13 +96,22 @@ export function StateWorkspace() {
 			}}
 			className="shrink-0"
 		>
-			<header className="flex h-10 shrink-0 items-center gap-3 border-b border-border px-3">
-				<span className="truncate text-sm font-bold text-text-1">
-					{t("state_data_title")}
-				</span>
+			<header className="flex h-10 shrink-0 items-center gap-2 overflow-hidden border-b border-border px-3 max-[900px]:px-2">
 				<StateRenderControls />
+				<div className="h-5 w-px shrink-0 bg-border" aria-hidden />
+				<StateDataControls
+					view={dataView}
+					setView={setDataView}
+					query={jsonQuery}
+					setQuery={setJsonQuery}
+					matchCount={jsonMatchCount}
+					collapseAll={() =>
+						setCollapsedJsonPaths(allJsonContainerPaths(jsonValue))
+					}
+					expandAll={() => setCollapsedJsonPaths(new Set())}
+				/>
 				<span className="min-w-0 flex-1" />
-				<span className="shrink-0 text-2xs text-text-3">
+				<span className="shrink-0 text-2xs text-text-3 max-[1000px]:sr-only">
 					{t("state_revision", { revision: stateView.revision })}
 				</span>
 				<button
@@ -82,41 +124,160 @@ export function StateWorkspace() {
 					<X size={13} />
 				</button>
 			</header>
-			<div className="min-h-0 flex-1 overflow-auto">
-				<table className="w-full border-collapse text-xs">
-					<thead className="sticky top-0 z-10 border-b border-border bg-panel text-left text-2xs font-semibold text-text-3">
-						<tr>
-							<th className="w-[38%] px-3 py-2">{t("state_field")}</th>
-							<th className="px-3 py-2">{t("state_value")}</th>
-						</tr>
-					</thead>
-					<tbody>
-						{fields.map((field) => {
-							const key = statePatchKey(focusedDoc.name, field.pointer);
-							return (
-								<StateFieldRow
-									key={field.pointer}
-									field={field}
-									docName={focusedDoc.name}
-									revision={stateView.revision}
-									pending={Boolean(pendingByPointer[key])}
-									disabled={documentPending}
-									error={errorsByPointer[key]}
-								/>
-							);
-						})}
-						{fields.length === 0 && (
+			{dataView === "fields" ? (
+				<div className="min-h-0 flex-1 overflow-auto">
+					<table className="w-full border-collapse text-xs">
+						<thead className="sticky top-0 z-10 border-b border-border bg-panel text-left text-2xs font-semibold text-text-3">
 							<tr>
-								<td colSpan={2} className="px-3 py-8 text-center text-text-3">
-									{t("state_no_values")}
-								</td>
+								<th className="w-[38%] px-3 py-2">{t("state_field")}</th>
+								<th className="px-3 py-2">{t("state_value")}</th>
 							</tr>
-						)}
-					</tbody>
-				</table>
-			</div>
+						</thead>
+						<tbody>
+							{fields.map((field) => {
+								const key = statePatchKey(focusedDoc.name, field.pointer);
+								return (
+									<StateFieldRow
+										key={field.pointer}
+										field={field}
+										docName={focusedDoc.name}
+										revision={stateView.revision}
+										pending={Boolean(pendingByPointer[key])}
+										disabled={documentPending || collectionState}
+										error={errorsByPointer[key]}
+									/>
+								);
+							})}
+							{fields.length === 0 && (
+								<tr>
+									<td colSpan={2} className="px-3 py-8 text-center text-text-3">
+										{t("state_no_values")}
+									</td>
+								</tr>
+							)}
+						</tbody>
+					</table>
+				</div>
+			) : (
+				<StateJsonTree
+					value={jsonValue}
+					query={normalizedJsonQuery}
+					collapsedPaths={collapsedJsonPaths}
+					onToggle={(path) =>
+						setCollapsedJsonPaths((current) => togglePath(current, path))
+					}
+				/>
+			)}
 		</BottomDock>
 	);
+}
+
+function StateDataControls({
+	view,
+	setView,
+	query,
+	setQuery,
+	matchCount,
+	collapseAll,
+	expandAll,
+}: {
+	view: StateDataView;
+	setView: (view: StateDataView) => void;
+	query: string;
+	setQuery: (query: string) => void;
+	matchCount: number;
+	collapseAll: () => void;
+	expandAll: () => void;
+}) {
+	const t = useT();
+	const normalizedQuery = query.trim();
+	return (
+		<>
+			<SegmentedControl
+				label={t("state_data_view")}
+				value={view}
+				onChange={setView}
+				options={[
+					{
+						value: "fields",
+						label: t("state_fields_view"),
+						icon: <ListTree size={14} />,
+					},
+					{
+						value: "json",
+						label: t("state_json_view"),
+						icon: <Braces size={14} />,
+					},
+				]}
+			/>
+			{view === "json" && (
+				<>
+					<div className="relative min-w-20 max-w-64 flex-[0_1_16rem]">
+						<Search
+							size={13}
+							aria-hidden
+							className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-3"
+						/>
+						<input
+							type="search"
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+							placeholder={t("state_json_search")}
+							aria-label={t("state_json_search")}
+							className="h-7 w-full rounded-sm border border-border bg-panel pl-8 pr-8 font-mono text-xs text-text-1 outline-none transition-colors focus:border-accent"
+						/>
+						{query && (
+							<button
+								type="button"
+								onClick={() => setQuery("")}
+								aria-label={t("clear_search")}
+								className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-xs text-text-3 transition-colors hover:bg-input hover:text-text-1"
+							>
+								<X size={12} />
+							</button>
+						)}
+					</div>
+					{normalizedQuery && (
+						<output
+							aria-live="polite"
+							className={`shrink-0 text-2xs font-semibold tabular-nums max-[1000px]:sr-only ${
+								matchCount > 0 ? "text-text-2" : "text-danger"
+							}`}
+						>
+							{matchCount > 0
+								? t("state_json_matches", { count: matchCount })
+								: t("state_json_no_matches")}
+						</output>
+					)}
+					<button
+						type="button"
+						onClick={collapseAll}
+						aria-label={t("state_json_collapse_all")}
+						title={t("state_json_collapse_all")}
+						className="grid h-7 w-7 shrink-0 place-items-center rounded-sm text-text-3 transition-colors hover:bg-panel hover:text-text-1"
+					>
+						<ChevronsDownUp size={13} />
+					</button>
+					<button
+						type="button"
+						onClick={expandAll}
+						aria-label={t("state_json_expand_all")}
+						title={t("state_json_expand_all")}
+						className="grid h-7 w-7 shrink-0 place-items-center rounded-sm text-text-3 transition-colors hover:bg-panel hover:text-text-1"
+					>
+						<ChevronsUpDown size={13} />
+					</button>
+				</>
+			)}
+		</>
+	);
+}
+
+function togglePath(current: ReadonlySet<string>, path: string): Set<string> {
+	const next = new Set(current);
+	if (next.has(path)) next.delete(path);
+	else next.add(path);
+	return next;
 }
 
 function StateFieldRow({

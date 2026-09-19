@@ -9,6 +9,8 @@ import {
 	type DocumentStateClientView,
 	type PageCollectionCursor,
 	type Settings,
+	type StructuredWorkspaceRenderTarget,
+	type StructuredWorkspaceView,
 } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
@@ -31,7 +33,11 @@ import {
 	sendSettings,
 	wsSend,
 } from "./ws";
-import { cancelFitForWorkspaceRemoval, requestFit } from "./zoomBridge";
+import {
+	cancelFitForWorkspaceRemoval,
+	requestFit,
+	setAutomaticRepositioningEnabled,
+} from "./zoomBridge";
 
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
@@ -153,8 +159,25 @@ interface DocumentIdentitySlice {
 	) => void;
 }
 
+interface StructuredWorkspaceSlice {
+	structuredWorkspaces: StructuredWorkspaceView[];
+	activeStructuredWorkspaceId: string | null;
+	activeStructuredCollectionId: string | null;
+	setStructuredWorkspaces: (workspaces: StructuredWorkspaceView[]) => void;
+	setActiveStructuredCollection: (
+		workspaceId: string | null,
+		collectionId: string | null,
+	) => void;
+}
+
 interface ShellSlice {
-	libraryView: "chartes" | "photos" | "docs" | "collections" | "exchange";
+	libraryView:
+		| "chartes"
+		| "photos"
+		| "docs"
+		| "collections"
+		| "structured-workspaces"
+		| "exchange";
 	libraryOpen: boolean;
 	libraryPinned: boolean;
 	settingsOpen: boolean;
@@ -183,6 +206,7 @@ interface AppState
 		CollectionSlice,
 		DocumentStateSlice,
 		DocumentIdentitySlice,
+		StructuredWorkspaceSlice,
 		ShellSlice {
 	// Connection
 	connected: boolean;
@@ -226,7 +250,10 @@ interface AppState
 	) => void;
 	addDocToWorkspace: (docName: string) => void;
 	closeWorkspaceDocuments: (docNames: string[]) => void;
-	openWorkspaceDocument: (docName: string) => void;
+	openWorkspaceDocument: (
+		docName: string,
+		structuredWorkspace?: StructuredWorkspaceRenderTarget,
+	) => void;
 	setFocusedDoc: (docName: string | null) => void;
 	setFocusedPage: (docName: string, pageIndex: number) => void;
 	selectElement: (id: string | null, toggle?: boolean) => void;
@@ -508,6 +535,9 @@ export const useStore = create<AppState>((set, get) => ({
 	chartesCss: new Map(),
 	chartesVersion: 0,
 	collections: [],
+	structuredWorkspaces: [],
+	activeStructuredWorkspaceId: null,
+	activeStructuredCollectionId: null,
 	readOnly: false,
 	selectedIds: [],
 	editingElementId: null,
@@ -519,6 +549,7 @@ export const useStore = create<AppState>((set, get) => ({
 			| "photos"
 			| "docs"
 			| "collections"
+			| "structured-workspaces"
 			| "exchange") || "docs",
 	libraryOpen: localStorage.getItem("maket-library-open") !== "false",
 	libraryPinned: localStorage.getItem("maket-library-pinned") === "true",
@@ -542,6 +573,12 @@ export const useStore = create<AppState>((set, get) => ({
 				: { connected, workspaceHydrated: false, settingsHydrated: false },
 		),
 	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
+	setStructuredWorkspaces: (structuredWorkspaces) =>
+		set({ structuredWorkspaces }),
+	setActiveStructuredCollection: (
+		activeStructuredWorkspaceId,
+		activeStructuredCollectionId,
+	) => set({ activeStructuredWorkspaceId, activeStructuredCollectionId }),
 	loadAssets: async (force = false) => {
 		const current = get();
 		if (assetLoadPromise) {
@@ -1088,10 +1125,10 @@ export const useStore = create<AppState>((set, get) => ({
 		}
 	},
 
-	openWorkspaceDocument: (docName) => {
+	openWorkspaceDocument: (docName, structuredWorkspace) => {
 		const state = get();
-		if (!state.workspaceDocNames.includes(docName)) {
-			sendLoadDoc(docName);
+		if (structuredWorkspace || !state.workspaceDocNames.includes(docName)) {
+			sendLoadDoc(docName, structuredWorkspace);
 			return;
 		}
 		state.setFocusedDoc(docName);
@@ -1241,12 +1278,14 @@ export const useStore = create<AppState>((set, get) => ({
 	setLocked: (locked) => set({ locked }),
 	setZoom: (zoom) => set({ zoom }),
 	setAutoFocusFit: (autoFocusFit) => {
+		setAutomaticRepositioningEnabled(autoFocusFit);
 		set({ autoFocusFit });
 		sendSettings({ autoFocusFit });
 	},
 	applySettings: (settings) => {
 		const accentColor = normalizeAccentColor(settings.accentColor);
 		const darkMode = resolveDarkMode(settings.themeMode);
+		setAutomaticRepositioningEnabled(settings.autoFocusFit);
 		applyColorScheme(darkMode);
 		applyAccentColor(accentColor);
 		set({

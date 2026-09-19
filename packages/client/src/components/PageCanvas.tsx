@@ -245,6 +245,8 @@ export const PageCanvas = memo(function PageCanvas({
 	} | null>(null);
 	const textCommitRef = useRef(new WeakMap<HTMLInputElement, string>());
 	const page = doc.pages[pageIndex];
+	const structuredCollection =
+		doc.meta?.structuredWorkspace?.role === "collection";
 	const stateBacked = doc.dataModel === "state";
 	const stateView = useStore((s) => s.documentStates[doc.name]);
 	const canvasStateMode = useStore(
@@ -293,10 +295,16 @@ export const PageCanvas = memo(function PageCanvas({
 	const pending = useStore((s) => s.pending);
 	const isEditing = useStore((s) => s.editingElementId !== null);
 	const canInteract =
-		activePolicy.authoring && (!stateBacked || stateMode === "design");
-	const canEditTemplate = canInteract && preview?.mode !== "rendered";
-	const canPersistState = activePolicy.stateControls === "persist";
-	const canUseStateControls = activePolicy.stateControls !== "disabled";
+		activePolicy.authoring &&
+		!structuredCollection &&
+		(!stateBacked || stateMode === "design");
+	const templateControlled = page?.provenance?.kind === "template";
+	const canEditTemplate =
+		canInteract && !templateControlled && preview?.mode !== "rendered";
+	const canPersistState =
+		activePolicy.stateControls === "persist" && !structuredCollection;
+	const canUseStateControls =
+		activePolicy.stateControls !== "disabled" && !structuredCollection;
 	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
 	const placeholderOptions = useMemo(
 		() => [
@@ -979,6 +987,38 @@ export const PageCanvas = memo(function PageCanvas({
 			});
 		useStore.getState().selectElement(null);
 	}, [activePolicy.authoring]);
+
+	useEffect(() => {
+		const canvas = pageRef.current;
+		if (!canvas) return;
+		const openInstantiatedDocument = (target: EventTarget | null) => {
+			if (!(target instanceof HTMLElement)) return false;
+			const action = target.closest<HTMLElement>(
+				'[data-maket-action="open-document"][data-maket-document]',
+			);
+			const documentName = action?.getAttribute("data-maket-document");
+			if (!documentName) return false;
+			useStore.getState().openWorkspaceDocument(documentName);
+			return true;
+		};
+		const onClick = (event: MouseEvent) => {
+			if (!openInstantiatedDocument(event.target)) return;
+			event.preventDefault();
+			event.stopPropagation();
+		};
+		const onKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== "Enter" && event.key !== " ") return;
+			if (!openInstantiatedDocument(event.target)) return;
+			event.preventDefault();
+			event.stopPropagation();
+		};
+		canvas.addEventListener("click", onClick, true);
+		canvas.addEventListener("keydown", onKeyDown, true);
+		return () => {
+			canvas.removeEventListener("click", onClick, true);
+			canvas.removeEventListener("keydown", onKeyDown, true);
+		};
+	}, [renderHtml]);
 
 	const dismissEnumEditor = useCallback(
 		(restoreFocus: boolean) => {

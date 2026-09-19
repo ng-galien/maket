@@ -34,6 +34,7 @@ afterEach(() => {
 		collectionCursors: {},
 		collectionDrafts: {},
 		selectedIds: [],
+		pending: [],
 		readOnly: false,
 		documentStates: {},
 	});
@@ -41,6 +42,128 @@ afterEach(() => {
 });
 
 describe("WorkspaceDoc page focus", () => {
+	it("keeps the persistent document label compact while preserving the note count and close action", () => {
+		const doc = makeDoc(2);
+		doc.name = "Quarterly delivery report with a deliberately long title";
+		doc.dataModel = "state";
+		doc.canvas = {
+			...doc.canvas,
+			format: "A4",
+			orientation: "portrait",
+		};
+		doc.meta = {
+			emailDraftUrl: "https://mail.google.com/mail/u/0/#drafts/example",
+			emailDraftRole: "body",
+		};
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+			pending: [
+				{ id: "note-1", docName: doc.name, type: "note", ts: 1 },
+				{ id: "note-2", docName: doc.name, type: "note", ts: 2 },
+			],
+		});
+
+		const { container } = render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
+		const label = container.querySelector(".doc-label");
+		const band = label?.firstElementChild;
+		const title = band?.querySelector(".doc-label-name");
+
+		expect(band).not.toBeNull();
+		expect(
+			Array.from(band?.children ?? []).map((child) => child.tagName),
+		).toEqual(["SPAN", "SPAN", "BUTTON"]);
+		expect(title).toHaveTextContent(doc.name);
+		expect(title).toHaveTextContent(`smoke / ${doc.name}`);
+		expect(title).toHaveClass("font-bold", "text-accent");
+		expect(title).toHaveClass("min-w-0", "shrink");
+		expect(band).toHaveClass(
+			"shrink-0",
+			"justify-center",
+			"gap-1.5",
+			"px-3",
+			"py-1",
+			"rounded-xl",
+			"bg-accent-soft",
+		);
+		expect(band).not.toHaveTextContent("A4");
+		expect(band).not.toHaveTextContent("2p");
+		expect(band).not.toHaveTextContent("State");
+		expect(band?.querySelector("a")).toBeNull();
+		expect(band?.children[1]).toHaveTextContent("2");
+		const close = screen.getByRole("button", { name: "Close" });
+		expect(close).toHaveClass("w-5", "h-5", "border-none", "bg-transparent");
+		expect(label?.querySelector(".doc-tooltip")).toHaveTextContent(
+			"A4 portrait",
+		);
+		expect(label?.querySelector(".doc-tooltip")).toHaveTextContent("2 pages");
+		expect(label?.querySelector(".doc-tooltip")).toHaveTextContent("2 pending");
+
+		fireEvent.click(close);
+		expect(useStore.getState().workspaceDocNames).toEqual([]);
+	});
+
+	it("progressively hides secondary label content while keeping the close action visible", () => {
+		const doc = makeDoc();
+		doc.name = "A long narrow document title";
+		doc.canvas = { ...doc.canvas, w: 40 };
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: null,
+			pending: [{ id: "note-1", docName: doc.name, type: "note", ts: 1 }],
+		});
+
+		const view = render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
+		let band = view.container.querySelector<HTMLElement>(".doc-label > div");
+
+		expect(Number.parseFloat(band?.style.width ?? "0")).toBeLessThan(152);
+		expect(
+			Array.from(band?.children ?? []).map((child) => child.tagName),
+		).toEqual(["SPAN", "SPAN", "BUTTON"]);
+		expect(band?.querySelector(".doc-label-name")).toHaveTextContent(doc.name);
+		expect(band).not.toHaveTextContent(`smoke / ${doc.name}`);
+		expect(band?.children[1]).toHaveTextContent("1");
+
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.7} />);
+		band = view.container.querySelector<HTMLElement>(".doc-label > div");
+		expect(band?.querySelector(".doc-label-name")).toHaveTextContent(doc.name);
+		expect(band?.children).toHaveLength(3);
+		expect(band).toHaveTextContent("1");
+		expect(
+			Number.parseFloat(
+				band?.querySelector<HTMLElement>(".doc-label-name")?.style.maxWidth ??
+					"0",
+			),
+		).toBeLessThan(40);
+
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.5} />);
+		band = view.container.querySelector<HTMLElement>(".doc-label > div");
+		const close = screen.getByRole("button", { name: "Close" });
+		expect(band?.children).toHaveLength(2);
+		expect(band?.querySelector(".doc-label-name")).toBeNull();
+		expect(band).toHaveTextContent("1");
+
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.3} />);
+		band = view.container.querySelector<HTMLElement>(".doc-label > div");
+		expect(band?.children).toHaveLength(1);
+		expect(band).not.toHaveTextContent("1");
+
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.1} />);
+		band = view.container.querySelector<HTMLElement>(".doc-label > div");
+		expect(Number.parseFloat(band?.style.width ?? "0")).toBe(44);
+		expect(close).toBeVisible();
+		expect(close).toHaveClass(
+			"shrink-0",
+			"w-5",
+			"h-5",
+			"border-none",
+			"bg-transparent",
+		);
+	});
+
 	it("does not render collection controls on the canvas", () => {
 		const doc = makeDoc();
 		useStore.setState({

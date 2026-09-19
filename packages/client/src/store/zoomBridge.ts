@@ -12,6 +12,7 @@ let _requestFit: ((target?: FitTarget) => void) | null = null;
 let _cancelFit: (() => void) | null = null;
 let _pendingFit: { target?: FitTarget } | null = null;
 let _workspaceRemovalSuppressesAutoFit = false;
+let _automaticRepositioningEnabled = true;
 
 export function registerRequestFit(
 	fn: ((target?: FitTarget) => void) | null,
@@ -47,6 +48,18 @@ export function zoomTo(pct: number): void {
 	_zoomTo?.(pct);
 }
 
+/** Single policy boundary for every automatic camera movement. Explicit user
+ * commands intentionally bypass it through fitToView, fitToDoc, and zoomTo. */
+export function runAutomaticReposition(reposition: () => void): void {
+	if (!_automaticRepositioningEnabled) return;
+	reposition();
+}
+
+export function setAutomaticRepositioningEnabled(enabled: boolean): void {
+	_automaticRepositioningEnabled = enabled;
+	if (!enabled) cancelFit();
+}
+
 /** Immediate fit for an explicit user command. Automatic workspace changes
  * must use requestFit so layout settling and user-interaction cancellation are
  * preserved. The architecture rule of the same name enforces that boundary. */
@@ -67,12 +80,14 @@ export function fitToDoc(docName: string, pageIndex?: number): void {
  * Board has measurable content.
  */
 export function requestFit(target?: FitTarget): void {
-	_workspaceRemovalSuppressesAutoFit = false;
-	if (_requestFit) {
-		_requestFit(target);
-	} else {
-		_pendingFit = { target };
-	}
+	runAutomaticReposition(() => {
+		_workspaceRemovalSuppressesAutoFit = false;
+		if (_requestFit) {
+			_requestFit(target);
+		} else {
+			_pendingFit = { target };
+		}
+	});
 }
 
 export function cancelFit(): void {

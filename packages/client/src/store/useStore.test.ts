@@ -14,14 +14,18 @@ const { useStore, cursorForPage, previewCursorForPage } = await import(
 	"./useStore"
 );
 const { wsSend } = await import("./ws");
-const { consumePendingFit, consumeWorkspaceRemovalFitSuppression } =
-	await import("./zoomBridge");
+const {
+	consumePendingFit,
+	consumeWorkspaceRemovalFitSuppression,
+	setAutomaticRepositioningEnabled,
+} = await import("./zoomBridge");
 
 // Snapshot of the store's initial shape so each test can reset cleanly.
 // Captured once after module import — before any test mutates state.
 const INITIAL = useStore.getState();
 
 function resetStore() {
+	setAutomaticRepositioningEnabled(true);
 	useStore.setState(
 		{
 			...INITIAL,
@@ -485,6 +489,25 @@ describe("workspace / focus", () => {
 		expect(consumePendingFit()).toEqual({
 			target: { docName: "beta", pageIndex: 0 },
 		});
+	});
+
+	it("does not reposition after closing a document when automatic repositioning is off", () => {
+		useStore.setState({
+			docs: new Map([
+				["alpha", makeDoc("alpha")],
+				["beta", makeDoc("beta")],
+			]),
+			workspaceDocNames: ["alpha", "beta"],
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			workspaceView: "canvas",
+		});
+		useStore.getState().setAutoFocusFit(false);
+
+		useStore.getState().closeWorkspaceDocuments(["alpha"]);
+
+		expect(useStore.getState().focusedDocName).toBe("beta");
+		expect(consumePendingFit()).toBeNull();
 	});
 
 	it("addDocToWorkspace is idempotent", () => {

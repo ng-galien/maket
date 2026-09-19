@@ -44,12 +44,34 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("WorkspaceDoc zoom rendering", () => {
-	it("keeps page canvas props stable while only the zoom label scale changes", () => {
+	it("keeps the label aligned to the document width and at a constant screen gap across zoom levels", () => {
 		const view = render(<WorkspaceDoc docName={doc.name} zoomK={1} />);
 		expect(pageCanvasRender).toHaveBeenCalledOnce();
+		assertLabelGeometry(view.container, 1);
 
 		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.75} />);
+		assertLabelGeometry(view.container, 0.75);
+
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={2} />);
+		assertLabelGeometry(view.container, 2);
 
 		expect(pageCanvasRender).toHaveBeenCalledOnce();
 	});
 });
+
+function assertLabelGeometry(container: HTMLElement, zoomK: number): void {
+	const docWidth = doc.canvas.w * 3.78;
+	const label = container.querySelector<HTMLElement>(".doc-label");
+	const band = label?.firstElementChild as HTMLElement | null;
+
+	expect(label).not.toBeNull();
+	expect(band).not.toBeNull();
+	expect(Number.parseFloat(label?.style.width ?? "0")).toBeCloseTo(docWidth);
+	expect(Number.parseFloat(band?.style.width ?? "0")).toBeCloseTo(
+		docWidth * zoomK,
+	);
+	expect(label?.style.transform).toBe(`scale(${1 / zoomK})`);
+	expect(
+		(12 + Number.parseFloat(label?.style.marginTop ?? "0")) * zoomK,
+	).toBeCloseTo(8);
+}

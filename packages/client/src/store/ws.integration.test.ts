@@ -130,6 +130,20 @@ afterEach(() => {
 });
 
 describe("initWs + onopen", () => {
+	it("uses a secure socket when the application is served over HTTPS", async () => {
+		vi.stubGlobal("location", {
+			protocol: "https:",
+			host: "maket.tailnet.example:18446",
+		});
+		const { initWs } = await freshWsModule();
+
+		initWs();
+
+		expect(MockWebSocket.last().url).toBe(
+			"wss://maket.tailnet.example:18446/ws",
+		);
+	});
+
 	it("opens a single socket and reports only the displayed workspace", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		useStore.setState({ workspaceDocNames: ["alpha", "beta"] });

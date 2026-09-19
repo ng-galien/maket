@@ -3,7 +3,7 @@ import {
 	collectionCursorKey,
 	type PageCollectionCursor,
 } from "@maket/shared";
-import { History, X } from "lucide-react";
+import { X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
@@ -15,9 +15,21 @@ import {
 	type PresentationSurface,
 	presentationPolicy,
 } from "./presentation-policy";
-import { DraftPill } from "./shared/DraftPill";
 
 const PAGE_GAP = 12;
+const DOCUMENT_LABEL_SCREEN_GAP = 8;
+const DOCUMENT_LABEL_HORIZONTAL_PADDING = 24;
+const DOCUMENT_LABEL_ITEM_GAP = 6;
+const DOCUMENT_LABEL_CLOSE_WIDTH = 20;
+const DOCUMENT_LABEL_PENDING_WIDTH = 18;
+const DOCUMENT_LABEL_MIN_NAME_WIDTH = 24;
+const DOCUMENT_LABEL_AVERAGE_CHARACTER_WIDTH = 8;
+const DOCUMENT_LABEL_CLOSE_ONLY_WIDTH =
+	DOCUMENT_LABEL_HORIZONTAL_PADDING + DOCUMENT_LABEL_CLOSE_WIDTH;
+const DOCUMENT_LABEL_PENDING_THRESHOLD =
+	DOCUMENT_LABEL_CLOSE_ONLY_WIDTH +
+	DOCUMENT_LABEL_ITEM_GAP +
+	DOCUMENT_LABEL_PENDING_WIDTH;
 
 export interface PageView {
 	key: string;
@@ -294,14 +306,41 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	if (!doc) return null;
 
 	const docWidthPx = doc.canvas.w * 3.78;
-	const labelScale = 1 / Math.max(zoomK, 0.1);
-	// Chip tracks the doc's on-screen width, but never below a readable floor
-	// (a narrow doc at far zoom would crush the name span to 0px) and never
-	// above the doc's natural width (the floor must not balloon tiny docs).
-	const labelMaxWidth = Math.min(
-		docWidthPx,
-		Math.max(160, docWidthPx / labelScale),
+	const safeZoomK = Math.max(zoomK, 0.1);
+	const labelScale = 1 / safeZoomK;
+	const documentScreenWidth = docWidthPx * safeZoomK;
+	const labelWidth = Math.max(
+		documentScreenWidth,
+		DOCUMENT_LABEL_CLOSE_ONLY_WIDTH,
 	);
+	const labelMarginTop = DOCUMENT_LABEL_SCREEN_GAP / safeZoomK - PAGE_GAP;
+	const showPendingCount =
+		pendingCount > 0 && labelWidth >= DOCUMENT_LABEL_PENDING_THRESHOLD;
+	const labelControlsWidth =
+		DOCUMENT_LABEL_CLOSE_WIDTH +
+		(showPendingCount
+			? DOCUMENT_LABEL_ITEM_GAP + DOCUMENT_LABEL_PENDING_WIDTH
+			: 0);
+	const labelNameMaxWidth = Math.max(
+		0,
+		labelWidth -
+			DOCUMENT_LABEL_HORIZONTAL_PADDING -
+			labelControlsWidth -
+			DOCUMENT_LABEL_ITEM_GAP,
+	);
+	const showLabelName = labelNameMaxWidth >= DOCUMENT_LABEL_MIN_NAME_WIDTH;
+	const categoryBreadcrumb = doc.category
+		?.split("/")
+		.filter(Boolean)
+		.join(" / ");
+	const fullLabel = categoryBreadcrumb
+		? `${categoryBreadcrumb} / ${doc.name}`
+		: doc.name;
+	const labelText =
+		fullLabel.length * DOCUMENT_LABEL_AVERAGE_CHARACTER_WIDTH <=
+		labelNameMaxWidth
+			? fullLabel
+			: doc.name;
 
 	return (
 		<div
@@ -373,50 +412,33 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 
 			{showDocumentLabel && (
 				<div
-					className="doc-label relative"
+					className="doc-label relative flex justify-center"
 					style={{
+						width: docWidthPx,
+						marginTop: labelMarginTop,
 						transform: `scale(${labelScale})`,
 						transformOrigin: "top center",
 					}}
 				>
 					<div
-						className={`flex items-center gap-1.5 px-3 py-1 rounded-xl whitespace-nowrap overflow-hidden transition-colors ${
+						className={`flex shrink-0 items-center justify-center gap-1.5 px-3 py-1 rounded-xl whitespace-nowrap overflow-hidden transition-colors ${
 							isFocused ? "bg-accent-soft" : "bg-black/[0.03]"
 						}`}
-						style={{ maxWidth: labelMaxWidth }}
+						style={{ width: labelWidth }}
 					>
-						{isFocused && (
-							<div className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-						)}
-						<span
-							className={`doc-label-name text-base overflow-hidden ${isFocused ? "font-bold text-accent" : "font-medium text-text-2"}`}
-						>
-							{doc.name}
-						</span>
-						<span className="text-2xs text-text-3 shrink-0">
-							{doc.canvas.format} · {doc.pages.length}p
-						</span>
-						{doc.dataModel === "state" && (
+						{showLabelName && (
 							<span
-								title={t("state_document_badge_label")}
-								className="inline-flex items-center gap-1 rounded-full bg-accent-soft px-1.5 py-0.5 text-2xs font-bold text-accent shrink-0"
+								className={`doc-label-name min-w-0 shrink text-base overflow-hidden ${isFocused ? "font-bold text-accent" : "font-medium text-text-2"}`}
+								style={{ maxWidth: labelNameMaxWidth }}
 							>
-								<History size={10} />
-								{t("state_document_badge")}
+								{labelText}
 							</span>
 						)}
-						{doc.meta?.emailDraftUrl && (
-							<DraftPill
-								kind={
-									doc.meta?.emailDraftRole === "attachment"
-										? "attachment"
-										: "body"
-								}
-								url={doc.meta.emailDraftUrl}
-							/>
-						)}
-						{pendingCount > 0 && (
-							<span className="text-2xs font-bold text-accent-contrast bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0">
+						{showPendingCount && (
+							<span
+								title={t("pending_count", { count: pendingCount })}
+								className="text-2xs font-bold text-accent-contrast bg-accent rounded-full px-1.5 py-px min-w-[18px] text-center shrink-0"
+							>
 								{pendingCount}
 							</span>
 						)}
@@ -445,6 +467,11 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 								{ count: doc.pages.length },
 							)}
 						</div>
+						{pendingCount > 0 && (
+							<div className="text-2xs text-text-3 mt-0.5">
+								{t("pending_count", { count: pendingCount })}
+							</div>
+						)}
 					</div>
 				</div>
 			)}

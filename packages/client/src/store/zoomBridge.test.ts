@@ -10,6 +10,8 @@ import {
 	registerRequestFit,
 	registerZoomTo,
 	requestFit,
+	runAutomaticReposition,
+	setAutomaticRepositioningEnabled,
 	zoomTo,
 } from "./zoomBridge";
 
@@ -23,6 +25,7 @@ describe("zoomBridge", () => {
 		registerRequestFit(null);
 		registerZoomTo(() => {});
 		registerFitToView(() => {});
+		setAutomaticRepositioningEnabled(true);
 	});
 
 	it("forwards zoomTo(pct) to the registered handler", () => {
@@ -101,5 +104,23 @@ describe("requestFit", () => {
 		requestFit({ docName: "d" });
 
 		expect(consumeWorkspaceRemovalFitSuppression()).toBe(false);
+	});
+
+	it("cuts off every automatic reposition while preserving explicit commands", () => {
+		const automatic = vi.fn();
+		const requested = vi.fn();
+		const explicit = vi.fn();
+		registerRequestFit(requested);
+		registerFitToView(explicit);
+
+		setAutomaticRepositioningEnabled(false);
+		runAutomaticReposition(automatic);
+		requestFit({ docName: "doc" });
+		fitToView();
+
+		expect(automatic).not.toHaveBeenCalled();
+		expect(requested).not.toHaveBeenCalled();
+		expect(consumePendingFit()).toBeNull();
+		expect(explicit).toHaveBeenCalledOnce();
 	});
 });

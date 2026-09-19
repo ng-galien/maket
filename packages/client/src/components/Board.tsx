@@ -26,6 +26,7 @@ import {
 	registerRequestFit,
 	registerZoomTo,
 	requestFit,
+	runAutomaticReposition,
 } from "../store/zoomBridge";
 import { boardDocFrame } from "./boardGeometry";
 import { WorkspaceDoc } from "./WorkspaceDoc";
@@ -138,7 +139,7 @@ function useAutoFocusFit(workspaceDocNames: string[]): void {
 		const workspaceShrank = workspaceCount < previousWorkspaceCount.current;
 		previousWorkspaceCount.current = workspaceCount;
 		if (removalSuppressedAutoFit || workspaceShrank) return;
-		if (!autoFocusFit || !focusedDocName) return;
+		if (!focusedDocName) return;
 		requestFit({ docName: focusedDocName, pageIndex: focusedPageIndex });
 	}, [
 		autoFocusFit,
@@ -158,7 +159,6 @@ function useAutoFocusFit(workspaceDocNames: string[]): void {
 			previous.docName === focusedDocName &&
 			previous.pageIndex === focusedPageIndex;
 		if (
-			!autoFocusFit ||
 			!focusedDocName ||
 			!samePage ||
 			previous.geometryKey === collectionGeometryKey
@@ -437,7 +437,7 @@ function observeInitialBoardFit(
 		initialFitDone = true;
 		const pending = consumePendingFit();
 		if (pending) deferredRequestFit(pending.target);
-		else deferredRequestFit();
+		else requestFit();
 		setBoardVisible(true);
 	});
 	if (boardRef.current) boardRo.observe(boardRef.current);
@@ -458,10 +458,12 @@ function observeWrapResize(
 		lastH = h;
 		if (dx === 0 && dy === 0) return;
 		const current = zoomTransform(wrap as unknown as Element);
-		el.call(
-			zoomBehavior.transform,
-			zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k),
-		);
+		runAutomaticReposition(() => {
+			el.call(
+				zoomBehavior.transform,
+				zoomIdentity.translate(current.x + dx, current.y + dy).scale(current.k),
+			);
+		});
 	};
 	const observer = new ResizeObserver((entries) => {
 		const entry = entries[0];

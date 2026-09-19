@@ -51,7 +51,12 @@ export default defineConfig(({ mode }) => {
 			proxy: {
 				"/api": http,
 				"/assets": http,
-				"/ws": { target: ws, ws: true },
+				"/ws": {
+					target: ws,
+					ws: true,
+					changeOrigin: true,
+					rewriteWsOrigin: true,
+				},
 				// Server-rendered HTML routes — Vite falls back to the SPA shell if
 				// these aren't proxied, swallowing the real response.
 				"/print": http,

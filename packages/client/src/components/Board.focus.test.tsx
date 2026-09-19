@@ -18,6 +18,8 @@ vi.mock("../store/zoomBridge", () => ({
 	registerRequestFit: vi.fn(),
 	registerZoomTo: vi.fn(),
 	requestFit: zoomSpies.requestFit,
+	runAutomaticReposition: (reposition: () => void) => reposition(),
+	setAutomaticRepositioningEnabled: vi.fn(),
 	cancelFitForWorkspaceRemoval: zoomSpies.cancelFitForWorkspaceRemoval,
 }));
 
@@ -88,7 +90,7 @@ afterEach(() => {
 });
 
 describe("Board automatic focus fit", () => {
-	it("tracks document and page focus but respects a disengaged auto-fit", async () => {
+	it("routes document and page focus through the automatic fit pipeline", async () => {
 		render(<Board locked={false} />);
 		await waitFor(() =>
 			expect(zoomSpies.requestFit).toHaveBeenLastCalledWith({
@@ -104,13 +106,6 @@ describe("Board automatic focus fit", () => {
 				pageIndex: 1,
 			}),
 		);
-		const callsWithAutoFit = zoomSpies.requestFit.mock.calls.length;
-
-		act(() => {
-			useStore.setState({ autoFocusFit: false });
-			useStore.getState().setFocusedDoc("beta");
-		});
-		expect(zoomSpies.requestFit).toHaveBeenCalledTimes(callsWithAutoFit);
 	});
 
 	it("recalculates the focused frame when the workspace expands or shrinks", async () => {

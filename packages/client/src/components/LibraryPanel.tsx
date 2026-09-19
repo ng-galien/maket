@@ -8,6 +8,7 @@ import {
 	Palette,
 	PanelLeft,
 	PanelLeftDashed,
+	PanelsTopLeft,
 	Settings as SettingsIcon,
 } from "lucide-react";
 import {
@@ -31,6 +32,7 @@ import { CollectionsTab } from "./CollectionsTab";
 import { DocsTab } from "./DocsTab";
 import { MessagesPanel } from "./MessagesPanel";
 import { PhotosTab } from "./PhotosTab";
+import { StructuredWorkspacesTab } from "./StructuredWorkspacesTab";
 import { ResizeHandleFeedback } from "./shared/ResizeHandleFeedback";
 import {
 	clampPanelWidth,
@@ -38,7 +40,13 @@ import {
 	savePanelWidth,
 } from "./sidePanelResize";
 
-type LibraryView = "docs" | "chartes" | "photos" | "collections" | "exchange";
+type LibraryView =
+	| "docs"
+	| "chartes"
+	| "photos"
+	| "collections"
+	| "structured-workspaces"
+	| "exchange";
 
 interface LibraryOption {
 	value: LibraryView;
@@ -83,6 +91,11 @@ export function LibraryPanel() {
 			value: "docs",
 			label: t("documents"),
 			icon: <Files size={21} strokeWidth={1.65} />,
+		},
+		{
+			value: "structured-workspaces",
+			label: t("structured_workspaces"),
+			icon: <PanelsTopLeft size={21} strokeWidth={1.65} />,
 		},
 		{
 			value: "photos",
@@ -257,6 +270,7 @@ function ExtendedLibrary({
 				{view === "chartes" && <ChartesTab />}
 				{view === "photos" && <PhotosTab />}
 				{view === "collections" && <CollectionsTab />}
+				{view === "structured-workspaces" && <StructuredWorkspacesTab />}
 				{view === "exchange" && <MessagesPanel />}
 			</div>
 			<PanelResizeHandle

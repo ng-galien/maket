@@ -47,6 +47,36 @@ afterEach(() => {
 });
 
 describe("PageCanvas toolbar interactions", () => {
+	it("sends the built-in open-document action for a composed item card", async () => {
+		const openDocument = vi
+			.spyOn(useStore.getState(), "openWorkspaceDocument")
+			.mockImplementation(() => {});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<article data-id="card" data-maket-action="open-document" data-maket-document="Ship the release" role="button" tabindex="0"><span>Ship card</span><button type="button" data-maket-action="open-document" data-maket-document="Ship the release">Open</button></article>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		await act(async () => {
+			fireEvent.click(screen.getByText("Ship card"));
+		});
+		expect(openDocument).toHaveBeenCalledWith("Ship the release");
+		openDocument.mockClear();
+		const card = container.querySelector('[data-id="card"]');
+		if (!card) throw new Error("Structured Workspace card missing.");
+
+		await act(async () => {
+			fireEvent.keyDown(card, { key: "Enter" });
+		});
+		expect(openDocument).toHaveBeenCalledWith("Ship the release");
+		openDocument.mockRestore();
+	});
+
 	it("selects an element and shows the toolbar", async () => {
 		render(
 			<PageCanvas
@@ -83,6 +113,64 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(useStore.getState().selectedIds).toEqual([]);
 		expect(document.querySelector(".element-toolbar")).toBeNull();
 		expect(target).not.toHaveClass("selected");
+	});
+
+	it("keeps an instantiated collection document passive", async () => {
+		const doc = makeDoc('<p data-id="a">Collection view</p>');
+		doc.dataModel = "state";
+		doc.meta = {
+			structuredWorkspace: {
+				role: "collection",
+				workspaceId: "delivery",
+				collectionId: "backlog",
+			},
+		};
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		const target = container.querySelector('[data-id="a"]') as HTMLElement;
+		await act(async () => {
+			fireEvent.click(target);
+		});
+
+		expect(useStore.getState().selectedIds).toEqual([]);
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+		expect(target).not.toHaveClass("selected");
+	});
+
+	it("disables live state controls on a derived collection document", () => {
+		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
+		const doc = makeDoc(
+			'<input type="checkbox" data-maket-bind="state.done" data-maket-path="/done" data-maket-type="boolean">',
+		);
+		doc.dataModel = "state";
+		doc.meta = {
+			structuredWorkspace: {
+				role: "collection",
+				workspaceId: "delivery",
+				collectionId: "backlog",
+			},
+		};
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { done: false },
+					revision: 2,
+					createdAt: "2026-08-10T00:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+		const input = container.querySelector("input") as HTMLInputElement;
+
+		expect(input).toHaveAttribute("aria-disabled", "true");
+		fireEvent.change(input, { target: { checked: true } });
+		expect(sendPatch).not.toHaveBeenCalled();
 	});
 
 	it("forces live state interactions in Reader without enabling document authoring", async () => {
@@ -770,6 +858,40 @@ describe("PageCanvas toolbar interactions", () => {
 		await act(async () => fireEvent.click(target));
 		expect(document.querySelector(".element-toolbar")).not.toBeNull();
 		expect(document.querySelector(".element-toolbar select")).toBeNull();
+	});
+
+	it("keeps a Structured Workspace template-controlled page read-only in design mode", async () => {
+		const doc = makeDoc('<p data-id="a">Rendered title</p>');
+		doc.dataModel = "state";
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.provenance = {
+			kind: "template",
+			workspaceId: "workspace-1",
+			templateDocumentId: "template-1",
+			templatePageId: "template-page-1",
+		};
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { title: "Rendered title" },
+					revision: 1,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: {
+						[page.id]: '<p data-id="a">{{ state.title }}</p>',
+					},
+				},
+			},
+			stateCanvasModes: { [doc.name]: "design" },
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		await act(async () =>
+			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement),
+		);
+		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+		expect(document.querySelector(".tb-edit")).toBeNull();
 	});
 
 	it("keeps a locked living document passive in both modes", async () => {

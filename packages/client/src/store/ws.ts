@@ -272,9 +272,9 @@ export function initWs(): void {
 }
 
 function connect(): void {
-	const url = import.meta.env.DEV
-		? `ws://${location.host}/ws`
-		: `ws://${location.host}`;
+	const protocol = location.protocol === "https:" ? "wss" : "ws";
+	const path = import.meta.env.DEV ? "/ws" : "";
+	const url = `${protocol}://${location.host}${path}`;
 	ws = new WebSocket(url);
 	ws.onopen = handleWsOpen;
 	ws.onclose = handleWsClose;
@@ -372,6 +372,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				.getState()
 				.setCollections((msg.collections ?? []) as Collection[]);
 			break;
+		case "structured_workspaces_changed":
+			useStore.getState().setStructuredWorkspaces(msg.workspaces);
+			break;
 		case "collection_cursors":
 			useStore.getState().setCollectionCursors(msg.cursors ?? []);
 			break;
@@ -420,6 +423,9 @@ function applyStateMessage(
 	}
 	if (msg.collections !== undefined) {
 		useStore.getState().setCollections(msg.collections as Collection[]);
+	}
+	if (msg.structuredWorkspaces !== undefined) {
+		useStore.getState().setStructuredWorkspaces(msg.structuredWorkspaces);
 	}
 	if (msg.collectionCursors !== undefined) {
 		useStore.getState().setCollectionCursors(msg.collectionCursors);
@@ -491,6 +497,9 @@ function applyRenamedDocument(
 	}
 	if (msg.collections !== undefined) {
 		useStore.getState().setCollections(msg.collections as Collection[]);
+	}
+	if (msg.structuredWorkspaces !== undefined) {
+		useStore.getState().setStructuredWorkspaces(msg.structuredWorkspaces);
 	}
 	if (msg.collectionCursors !== undefined) {
 		useStore.getState().setCollectionCursors(msg.collectionCursors);
@@ -657,10 +666,16 @@ function settleAllAnnotationCreates(error: string): void {
 	}
 }
 
-export function sendLoadDoc(name: string): boolean {
+export function sendLoadDoc(
+	name: string,
+	structuredWorkspace?: {
+		workspaceId: string;
+		collectionId: string;
+	},
+): boolean {
 	backgroundLoadDocs.delete(name);
 	pendingLoadDoc = name;
-	const sent = wsSend({ type: "load_document", name });
+	const sent = wsSend({ type: "load_document", name, structuredWorkspace });
 	if (!sent) pendingLoadDoc = null;
 	return sent;
 }

@@ -30,6 +30,7 @@ export interface Page {
 	elements: Element[];
 	html?: string;
 	collection?: { name: string };
+	provenance?: StructuredWorkspacePageProvenance;
 }
 
 export interface Document {
@@ -74,3 +75,5 @@ export interface DocSummary {
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
 }
+
+import type { StructuredWorkspacePageProvenance } from "@maket/shared";

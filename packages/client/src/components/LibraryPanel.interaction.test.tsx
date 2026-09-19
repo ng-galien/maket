@@ -41,6 +41,9 @@ vi.mock("./DocsTab", async () => {
 vi.mock("./ChartesTab", () => ({ ChartesTab: () => null }));
 vi.mock("./PhotosTab", () => ({ PhotosTab: () => null }));
 vi.mock("./CollectionsTab", () => ({ CollectionsTab: () => null }));
+vi.mock("./StructuredWorkspacesTab", () => ({
+	StructuredWorkspacesTab: () => null,
+}));
 
 beforeEach(() => {
 	resetDesktopUpdatesForTests();
@@ -54,6 +57,7 @@ beforeEach(() => {
 		settingsOpen: false,
 		docList: [],
 		collections: [],
+		structuredWorkspaces: [],
 	});
 });
 
@@ -71,6 +75,7 @@ describe("LibraryPanel", () => {
 		const buttons = within(navigation).getAllByRole("button");
 		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
 			"Documents",
+			"Structured Workspaces",
 			"Photos",
 			"Collections",
 			"Brand",
