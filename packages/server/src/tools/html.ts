@@ -27,7 +27,7 @@ import type { Documents } from "../services/documents.js";
 import type { LayoutResult, LayoutService } from "../services/layout.js";
 import type { Store } from "../services/store.js";
 import type { Charte, Document, Page } from "../types.js";
-import { lockGuard, text } from "./_helpers.js";
+import { lockGuard, templatePageGuard, text } from "./_helpers.js";
 
 export interface HtmlDeps {
 	documents: Documents;
@@ -487,11 +487,15 @@ async function handleMaketHtmlTool(rawArgs: unknown, deps: MaketHtmlToolDeps) {
 		case "set": {
 			const locked = lockGuard(doc);
 			if (locked) return locked;
+			const controlled = templatePageGuard(doc, page);
+			if (controlled) return controlled;
 			return runSet({ args, doc, page, pageIdx, ...deps });
 		}
 		case "patch": {
 			const locked = lockGuard(doc);
 			if (locked) return locked;
+			const controlled = templatePageGuard(doc, page);
+			if (controlled) return controlled;
 			return runPatch(
 				args,
 				doc,

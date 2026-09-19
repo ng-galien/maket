@@ -24,7 +24,7 @@ import {
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
-import { lockGuard, text } from "./_helpers.js";
+import { lockGuard, templatePageGuard, text } from "./_helpers.js";
 
 export interface MermaidDeps {
 	documents: Documents;
@@ -242,6 +242,8 @@ async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 			true,
 		);
 	}
+	const controlled = templatePageGuard(doc, page);
+	if (controlled) return controlled;
 	if (!page.html) page.html = "";
 
 	const spec = createMermaidDiagramSpec(args.code, renderingInput(args));

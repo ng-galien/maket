@@ -31,6 +31,7 @@ export interface BusEvents {
 	"charte:removed": { name: string };
 	"collection:saved": { name: string };
 	"collection:deleted": { name: string };
+	"structured-workspace:changed": { workspaceId: string };
 	"document-state:changed": {
 		docName: string;
 		revision: number;

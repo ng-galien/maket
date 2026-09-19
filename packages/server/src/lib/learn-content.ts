@@ -7,6 +7,7 @@ export const LEARN_TOPICS = [
 	"diagrams",
 	"collections",
 	"state",
+	"structured-workspaces",
 	"review",
 	"install",
 	"gemini",
@@ -42,6 +43,7 @@ const TOPIC_TITLES: Record<LearnTopic, string> = {
 	diagrams: "Diagram styling",
 	collections: "Collections and placeholders",
 	state: "Living document state",
+	"structured-workspaces": "Structured Workspaces",
 	review: "Review loop",
 	install: "MCP installation",
 	gemini: "Gemini CLI setup",
@@ -68,6 +70,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- Page content and validation: `maket_html`",
 				"- Brand language and diagrams: `maket_charte`, `maket_mermaid`",
 				"- Mail merge and living data: `maket_collection`, `maket_state`",
+				"- Schema-driven document collections: `maket_structured_workspace`",
 				"- Visual checks and export: `maket_preview`, `maket_pdf`",
 			].join("\n"),
 		),
@@ -110,7 +113,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	tools: document(
-		"Maket exposes 14 compound MCP tools. Choose the tool that owns the business capability, then use its action schema for the exact operation.",
+		"Maket exposes 15 compound MCP tools. Choose the tool that owns the business capability, then use its action schema for the exact operation.",
 		section(
 			"Public tool map",
 			[
@@ -126,6 +129,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"| `maket_mermaid` | Charte-aware Mermaid diagrams rendered as inline SVG |",
 				"| `maket_collection` | JSON-Schema-backed mail-merge rows and page bindings |",
 				"| `maket_state` | Document-owned current data and immutable revisions |",
+				"| `maket_structured_workspace` | Schema-driven collections of persistent instantiated documents |",
 				"| `maket_image` | Asset import, inspection, metadata, and deletion |",
 				"| `maket_preview` | Live preview URL and PNG snapshots |",
 				"| `maket_pdf` | PDF export at the real canvas size |",
@@ -363,6 +367,35 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Read `html` for authored structure and `review` before export.",
 		),
 	),
+	"structured-workspaces": document(
+		"A Structured Workspace contains one or more schema-driven collections whose items own persistent instantiated Maket documents. It is separate from the free-form Documents workspace and from mail-merge collections.",
+		section(
+			"Two contracts",
+			[
+				"- The data schema is a JSON Schema for every item and may use `oneOf`.",
+				"- The representation schema gives each collection a global template and binds each concrete schema path to compact and detail template documents.",
+				"- A binding points to the concrete schema used by its instantiated document, so templates do not resolve `oneOf` themselves.",
+			].join("\n"),
+		),
+		section(
+			"Instantiated documents",
+			[
+				"- `add_item` validates the item, creates one real state-backed document, and records revision 1.",
+				"- Template-controlled pages update through `sync_template` and cannot be edited directly.",
+				"- Pages added to the instance remain editable and are preserved during template synchronization.",
+			].join("\n"),
+		),
+		section(
+			"API workflow",
+			"```text\nmaket_structured_workspace action=create workspace=<name> data_schema=<schema> representation_schema=<schema>\nmaket_structured_workspace action=add_item workspace=<name> collection=<collection> binding=<binding> document_name=<doc> data=<data>\nmaket_structured_workspace action=update_item workspace=<name> item=<id> expected_revision=<n> data=<data>\nmaket_structured_workspace action=sync_template workspace=<name> [collection=<collection>] [binding=<binding>]\n```",
+			"Use `update_definition` with `expected_workspace_revision` to change the data schema or representation schema. Existing item data, concrete bindings, and prospective template pages are validated before the definition changes.",
+			"Template references may be current document names or stable document ids; Maket stores stable ids.",
+		),
+		section(
+			"Next",
+			"Read `state` for the HTML binding contract and optimistic revision semantics.",
+		),
+	),
 	review: document(
 		"Review is visual and structural. Start from current state and human feedback, then apply the smallest coherent correction.",
 		section(
@@ -470,6 +503,13 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Interaction",
 			"Live mode exposes authored controls; print and PDF render the same values passively.",
+		),
+	),
+	"structured-workspaces": document(
+		"Structured Workspaces group typed items whose detail views are real living Maket documents.",
+		section(
+			"Document ownership",
+			"Template pages stay synchronized for every item, while pages added to one instantiated document remain specific to that document.",
 		),
 	),
 	review: document(

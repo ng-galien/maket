@@ -9,6 +9,7 @@ import {
 } from "@maket/shared";
 import type WebSocket from "ws";
 import { createDocument } from "../../types.js";
+import { documentDuplicationBlockMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 
 export function handleLoadDocument(
@@ -27,7 +28,11 @@ export function handleLoadDocument(
 	if (!requested) return;
 	const state: WorkspaceStateSignal = {
 		type: "state",
-		doc: ctx.documents.lightView(ctx.documentRenderer.render(requested)),
+		doc: ctx.documents.lightView(
+			ctx.documentRenderer.render(requested, {
+				structuredWorkspace: msg.structuredWorkspace,
+			}),
+		),
 		documentState: ctx.documentRenderer.stateView(requested),
 		docList: ctx.documents.list(),
 		collections: ctx.collections.loadAll(),
@@ -115,7 +120,14 @@ export function handleDeleteDocument(
 		});
 		return;
 	}
-	ctx.documents.delete(name);
+	if (!ctx.documents.delete(name)) {
+		ctx.bus.emit("toast", {
+			key: "toast_structured_workspace_document_delete",
+			params: { doc: name },
+			level: "info",
+		});
+		return;
+	}
 	ctx.bus.emit("document:deleted", { docName: name });
 }
 
@@ -160,6 +172,15 @@ export function handleDuplicateDocument(
 	if (!name || !newName) return;
 	const src = ctx.documents.resolve(name);
 	if (!src) return;
+	const blocked = documentDuplicationBlockMessage(src);
+	if (blocked) {
+		ctx.bus.emit("toast", {
+			key: "toast_document_duplicate_blocked",
+			params: { doc: name },
+			level: "error",
+		});
+		return;
+	}
 	if (ctx.documents.all().has(newName)) {
 		ctx.bus.emit("toast", {
 			key: "toast_document_name_taken",

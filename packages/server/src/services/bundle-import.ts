@@ -121,7 +121,7 @@ function importDocuments(
 			category: snapshot.category || "general",
 			dataModel: bundledState ? "static" : snapshot.dataModel,
 			canvas: snapshot.canvas,
-			meta: snapshot.meta || {},
+			meta: detachedBundleMeta(snapshot.meta),
 			pages: sanitiseBundlePages(snapshot.pages),
 			activePage: snapshot.activePage ?? 0,
 			nextId: snapshot.nextId ?? 1,
@@ -187,11 +187,20 @@ function sanitiseBundlePages(
 	pages: DecodedBundle["documents"][number]["pages"],
 ) {
 	return pages?.length
-		? pages.map((page) => ({
-				...page,
-				html: page.html ? stripActiveHtml(page.html) : page.html,
-			}))
+		? pages.map((page) => {
+				const detached = { ...page, provenance: undefined };
+				return {
+					...detached,
+					html: page.html ? stripActiveHtml(page.html) : page.html,
+				};
+			})
 		: undefined;
+}
+
+function detachedBundleMeta(meta: DecodedBundle["documents"][number]["meta"]) {
+	const detached = { ...(meta ?? {}) };
+	delete detached.structuredWorkspace;
+	return detached;
 }
 
 function importChartes(

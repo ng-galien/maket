@@ -17,7 +17,7 @@ import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import type { Document, Page } from "../types.js";
-import { lockGuard, text } from "./_helpers.js";
+import { lockGuard, templatePageGuard, text } from "./_helpers.js";
 import { normalizeImageSrc } from "./html.js";
 
 export interface PagesDeps {
@@ -131,6 +131,12 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 		name: args.name,
 		elements: [],
 		html: stripActiveHtml(normalizeImageSrc(args.html)),
+		provenance: d.meta.structuredWorkspace
+			? {
+					kind: "instance",
+					workspaceId: d.meta.structuredWorkspace.workspaceId,
+				}
+			: undefined,
 	};
 	d.pages.push(page);
 	d.activePage = d.pages.length - 1;
@@ -157,6 +163,13 @@ function runRemove(args: Args, d: Document, documents: Documents, bus: Bus) {
 			true,
 		);
 	const removed = d.pages.splice(idx, 1)[0];
+	if (removed) {
+		const controlled = templatePageGuard(d, removed);
+		if (controlled) {
+			d.pages.splice(idx, 0, removed);
+			return controlled;
+		}
+	}
 	if (d.activePage >= d.pages.length) d.activePage = d.pages.length - 1;
 	documents.persist(d.name);
 	bus.emit("document:loaded", { docName: d.name });
@@ -165,6 +178,8 @@ function runRemove(args: Args, d: Document, documents: Documents, bus: Bus) {
 	);
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP page mutation coordinates validation, persistence, and its bus event.
 function runRename(args: Args, d: Document, documents: Documents, bus: Bus) {
 	if (args.page == null)
 		return text("page is required for action=rename", true);
@@ -174,6 +189,8 @@ function runRename(args: Args, d: Document, documents: Documents, bus: Bus) {
 		return text(`Page "${args.page}" not found or out of range`, true);
 	const pg = d.pages[idx];
 	if (!pg) return text(`Page "${args.page}" not found`, true);
+	const controlled = templatePageGuard(d, pg);
+	if (controlled) return controlled;
 	const oldName = pg.name || "Untitled";
 	pg.name = args.name;
 	documents.persist(d.name);
@@ -181,6 +198,8 @@ function runRename(args: Args, d: Document, documents: Documents, bus: Bus) {
 	return text(`Page ${idx + 1} renamed: "${oldName}" → "${args.name}"`);
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP page mutation coordinates ordering, persistence, and its bus event.
 function runReorder(args: Args, d: Document, documents: Documents, bus: Bus) {
 	if (args.from == null || args.to == null)
 		return text("from and to are required for action=reorder", true);
@@ -192,6 +211,21 @@ function runReorder(args: Args, d: Document, documents: Documents, bus: Bus) {
 		return text(`Target position ${args.to} out of range`, true);
 	const [movedPage] = d.pages.splice(from, 1);
 	if (!movedPage) return text("Page not found", true);
+	const controlled = templatePageGuard(d, movedPage);
+	if (controlled) {
+		d.pages.splice(from, 0, movedPage);
+		return controlled;
+	}
+	const templatePageCount = d.pages.filter(
+		(page) => page.provenance?.kind === "template",
+	).length;
+	if (to < templatePageCount) {
+		d.pages.splice(from, 0, movedPage);
+		return text(
+			"Instance-owned pages must remain after the template-controlled pages.",
+			true,
+		);
+	}
 	d.pages.splice(to, 0, movedPage);
 	documents.persist(d.name);
 	if (d.activePage === from) {

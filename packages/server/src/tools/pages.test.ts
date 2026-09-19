@@ -142,6 +142,37 @@ describe("maket_page — action=add", () => {
 		expect(store.loadOne("living")?.pages).toHaveLength(1);
 		store.close();
 	});
+
+	it("marks pages added to an instantiated document as instance-owned", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("instance");
+		doc.meta.structuredWorkspace = {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "item-1",
+			bindingId: "task",
+		};
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const result = await tool.handler(
+			{
+				action: "add",
+				doc: "instance",
+				name: "Notes",
+				html: "<p>Notes</p>",
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBeUndefined();
+		expect(documents.resolve("instance")?.pages[1]?.provenance).toEqual({
+			kind: "instance",
+			workspaceId: "workspace-1",
+		});
+		store.close();
+	});
 });
 
 describe("maket_page — action=remove", () => {
@@ -187,6 +218,73 @@ describe("maket_page — action=remove", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
+		store.close();
+	});
+});
+
+describe("maket_page — Structured Workspace template protection", () => {
+	it("refuses to remove or move a template-controlled page", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("instance", 2);
+		const templatePage = doc.pages[0];
+		const instancePage = doc.pages[1];
+		if (!templatePage || !instancePage) throw new Error("Fixture incomplete.");
+		templatePage.provenance = {
+			kind: "template",
+			workspaceId: "workspace-1",
+			templateDocumentId: "template-1",
+			templatePageId: "template-page-1",
+		};
+		instancePage.provenance = {
+			kind: "instance",
+			workspaceId: "workspace-1",
+		};
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const removed = await tool.handler(
+			{ action: "remove", doc: "instance", page: 1 },
+			NO_EXTRA,
+		);
+		expect(removed.isError).toBe(true);
+		expect(documents.resolve("instance")?.pages).toHaveLength(2);
+
+		const moved = await tool.handler(
+			{ action: "reorder", doc: "instance", from: 1, to: 2 },
+			NO_EXTRA,
+		);
+		expect(moved.isError).toBe(true);
+		expect(documents.resolve("instance")?.pages[0]?.name).toBe("P1");
+		store.close();
+	});
+
+	it("keeps instance-owned pages after all template-controlled pages", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("instance", 3);
+		for (const [index, page] of doc.pages.entries()) {
+			page.provenance =
+				index < 2
+					? {
+							kind: "template",
+							workspaceId: "workspace-1",
+							templateDocumentId: "template-1",
+							templatePageId: `template-page-${index + 1}`,
+						}
+					: { kind: "instance", workspaceId: "workspace-1" };
+		}
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const result = await tool.handler(
+			{ action: "reorder", doc: "instance", from: 3, to: 1 },
+			NO_EXTRA,
+		);
+		expect(result.isError).toBe(true);
+		expect(
+			documents.resolve("instance")?.pages.map((page) => page.name),
+		).toEqual(["P1", "P2", "P3"]);
 		store.close();
 	});
 });

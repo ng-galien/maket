@@ -7,7 +7,8 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import type { Document } from "../types.js";
+import { templateControlledPageMessage } from "../services/structured-workspace-policy.js";
+import type { Document, Page } from "../types.js";
 
 export interface TextOpts {
 	/** Tag the result as an error (MCP `isError: true`). */
@@ -50,4 +51,12 @@ export function lockGuard(d: Document): CallToolResult | null {
 		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_workspace action=lock doc=${d.name} locked=false`,
 		true,
 	);
+}
+
+export function templatePageGuard(
+	document: Document,
+	page: Page,
+): CallToolResult | null {
+	const message = templateControlledPageMessage(document, page);
+	return message ? text(message, true) : null;
 }

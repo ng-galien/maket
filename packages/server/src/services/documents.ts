@@ -24,10 +24,12 @@ export interface Documents {
 	resolve(name: string): Document | null;
 	/** Lookup, falling back to the store on a miss and caching the hit. */
 	resolveOrLoad(name: string): Document | null;
+	/** Lookup by stable id, loading and caching the document on a miss. */
+	resolveById(id: string): Document | null;
 	/** Persist the cached instance to the store. No-op if the doc is not cached. */
 	persist(name: string): void;
-	/** Delete from store + cache. */
-	delete(name: string): void;
+	/** Delete from store + cache. Structured Workspace ownership is protected. */
+	delete(name: string, opts?: { allowStructuredWorkspace?: boolean }): boolean;
 	/** Rename while preserving the stable document identity and related state. */
 	rename(name: string, newName: string): void;
 	/** Atomically move every cached document in one category subtree. */
@@ -105,6 +107,25 @@ function moveDocumentCategory(
 	return { moved: affected };
 }
 
+function deleteDocument(
+	cache: Map<string, Document>,
+	store: Store,
+	name: string,
+	allowStructuredWorkspace = false,
+): boolean {
+	const document = cache.get(name) ?? store.loadOne(name);
+	if (
+		document &&
+		!allowStructuredWorkspace &&
+		isStructuredWorkspaceOwned(document, store)
+	) {
+		return false;
+	}
+	store.deleteDoc(name);
+	cache.delete(name);
+	return true;
+}
+
 export function createDocuments({ store }: DocumentsDeps): Documents {
 	const cache = new Map<string, Document>();
 
@@ -128,6 +149,16 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			}
 			return loaded ?? null;
 		},
+		resolveById(id) {
+			const cached = [...cache.values()].find((doc) => doc.id === id);
+			if (cached) return cached;
+			const loaded = store.loadById(id);
+			if (loaded) {
+				normalizeCanvas(loaded.canvas);
+				cache.set(loaded.name, loaded);
+			}
+			return loaded ?? null;
+		},
 		persist(name) {
 			const d = cache.get(name);
 			if (!d) return;
@@ -142,9 +173,8 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				throw error;
 			}
 		},
-		delete(name) {
-			store.deleteDoc(name);
-			cache.delete(name);
+		delete(name, opts) {
+			return deleteDocument(cache, store, name, opts?.allowStructuredWorkspace);
 		},
 		rename(name, newName) {
 			const d = cache.get(name);
@@ -234,6 +264,22 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			}
 		},
 	};
+}
+
+function isStructuredWorkspaceOwned(document: Document, store: Store): boolean {
+	if (document.meta.structuredWorkspace) return true;
+	return store.loadAllStructuredWorkspaces().some((workspace) => {
+		const representation = workspace.representationSchema;
+		return Object.values(representation.collections).some(
+			(collection) =>
+				collection.collectionTemplateDocumentId === document.id ||
+				Object.values(collection.bindings).some(
+					(binding) =>
+						binding.compactTemplateDocumentId === document.id ||
+						binding.detailTemplateDocumentId === document.id,
+				),
+		);
+	});
 }
 
 function restoreCachedDocument(

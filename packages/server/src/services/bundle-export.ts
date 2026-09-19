@@ -12,9 +12,11 @@ import {
 	bundleFilename,
 	encodeBundleV2,
 } from "../lib/maket-format.js";
+import { stripDocumentNavigationHtml } from "../lib/strip-active-html.js";
 import type { Charte, Document } from "../types.js";
 import type { Collections } from "./collections.js";
 import type { Config } from "./config.js";
+import type { DocumentRenderer } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 import type { Store } from "./store.js";
 
@@ -50,6 +52,7 @@ export interface BundleExportService {
 
 export interface BundleExportServiceDeps {
 	documents: Documents;
+	documentRenderer: Pick<DocumentRenderer, "render">;
 	collections: Pick<Collections, "referencedBy">;
 	store: Store;
 	config: Config;
@@ -93,21 +96,33 @@ async function buildBundle(
 		};
 	}
 
-	const chartes = loadReferencedChartes(documents, deps.store);
-	const collections = deps.collections.referencedBy(documents);
-	const documentStates = currentDocumentStateSnapshots(documents, deps.store);
+	const portableDocuments = documents.map((document) =>
+		portableDocument(deps.documentRenderer, document),
+	);
+	const chartes = loadReferencedChartes(portableDocuments, deps.store);
+	const collections = deps.collections.referencedBy(portableDocuments);
+	const documentStates = currentDocumentStateSnapshots(
+		portableDocuments,
+		deps.store,
+	);
 	const annotations = portableAnnotations(documents, deps.store);
 	const { assets, missing: missingAssets } =
 		options.includeAssets === false
 			? { assets: [], missing: [] }
 			: loadAssetsFromDir(
-					collectAssetFilenames(documents),
+					collectAssetFilenames(portableDocuments),
 					deps.config.ASSETS_DIR,
 				);
-	const buffer = await encodeBundleV2(documents, chartes, collections, assets, {
-		documentStates,
-		annotations,
-	});
+	const buffer = await encodeBundleV2(
+		portableDocuments,
+		chartes,
+		collections,
+		assets,
+		{
+			documentStates,
+			annotations,
+		},
+	);
 	const baseName =
 		documents.length === 1
 			? documents[0]?.name || "maket-bundle"
@@ -117,13 +132,33 @@ async function buildBundle(
 		ok: true,
 		buffer,
 		filename: bundleFilename(baseName),
-		documents,
+		documents: portableDocuments,
 		chartes,
 		collections,
 		documentStates,
 		annotations,
 		assets,
 		missingAssets,
+	};
+}
+
+function portableDocument(
+	documentRenderer: Pick<DocumentRenderer, "render">,
+	document: Document,
+): Document {
+	if (document.meta.structuredWorkspace?.role !== "collection") return document;
+	const rendered = documentRenderer.render(document);
+	const meta = { ...rendered.meta };
+	delete meta.structuredWorkspace;
+	return {
+		...rendered,
+		dataModel: "static",
+		meta,
+		pages: rendered.pages.map((page) => ({
+			...page,
+			provenance: undefined,
+			html: page.html ? stripDocumentNavigationHtml(page.html) : page.html,
+		})),
 	};
 }
 

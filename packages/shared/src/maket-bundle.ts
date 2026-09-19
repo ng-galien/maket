@@ -406,13 +406,15 @@ export interface BundleDocumentLike {
 export function snapshotBundleDocument(
 	doc: BundleDocumentLike,
 ): Record<string, unknown> {
+	const meta = { ...(doc.meta ?? {}) } as Record<string, unknown>;
+	delete meta.structuredWorkspace;
 	return {
 		id: doc.id,
 		name: doc.name,
 		category: doc.category || "general",
 		dataModel: doc.dataModel,
 		canvas: doc.canvas,
-		meta: doc.meta ? { ...doc.meta } : {},
+		meta,
 		pages: (doc.pages ?? []).map((page) => {
 			const p = page as Record<string, unknown>;
 			return {

@@ -2,6 +2,7 @@ import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
 import type { LocalizedMessage } from "./messages.js";
 import type { Settings } from "./settings.js";
+import type { StructuredWorkspaceView } from "./structured-workspace.js";
 import type { ToastKey, ToastLevel } from "./toast.js";
 
 /**
@@ -36,6 +37,7 @@ export interface WorkspaceStateSignal {
 	doc: unknown;
 	docList: unknown[];
 	collections?: unknown[];
+	structuredWorkspaces?: StructuredWorkspaceView[];
 	/** Server-owned page↔collection preview cursors (full snapshot). */
 	collectionCursors?: PageCollectionCursor[];
 	charteCss: string;
@@ -99,6 +101,7 @@ export interface DocumentRenamedSignal {
 	doc: unknown;
 	docList: unknown[];
 	collections?: unknown[];
+	structuredWorkspaces?: StructuredWorkspaceView[];
 	collectionCursors?: PageCollectionCursor[];
 	charteCss: string;
 	documentState?: DocumentStateClientView | null;
@@ -124,6 +127,11 @@ export interface AnnotationCreateResultSignal {
 
 export interface WorkspaceReloadSignal {
 	type: "reload";
+}
+
+export interface StructuredWorkspacesChangedSignal {
+	type: "structured_workspaces_changed";
+	workspaces: StructuredWorkspaceView[];
 }
 
 export interface ActivitySignal {
@@ -166,9 +174,15 @@ export interface FitViewSignal {
 // Protocol commands and responses
 // ============================================================
 
+export interface StructuredWorkspaceRenderTarget {
+	workspaceId: string;
+	collectionId: string;
+}
+
 export interface LoadDocumentCommand {
 	type: "load_document";
 	name: string;
+	structuredWorkspace?: StructuredWorkspaceRenderTarget;
 }
 
 export interface DeleteDocumentCommand {
@@ -374,6 +388,7 @@ export type WorkspaceSignal =
 	| AnnotationsChangedSignal
 	| AnnotationCreateResultSignal
 	| WorkspaceReloadSignal
+	| StructuredWorkspacesChangedSignal
 	| ActivitySignal
 	| AssetsChangedSignal
 	| CollectionsChangedSignal

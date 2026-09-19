@@ -177,6 +177,11 @@ describe("PdfService.render", () => {
 		const documentRenderer = createDocumentRenderer({
 			collectionRenderer: { render: (value) => value },
 			stateRenderer,
+			structuredWorkspaces: {
+				renderCollection: () => {
+					throw new Error("Unexpected Structured Workspace projection.");
+				},
+			},
 		});
 		const service = createPdfService({
 			documents,

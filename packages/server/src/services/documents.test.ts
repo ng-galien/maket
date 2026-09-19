@@ -121,6 +121,28 @@ describe("documents service", () => {
 		store.close();
 	});
 
+	it("protects Structured Workspace documents from generic deletion", () => {
+		const store = createSQLiteStore(":memory:");
+		const document = makeDoc("instance");
+		document.meta.structuredWorkspace = {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "item-1",
+			bindingId: "task",
+		};
+		store.saveDoc(document);
+		const docs = createDocuments({ store });
+		docs.loadAll();
+
+		expect(docs.delete("instance")).toBe(false);
+		expect(docs.resolve("instance")).not.toBeNull();
+		expect(docs.delete("instance", { allowStructuredWorkspace: true })).toBe(
+			true,
+		);
+		expect(docs.resolve("instance")).toBeNull();
+		store.close();
+	});
+
 	it("list produces summaries for every cached document", () => {
 		const store = createSQLiteStore(":memory:");
 		const a = makeDoc("a", "poster");

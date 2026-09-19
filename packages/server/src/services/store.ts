@@ -18,6 +18,8 @@ import { createDocumentRepository } from "./sqlite-store/document-repository.js"
 import type { DocumentStateRepository } from "./sqlite-store/document-state-repository.js";
 import { createDocumentStateRepository } from "./sqlite-store/document-state-repository.js";
 import { initializeSQLiteSchema } from "./sqlite-store/schema.js";
+import type { StructuredWorkspaceRepository } from "./sqlite-store/structured-workspace-repository.js";
+import { createStructuredWorkspaceRepository } from "./sqlite-store/structured-workspace-repository.js";
 
 export type { AssetInput, AssetRow };
 
@@ -27,6 +29,7 @@ export interface Store
 		CollectionRepository,
 		CollectionCursorRepository,
 		DocumentStateRepository,
+		StructuredWorkspaceRepository,
 		AssetRepository,
 		AnnotationRepository {
 	close(): void;
@@ -46,6 +49,7 @@ export function createSQLiteStore(dbPath: string): Store {
 		...createCollectionRepository(db),
 		...createCollectionCursorRepository(db),
 		...createDocumentStateRepository(db),
+		...createStructuredWorkspaceRepository(db),
 		...createAssetRepository(db),
 		...createAnnotationRepository(db),
 		close() {

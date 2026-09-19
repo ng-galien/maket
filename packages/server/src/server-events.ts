@@ -5,6 +5,7 @@ import type { Collections } from "./services/collections.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
 import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
+import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
 import type { WsRegistry } from "./services/ws-registry.js";
 
 export interface ServerEventDeps {
@@ -14,6 +15,7 @@ export interface ServerEventDeps {
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
 	mermaidDiagrams: MermaidDiagrams;
+	structuredWorkspaces: StructuredWorkspaces;
 	wsRegistry: WsRegistry;
 	pending: Annotations;
 }
@@ -33,6 +35,7 @@ function broadcastDoc(
 		collectionCursors,
 		documents,
 		documentRenderer,
+		structuredWorkspaces,
 		wsRegistry,
 		pending,
 	} = deps;
@@ -44,6 +47,7 @@ function broadcastDoc(
 		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
+		structuredWorkspaces: structuredWorkspaces.listViews(),
 		collectionCursors: collectionCursors.snapshot(),
 		annotations: pending.all(),
 		charteCss: documents.charteCss(doc),
@@ -64,6 +68,7 @@ function broadcastRenamedDoc(
 		collectionCursors,
 		documents,
 		documentRenderer,
+		structuredWorkspaces,
 		wsRegistry,
 		pending,
 	} = deps;
@@ -76,6 +81,7 @@ function broadcastRenamedDoc(
 		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
+		structuredWorkspaces: structuredWorkspaces.listViews(),
 		collectionCursors: collectionCursors.snapshot(),
 		annotations: pending.all(),
 		charteCss: documents.charteCss(doc),
@@ -92,6 +98,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		documents,
 		documentRenderer,
 		mermaidDiagrams,
+		structuredWorkspaces,
 		wsRegistry,
 		pending,
 	} = deps;
@@ -100,6 +107,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		collectionCursors,
 		documents,
 		documentRenderer,
+		structuredWorkspaces,
 		wsRegistry,
 		pending,
 	};
@@ -172,6 +180,12 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 	};
 	bus.on("collection:saved", broadcastCollections);
 	bus.on("collection:deleted", broadcastCollections);
+	bus.on("structured-workspace:changed", () => {
+		wsRegistry.broadcast({
+			type: "structured_workspaces_changed",
+			workspaces: structuredWorkspaces.listViews(),
+		});
+	});
 	bus.on("collection-cursor:changed", () => {
 		wsRegistry.broadcast({
 			type: "collection_cursors",

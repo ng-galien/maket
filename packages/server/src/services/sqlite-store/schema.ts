@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 15;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -29,6 +29,7 @@ const SCHEMA_SQL = `
     elements   TEXT NOT NULL DEFAULT '[]',
     canvas     TEXT,
     collection TEXT,
+		provenance TEXT CHECK (provenance IS NULL OR json_valid(provenance)),
     PRIMARY KEY (doc_name, idx)
   );
   CREATE TABLE chartes (
@@ -89,6 +90,27 @@ const SCHEMA_SQL = `
     created_at  TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (document_id, revision)
   );
+  CREATE TABLE structured_workspaces (
+		id                    TEXT PRIMARY KEY,
+		name                  TEXT NOT NULL UNIQUE,
+		description           TEXT,
+		data_schema           TEXT NOT NULL CHECK (json_valid(data_schema)),
+		representation_schema TEXT NOT NULL CHECK (json_valid(representation_schema)),
+		revision              INTEGER NOT NULL CHECK (revision > 0),
+		created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+		updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+	);
+  CREATE TABLE structured_workspace_items (
+		workspace_id TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+		id           TEXT NOT NULL,
+		position     INTEGER NOT NULL,
+		collection_id TEXT NOT NULL,
+		binding_id   TEXT NOT NULL,
+		document_id  TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+		created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+		PRIMARY KEY (workspace_id, id),
+		UNIQUE (workspace_id, collection_id, position)
+	);
   CREATE TABLE annotations (
     id          TEXT PRIMARY KEY,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -115,6 +137,8 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 11, up: migrateToV11 },
 	{ version: 12, up: migrateToV12 },
 	{ version: 13, up: migrateToV13 },
+	{ version: 14, up: migrateToV14 },
+	{ version: 15, up: migrateToV15 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -164,6 +188,8 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV11(db);
 	migrateToV12(db);
 	migrateToV13(db);
+	migrateToV14(db);
+	migrateToV15(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -231,6 +257,103 @@ function migrateToV13(db: DatabaseSync): void {
       PRIMARY KEY (document_id, page_id)
     );
   `);
+}
+
+function migrateToV14(db: DatabaseSync): void {
+	migrateToV13(db);
+	addColumnIfMissing(db, "pages", "provenance", "TEXT");
+	db.exec(`
+		CREATE TABLE IF NOT EXISTS structured_workspaces (
+			id                    TEXT PRIMARY KEY,
+			name                  TEXT NOT NULL UNIQUE,
+			description           TEXT,
+			data_schema           TEXT NOT NULL CHECK (json_valid(data_schema)),
+			representation_schema TEXT NOT NULL CHECK (json_valid(representation_schema)),
+			revision              INTEGER NOT NULL CHECK (revision > 0),
+			created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+			updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
+		);
+		CREATE TABLE IF NOT EXISTS structured_workspace_items (
+			workspace_id TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+			id           TEXT NOT NULL,
+			position     INTEGER NOT NULL,
+			binding_id   TEXT NOT NULL,
+			document_id  TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+			created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (workspace_id, id),
+			UNIQUE (workspace_id, position)
+		);
+	`);
+}
+
+function migrateToV15(db: DatabaseSync): void {
+	migrateToV14(db);
+	if (hasColumn(db, "structured_workspace_items", "collection_id")) return;
+	db.exec(`
+		CREATE TABLE structured_workspace_items_v15 (
+			workspace_id  TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+			id            TEXT NOT NULL,
+			position      INTEGER NOT NULL,
+			collection_id TEXT NOT NULL,
+			binding_id    TEXT NOT NULL,
+			document_id   TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+			created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (workspace_id, id),
+			UNIQUE (workspace_id, collection_id, position)
+		);
+		INSERT INTO structured_workspace_items_v15
+			(workspace_id, id, position, collection_id, binding_id, document_id, created_at)
+		SELECT workspace_id, id, position, 'default', binding_id, document_id, created_at
+		FROM structured_workspace_items;
+		DROP TABLE structured_workspace_items;
+		ALTER TABLE structured_workspace_items_v15 RENAME TO structured_workspace_items;
+	`);
+	const rows = db
+		.prepare(
+			"SELECT id, name, representation_schema FROM structured_workspaces",
+		)
+		.all() as Array<{
+		id: string;
+		name: string;
+		representation_schema: string;
+	}>;
+	const update = db.prepare(
+		"UPDATE structured_workspaces SET representation_schema = ? WHERE id = ?",
+	);
+	for (const row of rows) {
+		const representation = JSON.parse(row.representation_schema) as {
+			version: 1;
+			collectionTemplateDocumentId?: string;
+			bindings?: Record<
+				string,
+				{
+					compactTemplateDocumentId?: string;
+					detailTemplateDocumentId: string;
+				}
+			>;
+		};
+		if ("collections" in representation) continue;
+		const bindings = representation.bindings ?? {};
+		const firstBinding = Object.values(bindings)[0];
+		const collectionTemplateDocumentId =
+			representation.collectionTemplateDocumentId ??
+			firstBinding?.compactTemplateDocumentId ??
+			firstBinding?.detailTemplateDocumentId;
+		if (!collectionTemplateDocumentId) continue;
+		update.run(
+			JSON.stringify({
+				version: 1,
+				collections: {
+					default: {
+						name: row.name,
+						collectionTemplateDocumentId,
+						bindings,
+					},
+				},
+			}),
+			row.id,
+		);
+	}
 }
 
 function ensureDocumentStateSchema(db: DatabaseSync): void {
@@ -328,7 +451,24 @@ function assertCurrentSchema(db: DatabaseSync): void {
 	assertRevisionSchemas(db);
 	assertAnnotationsSchema(db);
 	assertCollectionCursorSchema(db);
+	assertStructuredWorkspaceSchema(db);
 	assertIntegrity(db);
+}
+
+function assertStructuredWorkspaceSchema(db: DatabaseSync): void {
+	for (const table of ["structured_workspaces", "structured_workspace_items"]) {
+		if (!hasTable(db, table)) {
+			throw new Error(`SQLite migration failed: ${table} table is missing`);
+		}
+	}
+	if (!hasColumn(db, "pages", "provenance")) {
+		throw new Error("SQLite migration failed: pages.provenance is missing");
+	}
+	if (!hasColumn(db, "structured_workspace_items", "collection_id")) {
+		throw new Error(
+			"SQLite migration failed: structured_workspace_items.collection_id is missing",
+		);
+	}
 }
 
 function assertCollectionCursorSchema(db: DatabaseSync): void {

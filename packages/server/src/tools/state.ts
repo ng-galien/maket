@@ -7,12 +7,14 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import type { DocumentStateMutations } from "../services/document-state-mutations.js";
 import type { DocumentStates } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import { lockGuard, text } from "./_helpers.js";
 
 export interface StateToolDeps {
 	documentStates: DocumentStates;
+	documentStateMutations: DocumentStateMutations;
 	documents: Documents;
 }
 
@@ -93,6 +95,7 @@ type Args = z.infer<typeof StateSchema>;
 
 export function createMaketStateTool({
 	documentStates,
+	documentStateMutations,
 	documents,
 }: StateToolDeps): ToolHandler {
 	return {
@@ -102,7 +105,12 @@ export function createMaketStateTool({
 			schema: StateSchema,
 		},
 		handler: async (rawArgs) =>
-			handleStateTool(rawArgs, documentStates, documents),
+			handleStateTool(
+				rawArgs,
+				documentStates,
+				documentStateMutations,
+				documents,
+			),
 	};
 }
 
@@ -111,6 +119,7 @@ export function createMaketStateTool({
 function handleStateTool(
 	rawArgs: unknown,
 	documentStates: DocumentStates,
+	documentStateMutations: DocumentStateMutations,
 	documents: Documents,
 ) {
 	const parsed = StateSchema.safeParse(rawArgs);
@@ -130,7 +139,7 @@ function handleStateTool(
 				if (locked) return locked;
 			}
 		}
-		return runStateAction(parsed.data, documentStates);
+		return runStateAction(parsed.data, documentStates, documentStateMutations);
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}
@@ -148,12 +157,16 @@ function isMutation(action: Args["action"]): boolean {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP dispatcher translates action contracts into the dedicated domain service.
-function runStateAction(args: Args, states: DocumentStates) {
+function runStateAction(
+	args: Args,
+	states: DocumentStates,
+	mutations: DocumentStateMutations,
+) {
 	switch (args.action) {
 		case "init": {
 			const schema = requiredSchema(args);
 			const data = requiredData(args);
-			const state = states.initialize(args.doc, schema, data);
+			const state = mutations.initialize(args.doc, schema, data);
 			return text(
 				`State attached to "${args.doc}" at revision ${state.current.revision}.`,
 				{
@@ -180,7 +193,7 @@ function runStateAction(args: Args, states: DocumentStates) {
 			);
 		}
 		case "update": {
-			const revision = states.update(
+			const revision = mutations.update(
 				args.doc,
 				requiredExpectedRevision(args),
 				requiredData(args),
@@ -190,7 +203,7 @@ function runStateAction(args: Args, states: DocumentStates) {
 			);
 		}
 		case "patch": {
-			const revision = states.patch(
+			const revision = mutations.patch(
 				args.doc,
 				requiredExpectedRevision(args),
 				requiredPatch(args),
@@ -204,7 +217,7 @@ function runStateAction(args: Args, states: DocumentStates) {
 			return text(`Schema is valid for "${args.doc}".`);
 		}
 		case "change_schema": {
-			const revision = states.changeSchema(
+			const revision = mutations.changeSchema(
 				args.doc,
 				requiredExpectedRevision(args),
 				requiredSchema(args),
@@ -234,7 +247,7 @@ function runStateAction(args: Args, states: DocumentStates) {
 			return text(JSON.stringify(revision, null, 2));
 		}
 		case "restore": {
-			const revision = states.restore(
+			const revision = mutations.restore(
 				args.doc,
 				requiredRevision(args),
 				requiredExpectedRevision(args),
@@ -278,7 +291,7 @@ function requiredPositive(value: number | undefined, field: string): number {
 export const statePack: ToolPack = {
 	id: "state",
 	name: "Document state",
-	requires: ["documentStates", "documents"],
+	requires: ["documentStates", "documentStateMutations", "documents"],
 	declaresTools: ["maket_state"],
 	register(container) {
 		container.register({

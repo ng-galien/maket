@@ -37,6 +37,7 @@ function createMaketDocTool(deps: TestDocumentsDeps) {
 		...toolDeps,
 		bundleExportService: createBundleExportService({
 			documents: deps.documents,
+			documentRenderer: { render: (document) => document },
 			collections,
 			store: deps.store,
 			config: deps.config,
@@ -314,6 +315,62 @@ describe("maket_doc — action=delete", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBe(true);
+		store.close();
+	});
+
+	it("refuses to bypass Structured Workspace ownership", async () => {
+		const { store, bus, documents, config, collections } = fixture();
+		const template = makeDoc("template");
+		const instance = makeDoc("instance");
+		instance.meta.structuredWorkspace = {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "item-1",
+			bindingId: "task",
+		};
+		store.saveDocs([template, instance, makeDoc("other")]);
+		store.createStructuredWorkspace({
+			id: "workspace-1",
+			name: "Delivery",
+			dataSchema: { type: "object" },
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: template.id,
+						bindings: {
+							task: {
+								schemaPath: "",
+								detailTemplateDocumentId: template.id,
+							},
+						},
+					},
+				},
+			},
+		});
+		documents.loadAll();
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			collections,
+		});
+
+		const templateResult = await tool.handler(
+			{ action: "delete", doc: "template" },
+			NO_EXTRA,
+		);
+		expect(templateResult.isError).toBe(true);
+		expect(documents.resolve("template")).not.toBeNull();
+
+		const instanceResult = await tool.handler(
+			{ action: "delete", doc: "instance" },
+			NO_EXTRA,
+		);
+		expect(instanceResult.isError).toBe(true);
+		expect(documents.resolve("instance")).not.toBeNull();
 		store.close();
 	});
 });

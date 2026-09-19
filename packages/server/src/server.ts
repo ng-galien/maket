@@ -33,6 +33,7 @@ import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
 import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { SettingsService } from "./services/settings.js";
+import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
 import type { WorkspaceCommandHandler } from "./services/ws-handler/index.js";
 import type { WsLike, WsRegistry } from "./services/ws-registry.js";
 import { assetsPack } from "./tools/assets.js";
@@ -48,6 +49,7 @@ import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
 import { statePack } from "./tools/state.js";
+import { structuredWorkspacesPack } from "./tools/structured-workspaces.js";
 import { workspacePack } from "./tools/workspace.js";
 
 export { isAllowedRenderRequest } from "./lib/page-network-guard.js";
@@ -96,6 +98,7 @@ interface RuntimeServices {
 	mermaidDiagrams: MermaidDiagrams;
 	pending: Annotations;
 	settings: SettingsService;
+	structuredWorkspaces: StructuredWorkspaces;
 	wsHandler: WorkspaceCommandHandler;
 	wsRegistry: WsRegistry;
 }
@@ -113,6 +116,7 @@ const toolPacks = [
 	chartesPack,
 	collectionsPack,
 	statePack,
+	structuredWorkspacesPack,
 	learnPack,
 	pagesPack,
 	documentsPack,
@@ -131,6 +135,7 @@ const toolPackManifest = {
 		chartes: {},
 		collections: {},
 		state: {},
+		"structured-workspaces": {},
 		learn: {},
 		pages: {},
 		documents: {},
@@ -179,6 +184,9 @@ function resolveRuntimeServices(container: AppContainer): RuntimeServices {
 		mermaidDiagrams: container.resolve<MermaidDiagrams>("mermaidDiagrams"),
 		pending: container.resolve<Annotations>("pending"),
 		settings: container.resolve<SettingsService>("settings"),
+		structuredWorkspaces: container.resolve<StructuredWorkspaces>(
+			"structuredWorkspaces",
+		),
 		wsHandler: container.resolve<WorkspaceCommandHandler>("wsHandler"),
 		wsRegistry: container.resolve<WsRegistry>("wsRegistry"),
 	};
@@ -313,6 +321,7 @@ function handleWebSocketConnection(
 		documentRenderer,
 		pending,
 		settings,
+		structuredWorkspaces,
 		wsHandler,
 		wsRegistry,
 	} = services;
@@ -327,6 +336,7 @@ function handleWebSocketConnection(
 		documentState: firstDoc ? documentRenderer.stateView(firstDoc) : null,
 		docList: documents.list(),
 		collections: collections.loadAll(),
+		structuredWorkspaces: structuredWorkspaces.listViews(),
 		collectionCursors: collectionCursors.snapshot(),
 		annotations: pending.all(),
 		charteCss: documents.charteCss(firstDoc ?? null),

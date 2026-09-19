@@ -22,15 +22,16 @@ const DOC_UPSERT_SQL = `
 `;
 
 const PAGE_UPSERT_SQL = `
-  INSERT INTO pages (doc_name, idx, id, name, html, elements, canvas, collection)
-  VALUES ($doc_name, $idx, $id, $name, $html, $elements, $canvas, $collection)
+  INSERT INTO pages (doc_name, idx, id, name, html, elements, canvas, collection, provenance)
+  VALUES ($doc_name, $idx, $id, $name, $html, $elements, $canvas, $collection, $provenance)
   ON CONFLICT(doc_name, idx) DO UPDATE SET
     id         = coalesce(excluded.id, pages.id),
     name       = excluded.name,
     html       = excluded.html,
     elements   = excluded.elements,
     canvas     = excluded.canvas,
-    collection = excluded.collection
+    collection = excluded.collection,
+		provenance = excluded.provenance
 `;
 
 export interface DocumentRepository {
@@ -72,6 +73,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 				elements: JSON.stringify(p.elements || []),
 				canvas: p.canvas ? JSON.stringify(p.canvas) : null,
 				collection: p.collection?.name ?? null,
+				provenance: p.provenance ? JSON.stringify(p.provenance) : null,
 			});
 		}
 	}
@@ -189,6 +191,7 @@ function rowToDoc(row: any, pageSelectByDoc: StatementSync): Document {
 		elements: JSON.parse(pr.elements || "[]"),
 		canvas: pr.canvas ? JSON.parse(pr.canvas) : undefined,
 		collection: pr.collection ? { name: pr.collection } : undefined,
+		provenance: pr.provenance ? JSON.parse(pr.provenance) : undefined,
 	}));
 	if (pages.length === 0) {
 		pages.push({ id: crypto.randomUUID(), name: "Page 1", elements: [] });

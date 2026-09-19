@@ -28,6 +28,7 @@ import { createCollectionRenderer } from "./services/collection-renderer.js";
 import { createCollections } from "./services/collections.js";
 import { type Config, createConfig, ensureDirs } from "./services/config.js";
 import { createDocumentRenderer } from "./services/document-renderer.js";
+import { createDocumentStateMutations } from "./services/document-state-mutations.js";
 import { createDocumentStates } from "./services/document-states.js";
 import { createDocuments, type Documents } from "./services/documents.js";
 import {
@@ -40,6 +41,7 @@ import { createPdfService } from "./services/pdf.js";
 import { createSettings } from "./services/settings.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
+import { createStructuredWorkspaces } from "./services/structured-workspaces.js";
 import { createThumbnailService } from "./services/thumbnail.js";
 import { createWsHandler } from "./services/ws-handler/index.js";
 import { createWsRegistry } from "./services/ws-registry.js";
@@ -104,6 +106,12 @@ export function createAppContainer(
 		collectionRenderer: asFunction(createCollectionRenderer).singleton(),
 
 		documentStates: asFunction(createDocumentStates).singleton(),
+
+		documentStateMutations: asFunction(
+			createDocumentStateMutations,
+		).singleton(),
+
+		structuredWorkspaces: asFunction(createStructuredWorkspaces).singleton(),
 
 		stateRenderer: asFunction(createStateRenderer).singleton(),
 

@@ -11,6 +11,7 @@ import type { Bus } from "../bus.js";
 import type { CollectionCursors } from "../collection-cursor.js";
 import type { Collections } from "../collections.js";
 import type { DocumentRenderer } from "../document-renderer.js";
+import type { DocumentStateMutations } from "../document-state-mutations.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
 import type { SettingsService } from "../settings.js";
@@ -28,6 +29,7 @@ export interface WsHandlerDeps {
 	collections?: Collections;
 	collectionCursors?: CollectionCursors;
 	documentRenderer: DocumentRenderer;
+	documentStateMutations: DocumentStateMutations;
 	documentStates: DocumentStates;
 	documents: Documents;
 	pending: Annotations;

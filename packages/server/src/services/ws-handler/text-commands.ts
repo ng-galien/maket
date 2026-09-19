@@ -14,6 +14,7 @@ import {
 import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import type { Document } from "../../types.js";
 import { validateStateTemplateUpdate } from "../document-states.js";
+import { templateControlledPageMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
 
@@ -93,6 +94,12 @@ export function handleTextEdit(
 	const page = d.pages[pi];
 	if (!page?.html) {
 		log(`[text_edit] FAIL: no page html for ${msg.docName} page ${pi}`);
+		return;
+	}
+	const controlled = templateControlledPageMessage(d, page);
+	if (controlled) {
+		log(`[text_edit] FAIL: ${controlled}`);
+		ctx.broadcastState(d);
 		return;
 	}
 	const { document: dom } = parseHTML(`<html><body>${page.html}</body></html>`);

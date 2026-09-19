@@ -94,6 +94,37 @@ describe("maket_html — action=set", () => {
 		store.close();
 	});
 
+	it("rejects writes to a Structured Workspace template-controlled page", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const doc = makeDoc("instance", '<p data-id="title">Original</p>');
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.provenance = {
+			kind: "template",
+			workspaceId: "workspace-1",
+			templateDocumentId: "template-1",
+			templatePageId: "template-page-1",
+		};
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const result = await tool.handler(
+			{
+				action: "set",
+				doc: "instance",
+				page: 1,
+				html: '<p data-id="title">Changed</p>',
+			},
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBe(true);
+		expect(documents.resolve("instance")?.pages[0]?.html).toContain("Original");
+		expect(layout.measure).not.toHaveBeenCalled();
+		store.close();
+	});
+
 	it("rejects layout-ignore overrides in a full set", async () => {
 		const { store, documents, layout, assets } = fixture();
 		store.saveDoc(makeDoc("d", `<div data-id="a">original</div>`));

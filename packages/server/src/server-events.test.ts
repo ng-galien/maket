@@ -19,6 +19,7 @@ describe("server Mermaid refresh propagation", () => {
 				refreshCharte,
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
 			},
+			structuredWorkspaces: { listViews: () => [] } as never,
 			wsRegistry: { broadcast } as never,
 			pending: { all: () => [] } as never,
 		});
@@ -60,6 +61,7 @@ describe("server Mermaid refresh propagation", () => {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument,
 			},
+			structuredWorkspaces: { listViews: () => [] } as never,
 			wsRegistry: { broadcast } as never,
 			pending: { all: () => [] } as never,
 		});
@@ -68,5 +70,34 @@ describe("server Mermaid refresh propagation", () => {
 
 		expect(refreshDocument).toHaveBeenCalledWith("doc");
 		expect(order).toEqual(["refresh", "broadcast"]);
+	});
+});
+
+describe("server Structured Workspace propagation", () => {
+	it("broadcasts the authoritative workspace views after a domain change", () => {
+		const bus = createBus();
+		const broadcast = vi.fn();
+		const workspaces = [{ id: "delivery", name: "Delivery" }];
+		registerServerEvents({
+			bus,
+			collections: { loadAll: () => [] } as never,
+			collectionCursors: { snapshot: () => [] } as never,
+			documents: { resolve: () => null } as never,
+			documentRenderer: {} as never,
+			mermaidDiagrams: {
+				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
+				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
+			},
+			structuredWorkspaces: { listViews: () => workspaces } as never,
+			wsRegistry: { broadcast } as never,
+			pending: { all: () => [] } as never,
+		});
+
+		bus.emit("structured-workspace:changed", { workspaceId: "delivery" });
+
+		expect(broadcast).toHaveBeenCalledWith({
+			type: "structured_workspaces_changed",
+			workspaces,
+		});
 	});
 });

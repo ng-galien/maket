@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { stripActiveHtml } from "./strip-active-html.ts";
+import {
+	stripActiveHtml,
+	stripDocumentNavigationHtml,
+} from "./strip-active-html.ts";
 
 describe("stripActiveHtml", () => {
 	it("removes <script> tags entirely", () => {
@@ -50,5 +53,33 @@ describe("stripActiveHtml", () => {
 
 	it("returns empty input untouched", () => {
 		expect(stripActiveHtml("")).toBe("");
+	});
+});
+
+describe("stripDocumentNavigationHtml", () => {
+	it("neutralizes native navigation controls while preserving visible content", () => {
+		const html =
+			'<article data-id="card" data-maket-action="open-document" data-maket-document="Missing item" role="button" tabindex="0" style="cursor:pointer;color:red"><strong>Ship</strong><button class="open" type="button" data-maket-action="open-document" data-maket-document="Missing item">Open</button><a class="details" href="/documents/missing" target="_blank" data-maket-action="open-document" data-maket-document="Missing item">Details</a></article>';
+		const result = stripDocumentNavigationHtml(html);
+
+		expect(result).toContain("<strong>Ship</strong>");
+		expect(result).toContain('<span class="open">Open</span>');
+		expect(result).toContain('<span class="details">Details</span>');
+		expect(result).toContain("color:red");
+		expect(result).not.toMatch(/<button(?:\s|>)/);
+		expect(result).not.toMatch(/<a(?:\s|>)/);
+		expect(result).not.toContain("href=");
+		expect(result).not.toContain("open-document");
+		expect(result).not.toContain("data-maket-document");
+		expect(result).not.toContain('role="button"');
+		expect(result).not.toContain('tabindex="0"');
+		expect(result).not.toContain("cursor");
+	});
+
+	it("leaves unrelated authored buttons and anchors unchanged", () => {
+		const html =
+			'<button class="save" type="button">Save</button><a class="help" href="/help">Help</a>';
+
+		expect(stripDocumentNavigationHtml(html)).toBe(html);
 	});
 });

@@ -38,3 +38,109 @@ export function stripActiveHtml(html: string): string {
 	stripActiveIn(body);
 	return body.innerHTML;
 }
+
+/** Remove Maket's live document-navigation hooks from rendered HTML that is
+ * leaving its owning workspace as a static portable snapshot. */
+export function stripDocumentNavigationHtml(html: string): string {
+	if (!html) return html;
+	const body = parseBody(html);
+	if (!body) return html;
+	stripDocumentNavigationIn(body);
+	return body.innerHTML;
+}
+
+function parseBody(html: string): HTMLElement | null {
+	return parseHTML(`<html><body>${html}</body></html>`).document.body;
+}
+
+function stripDocumentNavigationIn(body: HTMLElement): void {
+	for (const element of navigationElements(body)) {
+		stripDocumentNavigationElement(element);
+	}
+}
+
+function navigationElements(body: HTMLElement): NodeListOf<HTMLElement> {
+	return body.querySelectorAll<HTMLElement>(
+		'[data-maket-action="open-document"], [data-maket-document]',
+	);
+}
+
+function stripDocumentNavigationElement(element: HTMLElement): void {
+	stripNavigationAttributes(element);
+	stripButtonRole(element);
+	stripKeyboardAffordance(element);
+	stripPointerAffordance(element);
+	neutralizeNativeNavigationControl(element);
+}
+
+function stripNavigationAttributes(element: HTMLElement): void {
+	element.removeAttribute("data-maket-action");
+	element.removeAttribute("data-maket-document");
+}
+
+function stripButtonRole(element: HTMLElement): void {
+	if (element.getAttribute("role") === "button")
+		element.removeAttribute("role");
+}
+
+function stripKeyboardAffordance(element: HTMLElement): void {
+	if (element.getAttribute("tabindex") === "0") {
+		element.removeAttribute("tabindex");
+	}
+}
+
+function stripPointerAffordance(element: HTMLElement): void {
+	element.style.removeProperty("cursor");
+	if (!element.getAttribute("style")) element.removeAttribute("style");
+}
+
+function neutralizeNativeNavigationControl(element: HTMLElement): void {
+	if (!isNativeNavigationControl(element)) return;
+	const replacement = createNeutralElement(element);
+	copyPresentationAttributes(element, replacement);
+	moveChildren(element, replacement);
+	element.replaceWith(replacement);
+}
+
+function isNativeNavigationControl(element: HTMLElement): boolean {
+	return element.tagName === "BUTTON" || element.tagName === "A";
+}
+
+function createNeutralElement(element: HTMLElement): HTMLElement {
+	return element.ownerDocument.createElement("span");
+}
+
+function copyPresentationAttributes(
+	source: HTMLElement,
+	target: HTMLElement,
+): void {
+	for (const attribute of Array.from(source.attributes)) {
+		if (isInteractiveAttribute(attribute.name)) continue;
+		target.setAttribute(attribute.name, attribute.value);
+	}
+}
+
+function isInteractiveAttribute(name: string): boolean {
+	const normalized = name.toLowerCase();
+	return (
+		normalized.startsWith("on") ||
+		normalized === "href" ||
+		normalized === "target" ||
+		normalized === "download" ||
+		normalized === "ping" ||
+		normalized === "referrerpolicy" ||
+		normalized === "type" ||
+		normalized === "name" ||
+		normalized === "value" ||
+		normalized === "disabled" ||
+		normalized === "autofocus" ||
+		normalized === "form" ||
+		normalized.startsWith("form") ||
+		normalized === "role" ||
+		normalized === "tabindex"
+	);
+}
+
+function moveChildren(source: HTMLElement, target: HTMLElement): void {
+	while (source.firstChild) target.appendChild(source.firstChild);
+}

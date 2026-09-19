@@ -6,7 +6,11 @@
 
 import crypto from "node:crypto";
 
-import { type CollectionReference, normalizeCategoryPath } from "@maket/shared";
+import {
+	type CollectionReference,
+	normalizeCategoryPath,
+	type StructuredWorkspacePageProvenance,
+} from "@maket/shared";
 
 export {
 	type Collection,
@@ -75,6 +79,20 @@ export interface DocMeta {
 	emailDraftId?: string; // Gmail draft ID after gmail_draft
 	emailDraftUrl?: string; // Deep link to review & send the draft in Gmail
 	emailDraftRole?: "body" | "attachment"; // How this doc was included in the last draft
+	structuredWorkspace?:
+		| {
+				role: "collection";
+				workspaceId: string;
+				collectionId: string;
+		  }
+		| {
+				/** Older persisted item documents have no explicit role. */
+				role?: "item";
+				workspaceId: string;
+				collectionId: string;
+				itemId: string;
+				bindingId: string;
+		  };
 }
 
 export interface Page {
@@ -84,6 +102,7 @@ export interface Page {
 	html?: string;
 	canvas?: Partial<Canvas>;
 	collection?: CollectionReference;
+	provenance?: StructuredWorkspacePageProvenance;
 }
 
 export type PageInit = Page | Omit<Page, "id">;
@@ -150,7 +169,11 @@ export function createDocument(init: DocumentInit): Document {
 
 /** Keep the non-state data model aligned with page collection bindings. */
 export function normalizeDocumentDataModel(doc: Document): Document {
-	if (doc.dataModel === "state") return doc;
+	if (
+		doc.dataModel === "state" ||
+		doc.meta.structuredWorkspace?.role === "collection"
+	)
+		return doc;
 	doc.dataModel = doc.pages.some((page) => page.collection)
 		? "collection"
 		: "static";

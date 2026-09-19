@@ -46,6 +46,10 @@ import { createDocuments, type Documents } from "../services/documents.js";
 import type { PdfService } from "../services/pdf.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspaces,
+} from "../services/structured-workspaces.js";
 import { createMaketDocTool } from "../tools/documents.js";
 import { createDocument } from "../types.js";
 import { createExportRouter } from "./export.routes.js";
@@ -66,6 +70,7 @@ describe("export routes — .maket bundle", () => {
 	let collectionRenderer: CollectionRenderer;
 	let documentRenderer: DocumentRenderer;
 	let documentStates: DocumentStates;
+	let structuredWorkspaces: StructuredWorkspaces;
 	let bundleExportService: BundleExportService;
 	let bundleImportService: BundleImportService;
 	let config: Config;
@@ -93,12 +98,20 @@ describe("export routes — .maket bundle", () => {
 		collections = createCollections({ bus, documents, store });
 		collectionRenderer = createCollectionRenderer({ collections });
 		documentStates = createDocumentStates({ bus, documents, store });
+		structuredWorkspaces = createStructuredWorkspaces({
+			bus,
+			documents,
+			documentStates,
+			store,
+		});
 		documentRenderer = createDocumentRenderer({
 			collectionRenderer,
 			stateRenderer: createStateRenderer({ documentStates }),
+			structuredWorkspaces,
 		});
 		bundleExportService = createBundleExportService({
 			documents,
+			documentRenderer,
 			collections,
 			store,
 			config,
@@ -243,6 +256,294 @@ describe("export routes — .maket bundle", () => {
 		expect(documentStates.history("living-checklist (imported)")).toHaveLength(
 			1,
 		);
+	});
+
+	it("exports Structured Workspace documents as detached portable documents that can be deleted after import", async () => {
+		const doc = makeDoc("workspace-item");
+		doc.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "task-1",
+			bindingId: "task",
+		};
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html = "<h1>{{ state.title }}</h1>";
+		page.provenance = {
+			kind: "template",
+			workspaceId: "workspace-1",
+			templateDocumentId: "template-1",
+			templatePageId: "template-page-1",
+		};
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			doc.name,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Portable" },
+		);
+
+		const exportResponse = await fetch(
+			`${baseUrl}/api/export-maket?name=${encodeURIComponent(doc.name)}`,
+		);
+		expect(exportResponse.status).toBe(200);
+		const bytes = Buffer.from(await exportResponse.arrayBuffer());
+		const bundle = await decodeBundle(bytes);
+		expect(bundle.documents[0]?.meta?.structuredWorkspace).toBeUndefined();
+		expect(bundle.documents[0]?.pages[0]?.provenance).toBeUndefined();
+
+		const importResponse = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(bytes),
+		});
+		expect(importResponse.status).toBe(200);
+		const importedName = "workspace-item (imported)";
+		const imported = documents.resolveOrLoad(importedName);
+		expect(imported).toMatchObject({
+			name: importedName,
+			dataModel: "state",
+		});
+		expect(imported?.meta.structuredWorkspace).toBeUndefined();
+		expect(imported?.pages[0]?.provenance).toBeUndefined();
+		expect(documentStates.get(importedName)?.current.data).toEqual({
+			title: "Portable",
+		});
+
+		const tool = createMaketDocTool({
+			documents,
+			bus,
+			store,
+			config,
+			bundleExportService,
+			bundleImportService,
+		});
+		const deleted = await tool.handler(
+			{ action: "delete", doc: importedName },
+			NO_EXTRA,
+		);
+		expect(deleted.isError).toBeUndefined();
+		expect(documents.resolveOrLoad(importedName)).toBeNull();
+		expect(store.loadOne(importedName)).toBeNull();
+	});
+
+	it("round-trips a populated Structured Workspace collection projection through HTTP and MCP", async () => {
+		const detailTemplate = makeDoc("Task detail template");
+		const detailPage = detailTemplate.pages[0];
+		if (!detailPage) throw new Error("Expected detail template page");
+		detailPage.html = "<h1>{{ state.title }}</h1>";
+		const compactTemplate = makeDoc("Task compact template");
+		const compactPage = compactTemplate.pages[0];
+		if (!compactPage) throw new Error("Expected compact template page");
+		compactPage.html =
+			'<article data-maket-compact-root><strong>{{ state.title }}</strong><button class="open-task" type="button" data-maket-action="open-document">Open task</button><a class="view-task" href="/documents/missing" data-maket-action="open-document">View task</a></article>';
+		const collectionTemplate = makeDoc("Backlog collection template");
+		const collectionPage = collectionTemplate.pages[0];
+		if (!collectionPage) throw new Error("Expected collection template page");
+		collectionPage.html =
+			'<main><h1>Backlog</h1><section data-maket-structured-items="task"></section></main>';
+		for (const document of [
+			detailTemplate,
+			compactTemplate,
+			collectionTemplate,
+		]) {
+			store.saveDoc(document);
+		}
+		documents.loadAll();
+
+		structuredWorkspaces.create({
+			name: "Delivery",
+			dataSchema: {
+				$defs: {
+					task: {
+						type: "object",
+						properties: {
+							kind: { const: "task" },
+							title: { type: "string" },
+						},
+						required: ["kind", "title"],
+						additionalProperties: false,
+					},
+				},
+				oneOf: [{ $ref: "#/$defs/task" }],
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: collectionTemplate.name,
+						bindings: {
+							task: {
+								schemaPath: "/$defs/task",
+								detailTemplateDocumentId: detailTemplate.name,
+								compactTemplateDocumentId: compactTemplate.name,
+							},
+						},
+					},
+				},
+			},
+		});
+		structuredWorkspaces.addItem({
+			workspace: "Delivery",
+			itemId: "task-1",
+			collectionId: "backlog",
+			bindingId: "task",
+			documentName: "Ship the release",
+			data: { kind: "task", title: "Ship the release" },
+		});
+		const collectionName = "Delivery — Backlog";
+
+		const httpResponse = await fetch(
+			`${baseUrl}/api/export-maket?name=${encodeURIComponent(collectionName)}`,
+		);
+		expect(httpResponse.status).toBe(200);
+		const httpBytes = Buffer.from(await httpResponse.arrayBuffer());
+		const httpBundle = await decodeBundle(httpBytes);
+		const exportedHtml = httpBundle.documents[0]?.pages[0]?.html;
+		expect(exportedHtml).toContain("Ship the release");
+		expect(exportedHtml).toContain("Open task");
+		expect(exportedHtml).toContain("View task");
+		expect(exportedHtml).not.toMatch(/<button(?:\s|>)/);
+		expect(exportedHtml).not.toMatch(/<a(?:\s|>)/);
+		expect(exportedHtml).not.toContain("href=");
+		expect(exportedHtml).not.toContain("tabindex=");
+		expect(exportedHtml).not.toContain('role="button"');
+		expect(exportedHtml).not.toContain("open-document");
+		expect(exportedHtml).not.toContain("data-maket-document");
+		expect(httpBundle.documents[0]?.dataModel).toBe("static");
+		expect(httpBundle.documents[0]?.meta?.structuredWorkspace).toBeUndefined();
+		expect(httpBundle.documentStates).toEqual([]);
+
+		const tool = createMaketDocTool({
+			documents,
+			bus,
+			store,
+			config,
+			bundleExportService,
+			bundleImportService,
+		});
+		const mcpResponse = await tool.handler(
+			{
+				action: "export",
+				doc: collectionName,
+				output: "structured-collection",
+			},
+			NO_EXTRA,
+		);
+		expect(mcpResponse.isError).toBeUndefined();
+		const mcpText = (mcpResponse.content[0] as { text: string }).text;
+		const mcpPath = mcpText.match(/→ (\S+\.maket)/)?.[1];
+		expect(mcpPath).toBeDefined();
+		const mcpBundle = await decodeBundle(readFileSync(mcpPath as string));
+		const { exportedAt: _httpExportedAt, ...httpPortableContent } = httpBundle;
+		const { exportedAt: _mcpExportedAt, ...mcpPortableContent } = mcpBundle;
+		expect(mcpPortableContent).toEqual(httpPortableContent);
+
+		const targetDir = join(testDir, "clean-target");
+		const targetAssetsDir = join(targetDir, "assets");
+		const targetExportsDir = join(targetDir, "exports");
+		mkdirSync(targetDir);
+		mkdirSync(targetAssetsDir);
+		mkdirSync(targetExportsDir);
+		const targetConfig = {
+			DATA_DIR: targetDir,
+			ASSETS_DIR: targetAssetsDir,
+			EXPORTS_DIR: targetExportsDir,
+			DOCS_DIR: join(targetDir, "documents"),
+		} as Config;
+		const targetStore = createSQLiteStore(":memory:");
+		const targetBus = createBus();
+		const targetDocuments = createDocuments({ store: targetStore });
+		const targetCollections = createCollections({
+			bus: targetBus,
+			documents: targetDocuments,
+			store: targetStore,
+		});
+		const targetDocumentStates = createDocumentStates({
+			bus: targetBus,
+			documents: targetDocuments,
+			store: targetStore,
+		});
+		const targetBundleExportService = createBundleExportService({
+			documents: targetDocuments,
+			documentRenderer: { render: (document) => document },
+			collections: targetCollections,
+			store: targetStore,
+			config: targetConfig,
+		});
+		const targetBundleImportService = createBundleImportService({
+			documents: targetDocuments,
+			documentStates: targetDocumentStates,
+			store: targetStore,
+			bus: targetBus,
+			config: targetConfig,
+		});
+		const targetApp = express();
+		targetApp.use(
+			createExportRouter({
+				documents: targetDocuments,
+				bundleExportService: targetBundleExportService,
+				bundleImportService: targetBundleImportService,
+				pdfService: pdfService as unknown as PdfService,
+			}),
+		);
+		const targetServer = await startTestApp(targetApp);
+		try {
+			expect([...targetDocuments.all().keys()]).toEqual([]);
+			targetStore.saveDoc(makeDoc("target-anchor"));
+			targetDocuments.loadAll();
+			const importResponse = await fetch(
+				`${targetServer.baseUrl}/api/import-maket`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/zip" },
+					body: new Uint8Array(httpBytes),
+				},
+			);
+			expect(importResponse.status).toBe(200);
+			const imported = targetDocuments.resolveOrLoad(collectionName);
+			expect([...targetDocuments.all().keys()].sort()).toEqual(
+				[collectionName, "target-anchor"].sort(),
+			);
+			expect(imported?.dataModel).toBe("static");
+			expect(imported?.meta.structuredWorkspace).toBeUndefined();
+			expect(imported?.pages[0]?.provenance).toBeUndefined();
+			expect(imported?.pages[0]?.html).toContain("Ship the release");
+			expect(imported?.pages[0]?.html).toContain("Open task");
+			expect(imported?.pages[0]?.html).toContain("View task");
+			expect(imported?.pages[0]?.html).not.toMatch(/<button(?:\s|>)/);
+			expect(imported?.pages[0]?.html).not.toMatch(/<a(?:\s|>)/);
+			expect(imported?.pages[0]?.html).not.toContain("href=");
+			expect(imported?.pages[0]?.html).not.toContain("tabindex=");
+			expect(imported?.pages[0]?.html).not.toContain('role="button"');
+			expect(imported?.pages[0]?.html).not.toContain("open-document");
+			expect(imported?.pages[0]?.html).not.toContain("data-maket-document");
+			expect(targetDocumentStates.get(collectionName)).toBeNull();
+
+			const targetTool = createMaketDocTool({
+				documents: targetDocuments,
+				bus: targetBus,
+				store: targetStore,
+				config: targetConfig,
+				bundleExportService: targetBundleExportService,
+				bundleImportService: targetBundleImportService,
+			});
+			const deleted = await targetTool.handler(
+				{ action: "delete", doc: collectionName },
+				NO_EXTRA,
+			);
+			expect(deleted.isError).toBeUndefined();
+			expect(targetDocuments.resolveOrLoad(collectionName)).toBeNull();
+		} finally {
+			await targetServer.close();
+			targetStore.close();
+		}
 	});
 
 	it("produces the same complete bundle through HTTP and MCP", async () => {
@@ -516,6 +817,7 @@ describe("export routes — .maket bundle", () => {
 				documents: documents2,
 				bundleExportService: createBundleExportService({
 					documents: documents2,
+					documentRenderer: { render: (document) => document },
 					collections: collections2,
 					store: store2,
 					config: config2,

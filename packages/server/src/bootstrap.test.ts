@@ -20,6 +20,7 @@ import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
 import { statePack } from "./tools/state.js";
+import { structuredWorkspacesPack } from "./tools/structured-workspaces.js";
 import { workspacePack } from "./tools/workspace.js";
 
 const browserPool = {
@@ -138,6 +139,7 @@ describe("registerToolPacks", () => {
 		chartesPack,
 		collectionsPack,
 		statePack,
+		structuredWorkspacesPack,
 		learnPack,
 		pagesPack,
 		documentsPack,
@@ -155,6 +157,7 @@ describe("registerToolPacks", () => {
 		chartes: {},
 		collections: {},
 		state: {},
+		"structured-workspaces": {},
 		learn: {},
 		pages: {},
 		documents: {},

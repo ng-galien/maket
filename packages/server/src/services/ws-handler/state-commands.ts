@@ -29,7 +29,7 @@ export function handleStatePatch(
 		return;
 	}
 	try {
-		const revision = ctx.documentStates.patchTerminal(
+		const revision = ctx.documentStateMutations.patchTerminal(
 			msg.docName,
 			msg.expectedRevision,
 			msg.operation,

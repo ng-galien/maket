@@ -20,6 +20,7 @@ export const MESSAGE_KEYS = [
 	"msg_state_no_revision",
 	"msg_state_invalid",
 	"msg_state_not_object",
+	"msg_structured_workspace_collection_state_read_only",
 	"msg_collection_not_found",
 	"msg_collection_in_use",
 	"msg_collection_on_state_document",

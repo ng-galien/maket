@@ -108,6 +108,19 @@ export const ACTIVITY_POLICIES = {
 			restore: null,
 		},
 	},
+	maket_structured_workspace: {
+		icon: "panels-top-left",
+		actions: {
+			list: null,
+			view: null,
+			create: null,
+			update_definition: null,
+			add_item: null,
+			update_item: null,
+			delete_item: null,
+			sync_template: null,
+		},
+	},
 	maket_learn: {
 		icon: "graduation-cap",
 		key: null,

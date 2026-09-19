@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -174,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(14);
+		const db = historicalDatabaseWithoutIds(16);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v14 is newer than supported v13/,
+			/schema v16 is newer than supported v15/,
 		);
-		expect(schemaVersion(db)).toBe(14);
+		expect(schemaVersion(db)).toBe(16);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,9 +207,12 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(13);
+		expect(schemaVersion(db)).toBe(15);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
+		expect(hasTable(db, "structured_workspaces")).toBe(true);
+		expect(hasTable(db, "structured_workspace_items")).toBe(true);
+		expect(hasColumn(db, "pages", "provenance")).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
 		db.close();
 	});
@@ -454,7 +457,7 @@ function businessData(db: DatabaseSync): Record<string, unknown[]> {
 function stateData(db: DatabaseSync): Record<string, unknown[]> {
 	return {
 		documents: rows(db, "SELECT * FROM documents ORDER BY name"),
-		pages: rows(db, "SELECT * FROM pages ORDER BY doc_name, idx"),
+		pages: pageBusinessRows(db),
 		collections: rows(db, "SELECT * FROM collections ORDER BY name"),
 		collectionRows: rows(
 			db,
@@ -474,7 +477,7 @@ function collectionData(db: DatabaseSync): Record<string, unknown[]> {
 			db,
 			"SELECT name, id, category, canvas, meta, active_page, next_id FROM documents ORDER BY name",
 		),
-		pages: rows(db, "SELECT * FROM pages ORDER BY doc_name, idx"),
+		pages: pageBusinessRows(db),
 		collections: rows(db, "SELECT * FROM collections ORDER BY name"),
 		collectionRows: rows(
 			db,
@@ -485,4 +488,11 @@ function collectionData(db: DatabaseSync): Record<string, unknown[]> {
 
 function rows(db: DatabaseSync, sql: string): unknown[] {
 	return db.prepare(sql).all();
+}
+
+function pageBusinessRows(db: DatabaseSync): unknown[] {
+	return rows(
+		db,
+		"SELECT doc_name, idx, id, name, html, elements, canvas, collection FROM pages ORDER BY doc_name, idx",
+	);
 }

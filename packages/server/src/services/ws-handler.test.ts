@@ -18,6 +18,7 @@ import { createBus } from "./bus.js";
 import { createCollectionCursors } from "./collection-cursor.js";
 import { createCollections } from "./collections.js";
 import type { DocumentRenderer } from "./document-renderer.js";
+import { createDocumentStateMutations } from "./document-state-mutations.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import type { SettingsService } from "./settings.js";
@@ -61,6 +62,11 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const documentStates = createDocumentStates({ store, documents, bus });
+	const documentStateMutations = createDocumentStateMutations({
+		store,
+		documents,
+		documentStates,
+	});
 	const pending = createAnnotations({ bus, store });
 	const wsRegistry = createWsRegistry();
 	const documentRenderer = opts.documentRenderer ?? rendererStub();
@@ -70,6 +76,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		assets,
 		bus,
 		documentRenderer,
+		documentStateMutations,
 		documentStates,
 		documents,
 		pending,
@@ -82,6 +89,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		bus,
 		documents,
 		documentStates,
+		documentStateMutations,
 		pending,
 		documentRenderer,
 		handler,
@@ -158,6 +166,130 @@ describe("ws-handler — annotation persistence acknowledgement", () => {
 });
 
 describe("ws-handler — living document state", () => {
+	it("rejects collection projection writes and aggregate-invalid item writes without revisions", () => {
+		const { store, documents, documentStates, handler, dispose } = fixture();
+		const collection = makeDoc("Delivery — Backlog");
+		collection.meta.structuredWorkspace = {
+			role: "collection",
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+		};
+		const item = makeDoc("Ship");
+		item.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "task-1",
+			bindingId: "task",
+		};
+		const itemPage = item.pages[0];
+		if (!itemPage) throw new Error("Fixture page missing.");
+		itemPage.html = '<input type="text" data-maket-bind="state.kind">';
+		for (const document of [collection, item]) store.saveDoc(document);
+		documents.loadAll();
+		store.createStructuredWorkspace({
+			id: "workspace-1",
+			name: "Delivery",
+			dataSchema: {
+				type: "object",
+				properties: {
+					kind: { const: "task" },
+					title: { type: "string" },
+				},
+				required: ["kind", "title"],
+				additionalProperties: false,
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: "collection-template",
+						bindings: {
+							task: {
+								schemaPath: "",
+								detailTemplateDocumentId: "detail-template",
+							},
+						},
+					},
+				},
+			},
+		});
+		store.addStructuredWorkspaceItem("workspace-1", {
+			id: "task-1",
+			collectionId: "backlog",
+			bindingId: "task",
+			documentId: item.id,
+		});
+		documentStates.initialize(
+			collection.name,
+			{
+				type: "object",
+				properties: { items: { type: "array" } },
+				required: ["items"],
+			},
+			{ items: [] },
+		);
+		documentStates.initialize(
+			item.name,
+			{
+				type: "object",
+				properties: {
+					kind: { type: "string" },
+					title: { type: "string" },
+				},
+				required: ["kind", "title"],
+			},
+			{ kind: "task", title: "Ship" },
+		);
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "state_patch",
+				requestId: "collection-write",
+				docName: collection.name,
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/items", value: "blocked" },
+			},
+			ws,
+		);
+		handler(
+			{
+				type: "state_patch",
+				requestId: "item-write",
+				docName: item.name,
+				expectedRevision: 1,
+				operation: { op: "replace", path: "/kind", value: "decision" },
+			},
+			ws,
+		);
+
+		expect(documentStates.get(collection.name)?.current.revision).toBe(1);
+		expect(documentStates.get(item.name)?.current).toMatchObject({
+			revision: 1,
+			data: { kind: "task", title: "Ship" },
+		});
+		expect(
+			ws.send.mock.calls.map(([payload]: [string]) => JSON.parse(payload)),
+		).toEqual([
+			expect.objectContaining({
+				requestId: "collection-write",
+				ok: false,
+				message: {
+					key: "msg_structured_workspace_collection_state_read_only",
+					params: { name: collection.name },
+				},
+			}),
+			expect.objectContaining({
+				requestId: "item-write",
+				ok: false,
+				message: { key: "msg_state_invalid" },
+			}),
+		]);
+		dispose();
+	});
+
 	it("replaces one terminal value and acknowledges the resulting revision", () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const doc = makeDoc("checklist");
@@ -407,6 +539,32 @@ describe("ws-handler — living document state", () => {
 });
 
 describe("ws-handler — lock guards", () => {
+	it("refuses generic deletion of a Structured Workspace document", () => {
+		const { store, bus, documents, handler, dispose } = fixture();
+		const instance = makeDoc("instance");
+		instance.meta.structuredWorkspace = {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "item-1",
+			bindingId: "task",
+		};
+		store.saveDocs([instance, makeDoc("other")]);
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		handler({ type: "delete_document", name: "instance" }, STUB_WS);
+
+		expect(documents.resolve("instance")).not.toBeNull();
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({
+				key: "toast_structured_workspace_document_delete",
+				params: { doc: "instance" },
+			}),
+		);
+		dispose();
+	});
+
 	it("refuses delete_document when the doc is locked", () => {
 		const { store, bus, documents, handler, dispose } = fixture();
 		const locked = makeDoc("locked");
@@ -537,6 +695,38 @@ describe("ws-handler — document and canvas flows", () => {
 		expect(payload.doc.pages[0]?.html).toContain("Ready");
 		expect(store.loadOne("living")?.pages[0]?.html).toContain(
 			"{{ state.title }}",
+		);
+		dispose();
+	});
+
+	it("load_document forwards Structured Workspace collection context to composition", () => {
+		const render = vi.fn((doc: Document) => doc);
+		const { store, handler, dispose } = fixture({
+			documentRenderer: rendererStub(render),
+		});
+		store.saveDoc(makeDoc("Delivery backlog"));
+		const ws = { readyState: 1, send: vi.fn() } as any;
+
+		handler(
+			{
+				type: "load_document",
+				name: "Delivery backlog",
+				structuredWorkspace: {
+					workspaceId: "delivery",
+					collectionId: "backlog",
+				},
+			},
+			ws,
+		);
+
+		expect(render).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "Delivery backlog" }),
+			{
+				structuredWorkspace: {
+					workspaceId: "delivery",
+					collectionId: "backlog",
+				},
+			},
 		);
 		dispose();
 	});
@@ -828,6 +1018,42 @@ describe("ws-handler — file and document mutations", () => {
 		dispose();
 	});
 
+	it.each(["state-backed", "workspace-owned"])(
+		"rejects duplicate_document for %s documents without creating an orphan",
+		(kind) => {
+			const { store, documents, bus, handler, dispose } = fixture();
+			const src = makeDoc("source");
+			if (kind === "state-backed") src.dataModel = "state";
+			else {
+				src.meta.structuredWorkspace = {
+					role: "item",
+					workspaceId: "workspace-1",
+					collectionId: "backlog",
+					itemId: "task-1",
+					bindingId: "task",
+				};
+			}
+			store.saveDoc(src);
+			documents.loadAll();
+			const toast = vi.fn();
+			bus.on("toast", toast);
+
+			handler(
+				{ type: "duplicate_document", name: "source", newName: "copy" },
+				STUB_WS,
+			);
+
+			expect(documents.resolve("copy")).toBeNull();
+			expect(store.loadOne("copy")).toBeNull();
+			expect(toast).toHaveBeenCalledWith({
+				key: "toast_document_duplicate_blocked",
+				params: { doc: "source" },
+				level: "error",
+			});
+			dispose();
+		},
+	);
+
 	it("moves a category subtree while preserving descendant paths", () => {
 		const {
 			store,
@@ -859,6 +1085,7 @@ describe("ws-handler — file and document mutations", () => {
 				refreshCharte: () => ({ docNames: [], errors: [] }),
 				refreshDocument: () => ({ docNames: [], errors: [] }),
 			},
+			structuredWorkspaces: { listViews: () => [] } as never,
 			wsRegistry,
 			pending,
 		});
@@ -1032,6 +1259,41 @@ describe("ws-handler — text editing", () => {
 		dispose();
 	});
 
+	it("rejects text edits on Structured Workspace template-controlled pages", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const doc = makeDoc("workspace-item");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<div data-id="a">Template content</div>';
+		page.provenance = {
+			kind: "template",
+			workspaceId: "workspace-1",
+			templateDocumentId: "template-1",
+			templatePageId: "template-page-1",
+		};
+		store.saveDoc(doc);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "text_edit",
+				docName: doc.name,
+				pageIndex: 0,
+				elementId: "a",
+				html: "Changed",
+			},
+			STUB_WS,
+		);
+
+		expect(documents.resolve(doc.name)?.pages[0]?.html).toContain(
+			"Template content",
+		);
+		expect(store.loadOne(doc.name)?.pages[0]?.html).toContain(
+			"Template content",
+		);
+		dispose();
+	});
+
 	it("rejects text edits on locked documents", () => {
 		const { store, documents, handler, dispose } = fixture();
 		const doc = makeDoc("locked-editor");
@@ -1180,6 +1442,7 @@ describe("ws-handler — collection cursor", () => {
 			collections,
 			collectionCursors,
 			documentRenderer: rendererStub(),
+			documentStateMutations: base.documentStateMutations,
 			documentStates: base.documentStates,
 			documents: base.documents,
 			pending: base.pending,

@@ -24,7 +24,7 @@ const MaketLearnSchema = z.object({
 const DESCRIPTION = [
 	"When to use: first call for any agent entering Maket; source of operational guidance for using Maket MCP tools correctly.",
 	"",
-	"Returns structured Markdown inside MCP text content. It teaches agents how to operate Maket: workflow, HTML composition, chartes, diagram styling, collections, living document state, review loop, and client installation.",
+	"Returns structured Markdown inside MCP text content. It teaches agents how to operate Maket: workflow, HTML composition, chartes, diagram styling, collections, living document state, Structured Workspaces, review loop, and client installation.",
 	"This is not the user-facing Help document opened from the Maket UI.",
 	"",
 	"Actions:",
@@ -85,6 +85,7 @@ function runTopics() {
 				"maket_learn action=topic topic=html",
 				"maket_learn action=topic topic=diagrams",
 				"maket_learn action=topic topic=state",
+				"maket_learn action=topic topic=structured-workspaces",
 			],
 		},
 	);

@@ -28,7 +28,12 @@ import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { Store } from "../services/store.js";
-import { computeCanvasDims, createDocument, type Page } from "../types.js";
+import {
+	computeCanvasDims,
+	createDocument,
+	type Document,
+	type Page,
+} from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
 
 export interface DocumentsDeps {
@@ -224,7 +229,7 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 		case "list":
 			return runList(deps.documents);
 		case "delete":
-			return runDelete(args, deps.documents, deps.bus);
+			return runDelete(args, deps.documents, deps.bus, deps.store);
 		case "duplicate":
 			return runDuplicate(args, deps.documents, deps.bus);
 		case "rename":
@@ -357,7 +362,7 @@ function documentCategoryCount(node: DocumentCategoryNode): number {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runDelete`: edge adapter over services/store/bus, not domain ownership.
-function runDelete(args: Args, documents: Documents, bus: Bus) {
+function runDelete(args: Args, documents: Documents, bus: Bus, store: Store) {
 	if (!args.doc) return text("doc is required for action=delete", true);
 	const all = documents.all();
 	const d = all.get(args.doc);
@@ -365,6 +370,8 @@ function runDelete(args: Args, documents: Documents, bus: Bus) {
 	if (all.size <= 1) return text("Cannot delete the only document", true);
 	const locked = lockGuard(d);
 	if (locked) return locked;
+	const structuredWorkspaceGuard = structuredWorkspaceDocumentGuard(d, store);
+	if (structuredWorkspaceGuard) return structuredWorkspaceGuard;
 	documents.delete(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
 	bus.emit("toast", {
@@ -373,6 +380,35 @@ function runDelete(args: Args, documents: Documents, bus: Bus) {
 		level: "info",
 	});
 	return text(`Deleted "${args.doc}"`);
+}
+
+function structuredWorkspaceDocumentGuard(d: Document, store: Store) {
+	if (d.meta.structuredWorkspace) {
+		const collectionDocument = d.meta.structuredWorkspace.role === "collection";
+		return text(
+			collectionDocument
+				? `Document "${d.name}" is the instantiated collection document of a Structured Workspace. Remove its collection through maket_structured_workspace.`
+				: `Document "${d.name}" is instantiated by a Structured Workspace. Delete its item through maket_structured_workspace action=delete_item.`,
+			true,
+		);
+	}
+	const owner = store.loadAllStructuredWorkspaces().find((workspace) => {
+		const representation = workspace.representationSchema;
+		return Object.values(representation.collections).some(
+			(collection) =>
+				collection.collectionTemplateDocumentId === d.id ||
+				Object.values(collection.bindings).some(
+					(binding) =>
+						binding.compactTemplateDocumentId === d.id ||
+						binding.detailTemplateDocumentId === d.id,
+				),
+		);
+	});
+	if (!owner) return null;
+	return text(
+		`Document "${d.name}" is a template of Structured Workspace "${owner.name}". Change the representation schema before deleting it.`,
+		true,
+	);
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]

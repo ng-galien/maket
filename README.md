@@ -131,6 +131,12 @@ Templates use the supported Mustache subset for display and explicit `data-maket
 
 Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema and data snapshot; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state HTML binding contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
 
+## Structured Workspaces
+
+A Structured Workspace groups one or more named collections whose detail views are real, persistent living documents. Its data schema validates every item and may use `oneOf`; its representation schema gives each collection a global template and binds concrete schema paths to compact and detail template documents. Adding an item to a collection creates its instantiated document and initial data revision.
+
+Template-controlled pages stay synchronized across every instantiated document and are edited at the template. Pages added to one instance remain editable and survive template synchronization. `maket_structured_workspace` exposes workspace creation, revision-checked schema and template-binding changes, item creation and mutation, deletion, inspection, and explicit template synchronization through MCP.
+
 ## Installation details
 
 Pick the row that matches your machine.
@@ -266,7 +272,7 @@ maket [command] [--data-dir <path>] [--port <n>] [--host <h>]
 
 ## Tools
 
-Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
+Maket exposes 15 compound MCP tools. Each one dispatches multiple actions:
 
 | Tool | What it does |
 |------|--------------|
@@ -279,6 +285,7 @@ Maket exposes 14 compound MCP tools. Each one dispatches multiple actions:
 | `maket_charte` | Brand chartes — list, view, set, delete |
 | `maket_collection` | Typed data collections — list, view, create, validate/change schema, add/update/delete rows, bind/unbind a page |
 | `maket_state` | Document-owned state — initialize, get, update or JSON Patch, validate/change schema, inspect history and revisions, restore |
+| `maket_structured_workspace` | Schema-driven item collections — create, inspect, instantiate/update/delete items, synchronize template pages |
 | `maket_image` | Asset library — list, view, meta, import, delete |
 | `maket_preview` | Open the live preview URL or snapshot a page to PNG |
 | `maket_mermaid` | Render a durable, charte-aware Mermaid diagram with semantic tokens and safe visual controls |

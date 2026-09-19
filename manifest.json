@@ -53,6 +53,10 @@
       "description": "Attach document-owned state, update it with snapshots or JSON Patch, validate/change its schema, inspect history, and restore revisions."
     },
     {
+      "name": "maket_structured_workspace",
+      "description": "Create and operate schema-driven workspaces whose collection items own persistent instantiated Maket documents."
+    },
+    {
       "name": "maket_learn",
       "description": "Structured Markdown documentation for Maket agents: workflow, HTML composition, chartes, diagram styling, collections, living document state, review, and MCP client installation."
     },
