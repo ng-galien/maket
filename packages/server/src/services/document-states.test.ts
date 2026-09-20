@@ -45,6 +45,39 @@ function fixture() {
 }
 
 describe("DocumentStates", () => {
+	it("renders JSON Forms pages and exposes their generated controls to state patches", () => {
+		const { store, documents, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = undefined;
+		page.jsonForms = {
+			uischema: {
+				type: "VerticalLayout",
+				elements: [
+					{ type: "Control", scope: "#/properties/title" },
+					{ type: "Control", scope: "#/properties/done" },
+				],
+			},
+		};
+		states.initialize("audit", schema, { title: "Audit", done: false });
+		documents.persist(doc.name);
+
+		const renderer = createStateRenderer({ documentStates: states });
+		const rendered = renderer.render(doc).pages[0]?.html ?? "";
+		expect(rendered).toContain("data-maket-json-forms");
+		expect(rendered).toContain('data-maket-path="/title"');
+		expect(rendered).toContain('value="Audit"');
+
+		const updated = states.patchTerminal("audit", 1, {
+			op: "replace",
+			path: "/title",
+			value: "Ready",
+		});
+		expect(updated.data.title).toBe("Ready");
+		expect(renderer.render(doc).pages[0]?.html).toContain('value="Ready"');
+		store.close();
+	});
+
 	it("rejects an incompatible binding before attaching or changing state", () => {
 		const { store, doc, states } = fixture();
 		const page = doc.pages[0];

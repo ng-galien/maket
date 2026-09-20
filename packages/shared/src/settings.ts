@@ -29,7 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	themeMode: "system",
 	accentColor: "#10b981",
 	autoFocusFit: true,
-	documentLabelPosition: "bottom",
+	documentLabelPosition: "top",
 	updateChannel: "stable",
 };
 

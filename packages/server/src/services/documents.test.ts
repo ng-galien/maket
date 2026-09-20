@@ -164,7 +164,33 @@ describe("documents service", () => {
 			},
 		);
 		const b = makeDoc("b", "flyer");
+		b.meta.structuredWorkspace = {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+			itemId: "item-1",
+			bindingId: "task",
+		};
 		store.saveDocs([a, b]);
+		store.createStructuredWorkspace({
+			id: "workspace-1",
+			name: "Delivery",
+			dataSchema: { type: "object" },
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: a.id,
+						bindings: {
+							task: {
+								schemaPath: "/properties/task",
+								detailTemplateDocumentId: a.id,
+							},
+						},
+					},
+				},
+			},
+		});
 
 		const docs = createDocuments({ store });
 		docs.loadAll();
@@ -181,6 +207,10 @@ describe("documents service", () => {
 			{ name: "clients", pageCount: 2 },
 			{ name: "offers", pageCount: 1 },
 		]);
+		expect(summaryA?.structuredWorkspaceKind).toBe("template");
+		expect(
+			docs.list().find((s) => s.name === "b")?.structuredWorkspaceKind,
+		).toBe("item");
 		store.close();
 	});
 

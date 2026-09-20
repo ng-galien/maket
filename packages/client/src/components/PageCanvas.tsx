@@ -243,7 +243,7 @@ export const PageCanvas = memo(function PageCanvas({
 		originalHtml: string;
 		target: HTMLElement;
 	} | null>(null);
-	const textCommitRef = useRef(new WeakMap<HTMLInputElement, string>());
+	const textCommitRef = useRef(new WeakMap<StateTextControl, string>());
 	const page = doc.pages[pageIndex];
 	const structuredCollection =
 		doc.meta?.structuredWorkspace?.role === "collection";
@@ -297,6 +297,7 @@ export const PageCanvas = memo(function PageCanvas({
 	const canInteract =
 		activePolicy.authoring &&
 		!structuredCollection &&
+		!page?.jsonForms &&
 		(!stateBacked || stateMode === "design");
 	const templateControlled = page?.provenance?.kind === "template";
 	const canEditTemplate =
@@ -756,12 +757,13 @@ export const PageCanvas = memo(function PageCanvas({
 	useEffect(() => {
 		if (!pageRef.current || !liveState) return;
 		const el = pageRef.current;
-		const restoreControl = (
-			binding: HTMLInputElement | HTMLSelectElement,
-			pointer: string,
-		) => {
+		const restoreControl = (binding: StateFormControl, pointer: string) => {
 			const authoritative = authoritativeStateValue(pointer);
 			if (binding instanceof HTMLSelectElement) {
+				if (typeof authoritative === "string") binding.value = authoritative;
+				return;
+			}
+			if (binding instanceof HTMLTextAreaElement) {
 				if (typeof authoritative === "string") binding.value = authoritative;
 				return;
 			}
@@ -771,12 +773,20 @@ export const PageCanvas = memo(function PageCanvas({
 				}
 				return;
 			}
-			if (binding.type === "text" && typeof authoritative === "string") {
+			if (binding.type === "radio") {
+				binding.checked = String(authoritative) === binding.value;
+				return;
+			}
+			if (binding.type === "number" && typeof authoritative === "number") {
+				binding.value = String(authoritative);
+				return;
+			}
+			if (isStringInput(binding) && typeof authoritative === "string") {
 				binding.value = authoritative;
 			}
 		};
 		const commitStringControl = (
-			binding: HTMLInputElement | HTMLSelectElement,
+			binding: StateStringControl,
 		): "sent" | "unchanged" | "restored" => {
 			const pointer = binding.dataset.maketPath;
 			if (!pointer) return "restored";
@@ -819,24 +829,20 @@ export const PageCanvas = memo(function PageCanvas({
 			const target = event.target;
 			if (!(target instanceof HTMLElement) || !stateView) return;
 			const binding = target.closest(
-				'input[type="checkbox"][data-maket-bind][data-maket-path], input[type="text"][data-maket-bind][data-maket-path], select[data-maket-bind][data-maket-path]',
-			) as HTMLInputElement | HTMLSelectElement | null;
+				'input[type="checkbox"][data-maket-bind][data-maket-path], input[type="radio"][data-maket-bind][data-maket-path], input[type="text"][data-maket-bind][data-maket-path], input[type="email"][data-maket-bind][data-maket-path], input[type="date"][data-maket-bind][data-maket-path], input[type="time"][data-maket-bind][data-maket-path], input[type="datetime-local"][data-maket-bind][data-maket-path], input[type="number"][data-maket-bind][data-maket-path], textarea[data-maket-bind][data-maket-path], select[data-maket-bind][data-maket-path]',
+			) as StateFormControl | null;
 			if (!binding) return;
 			const pointer = binding.dataset.maketPath;
 			if (!pointer) return;
 			if (
-				binding instanceof HTMLInputElement &&
-				binding.type === "text" &&
+				isTextControl(binding) &&
 				textCommitRef.current.get(binding) === binding.value
 			) {
 				textCommitRef.current.delete(binding);
 				return;
 			}
-			if (
-				binding instanceof HTMLSelectElement ||
-				(binding instanceof HTMLInputElement && binding.type === "text")
-			) {
-				commitStringControl(binding);
+			if (isStringControl(binding)) {
+				commitStringControl(binding as StateStringControl);
 				return;
 			}
 			if (activePolicy.stateControls === "local") return;
@@ -850,11 +856,23 @@ export const PageCanvas = memo(function PageCanvas({
 			}
 			if (!(binding instanceof HTMLInputElement)) return;
 			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			let nextValue: string | number | boolean;
+			if (binding.type === "checkbox") nextValue = binding.checked;
+			else if (binding.type === "radio") {
+				if (!binding.checked) return;
+				nextValue = binding.value;
+			} else if (binding.type === "number") {
+				nextValue = binding.valueAsNumber;
+				if (!Number.isFinite(nextValue)) {
+					restoreControl(binding, pointer);
+					return;
+				}
+			} else return;
 			const requestId = sendStateValuePatch(
 				doc.name,
 				pointer,
 				stateView.revision,
-				binding.checked,
+				nextValue,
 			);
 			if (!requestId) {
 				restoreControl(binding, pointer);
@@ -864,7 +882,7 @@ export const PageCanvas = memo(function PageCanvas({
 		};
 		const onInput = (event: Event) => {
 			const target = event.target;
-			if (target instanceof HTMLInputElement && target.type === "text") {
+			if (isTextControl(target)) {
 				textCommitRef.current.delete(target);
 			}
 		};
@@ -945,11 +963,7 @@ export const PageCanvas = memo(function PageCanvas({
 					) {
 						binding.checked = authoritative;
 					}
-					if (
-						binding instanceof HTMLInputElement &&
-						binding.type === "text" &&
-						typeof authoritative === "string"
-					) {
+					if (isTextControl(binding) && typeof authoritative === "string") {
 						binding.value = authoritative;
 					}
 					if (
@@ -957,6 +971,16 @@ export const PageCanvas = memo(function PageCanvas({
 						typeof authoritative === "string"
 					) {
 						binding.value = authoritative;
+					}
+					if (
+						binding instanceof HTMLInputElement &&
+						binding.type === "number" &&
+						typeof authoritative === "number"
+					) {
+						binding.value = String(authoritative);
+					}
+					if (binding instanceof HTMLInputElement && binding.type === "radio") {
+						binding.checked = String(authoritative) === binding.value;
 					}
 				}
 			});
@@ -1267,13 +1291,43 @@ export const PageCanvas = memo(function PageCanvas({
 interface LiveControlKeyContext {
 	activateEnum: (select: HTMLSelectElement) => void;
 	commitString: (
-		binding: HTMLInputElement | HTMLSelectElement,
+		binding: StateStringControl,
 	) => "sent" | "unchanged" | "restored";
-	restore: (
-		binding: HTMLInputElement | HTMLSelectElement,
-		pointer: string,
-	) => void;
-	textCommits: WeakMap<HTMLInputElement, string>;
+	restore: (binding: StateFormControl, pointer: string) => void;
+	textCommits: WeakMap<StateTextControl, string>;
+}
+
+type StateTextControl = HTMLInputElement | HTMLTextAreaElement;
+type StateStringControl =
+	| HTMLInputElement
+	| HTMLTextAreaElement
+	| HTMLSelectElement;
+type StateFormControl = StateStringControl;
+
+const STRING_INPUT_TYPES = new Set([
+	"text",
+	"email",
+	"date",
+	"time",
+	"datetime-local",
+]);
+
+function isStringInput(value: unknown): value is HTMLInputElement {
+	return (
+		value instanceof HTMLInputElement && STRING_INPUT_TYPES.has(value.type)
+	);
+}
+
+function isTextControl(value: unknown): value is StateTextControl {
+	return value instanceof HTMLTextAreaElement || isStringInput(value);
+}
+
+function isStringControl(value: unknown): boolean {
+	return (
+		value instanceof HTMLSelectElement ||
+		value instanceof HTMLTextAreaElement ||
+		isStringInput(value)
+	);
 }
 
 function handleLiveControlKeyDown(
@@ -1307,8 +1361,7 @@ function handleTextControlKeyDown(
 ): void {
 	const target = event.target;
 	if (
-		!(target instanceof HTMLInputElement) ||
-		target.type !== "text" ||
+		!isTextControl(target) ||
 		!target.matches("[data-maket-bind][data-maket-path]")
 	)
 		return;
@@ -1321,7 +1374,11 @@ function handleTextControlKeyDown(
 		context.restore(target, pointer);
 		return;
 	}
-	if (event.key !== "Enter") return;
+	if (
+		event.key !== "Enter" ||
+		(target instanceof HTMLTextAreaElement && !event.metaKey && !event.ctrlKey)
+	)
+		return;
 	event.preventDefault();
 	const result = context.commitString(target);
 	if (result !== "restored") context.textCommits.set(target, target.value);

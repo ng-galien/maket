@@ -22,12 +22,13 @@ const DOC_UPSERT_SQL = `
 `;
 
 const PAGE_UPSERT_SQL = `
-  INSERT INTO pages (doc_name, idx, id, name, html, elements, canvas, collection, provenance)
-  VALUES ($doc_name, $idx, $id, $name, $html, $elements, $canvas, $collection, $provenance)
+  INSERT INTO pages (doc_name, idx, id, name, html, json_forms, elements, canvas, collection, provenance)
+  VALUES ($doc_name, $idx, $id, $name, $html, $json_forms, $elements, $canvas, $collection, $provenance)
   ON CONFLICT(doc_name, idx) DO UPDATE SET
     id         = coalesce(excluded.id, pages.id),
     name       = excluded.name,
     html       = excluded.html,
+		json_forms = excluded.json_forms,
     elements   = excluded.elements,
     canvas     = excluded.canvas,
     collection = excluded.collection,
@@ -70,6 +71,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 				id: p.id,
 				name: p.name || `Page ${i + 1}`,
 				html: p.html || null,
+				json_forms: p.jsonForms ? JSON.stringify(p.jsonForms) : null,
 				elements: JSON.stringify(p.elements || []),
 				canvas: p.canvas ? JSON.stringify(p.canvas) : null,
 				collection: p.collection?.name ?? null,
@@ -188,6 +190,7 @@ function rowToDoc(row: any, pageSelectByDoc: StatementSync): Document {
 		id: pr.id || crypto.randomUUID(),
 		name: pr.name,
 		html: pr.html || undefined,
+		jsonForms: pr.json_forms ? JSON.parse(pr.json_forms) : undefined,
 		elements: JSON.parse(pr.elements || "[]"),
 		canvas: pr.canvas ? JSON.parse(pr.canvas) : undefined,
 		collection: pr.collection ? { name: pr.collection } : undefined,

@@ -126,6 +126,57 @@ function deleteDocument(
 	return true;
 }
 
+function listDocumentSummaries(
+	cache: Map<string, Document>,
+	store: Store,
+): DocSummary[] {
+	const timestamps = store.listTimestamps();
+	const structuredWorkspaces = store.loadAllStructuredWorkspaces();
+	const charteCache = new Map<string, string | undefined>();
+	const resolveCharteColor = (name: string | undefined) => {
+		if (!name) return undefined;
+		if (charteCache.has(name)) return charteCache.get(name);
+		try {
+			const charte = store.loadCharte(name);
+			const colors = charte?.tokens?.color;
+			const color =
+				colors?.primary ??
+				(colors ? Object.values(colors)[0] : undefined) ??
+				undefined;
+			charteCache.set(name, color);
+			return color;
+		} catch {
+			charteCache.set(name, undefined);
+			return undefined;
+		}
+	};
+	return [...cache.values()].map((document) => ({
+		id: document.id,
+		name: document.name,
+		category: document.category || "general",
+		dataModel: document.dataModel,
+		format: document.canvas?.format,
+		orientation: document.canvas?.orientation || "portrait",
+		rating: document.meta?.rating || 0,
+		count: document.pages.reduce(
+			(total, page) =>
+				total + (page.html?.match(/data-id="[^"]+"/g)?.length ?? 0),
+			0,
+		),
+		charte: document.meta?.charte,
+		collectionBindings: collectionBindings(document.pages),
+		locked: document.meta?.locked === true,
+		updatedAt: timestamps.get(document.name),
+		charteColor: resolveCharteColor(document.meta?.charte),
+		emailDraftUrl: document.meta?.emailDraftUrl,
+		emailDraftRole: document.meta?.emailDraftRole,
+		structuredWorkspaceKind: structuredWorkspaceDocumentKind(
+			document,
+			structuredWorkspaces,
+		),
+	}));
+}
+
 export function createDocuments({ store }: DocumentsDeps): Documents {
 	const cache = new Map<string, Document>();
 
@@ -165,7 +216,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			normalizeDocumentDataModel(d);
 			try {
 				for (const page of d.pages) {
-					validateStateTemplateUpdate(d, store, page.html ?? "");
+					validateStateTemplateUpdate(d, store, page);
 				}
 				store.saveDoc(d);
 			} catch (error) {
@@ -188,45 +239,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 			return moveDocumentCategory(cache, store, source, destination);
 		},
 		list() {
-			const timestamps = store.listTimestamps();
-			const charteCache = new Map<string, string | undefined>();
-			const resolveCharteColor = (name: string | undefined) => {
-				if (!name) return undefined;
-				if (charteCache.has(name)) return charteCache.get(name);
-				try {
-					const charte = store.loadCharte(name);
-					const colors = charte?.tokens?.color;
-					const color =
-						colors?.primary ??
-						(colors ? Object.values(colors)[0] : undefined) ??
-						undefined;
-					charteCache.set(name, color);
-					return color;
-				} catch {
-					charteCache.set(name, undefined);
-					return undefined;
-				}
-			};
-			return [...cache.values()].map((d) => ({
-				id: d.id,
-				name: d.name,
-				category: d.category || "general",
-				dataModel: d.dataModel,
-				format: d.canvas?.format,
-				orientation: d.canvas?.orientation || "portrait",
-				rating: d.meta?.rating || 0,
-				count: d.pages.reduce(
-					(n, p) => n + (p.html?.match(/data-id="[^"]+"/g)?.length ?? 0),
-					0,
-				),
-				charte: d.meta?.charte,
-				collectionBindings: collectionBindings(d.pages),
-				locked: d.meta?.locked === true,
-				updatedAt: timestamps.get(d.name),
-				charteColor: resolveCharteColor(d.meta?.charte),
-				emailDraftUrl: d.meta?.emailDraftUrl,
-				emailDraftRole: d.meta?.emailDraftRole,
-			}));
+			return listDocumentSummaries(cache, store);
 		},
 		all() {
 			return cache;
@@ -267,8 +280,23 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 }
 
 function isStructuredWorkspaceOwned(document: Document, store: Store): boolean {
-	if (document.meta.structuredWorkspace) return true;
-	return store.loadAllStructuredWorkspaces().some((workspace) => {
+	return Boolean(
+		structuredWorkspaceDocumentKind(
+			document,
+			store.loadAllStructuredWorkspaces(),
+		),
+	);
+}
+
+function structuredWorkspaceDocumentKind(
+	document: Document,
+	workspaces: ReturnType<Store["loadAllStructuredWorkspaces"]>,
+): DocSummary["structuredWorkspaceKind"] {
+	if (document.meta.structuredWorkspace?.role === "collection") {
+		return "collection";
+	}
+	if (document.meta.structuredWorkspace) return "item";
+	const template = workspaces.some((workspace) => {
 		const representation = workspace.representationSchema;
 		return Object.values(representation.collections).some(
 			(collection) =>
@@ -280,6 +308,7 @@ function isStructuredWorkspaceOwned(document: Document, store: Store): boolean {
 				),
 		);
 	});
+	return template ? "template" : undefined;
 }
 
 function restoreCachedDocument(

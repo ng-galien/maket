@@ -554,9 +554,14 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	}
 
 	const nextHtml = stripActiveHtml(normalizeImageSrc(args.html));
-	const stateTemplateError = stateTemplateValidationError(doc, store, nextHtml);
+	const stateTemplateError = stateTemplateValidationError(doc, store, {
+		...page,
+		html: nextHtml,
+		jsonForms: undefined,
+	});
 	if (stateTemplateError) return text(stateTemplateError, true);
 	page.html = nextHtml;
+	page.jsonForms = undefined;
 	documents.persist(doc.name);
 
 	const count = (page.html.match(/data-id=/g) || []).length;
@@ -593,6 +598,12 @@ async function runPatch(
 	layout: LayoutService,
 ): Promise<CallToolResult> {
 	if (!args.ops) return text("ops is required for action=patch", true);
+	if (page.jsonForms) {
+		return text(
+			"This page uses JSON Forms. Use maket_page action=set_form to replace its form definition, or maket_html action=set to switch it back to HTML.",
+			true,
+		);
+	}
 	if (!page.html) page.html = "";
 	if (args.ops.some(hasLayoutControlAttr) && args.ops.length !== 1) {
 		return text(
@@ -608,7 +619,10 @@ async function runPatch(
 	const results = args.ops.map((op) => applyOp(op, root, charte));
 
 	const nextHtml = stripActiveHtml(normalizeImageSrc(root.innerHTML));
-	const stateTemplateError = stateTemplateValidationError(doc, store, nextHtml);
+	const stateTemplateError = stateTemplateValidationError(doc, store, {
+		...page,
+		html: nextHtml,
+	});
 	if (stateTemplateError) return text(stateTemplateError, true);
 	page.html = nextHtml;
 	documents.persist(doc.name);
@@ -633,10 +647,10 @@ async function runPatch(
 function stateTemplateValidationError(
 	doc: Document,
 	store: Store,
-	html: string,
+	page: Page,
 ): string | null {
 	try {
-		validateStateTemplateUpdate(doc, store, html);
+		validateStateTemplateUpdate(doc, store, page);
 		return null;
 	} catch (error) {
 		return error instanceof Error ? error.message : String(error);

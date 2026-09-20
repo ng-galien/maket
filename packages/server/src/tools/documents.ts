@@ -480,12 +480,6 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=rename", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	if (d.dataModel === "state") {
-		return text(
-			"State-backed documents cannot be renamed until state identity is preserved by the rename workflow.",
-			true,
-		);
-	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	if (documents.all().has(args.name))

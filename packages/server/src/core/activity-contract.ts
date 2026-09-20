@@ -41,6 +41,8 @@ export const ACTIVITY_POLICIES = {
 			remove: "bubble_maket_page_remove",
 			rename: "bubble_maket_page_rename",
 			reorder: "bubble_maket_page_reorder",
+			set_form: "bubble_maket_page_set_form",
+			get_form: null,
 			list: null,
 		},
 	},

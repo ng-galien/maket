@@ -1,6 +1,107 @@
 import { expect, openWorkspace, test } from "./workspace-test";
 
 test.describe("Living document state", () => {
+	test("applies charte styling to a JSON Forms page", async ({ mcp, page }) => {
+		const docName = "Styled JSON form";
+		const charteName = "Form style";
+		await mcp.call("maket_charte", {
+			action: "set",
+			name: charteName,
+			description: "JSON Forms end to end style",
+			tokens: {
+				color: {
+					text: "#123456",
+					bg: "#fef3c7",
+					surface: "#fff7ed",
+					line: "#334155",
+					primary: "#be123c",
+					muted: "#64748b",
+				},
+				font: { body: "monospace" },
+			},
+			voice: { personality: ["clear"] },
+			rules: {},
+		});
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: docName,
+			format: "A4",
+			orientation: "portrait",
+			charte: charteName,
+		});
+		await mcp.call("maket_state", {
+			action: "init",
+			doc: docName,
+			schema: {
+				type: "object",
+				properties: {
+					title: { type: "string", title: "Title" },
+					enabled: { type: "boolean", title: "Enabled" },
+				},
+				required: ["title", "enabled"],
+			},
+			data: { title: "Styled value", enabled: true },
+		});
+		await mcp.call("maket_page", {
+			action: "set_form",
+			doc: docName,
+			page: 1,
+			json_forms: {
+				uischema: {
+					type: "Group",
+					label: "Styled group",
+					elements: [
+						{ type: "Control", scope: "#/properties/title" },
+						{ type: "Control", scope: "#/properties/enabled" },
+					],
+				},
+			},
+		});
+
+		await openWorkspace(page);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+
+		const document = page.locator(`[data-doc="${docName}"]`);
+		const form = document.locator(".maket-json-forms");
+		const group = form.locator(".maket-json-forms__group");
+		const title = form.locator('[data-maket-path="/title"]');
+		const enabled = form.locator('[data-maket-path="/enabled"]');
+		await expect(title).toHaveValue("Styled value");
+		await expect(enabled).toBeChecked();
+
+		expect(
+			await form.evaluate((node) => {
+				const style = getComputedStyle(node);
+				return {
+					color: style.color,
+					background: style.backgroundColor,
+					font: style.fontFamily,
+				};
+			}),
+		).toEqual({
+			color: "rgb(18, 52, 86)",
+			background: "rgb(254, 243, 199)",
+			font: "monospace",
+		});
+		expect(
+			await group.evaluate((node) => getComputedStyle(node).borderColor),
+		).toBe("rgb(51, 65, 85)");
+		expect(
+			await title.evaluate((node) => getComputedStyle(node).backgroundColor),
+		).toBe("rgb(255, 247, 237)");
+		expect(
+			await enabled.evaluate((node) => getComputedStyle(node).accentColor),
+		).toBe("rgb(190, 18, 60)");
+		await title.focus();
+		expect(
+			await title.evaluate((node) => getComputedStyle(node).outlineColor),
+		).toBe("rgb(190, 18, 60)");
+	});
+
 	test("keeps MCP revisions, live controls and bundle import in sync", async ({
 		mcp,
 		page,

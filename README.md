@@ -118,7 +118,9 @@ AI     — maket_pdf doc="Product labels"
 
 Document state is for a single evolving artifact: a checklist, status board, form, or report whose current values belong to that document. `maket_state` initializes a JSON Schema and data snapshot, validates every update, requires the current revision for mutations, and records each accepted change as a complete immutable revision. Updates re-render the existing pages; they do not create mail-merge variants.
 
-Templates use the supported Mustache subset for display and explicit `data-maket-bind` attributes for editing. Live mode supports boolean checkboxes, string text inputs, string-enum selects, and buttons that open a terminal-value editor. The same current values render passively in snapshots, print, and PDF output.
+Each page uses one of two template formats. A hand-authored HTML template uses the supported Mustache subset for display and explicit `data-maket-bind` attributes for editing. A JSON Forms template is set with `maket_page action=set_form`; its optional UI schema controls layout while the document-state JSON Schema supplies fields and choices. Maket renders both formats with native controls through the same state owner. The same current values render passively in snapshots, print, and PDF output.
+
+JSON Forms styling is renderer-owned: attach a charte to apply its text, background, surface, border, accent, muted, and font tokens. The UI schema controls structure and presentation options, not arbitrary CSS.
 
 ```html
 <h1 data-id="title">{{ state.title }}</h1>
@@ -129,7 +131,7 @@ Templates use the supported Mustache subset for display and explicit `data-maket
 <input data-id="owner-input" type="text" data-maket-bind="state.owner">
 ```
 
-Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema and data snapshot; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state HTML binding contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
+Use `maket_state action=init` to attach the initial schema and data, then `get`, `patch` or `update`, `history`, `revision`, and `restore` to manage it. Portable `.maket` bundles carry the current schema, data snapshot, and template format; importing one starts a fresh local history at revision 1 rather than copying prior revisions. See the [document-state template contract](docs/document-state-bindings.md) for the exact template, schema, control, and concurrency rules.
 
 ## Structured Workspaces
 
@@ -279,7 +281,7 @@ Maket exposes 15 compound MCP tools. Each one dispatches multiple actions:
 | `maket_doc` | Document lifecycle — new, list, delete, duplicate, rename, meta, export/import |
 | `maket_learn` | Structured Markdown documentation for agents — workflow, HTML, chartes, diagrams, data, review, install |
 | `maket_workspace` | Session actions — focus, state, lock, list_messages, ack_messages |
-| `maket_page` | Page structure — add, remove, rename, reorder, list |
+| `maket_page` | Page structure and JSON Forms templates — add, remove, rename, reorder, list, set_form, get_form |
 | `maket_canvas` | Canvas setup — format, orientation, background, per-side print margins |
 | `maket_html` | Page content — `set` (full replace), `patch` (surgical ops by `data-id`), `get`, `check` (layout overflow / overlap / margin clearance) |
 | `maket_charte` | Brand chartes — list, view, set, delete |

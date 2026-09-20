@@ -30,7 +30,10 @@
       "name": "maket_doc",
       "description": "Document lifecycle: new, list, delete, duplicate, rename, meta, export/import (.maket bundle)."
     },
-    { "name": "maket_page", "description": "Manage pages within a document: add, remove, rename, reorder, list." },
+    {
+      "name": "maket_page",
+      "description": "Manage HTML and JSON Forms pages: add, remove, rename, reorder, set_form, get_form, list."
+    },
     { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },
     {
       "name": "maket_html",

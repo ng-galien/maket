@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, normalizeSettings } from "./settings";
 
 describe("settings", () => {
 	it("defaults the document bar to the bottom and accepts a top preference", () => {
-		expect(normalizeSettings({}).documentLabelPosition).toBe("bottom");
+		expect(normalizeSettings({}).documentLabelPosition).toBe("top");
 		expect(
 			normalizeSettings({ documentLabelPosition: "top" }).documentLabelPosition,
 		).toBe("top");

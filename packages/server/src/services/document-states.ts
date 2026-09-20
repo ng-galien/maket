@@ -6,12 +6,12 @@ import {
 	isTerminalJsonValue,
 	type JsonPatchOperation,
 	readJsonPointer,
-	renderDocumentStateText,
+	renderDocumentStatePage,
 	validateDocumentState,
-	validateDocumentStateTemplate,
+	validateDocumentStatePageTemplate,
 } from "@maket/shared";
 import { MessageError } from "../lib/message-error.js";
-import type { Document } from "../types.js";
+import type { Document, Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 import type {
@@ -76,7 +76,7 @@ export interface DocumentStatesDeps {
 export function validateStateTemplateUpdate(
 	doc: Document,
 	store: DocumentStateRepository,
-	html: string,
+	page: Page,
 ): void {
 	if (doc.dataModel !== "state") return;
 	const definition = store.loadDocumentState(doc.id);
@@ -88,8 +88,8 @@ export function validateStateTemplateUpdate(
 			{ name: doc.name },
 		);
 	}
-	validateDocumentStateTemplate(html);
-	renderDocumentStateText(html, current.data, { schema: current.schema });
+	validateDocumentStatePageTemplate(page);
+	renderDocumentStatePage(page, current.data, { schema: current.schema });
 }
 
 export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
@@ -294,7 +294,7 @@ function assertValidState(
 
 function assertValidStateTemplates(doc: Document): void {
 	for (const page of doc.pages) {
-		if (page.html) validateDocumentStateTemplate(page.html);
+		validateDocumentStatePageTemplate(page);
 	}
 }
 
@@ -304,7 +304,7 @@ function assertRenderableStateTemplates(
 	data: DocumentStateData,
 ): void {
 	for (const page of doc.pages) {
-		if (page.html) renderDocumentStateText(page.html, data, { schema });
+		renderDocumentStatePage(page, data, { schema });
 	}
 }
 
@@ -313,12 +313,11 @@ function activeBindingPaths(
 	state: DocumentStateRevision,
 ): Set<string> {
 	return new Set(
-		doc.pages.flatMap((page) =>
-			page.html
-				? renderDocumentStateText(page.html, state.data, {
-						schema: state.schema,
-					}).bindingPaths
-				: [],
+		doc.pages.flatMap(
+			(page) =>
+				renderDocumentStatePage(page, state.data, {
+					schema: state.schema,
+				}).bindingPaths,
 		),
 	);
 }

@@ -8,7 +8,7 @@ import type {
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
-	renderDocumentStateText,
+	renderDocumentStatePage,
 	structuredWorkspaceBindingSchema,
 	validateStructuredWorkspaceDefinition,
 	validateStructuredWorkspaceItemData,
@@ -174,17 +174,18 @@ function renderCollection(
 		...structuredClone(collectionDocument),
 		pages: collectionDocument.pages.map((page) => ({
 			...structuredClone(page),
-			html: page.html
-				? renderCollectionPage(
-						deps,
-						workspace,
-						collectionId,
-						renderDocumentStateText(page.html, collectionState.current.data, {
-							schema: collectionState.current.schema,
-						}).html,
-						items,
-					)
-				: page.html,
+			html:
+				page.html || page.jsonForms
+					? renderCollectionPage(
+							deps,
+							workspace,
+							collectionId,
+							renderDocumentStatePage(page, collectionState.current.data, {
+								schema: collectionState.current.schema,
+							}).html,
+							items,
+						)
+					: page.html,
 		})),
 	};
 }
@@ -222,10 +223,10 @@ function renderCollectionPage(
 				binding,
 			);
 			for (const [pageIndex, page] of compact.pages.entries()) {
-				if (!page.html) continue;
+				if (!page.html && !page.jsonForms) continue;
 				const card = renderCompactCard(
 					document,
-					page.html,
+					page,
 					item,
 					schema,
 					`${slotIndex}-${pageIndex}`,
@@ -239,13 +240,13 @@ function renderCollectionPage(
 
 function renderCompactCard(
 	document: ReturnType<typeof parseHTML>["document"],
-	html: string,
+	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
 	suffix: string,
 ): HTMLElement {
 	const prefix = `structured-${safeToken(item.id)}-${suffix}`;
-	const compactRoot = renderedCompactRoot(html, item, schema);
+	const compactRoot = renderedCompactRoot(page, item, schema);
 	prefixDataIds(compactRoot, prefix);
 	stripCompactBindings(compactRoot);
 	linkCompactActions(compactRoot, item.documentName);
@@ -253,11 +254,11 @@ function renderCompactCard(
 }
 
 function renderedCompactRoot(
-	html: string,
+	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
 ): HTMLElement {
-	const rendered = renderDocumentStateText(html, item.data, { schema }).html;
+	const rendered = renderDocumentStatePage(page, item.data, { schema }).html;
 	const compactDom = parseHTML(
 		`<html><body>${rendered}</body></html>`,
 	).document;

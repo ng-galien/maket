@@ -79,7 +79,7 @@ const DESCRIPTION = [
 	"When to use: attach durable data and immutable snapshot history to one living document.",
 	"",
 	"Document state is separate from collections and mail merge. A state-backed document renders Mustache variables, sections, inverted sections, and loops from its latest revision. Every mutation stores a complete validated schema + data snapshot.",
-	'The target interface is document-owned standard HTML/CSS: Mustache interpolation is display-only. Editable terminal values must be declared explicitly with data-maket-bind on <input type="checkbox"> (boolean), <input type="text"> (string), <select> (string enum), or <button type="button"> (single-value editor). Use state.foo at the root and relative foo inside {{#state.items}} sections. Maket resolves transient JSON Pointers and synchronizes the store; it does not generate or style controls.',
+	"The page interface is either document-owned HTML/CSS or a JSON Forms template configured with maket_page set_form. HTML uses display-only Mustache plus explicit data-maket-bind controls. JSON Forms uses the document-state JSON Schema and data, with an optional UI schema. Both formats resolve to the same JSON Pointer patches and revisioned store.",
 	"  init     — attach a schema and initial data to a static document (revision 1; no expected_revision).",
 	"  get      — read the schema and current revision.",
 	"  update   — append a complete state snapshot; expected_revision is required.",

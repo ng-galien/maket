@@ -12,6 +12,7 @@ export const ACTIVITY_KEYS = [
 	"bubble_maket_page_remove",
 	"bubble_maket_page_rename",
 	"bubble_maket_page_reorder",
+	"bubble_maket_page_set_form",
 	"bubble_maket_canvas",
 	"bubble_maket_html_set",
 	"bubble_maket_html_patch",

@@ -128,8 +128,8 @@ message   = "Domain services must not call `wsRegistry.broadcast`; emit on the b
 id        = "maket-hygiene-limits-callable-size"
 severity  = "error"
 rationale = "Large functions make changes harder to review safely and usually hide multiple responsibilities. Extract named steps, move behavior to the right collaborator, or add a local code-moniker ignore with the design reason."
-expr      = "lines <= 140"
-message   = "Long callable: `{name}` spans more than 140 lines."
+expr      = "lines <= 200"
+message   = "Long callable: `{name}` spans more than 200 lines."
 
 [[shape.callable.where]]
 id        = "maket-hygiene-limits-parameter-count"

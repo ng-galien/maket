@@ -314,13 +314,26 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"Template contract",
-			"Author the persistent HTML template and state schema together.",
+			"A page uses exactly one persistent template format: hand-authored HTML or JSON Forms. Both render from the document-state schema and data and update through the same revisioned state.",
 			[
+				"- HTML templates use Mustache for display and `data-maket-bind` for native editable controls.",
 				"- Supported: escaped values, positive and inverted sections, loops/current context, and comments.",
 				"- Root references use `state.*`; relative names are allowed inside positive state sections.",
 				"- Examples: `{{ state.title }}`, `{{#state.items}}...{{ label }} / {{ . }}...{{/state.items}}`, and `{{^state.items}}...{{/state.items}}`.",
 				"- Invalid: triple braces, partials, lambdas, unscoped root names, and Mustache in attributes, `style`, or `script`.",
 			].join("\n"),
+		),
+		section(
+			"JSON Forms",
+			"Use JSON Forms when the form definition should be declarative rather than authored as HTML. Maket renders it with native controls; no React renderer is required.",
+			"```text\nmaket_page action=set_form doc=<doc> page=<n> json_forms=<json>\n```",
+			"`uischema` is optional; without it, Maket generates a vertical form from the document-state JSON Schema. String choices come from `enum` or `oneOf`. State changes re-render the form.",
+		),
+		section(
+			"JSON Forms styling",
+			"The UI schema controls structure, labels, visibility, groups, horizontal or vertical layout, multiline fields, and radio presentation. Visual styling belongs to the Maket renderer, not to the JSON Forms data.",
+			"Attach a charte to the document. The renderer uses `color.text` or `color.ink`, `color.bg` or `color.paper`, `color.surface`, `color.line` or `color.border`, `color.primary` or `color.accent`, `color.muted`, and `font.body` or `font.heading`, with neutral fallbacks.",
+			"The same rendered style is used in the canvas, viewer, thumbnails, print, and PDF.",
 		),
 		section(
 			"Complete minimal example",
@@ -330,7 +343,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"`init` creates revision 1 and does not use `expected_revision`.",
 		),
 		section(
-			"Human-editable controls",
+			"Hand-authored HTML controls",
 			[
 				"- Mustache interpolation is display-only.",
 				"- Checkbox binds a boolean; text input binds a string and commits on blur or Enter. Escape cancels.",
@@ -364,7 +377,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"Next",
-			"Read `html` for authored structure and `review` before export.",
+			"Read `html` for hand-authored structure and `review` before export.",
 		),
 	),
 	"structured-workspaces": document(

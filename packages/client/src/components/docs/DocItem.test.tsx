@@ -17,6 +17,52 @@ afterEach(() => {
 });
 
 describe("DocRow", () => {
+	it("visually distinguishes Workspace-owned documents", () => {
+		setLang("en");
+		const doc: DocSummary = {
+			id: "template-id",
+			name: "Task detail",
+			category: "Workspaces/Templates",
+			dataModel: "static",
+			format: "A4",
+			pageCount: 1,
+			elementCount: 0,
+			collectionBindings: [],
+			structuredWorkspaceKind: "template",
+		};
+		const actions: DocItemActions = {
+			click: vi.fn(),
+			focus: vi.fn(),
+			openMenu: vi.fn(),
+			closeMenu: vi.fn(),
+			changeMode: vi.fn(),
+			moveCategory: vi.fn(),
+			dragStart: vi.fn(),
+			dragEnd: vi.fn(),
+		};
+
+		render(
+			<DocRow
+				model={{
+					doc,
+					onWs: false,
+					focused: false,
+					selected: false,
+					menuOpen: false,
+					mode: { kind: "idle" },
+					canDelete: true,
+					dragging: false,
+				}}
+				actions={actions}
+			/>,
+		);
+
+		expect(screen.getByText("Template")).toBeVisible();
+		expect(screen.getByText("Task detail").parentElement).toHaveClass(
+			"text-text-3",
+		);
+	});
+
 	it("keeps secondary details in a tooltip and exposes the useful row actions", () => {
 		setLang("en");
 		const doc: DocSummary = {

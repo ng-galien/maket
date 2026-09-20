@@ -12,9 +12,9 @@
 import {
 	type DocumentStateData,
 	type DocumentStateSchema,
-	renderDocumentStateText,
 	validateDocumentState,
 } from "./document-state.js";
+import { renderDocumentStatePage } from "./document-state-page.js";
 
 export const MAKET_BUNDLE_KIND = "maket-bundle";
 export const MAKET_BUNDLE_EXT = ".maket";
@@ -132,6 +132,16 @@ function validateBundleDocument(value: unknown, index: number): void {
 				`Invalid .maket file: documents[${index}].pages[${pageIndex}].html is not text`,
 			);
 		}
+		if (page.jsonForms !== undefined && !isPlainRecord(page.jsonForms)) {
+			throw new Error(
+				`Invalid .maket file: documents[${index}].pages[${pageIndex}].jsonForms is not an object`,
+			);
+		}
+		if (page.html !== undefined && page.jsonForms !== undefined) {
+			throw new Error(
+				`Invalid .maket file: documents[${index}].pages[${pageIndex}] declares both html and jsonForms`,
+			);
+		}
 		if (page.elements !== undefined && !Array.isArray(page.elements)) {
 			throw new Error(
 				`Invalid .maket file: documents[${index}].pages[${pageIndex}].elements is not an array`,
@@ -236,9 +246,13 @@ function validateBundleDocumentState(
 	for (const [pageIndex, page] of (
 		indexedDocument.document.pages as unknown[]
 	).entries()) {
-		if (!isPlainRecord(page) || typeof page.html !== "string") continue;
+		if (
+			!isPlainRecord(page) ||
+			(typeof page.html !== "string" && !isPlainRecord(page.jsonForms))
+		)
+			continue;
 		try {
-			renderDocumentStateText(page.html, data, { schema });
+			renderDocumentStatePage(page, data, { schema });
 		} catch (error) {
 			throw new Error(
 				`Invalid .maket file: state template documents[${indexedDocument.index}].pages[${pageIndex}] ${error instanceof Error ? error.message : String(error)}`,
@@ -422,6 +436,7 @@ export function snapshotBundleDocument(
 				name: p.name,
 				elements: p.elements,
 				html: p.html,
+				jsonForms: p.jsonForms,
 				canvas: p.canvas,
 				collection: p.collection,
 			};

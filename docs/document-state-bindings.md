@@ -1,17 +1,18 @@
-# Document-state HTML binding contract
+# Document-state template contract
 
 Status: **Implemented**
 
-Version: **0.2**
+Version: **0.3**
 Scope: document-owned persistent state only; collections and mail merge are out
 of scope.
 
 ## Purpose
 
 This specification defines the boundary between a Maket document and the Maket
-runtime when document HTML is bound to persistent JSON state.
+runtime when a page template is bound to persistent JSON state. A page persists
+exactly one template format: hand-authored HTML or JSON Forms.
 
-The central rule is:
+For hand-authored HTML, the central rule is:
 
 > The document authors the interface in standard HTML and CSS. Maket resolves
 > declared bindings and synchronizes the authored interface with the document
@@ -71,7 +72,47 @@ or animations inside the document canvas.
 The browser's native control appearance is the fallback when a document authors
 no custom CSS.
 
-## Persistent source contract
+## JSON Forms templates
+
+A JSON Forms page stores a UI schema, or an empty JSON Forms definition to use
+the generated vertical layout. Its data schema and values are the document
+state JSON Schema and current snapshot; they are not duplicated in the page.
+
+```text
+maket_page action=set_form doc=<doc> page=<n> json_forms=<json>
+```
+
+Maket owns the rendering for both template formats. JSON Forms pages use native
+controls and the same RFC 6902 state patch path, validation, revision history,
+viewer, bundle, print, and PDF behavior as HTML pages. String choices come from
+`enum` or `oneOf`; the UI schema chooses layouts, groups, labels, controls, and
+supported rules. Updating the document state re-renders the form.
+
+### JSON Forms styling
+
+JSON Forms does not define one universal visual style. Its UI schema describes
+structure and renderer-specific options; Maket remains the renderer and the
+single owner of the generated markup and interactions.
+
+Attach a charte to style a JSON Forms page. The renderer reads these token
+families, in fallback order:
+
+| Use | Charte tokens |
+| --- | --- |
+| Text | `color.text`, then `color.ink` |
+| Page background | `color.bg`, then `color.paper`, then `color.surface` |
+| Field background | `color.surface`, then `color.paper` |
+| Borders | `color.line`, then `color.border` |
+| Focus and native choice accent | `color.primary`, then `color.accent` |
+| Secondary text | `color.muted` |
+| Typography | `font.body`, then `font.heading` |
+
+Neutral fallbacks are used when a token is absent. The UI schema controls
+vertical and horizontal layouts, groups, labels, rules, multiline fields, and
+radio presentation; it MUST NOT duplicate the document data or carry arbitrary
+CSS. Canvas, viewer, thumbnail, print, and PDF use the same renderer output.
+
+## Persistent HTML source contract
 
 ### Explicit interactivity
 
@@ -141,7 +182,7 @@ If this is the third rendered item, `done` resolves to `/items/2/done`.
 
 Neither attribute substitutes for the other.
 
-### Supported editable controls in version 0.2
+### Supported editable controls in the HTML binding profile
 
 | Authored element | Required state type | Live interaction |
 | --- | --- | --- |
@@ -152,12 +193,12 @@ Neither attribute substitutes for the other.
 
 Other input types, radio groups, `<select multiple>`, editable comboboxes,
 structural array editing, whole-object editing, multi-field submission, and
-form-level transactions are outside version 0.2.
+form-level transactions are outside the hand-authored HTML binding profile.
 
 A schema/control mismatch MUST reject the template before persistence. For
 example, a checkbox bound to a string is invalid.
 
-Version 0.2 resolves bindable and section paths through direct JSON Schema
+The HTML binding profile resolves bindable and section paths through direct JSON Schema
 `properties`, `items`, and `type` declarations. Schema composition keywords
 such as `$ref`, `allOf`, `anyOf`, `oneOf`, conditional schemas, and `not` are
 not supported on a path referenced by the template and MUST be rejected
@@ -189,7 +230,7 @@ Maket restores the authoritative value and exposes the normal binding error.
 
 ### Select contract
 
-A version 0.2 select is the native HTML `<select>` element, not an editable
+An HTML-template select is the native HTML `<select>` element, not an editable
 combobox. It binds one JSON string constrained by a JSON Schema `enum`.
 
 The document authors the option values, visible labels, order, grouping, and
@@ -416,7 +457,7 @@ lifecycles. This contract MUST NOT be reused as a hidden collection mode.
 
 ## Acceptance criteria
 
-An implementation conforms to version 0.2 when automated tests prove that:
+An implementation conforms to this contract when automated tests prove that:
 
 1. A source checkbox hydrates `checked=true` and `checked=false` correctly.
 2. A text input hydrates its value, keeps typing local, commits once on blur or
@@ -445,19 +486,16 @@ An implementation conforms to version 0.2 when automated tests prove that:
 20. The server rejects existing terminal paths that are not exposed by an
     active binding.
 
-## Non-goals for version 0.2
+## Non-goals
 
-- Automatic UI generation from JSON Schema.
-- Automatic choice of a visual control from a JSON type.
 - Inline editing of complete objects or arrays.
 - User-driven array insertion, removal, or reordering.
-- Multi-field forms, submit actions, and atomic form transactions.
-- Editable combobox, autocomplete, `<datalist>`, radio-group, range, date, file,
-  or rich-text binding.
+- Submit actions and atomic multi-field transactions.
+- Editable combobox, autocomplete, `<datalist>`, range, file, or rich-text
+  binding.
 - Custom Elements such as `<maket-checkbox>`.
 - Cross-revision stable identity for positional array members.
 - Multi-user merge or offline replay.
 
-Future control types can extend the element/type matrix without changing the
-ownership rule: the document authors standard HTML; Maket binds and
-synchronizes it.
+Future control types can extend either renderer without changing the ownership
+rule: Maket remains the single rendering and state-synchronization owner.

@@ -29,6 +29,7 @@ export interface Page {
 	name: string;
 	elements: Element[];
 	html?: string;
+	jsonForms?: import("@maket/shared").JsonFormsTemplate;
 	collection?: { name: string };
 	provenance?: StructuredWorkspacePageProvenance;
 }
@@ -74,6 +75,7 @@ export interface DocSummary {
 	 * discreet "Draft ready / In draft" pill in the sidebar when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
+	structuredWorkspaceKind?: "template" | "collection" | "item";
 }
 
 import type { StructuredWorkspacePageProvenance } from "@maket/shared";

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 15;
+const SCHEMA_VERSION = 16;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -26,6 +26,7 @@ const SCHEMA_SQL = `
     id         TEXT NOT NULL,
     name       TEXT NOT NULL DEFAULT 'Page 1',
     html       TEXT,
+		json_forms TEXT CHECK (json_forms IS NULL OR json_valid(json_forms)),
     elements   TEXT NOT NULL DEFAULT '[]',
     canvas     TEXT,
     collection TEXT,
@@ -139,6 +140,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 13, up: migrateToV13 },
 	{ version: 14, up: migrateToV14 },
 	{ version: 15, up: migrateToV15 },
+	{ version: 16, up: migrateToV16 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -356,6 +358,11 @@ function migrateToV15(db: DatabaseSync): void {
 	}
 }
 
+function migrateToV16(db: DatabaseSync): void {
+	migrateToV15(db);
+	addColumnIfMissing(db, "pages", "json_forms", "TEXT");
+}
+
 function ensureDocumentStateSchema(db: DatabaseSync): void {
 	db.exec(`
     CREATE TABLE IF NOT EXISTS document_states (
@@ -463,6 +470,9 @@ function assertStructuredWorkspaceSchema(db: DatabaseSync): void {
 	}
 	if (!hasColumn(db, "pages", "provenance")) {
 		throw new Error("SQLite migration failed: pages.provenance is missing");
+	}
+	if (!hasColumn(db, "pages", "json_forms")) {
+		throw new Error("SQLite migration failed: pages.json_forms is missing");
 	}
 	if (!hasColumn(db, "structured_workspace_items", "collection_id")) {
 		throw new Error(

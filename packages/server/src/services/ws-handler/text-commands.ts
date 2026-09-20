@@ -114,7 +114,11 @@ export function handleTextEdit(
 	el.innerHTML = (msg.html as string).replace(/<style[\s\S]*?<\/style>/gi, "");
 	const nextHtml = stripActiveHtml(dom.body.innerHTML);
 	try {
-		validateStateTemplateUpdate(d, ctx.store, nextHtml);
+		validateStateTemplateUpdate(d, ctx.store, {
+			...page,
+			html: nextHtml,
+			jsonForms: undefined,
+		});
 	} catch (error) {
 		log(
 			`[text_edit] FAIL: ${error instanceof Error ? error.message : String(error)}`,

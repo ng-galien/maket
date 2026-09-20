@@ -384,6 +384,47 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(sendPatch).toHaveBeenCalledTimes(1);
 	});
 
+	it("patches JSON Forms native textarea, number, and radio controls", () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "request-form");
+		const doc = makeDoc(
+			'<textarea data-maket-bind="#/properties/notes" data-maket-path="/notes" data-maket-type="string">Before</textarea><input type="number" data-maket-bind="#/properties/priority" data-maket-path="/priority" data-maket-type="number" value="1"><input type="radio" name="status" value="done" data-maket-bind="#/properties/status" data-maket-path="/status" data-maket-type="string">',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { notes: "Before", priority: 1, status: "todo" },
+					revision: 9,
+					createdAt: "2026-08-04T12:00:00.000Z",
+					templates: { [doc.pages[0]?.id ?? ""]: "" },
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.change(
+			document.querySelector("textarea") as HTMLTextAreaElement,
+			{
+				target: { value: "After" },
+			},
+		);
+		fireEvent.change(
+			document.querySelector('input[type="number"]') as HTMLInputElement,
+			{ target: { value: "3" } },
+		);
+		fireEvent.change(
+			document.querySelector('input[type="radio"]') as HTMLInputElement,
+			{ target: { checked: true } },
+		);
+
+		expect(sendPatch).toHaveBeenNthCalledWith(1, "alpha", "/notes", 9, "After");
+		expect(sendPatch).toHaveBeenNthCalledWith(2, "alpha", "/priority", 9, 3);
+		expect(sendPatch).toHaveBeenNthCalledWith(3, "alpha", "/status", 9, "done");
+	});
+
 	it("cancels text edits on Escape and skips unchanged commits", () => {
 		const sendPatch = vi.spyOn(ws, "sendStateValuePatch");
 		const doc = makeDoc(

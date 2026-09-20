@@ -157,6 +157,7 @@ function portableDocument(
 		pages: rendered.pages.map((page) => ({
 			...page,
 			provenance: undefined,
+			jsonForms: undefined,
 			html: page.html ? stripDocumentNavigationHtml(page.html) : page.html,
 		})),
 	};

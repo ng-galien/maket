@@ -5,7 +5,7 @@
  * and collections are swapped in atomically with `readOnly` set.
  */
 
-import { renderDocumentStateText } from "@maket/shared";
+import { renderDocumentStatePage } from "@maket/shared";
 import type { DocSummary, Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import { ensureCharteFonts } from "../store/ws";
@@ -70,18 +70,19 @@ function hydrateDocuments(
 		const stateView = workspace.documentStates[doc.name];
 		const pages = doc.pages.map((page) => ({
 			...page,
-			html: page.html
-				? stripActiveHtml(
-						rewriteAssetRefs(
-							doc.dataModel === "state" && stateView
-								? renderDocumentStateText(page.html, stateView.data, {
-										schema: stateView.schema,
-									}).html
-								: page.html,
-							workspace.assetUrls,
-						),
-					)
-				: page.html,
+			html:
+				doc.dataModel === "state" && stateView
+					? stripActiveHtml(
+							rewriteAssetRefs(
+								renderDocumentStatePage(page, stateView.data, {
+									schema: stateView.schema,
+								}).html,
+								workspace.assetUrls,
+							),
+						)
+					: page.html
+						? stripActiveHtml(rewriteAssetRefs(page.html, workspace.assetUrls))
+						: page.html,
 		}));
 		docs.set(doc.name, { ...doc, pages });
 		const charteName = doc.meta?.charte;

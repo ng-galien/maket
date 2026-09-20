@@ -587,6 +587,41 @@ describe("maket_doc — lock enforcement", () => {
 });
 
 describe("maket_doc — action=rename", () => {
+	it("renames a state-backed document without changing its state identity", async () => {
+		const { store, bus, documents, config, collections } = fixture();
+		const stateDoc = makeDoc("living");
+		stateDoc.dataModel = "state";
+		store.saveDoc(stateDoc);
+		store.initializeDocumentState(
+			stateDoc.id,
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+			},
+			{ title: "Stable" },
+		);
+		documents.loadAll();
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			collections,
+		});
+
+		const result = await tool.handler(
+			{ action: "rename", doc: "living", name: "renamed" },
+			NO_EXTRA,
+		);
+
+		expect(result.isError).toBeUndefined();
+		expect(documents.resolve("renamed")?.id).toBe(stateDoc.id);
+		expect(store.loadCurrentDocumentState(stateDoc.id)?.data).toEqual({
+			title: "Stable",
+		});
+		store.close();
+	});
+
 	it("renames a document in memory and store", async () => {
 		const { store, bus, documents, config, collections } = fixture();
 		store.saveDoc(makeDoc("old"));

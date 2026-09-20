@@ -108,6 +108,43 @@ describe("maket_page — action=add", () => {
 		store.close();
 	});
 
+	it("stores and reads a JSON Forms page as an alternative to HTML", async () => {
+		const { store, bus, documents } = fixture();
+		store.saveDoc(makeDoc("d"));
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const added = await tool.handler(
+			{
+				action: "add",
+				doc: "d",
+				name: "Form",
+				json_forms: {
+					uischema: {
+						type: "Control",
+						scope: "#/properties/title",
+					},
+				},
+			},
+			NO_EXTRA,
+		);
+
+		expect(added.isError).toBeUndefined();
+		expect(documents.resolve("d")?.pages[1]).toMatchObject({
+			html: undefined,
+			jsonForms: {
+				uischema: { type: "Control", scope: "#/properties/title" },
+			},
+		});
+		const read = await tool.handler(
+			{ action: "get_form", doc: "d", page: 2 },
+			NO_EXTRA,
+		);
+		expect((read.content[0] as any).text).toContain('"#/properties/title"');
+		expect(store.loadOne("d")?.pages[1]?.jsonForms).toBeTruthy();
+		store.close();
+	});
+
 	it("rejects an invalid state template and restores memory and DB", async () => {
 		const { store, bus, documents } = fixture();
 		const doc = makeDoc("living");
@@ -362,7 +399,7 @@ describe("maket_page — action=list", () => {
 		const res = await tool.handler({ action: "list", doc: "d" }, NO_EXTRA);
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/3 pages:/);
-		expect(text).toMatch(/2\. P2 \(0 elements\) ●/);
+		expect(text).toMatch(/2\. P2 \(HTML, 0 elements\) ●/);
 		store.close();
 	});
 

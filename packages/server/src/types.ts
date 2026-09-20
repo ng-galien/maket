@@ -8,6 +8,7 @@ import crypto from "node:crypto";
 
 import {
 	type CollectionReference,
+	type JsonFormsTemplate,
 	normalizeCategoryPath,
 	type StructuredWorkspacePageProvenance,
 } from "@maket/shared";
@@ -100,6 +101,7 @@ export interface Page {
 	name?: string;
 	elements: unknown[];
 	html?: string;
+	jsonForms?: JsonFormsTemplate;
 	canvas?: Partial<Canvas>;
 	collection?: CollectionReference;
 	provenance?: StructuredWorkspacePageProvenance;
@@ -203,6 +205,7 @@ export interface DocSummary {
 	 * sidebar + workspace label when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
+	structuredWorkspaceKind?: "template" | "collection" | "item";
 }
 
 // ---- Charte graphique ----

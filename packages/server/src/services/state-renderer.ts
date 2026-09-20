@@ -1,7 +1,7 @@
 import {
 	type DocumentStateClientView,
 	jsonPointersIntersect,
-	renderDocumentStateText,
+	renderDocumentStatePage,
 } from "@maket/shared";
 import type { Document, Page } from "../types.js";
 import type { DocumentStates, DocumentStateView } from "./document-states.js";
@@ -34,9 +34,10 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 	function renderPage(
 		page: Page,
 		state: DocumentStateView,
-	): { html?: string; dependencies: string[] } {
-		if (!page.html) return { html: undefined, dependencies: [] };
-		return renderDocumentStateText(page.html, state.current.data, {
+	): { html?: string; dependencies: string[]; bindingPaths: string[] } {
+		if (!page.html && !page.jsonForms)
+			return { html: undefined, dependencies: [], bindingPaths: [] };
+		return renderDocumentStatePage(page, state.current.data, {
 			schema: state.current.schema,
 		});
 	}
@@ -72,9 +73,19 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 				revision: state.current.revision,
 				createdAt: state.current.createdAt,
 				templates: Object.fromEntries(
-					doc.pages.flatMap((page) =>
-						page.html ? [[page.id, page.html]] : [],
-					),
+					doc.pages.flatMap((page) => {
+						if (page.html) return [[page.id, page.html]];
+						if (page.jsonForms)
+							return [
+								[
+									page.id,
+									renderDocumentStatePage(page, state.current.data, {
+										schema: state.current.schema,
+									}).html,
+								],
+							];
+						return [];
+					}),
 				),
 			};
 		},

@@ -307,4 +307,58 @@ describe("manifest building", () => {
 			expect.not.objectContaining({ revision: expect.anything() }),
 		]);
 	});
+
+	it("preserves JSON Forms pages in portable state documents", () => {
+		const manifest = buildBundleManifest(
+			[
+				{
+					id: "doc-form",
+					name: "form",
+					dataModel: "state",
+					canvas: { w: 10, h: 10 },
+					pages: [
+						{
+							id: "page-form",
+							jsonForms: {
+								uischema: {
+									type: "Control",
+									scope: "#/properties/title",
+								},
+							},
+						},
+					],
+				},
+			],
+			[],
+			[],
+			{
+				version: 2,
+				exportedAt: "2026-01-01T00:00:00.000Z",
+				documentStates: [
+					{
+						documentId: "doc-form",
+						schema: {
+							type: "object",
+							properties: { title: { type: "string" } },
+						},
+						data: { title: "Portable" },
+					},
+				],
+			},
+		);
+		const page = (
+			manifest.documents as Array<{
+				pages?: Array<Record<string, unknown>>;
+			}>
+		)[0]?.pages?.[0];
+		expect(page).toMatchObject({
+			jsonForms: {
+				uischema: {
+					type: "Control",
+					scope: "#/properties/title",
+				},
+			},
+		});
+		expect(validateBundleManifest(manifest)).toBeTruthy();
+	});
 });
