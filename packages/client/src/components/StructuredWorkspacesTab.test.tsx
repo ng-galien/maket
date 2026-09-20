@@ -227,7 +227,7 @@ describe("StructuredWorkspacesTab", () => {
 		await user.clear(screen.getByRole("textbox"));
 		await user.type(screen.getByRole("textbox"), "Nothing");
 		expect(
-			screen.getByText("No Structured Workspace matches the search"),
+			screen.getByText("No Workspace matches the search"),
 		).toBeInTheDocument();
 	});
 });

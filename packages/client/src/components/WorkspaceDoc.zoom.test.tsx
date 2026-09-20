@@ -38,6 +38,7 @@ beforeEach(() => {
 		collectionDrafts: {},
 		draftCursorOverrides: {},
 		readOnly: false,
+		documentLabelPosition: "bottom",
 	});
 });
 

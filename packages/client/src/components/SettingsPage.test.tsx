@@ -32,6 +32,7 @@ beforeEach(() => {
 		darkMode: false,
 		accentColor: DEFAULT_ACCENT_COLOR,
 		autoFocusFit: true,
+		documentLabelPosition: "bottom",
 	});
 });
 
@@ -151,6 +152,22 @@ describe("SettingsPage", () => {
 
 		await user.click(screen.getByRole("button", { name: "Close settings" }));
 		expect(useStore.getState().settingsOpen).toBe(false);
+	});
+
+	it("offers a persistent top or bottom position for the document bar", async () => {
+		const user = userEvent.setup();
+		render(<SettingsPage />);
+
+		expect(screen.getByRole("button", { name: "Bottom" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await user.click(screen.getByRole("button", { name: "Top" }));
+		expect(useStore.getState().documentLabelPosition).toBe("top");
+		expect(screen.getByRole("button", { name: "Top" })).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
 	});
 
 	it("offers migration and symmetric uninstall for desktop agent configuration", async () => {

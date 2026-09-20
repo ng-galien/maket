@@ -6,6 +6,7 @@ import {
 	type CollectionCursorMode,
 	collectionCursorKey,
 	DEFAULT_SETTINGS,
+	type DocumentLabelPosition,
 	type DocumentStateClientView,
 	type PageCollectionCursor,
 	type Settings,
@@ -233,6 +234,7 @@ interface AppState
 	locked: boolean;
 	zoom: number;
 	autoFocusFit: boolean;
+	documentLabelPosition: DocumentLabelPosition;
 
 	// Pending messages (user → agent)
 	pending: PendingMessage[];
@@ -261,6 +263,7 @@ interface AppState
 	setLocked: (v: boolean) => void;
 	setZoom: (v: number) => void;
 	setAutoFocusFit: (autoFocusFit: boolean) => void;
+	setDocumentLabelPosition: (position: DocumentLabelPosition) => void;
 	applySettings: (settings: Settings) => void;
 	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
 	removePending: (id: string) => boolean;
@@ -565,6 +568,7 @@ export const useStore = create<AppState>((set, get) => ({
 	locked: false,
 	zoom: 100,
 	autoFocusFit: DEFAULT_SETTINGS.autoFocusFit,
+	documentLabelPosition: DEFAULT_SETTINGS.documentLabelPosition,
 
 	setConnected: (connected) =>
 		set(
@@ -1282,6 +1286,10 @@ export const useStore = create<AppState>((set, get) => ({
 		set({ autoFocusFit });
 		sendSettings({ autoFocusFit });
 	},
+	setDocumentLabelPosition: (documentLabelPosition) => {
+		set({ documentLabelPosition });
+		sendSettings({ documentLabelPosition });
+	},
 	applySettings: (settings) => {
 		const accentColor = normalizeAccentColor(settings.accentColor);
 		const darkMode = resolveDarkMode(settings.themeMode);
@@ -1293,6 +1301,7 @@ export const useStore = create<AppState>((set, get) => ({
 			darkMode,
 			accentColor,
 			autoFocusFit: settings.autoFocusFit,
+			documentLabelPosition: settings.documentLabelPosition,
 			settingsHydrated: true,
 		});
 	},

@@ -581,6 +581,12 @@ function WorkspaceSettings() {
 	const t = useT();
 	const autoFocusFit = useStore((state) => state.autoFocusFit);
 	const setAutoFocusFit = useStore((state) => state.setAutoFocusFit);
+	const documentLabelPosition = useStore(
+		(state) => state.documentLabelPosition,
+	);
+	const setDocumentLabelPosition = useStore(
+		(state) => state.setDocumentLabelPosition,
+	);
 	return (
 		<SettingsSection
 			title={t("settings_workspace")}
@@ -600,6 +606,23 @@ function WorkspaceSettings() {
 						active={!autoFocusFit}
 						label={t("settings_off")}
 						onClick={() => setAutoFocusFit(false)}
+					/>
+				</ChoiceGroup>
+			</SettingRow>
+			<SettingRow
+				label={t("settings_document_label_position")}
+				description={t("settings_document_label_position_description")}
+			>
+				<ChoiceGroup label={t("settings_document_label_position")}>
+					<ChoiceButton
+						active={documentLabelPosition === "top"}
+						label={t("settings_position_top")}
+						onClick={() => setDocumentLabelPosition("top")}
+					/>
+					<ChoiceButton
+						active={documentLabelPosition === "bottom"}
+						label={t("settings_position_bottom")}
+						onClick={() => setDocumentLabelPosition("bottom")}
 					/>
 				</ChoiceGroup>
 			</SettingRow>

@@ -75,7 +75,7 @@ describe("LibraryPanel", () => {
 		const buttons = within(navigation).getAllByRole("button");
 		expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
 			"Documents",
-			"Structured Workspaces",
+			"Workspaces",
 			"Photos",
 			"Collections",
 			"Brand",

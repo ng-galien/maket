@@ -6,6 +6,7 @@ import {
 import { X } from "lucide-react";
 import { memo, useMemo } from "react";
 import { useT } from "../i18n/useT";
+import { displayWorkspaceCategorySegment } from "../lib/workspaceCategoryDisplay";
 import type { Document } from "../store/types";
 import type { DraftCursorOverride } from "../store/useStore";
 import { useDocByName, useStore } from "../store/useStore";
@@ -242,6 +243,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const readOnly = useStore((s) => s.readOnly);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
 	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
+	const documentLabelPosition = useStore((s) => s.documentLabelPosition);
 	const t = useT();
 	const pendingCount = useStore(
 		(s) => s.pending.filter((m) => m.docName === docName).length,
@@ -313,7 +315,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 		documentScreenWidth,
 		DOCUMENT_LABEL_CLOSE_ONLY_WIDTH,
 	);
-	const labelMarginTop = DOCUMENT_LABEL_SCREEN_GAP / safeZoomK - PAGE_GAP;
+	const labelMargin = DOCUMENT_LABEL_SCREEN_GAP / safeZoomK - PAGE_GAP;
 	const showPendingCount =
 		pendingCount > 0 && labelWidth >= DOCUMENT_LABEL_PENDING_THRESHOLD;
 	const labelControlsWidth =
@@ -332,6 +334,9 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const categoryBreadcrumb = doc.category
 		?.split("/")
 		.filter(Boolean)
+		.map((segment) =>
+			displayWorkspaceCategorySegment(segment, t("structured_workspaces")),
+		)
 		.join(" / ");
 	const fullLabel = categoryBreadcrumb
 		? `${categoryBreadcrumb} / ${doc.name}`
@@ -413,11 +418,17 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			{showDocumentLabel && (
 				<div
 					className="doc-label pointer-events-none relative flex justify-center"
+					data-position={documentLabelPosition}
 					style={{
 						width: docWidthPx,
-						marginTop: labelMarginTop,
+						order: documentLabelPosition === "top" ? -1 : undefined,
+						marginTop:
+							documentLabelPosition === "bottom" ? labelMargin : undefined,
+						marginBottom:
+							documentLabelPosition === "top" ? labelMargin : undefined,
 						transform: `scale(${labelScale})`,
-						transformOrigin: "top center",
+						transformOrigin:
+							documentLabelPosition === "top" ? "bottom center" : "top center",
 					}}
 				>
 					<div

@@ -65,6 +65,7 @@ function sameSettings(left: Settings, right: Settings): boolean {
 		left.themeMode === right.themeMode &&
 		left.accentColor === right.accentColor &&
 		left.autoFocusFit === right.autoFocusFit &&
+		left.documentLabelPosition === right.documentLabelPosition &&
 		left.updateChannel === right.updateChannel
 	);
 }

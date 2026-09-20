@@ -539,6 +539,16 @@ button[data-library-pin]:focus-visible {
   border: 5px solid transparent;
   border-top-color: var(--color-border);
 }
+.doc-label[data-position="top"] .doc-tooltip {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+.doc-label[data-position="top"] .doc-tooltip::after {
+  top: auto;
+  bottom: 100%;
+  border-top-color: transparent;
+  border-bottom-color: var(--color-border);
+}
 .doc-label:hover .doc-tooltip {
   opacity: 1;
   transform: translateX(-50%) translateY(0);

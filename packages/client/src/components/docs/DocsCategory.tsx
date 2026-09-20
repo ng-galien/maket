@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useT } from "../../i18n/useT";
+import { displayWorkspaceCategoryPath } from "../../lib/workspaceCategoryDisplay";
 import type { DocSummary } from "../../store/types";
 import { wsSend } from "../../store/ws";
 import {
@@ -162,6 +163,14 @@ export function DocsCategory({ model }: { model: DocsCategoryModel }) {
 export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 	const t = useT();
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
+	const displayPath = displayWorkspaceCategoryPath(
+		model.path,
+		t("structured_workspaces"),
+	);
+	const displayName = displayWorkspaceCategoryPath(
+		model.name,
+		t("structured_workspaces"),
+	);
 	const countTitle =
 		model.openTotal > 0
 			? t("category_document_counts", {
@@ -171,8 +180,8 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 			: t("category_document_total", { total: model.total });
 	return (
 		<LibraryCategoryHeader
-			model={{ ...model, activeTotal: model.openTotal }}
-			toggleLabel={t("category_toggle", { category: model.path })}
+			model={{ ...model, name: displayName, activeTotal: model.openTotal }}
+			toggleLabel={t("category_toggle", { category: displayPath })}
 			countTitle={countTitle}
 			actions={
 				<>

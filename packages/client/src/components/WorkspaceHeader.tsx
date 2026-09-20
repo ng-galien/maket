@@ -1,6 +1,7 @@
 import { BookOpen, Lock, Maximize, Unlock } from "lucide-react";
 import { openReadingView } from "../desktopCommands";
 import { useT } from "../i18n/useT";
+import { displayWorkspaceCategorySegment } from "../lib/workspaceCategoryDisplay";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { sendLockDoc } from "../store/ws";
@@ -147,10 +148,19 @@ function DocumentBreadcrumb({ category }: { category?: string }) {
 	const filterByCategory = useStore((state) => state.filterDocumentsByCategory);
 	const categorySegments = category?.split("/").filter(Boolean) ?? [];
 	const crumbs = [
-		{ segment: "Maket", path: "" },
+		{ segment: "Maket", path: "", displayPath: "" },
 		...categorySegments.map((segment, index) => ({
-			segment,
+			segment: displayWorkspaceCategorySegment(
+				segment,
+				t("structured_workspaces"),
+			),
 			path: categorySegments.slice(0, index + 1).join("/"),
+			displayPath: categorySegments
+				.slice(0, index + 1)
+				.map((part) =>
+					displayWorkspaceCategorySegment(part, t("structured_workspaces")),
+				)
+				.join("/"),
 		})),
 	];
 	const label = crumbs.map((crumb) => crumb.segment).join(" / ");
@@ -160,7 +170,7 @@ function DocumentBreadcrumb({ category }: { category?: string }) {
 			title={label}
 			className="flex min-w-0 shrink items-center gap-1.5 overflow-hidden text-base font-medium text-text-2"
 		>
-			{crumbs.map(({ segment, path }, index) => (
+			{crumbs.map(({ segment, path, displayPath }, index) => (
 				<span key={path || "maket"} className="contents">
 					{index > 0 && (
 						<span aria-hidden="true" className="shrink-0 text-text-3/70">
@@ -177,7 +187,7 @@ function DocumentBreadcrumb({ category }: { category?: string }) {
 							type="button"
 							onClick={() => filterByCategory(path)}
 							aria-label={t("filter_documents_by_category", {
-								category: path,
+								category: displayPath,
 							})}
 							className="min-w-0 truncate rounded-sm transition-colors duration-100 hover:text-text-1 hover:underline hover:underline-offset-2"
 						>

@@ -11,12 +11,14 @@ import type { DesktopUpdateChannel } from "./desktop.js";
 
 export type SettingsThemeMode = "system" | "light" | "dark";
 export type SettingsLanguage = "fr" | "en";
+export type DocumentLabelPosition = "top" | "bottom";
 
 export interface Settings {
 	language: SettingsLanguage;
 	themeMode: SettingsThemeMode;
 	accentColor: string;
 	autoFocusFit: boolean;
+	documentLabelPosition: DocumentLabelPosition;
 	updateChannel: DesktopUpdateChannel;
 }
 
@@ -27,6 +29,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	themeMode: "system",
 	accentColor: "#10b981",
 	autoFocusFit: true,
+	documentLabelPosition: "bottom",
 	updateChannel: "stable",
 };
 
@@ -40,6 +43,10 @@ const UPDATE_CHANNELS: readonly DesktopUpdateChannel[] = [
 	"stable",
 	"candidate",
 ];
+const DOCUMENT_LABEL_POSITIONS = [
+	"top",
+	"bottom",
+] as const satisfies readonly DocumentLabelPosition[];
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 /** Accept a six-digit hex accent, lowercased; anything else falls back. */
@@ -77,6 +84,11 @@ export function normalizeSettings(value: unknown): Settings {
 			typeof input.autoFocusFit === "boolean"
 				? input.autoFocusFit
 				: DEFAULT_SETTINGS.autoFocusFit,
+		documentLabelPosition: pick(
+			input.documentLabelPosition,
+			DOCUMENT_LABEL_POSITIONS,
+			DEFAULT_SETTINGS.documentLabelPosition,
+		),
 		updateChannel: pick(
 			input.updateChannel,
 			UPDATE_CHANNELS,

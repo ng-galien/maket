@@ -37,6 +37,7 @@ afterEach(() => {
 		pending: [],
 		readOnly: false,
 		documentStates: {},
+		documentLabelPosition: "bottom",
 	});
 	vi.restoreAllMocks();
 });
@@ -151,6 +152,31 @@ describe("WorkspaceDoc page focus", () => {
 			focusedDocName: stabilize.name,
 			workspaceDocNames: [stabilize.name],
 		});
+	});
+
+	it("positions the document bar above or below the document from settings", () => {
+		const doc = makeDoc();
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			documentLabelPosition: "bottom",
+		});
+
+		const view = render(<WorkspaceDoc docName={doc.name} zoomK={0.5} />);
+		let label = view.container.querySelector<HTMLElement>(".doc-label");
+		expect(label).toHaveAttribute("data-position", "bottom");
+		expect(label?.style.order).toBe("");
+		expect(label?.style.marginTop).not.toBe("");
+		expect(label?.style.transformOrigin).toBe("top center");
+
+		useStore.setState({ documentLabelPosition: "top" });
+		view.rerender(<WorkspaceDoc docName={doc.name} zoomK={0.5} />);
+		label = view.container.querySelector<HTMLElement>(".doc-label");
+		expect(label).toHaveAttribute("data-position", "top");
+		expect(label?.style.order).toBe("-1");
+		expect(label?.style.marginBottom).not.toBe("");
+		expect(label?.style.transformOrigin).toBe("bottom center");
 	});
 
 	it("progressively hides secondary label content while keeping the close action visible", () => {
