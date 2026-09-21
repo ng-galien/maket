@@ -18,6 +18,86 @@ const HISTORICAL_V1_FIXTURE = path.resolve(
 );
 
 test.describe("Document library", () => {
+	test("keeps the selected document frame and control bar pixel-aligned across zoom", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Pixel aligned selection";
+		await openWorkspace(page);
+		await createDocument(mcp, docName);
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+
+		const activePage = page.locator(
+			`[data-doc="${docName}"] [data-active-page="true"]`,
+		);
+		await expect(activePage).toBeVisible();
+		const readGeometry = () =>
+			activePage.evaluate((pageView) => {
+				const canvas = pageView.querySelector<HTMLElement>(".page-canvas");
+				const frame = pageView.querySelector<HTMLElement>(
+					'[data-selection-frame="true"]',
+				);
+				const documentElement = pageView.closest<HTMLElement>("[data-doc]");
+				const bar =
+					documentElement?.querySelector<HTMLElement>(".doc-label > div");
+				const board = documentElement?.parentElement;
+				if (!canvas || !frame || !bar || !board)
+					throw new Error("Workspace geometry missing");
+				const canvasRect = canvas.getBoundingClientRect();
+				const frameRect = frame.getBoundingClientRect();
+				const barRect = bar.getBoundingClientRect();
+				const scale = new DOMMatrix(getComputedStyle(board).transform).a;
+				return {
+					scale,
+					canvasX: canvasRect.x,
+					canvasY: canvasRect.y,
+					canvasWidth: canvasRect.width,
+					canvasHeight: canvasRect.height,
+					frameX: frameRect.x,
+					frameY: frameRect.y,
+					frameWidth: frameRect.width,
+					frameHeight: frameRect.height,
+					frameBorderWidth: Number.parseFloat(
+						getComputedStyle(frame).borderWidth,
+					),
+					barX: barRect.x,
+					barWidth: barRect.width,
+				};
+			});
+		const assertGeometry = (
+			geometry: Awaited<ReturnType<typeof readGeometry>>,
+		) => {
+			expect(geometry.frameBorderWidth).toBe(2);
+			expect(geometry.frameX).toBeCloseTo(geometry.canvasX - 5, 0);
+			expect(geometry.frameY).toBeCloseTo(geometry.canvasY - 5, 0);
+			expect(geometry.frameWidth).toBeCloseTo(geometry.canvasWidth + 10, 0);
+			expect(geometry.frameHeight).toBeCloseTo(geometry.canvasHeight + 10, 0);
+			expect(geometry.barX).toBeCloseTo(geometry.canvasX, 0);
+			expect(geometry.barWidth).toBeCloseTo(geometry.canvasWidth, 0);
+		};
+
+		const beforeZoom = await readGeometry();
+		assertGeometry(beforeZoom);
+		const canvas = activePage.locator(".page-canvas");
+		const box = await canvas.boundingBox();
+		expect(box).not.toBeNull();
+		if (!box) return;
+		await page.mouse.move(
+			Math.min(page.viewportSize()?.width ?? 1280, box.x + box.width / 2),
+			Math.min(page.viewportSize()?.height ?? 720, box.y + box.height / 2),
+		);
+		await page.mouse.wheel(0, -1_600);
+		await expect
+			.poll(async () => (await readGeometry()).scale)
+			.toBeGreaterThan(beforeZoom.scale + 0.2);
+		const afterZoom = await readGeometry();
+		assertGeometry(afterZoom);
+	});
+
 	test("reflects an agent's page and HTML workflow live in the browser", async ({
 		mcp,
 		page,

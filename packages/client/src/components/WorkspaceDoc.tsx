@@ -18,6 +18,9 @@ import {
 } from "./presentation-policy";
 
 const PAGE_GAP = 12;
+const PAGE_SELECTION_BORDER = 2;
+const PAGE_SELECTION_GAP = 3;
+const PAGE_SELECTION_INSET = PAGE_SELECTION_BORDER + PAGE_SELECTION_GAP;
 const DOCUMENT_LABEL_SCREEN_GAP = 8;
 const DOCUMENT_LABEL_HORIZONTAL_PADDING = 24;
 const DOCUMENT_LABEL_ITEM_GAP = 6;
@@ -308,6 +311,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	if (!doc) return null;
 
 	const docWidthPx = doc.canvas.w * 3.78;
+	const docHeightPx = doc.canvas.h * 3.78;
 	const safeZoomK = Math.max(zoomK, 0.1);
 	const labelScale = 1 / safeZoomK;
 	const documentScreenWidth = docWidthPx * safeZoomK;
@@ -388,7 +392,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 							: undefined
 					}
 					onClick={() => setFocusedPage(docName, view.pageIndex)}
-					className="flex flex-col items-center"
+					className="relative flex flex-col items-center"
 				>
 					<PageCanvas
 						doc={doc}
@@ -399,6 +403,25 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						preview={view.preview}
 						policy={policy}
 					/>
+					{surface === "canvas" &&
+						isFocused &&
+						view.pageIndex === focusedPageIndex && (
+							<div
+								aria-hidden="true"
+								data-selection-frame="true"
+								className="pointer-events-none absolute z-[1] box-border border-solid border-accent"
+								style={{
+									left: -PAGE_SELECTION_INSET / safeZoomK,
+									top: -PAGE_SELECTION_INSET / safeZoomK,
+									width: documentScreenWidth + 2 * PAGE_SELECTION_INSET,
+									height: docHeightPx * safeZoomK + 2 * PAGE_SELECTION_INSET,
+									borderWidth: PAGE_SELECTION_BORDER,
+									borderRadius: 7,
+									transform: `scale(${labelScale})`,
+									transformOrigin: "top left",
+								}}
+							/>
+						)}
 					{showPageLabels && (doc.pages.length > 1 || view.generatedLabel) && (
 						<span
 							className="text-text-3 mt-1"

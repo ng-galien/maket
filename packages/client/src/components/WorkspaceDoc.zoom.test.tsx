@@ -62,14 +62,27 @@ describe("WorkspaceDoc zoom rendering", () => {
 
 function assertLabelGeometry(container: HTMLElement, zoomK: number): void {
 	const docWidth = doc.canvas.w * 3.78;
+	const documentScreenWidth = docWidth * zoomK;
+	const selectionFrame = container.querySelector<HTMLElement>(
+		'[data-selection-frame="true"]',
+	);
 	const label = container.querySelector<HTMLElement>(".doc-label");
 	const band = label?.firstElementChild as HTMLElement | null;
 
+	expect(selectionFrame).not.toBeNull();
 	expect(label).not.toBeNull();
 	expect(band).not.toBeNull();
+	expect(Number.parseFloat(selectionFrame?.style.width ?? "0")).toBeCloseTo(
+		documentScreenWidth + 10,
+	);
+	expect(selectionFrame?.style.transform).toBe(`scale(${1 / zoomK})`);
+	expect(
+		Number.parseFloat(selectionFrame?.style.left ?? "0") * zoomK,
+	).toBeCloseTo(-5);
+	expect(Number.parseFloat(selectionFrame?.style.borderWidth ?? "0")).toBe(2);
 	expect(Number.parseFloat(label?.style.width ?? "0")).toBeCloseTo(docWidth);
 	expect(Number.parseFloat(band?.style.width ?? "0")).toBeCloseTo(
-		docWidth * zoomK,
+		documentScreenWidth,
 	);
 	expect(label?.style.transform).toBe(`scale(${1 / zoomK})`);
 	expect(
