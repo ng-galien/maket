@@ -98,6 +98,22 @@ describe("buildRenderSurfaceHtml", () => {
 		);
 	});
 
+	it("keeps font faces and keyframes document-level before a printed page scope", () => {
+		const html = buildRenderSurfaceHtml({
+			canvas,
+			pageHtmls: [
+				'<style>@font-face{font-family:Brand;src:url("data:font/woff2;base64,AA==")} @keyframes pulse{to{opacity:.5}} .sheet{font-family:Brand}</style><main class="sheet">First</main>',
+				"<p>Second</p>",
+			],
+			charteCss: "",
+			surface: { kind: "print" },
+		});
+
+		expect(html).toContain(
+			'@font-face{font-family:Brand;src:url("data:font/woff2;base64,AA==")}\n@keyframes pulse{to{opacity:.5}}\n@scope (maket-render-page[data-maket-render-page="1"]) {\n.sheet{font-family:Brand}\n}',
+		);
+	});
+
 	it("keeps informational print-safe margins out of physical PDF geometry", () => {
 		const html = buildRenderSurfaceHtml({
 			canvas: {

@@ -3,30 +3,33 @@
  *
  * Renders a `Document` to a PDF Buffer at a requested DPI (screen/print/hd).
  * Images are inlined as data URIs, downscaled to the page's target pixel size
- * to keep PDF bytes reasonable; box-shadow is rewritten to drop-shadow because
- * Chrome's print engine drops the former.
+ * to keep PDF bytes reasonable. Page HTML is otherwise printed as authored, so
+ * each PDF page renders as its preview. Every page is then measured in both
+ * surfaces (print DOM and single-page preview surface); pages whose element
+ * geometry, fonts, or colours differ are returned as `mismatches`.
  *
- * Pure helpers (`buildPrintHtml`, `buildShadowVarMap`, `boxShadowToDropShadow`)
- * are exported alongside the service — the `/print` HTML route in `index.ts`
- * uses them directly without instantiating a service.
+ * `buildPrintHtml` is exported for the `/print` HTML route.
  *
  * Options follow the same "second argument" pattern as `LayoutService`: Awilix
  * PROXY mode resolves every destructured name on `deps`, so test-only
- * overrides (puppeteer launcher, Jimp loader) live on `opts`.
+ * overrides (puppeteer launcher) live on `opts`.
  */
 
-import { parseCharteVars } from "../lib/charte-css.js";
 import {
 	type CollectionRenderMode,
 	cursorRenderOptions,
 } from "../lib/collection-render.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
+import {
+	comparePageRenders,
+	measureRenderFrames,
+} from "../lib/page-render-fingerprint.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
-import type { BrowserPool, RenderBrowser } from "./browser-pool.js";
+import type { BrowserPool, RenderBrowser, RenderPage } from "./browser-pool.js";
 import type { CollectionCursors } from "./collection-cursor.js";
 import type { Config } from "./config.js";
 import type { DocumentRenderer } from "./document-renderer.js";
@@ -38,9 +41,22 @@ const DPI_PRESETS: Record<string, number> = {
 	hd: 300,
 };
 
+const PX_PER_MM = 96 / 25.4;
+
+/** A page whose PDF rendering differs from its preview rendering. */
+export interface PdfPageMismatch {
+	/** 1-based page number in the rendered document. */
+	page: number;
+	name: string;
+	/** Number of elements whose box, font, or colours differ. */
+	differences: number;
+	detail: string;
+}
+
 export interface PdfRenderResult {
 	buffer: Buffer;
 	pageCount: number;
+	mismatches: PdfPageMismatch[];
 }
 
 /** What to render for pages bound to a collection. `preview` follows the
@@ -92,7 +108,7 @@ async function renderPdfDocument(
 	doc: Document,
 	quality = "print",
 	rows: PdfRowsSelection = "preview",
-): Promise<{ buffer: Buffer; pageCount: number }> {
+): Promise<PdfRenderResult> {
 	const {
 		documents,
 		config,
@@ -110,45 +126,104 @@ async function renderPdfDocument(
 		),
 	});
 	const dpi = DPI_PRESETS[quality] || 150;
-	const rawHtmls = renderedDoc.pages
-		.map((p) => p.html)
-		.filter((h): h is string => Boolean(h));
-	if (rawHtmls.length === 0) throw new Error("No pages with HTML content");
+	const sourcePages = renderedDoc.pages
+		.map((p, index) => ({ number: index + 1, name: p.name, html: p.html }))
+		.filter((p): p is { number: number; name: string; html: string } =>
+			Boolean(p.html),
+		);
+	if (sourcePages.length === 0) throw new Error("No pages with HTML content");
 
 	const charteCss = documents.charteCss(renderedDoc);
-	const shadowVars = buildShadowVarMap(charteCss);
-
 	const pageHtmls = await Promise.all(
-		rawHtmls.map(async (html) => {
-			const inlined = await inlineImages(html, {
+		sourcePages.map((p) =>
+			inlineImages(p.html, {
 				assetsDir: config.ASSETS_DIR,
 				pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
 				dpi,
-				mimeFromExt: (p) => assets.mimeFromExt(p),
-			});
-			return boxShadowToDropShadow(inlined, shadowVars);
-		}),
+				mimeFromExt: (path) => assets.mimeFromExt(path),
+			}),
+		),
 	);
 
 	const { w, h } = renderedDoc.canvas;
+	const viewport = {
+		width: Math.ceil(w * PX_PER_MM),
+		height: Math.ceil(h * PX_PER_MM),
+	};
 	const fullHtml = buildPrintHtml(renderedDoc, pageHtmls, charteCss);
 
 	const b = await pool.get();
 	const page = await b.newPage();
 	try {
 		await installNetworkGuard(page, "offline");
+		await page.setViewport(viewport);
 		await page.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(page);
+		const printed = await measureRenderFrames(page);
 		const pdfBuffer = await page.pdf({
 			width: `${w}mm`,
 			height: `${h}mm`,
 			printBackground: true,
 			margin: { top: "0", right: "0", bottom: "0", left: "0" },
 		});
+		const previews = await measurePreviewFrames(b, viewport, {
+			canvas: renderedDoc.canvas,
+			pageHtmls,
+			charteCss,
+		});
+		const mismatches: PdfPageMismatch[] = [];
+		sourcePages.forEach((source, i) => {
+			const difference = comparePageRenders(
+				printed[i] ?? [],
+				previews[i] ?? [],
+			);
+			if (difference)
+				mismatches.push({
+					page: source.number,
+					name: source.name,
+					...difference,
+				});
+		});
 		return {
 			buffer: Buffer.from(pdfBuffer),
 			pageCount: pageHtmls.length,
+			mismatches,
 		};
+	} finally {
+		await page.close();
+	}
+}
+
+/** Measure each page alone on the preview (snapshot) surface. */
+async function measurePreviewFrames(
+	browser: RenderBrowser,
+	viewport: { width: number; height: number },
+	input: {
+		canvas: Document["canvas"];
+		pageHtmls: string[];
+		charteCss: string;
+	},
+): Promise<ReturnType<typeof measureRenderFrames>> {
+	const page: RenderPage = await browser.newPage();
+	try {
+		await installNetworkGuard(page, "offline");
+		await page.setViewport(viewport);
+		const frames: Awaited<ReturnType<typeof measureRenderFrames>> = [];
+		for (const html of input.pageHtmls) {
+			await page.setContent(
+				buildRenderSurfaceHtml({
+					canvas: input.canvas,
+					pageHtmls: [html],
+					charteCss: input.charteCss,
+					surface: { kind: "snapshot" },
+				}),
+				{ waitUntil: "load" },
+			);
+			await waitForPageStable(page);
+			const [frame] = await measureRenderFrames(page);
+			frames.push(frame ?? []);
+		}
+		return frames;
 	} finally {
 		await page.close();
 	}
@@ -195,36 +270,8 @@ export function createPdfService(
 }
 
 // ============================================================
-// Pure helpers (shared with the /print HTML route and tests)
+// Pure helpers (shared with the /print HTML route)
 // ============================================================
-
-/**
- * Convert box-shadow declarations to filter:drop-shadow(...). box-shadow
- * renders inconsistently in Chrome's print engine; drop-shadow does not.
- */
-export function boxShadowToDropShadow(
-	html: string,
-	shadowVars: Map<string, string>,
-): string {
-	return html.replace(/box-shadow\s*:\s*([^;"]+)/g, (_full, value: string) => {
-		let resolved = value.trim();
-		resolved = resolved.replace(
-			/var\(([^)]+)\)/g,
-			(_m, varName: string) => shadowVars.get(varName.trim()) || "none",
-		);
-		if (resolved === "none") return "box-shadow:none";
-		return `filter:drop-shadow(${resolved})`;
-	});
-}
-
-/** Extract --charte-shadow-* values from a charteCss string. */
-export function buildShadowVarMap(charteCss: string): Map<string, string> {
-	const shadows = new Map<string, string>();
-	for (const [k, v] of parseCharteVars(charteCss)) {
-		if (k.startsWith("--charte-shadow-")) shadows.set(k, v);
-	}
-	return shadows;
-}
 
 /**
  * Build the print-ready HTML for a document — shared by the `/print` route

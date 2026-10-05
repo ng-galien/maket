@@ -23,7 +23,6 @@ import type { BrowserPool } from "./browser-pool.js";
 import type { Config } from "./config.js";
 import type { DocumentRenderer } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
-import { boxShadowToDropShadow, buildShadowVarMap } from "./pdf.js";
 
 export interface ThumbnailRenderOptions {
 	/** 0-based page index. Defaults to 0 (first page). */
@@ -143,14 +142,12 @@ async function renderThumbnailDocument(ctx: {
 		throw new Error(`Document "${doc.name}" has no page ${page + 1}`);
 
 	const charteCss = documents.charteCss(renderedDoc);
-	const shadowVars = buildShadowVarMap(charteCss);
 	const inlined = await inlineImages(pageObj.html ?? "", {
 		assetsDir: config.ASSETS_DIR,
 		pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
 		dpi: 96,
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
-	const resolved = boxShadowToDropShadow(inlined, shadowVars);
 
 	const canvasPxW = Math.round(renderedDoc.canvas.w * MM_TO_PX);
 	const pxH = Math.round(
@@ -159,7 +156,7 @@ async function renderThumbnailDocument(ctx: {
 	const scale = widthPx / canvasPxW;
 	const scaledHtml = buildRenderSurfaceHtml({
 		canvas: renderedDoc.canvas,
-		pageHtmls: [resolved],
+		pageHtmls: [inlined],
 		charteCss,
 		surface: { kind: "thumbnail", scale },
 	});

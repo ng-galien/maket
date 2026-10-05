@@ -7,12 +7,7 @@ import { createAssetsService } from "./assets.js";
 import type { Config } from "./config.js";
 import { createDocumentRenderer } from "./document-renderer.js";
 import { createDocuments } from "./documents.js";
-import {
-	boxShadowToDropShadow,
-	buildPrintHtml,
-	buildShadowVarMap,
-	createPdfService,
-} from "./pdf.js";
+import { buildPrintHtml, createPdfService } from "./pdf.js";
 import { createStateRenderer } from "./state-renderer.js";
 import { createSQLiteStore } from "./store.js";
 
@@ -71,44 +66,6 @@ function makeDoc(overrides: Partial<Document> = {}): Document {
 	} as unknown as Document;
 }
 
-describe("buildShadowVarMap", () => {
-	it("extracts only --charte-shadow-* vars", () => {
-		const css = `
-      :root {
-        --charte-color-primary: #ff0000;
-        --charte-shadow-soft: 0 2px 4px rgba(0,0,0,0.1);
-        --charte-shadow-hard: 0 8px 16px black;
-      }
-    `;
-		const map = buildShadowVarMap(css);
-		expect(map.size).toBe(2);
-		expect(map.get("--charte-shadow-soft")).toMatch(/0 2px 4px/);
-	});
-});
-
-describe("boxShadowToDropShadow", () => {
-	it("rewrites inline box-shadow to filter:drop-shadow()", () => {
-		const html = `<div style="box-shadow: 0 4px 8px #000"></div>`;
-		const out = boxShadowToDropShadow(html, new Map());
-		expect(out).toMatch(/filter:drop-shadow\(0 4px 8px #000\)/);
-	});
-
-	it("resolves var() references from the shadow map", () => {
-		const html = `<div style="box-shadow: var(--charte-shadow-soft)"></div>`;
-		const out = boxShadowToDropShadow(
-			html,
-			new Map([["--charte-shadow-soft", "0 2px 4px rgba(0,0,0,0.1)"]]),
-		);
-		expect(out).toMatch(/filter:drop-shadow\(0 2px 4px rgba\(0,0,0,0\.1\)\)/);
-	});
-
-	it("keeps 'none' as box-shadow:none (not a filter)", () => {
-		const html = `<div style="box-shadow: none"></div>`;
-		const out = boxShadowToDropShadow(html, new Map());
-		expect(out).toMatch(/box-shadow:none/);
-	});
-});
-
 describe("buildPrintHtml", () => {
 	it("wraps each page in a private render frame and inserts @page size", () => {
 		const doc = makeDoc();
@@ -134,6 +91,7 @@ describe("PdfService.render", () => {
 		const page = {
 			setRequestInterception: vi.fn(async () => {}),
 			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
 			setContent,
 			waitForNetworkIdle: vi.fn(async () => {}),
 			evaluate: vi.fn(async () => {}),

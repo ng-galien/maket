@@ -18,6 +18,7 @@ function fixture() {
 		render: vi.fn(async () => ({
 			buffer: Buffer.from("%PDF-fake"),
 			pageCount: 2,
+			mismatches: [],
 		})),
 	};
 	return {

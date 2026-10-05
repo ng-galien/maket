@@ -44,15 +44,32 @@ function inlineDataCss(url: string): string | undefined {
 	}
 }
 
+/** At-rules that are invalid inside `@scope` and must stay document-level. */
+const GLOBAL_AT_RULES = new Set([
+	"font-face",
+	"keyframes",
+	"-webkit-keyframes",
+	"property",
+	"counter-style",
+	"font-feature-values",
+	"font-palette-values",
+]);
+
 function scopedPageCss(css: string, scope: string): string {
 	const rebased = rebasePageRootSelectors(css);
 	try {
 		const stylesheet = postcss.parse(rebased);
 		const fontImports: string[] = [];
 		const dataImports: string[] = [];
+		const globalRules: string[] = [];
 		for (const rule of [...stylesheet.nodes]) {
-			if (rule.type !== "atrule" || rule.name.toLowerCase() !== "import")
+			if (rule.type !== "atrule") continue;
+			if (GLOBAL_AT_RULES.has(rule.name.toLowerCase())) {
+				globalRules.push(rule.toString());
+				rule.remove();
 				continue;
+			}
+			if (rule.name.toLowerCase() !== "import") continue;
 			const url = authoredImportUrl(rule.params);
 			const dataCss = url ? inlineDataCss(url) : undefined;
 			if (dataCss !== undefined) dataImports.push(dataCss);
@@ -66,7 +83,8 @@ function scopedPageCss(css: string, scope: string): string {
 			rule.remove();
 		}
 		const scopedCss = [...dataImports, stylesheet.toString()].join("\n");
-		return `${fontImports.join("\n")}${fontImports.length ? "\n" : ""}@scope (${scope}) {\n${scopedCss}\n}`;
+		const prelude = [...fontImports, ...globalRules];
+		return `${prelude.join("\n")}${prelude.length ? "\n" : ""}@scope (${scope}) {\n${scopedCss}\n}`;
 	} catch {
 		return `@scope (${scope}) {\n${rebased}\n}`;
 	}

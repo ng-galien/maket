@@ -26,12 +26,7 @@ import type { BundleImportService } from "../services/bundle-import.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { DocumentRenderer } from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
-import {
-	boxShadowToDropShadow,
-	buildPrintHtml,
-	buildShadowVarMap,
-	type PdfService,
-} from "../services/pdf.js";
+import { buildPrintHtml, type PdfService } from "../services/pdf.js";
 import type { Document } from "../types.js";
 
 export interface ExportRouterDeps {
@@ -112,11 +107,7 @@ function handlePrint(
 			return;
 		}
 		const charteCssStr = documents.charteCss(rendered);
-		const shadowVars = buildShadowVarMap(charteCssStr);
-		const pageHtmls = rawHtmls.map((html) =>
-			boxShadowToDropShadow(html, shadowVars),
-		);
-		const printHtml = buildPrintHtml(rendered, pageHtmls, charteCssStr);
+		const printHtml = buildPrintHtml(rendered, rawHtmls, charteCssStr);
 		const html =
 			req.query.auto_print === "false"
 				? printHtml

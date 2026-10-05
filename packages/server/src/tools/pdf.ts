@@ -43,7 +43,7 @@ const ExportSchema = z.object({
 const DESCRIPTION = [
 	"When to use: export a document to PDF for sharing or print. One call renders every page in order. For a single-page raster (PNG), use maket_preview snapshot instead.",
 	"",
-	"Renders every page via headless Chromium at the canvas's true mm size, then writes to EXPORTS_DIR/<doc>.pdf. Charte CSS is inlined so fonts and tokens render identically to the live preview.",
+	"Renders every page via headless Chromium at the canvas's true mm size, then writes to EXPORTS_DIR/<doc>.pdf. Charte CSS is inlined so fonts and tokens render identically to the live preview. The result lists, by number and name, every page whose PDF rendering differs from its preview (element boxes, fonts, colours).",
 	"  quality — screen (96 DPI, smallest), print (150 DPI, default), hd (300 DPI).",
 	"  rows    — collection-bound pages: preview (default, follows the page cursor), current (cursor row only), all (one page per row), template (raw placeholders). Check the cursor first with maket_collection action=cursor.",
 ].join("\n");
@@ -61,7 +61,7 @@ export function createMaketPdfTool(deps: PdfDeps): ToolHandler {
 			const doc = documents.resolveOrLoad(args.doc);
 			if (!doc) return text(`Document "${args.doc}" not found`, true);
 			try {
-				const { buffer, pageCount } = await pdfService.render(
+				const { buffer, pageCount, mismatches } = await pdfService.render(
 					doc,
 					args.quality || "print",
 					args.rows || "preview",
@@ -71,8 +71,24 @@ export function createMaketPdfTool(deps: PdfDeps): ToolHandler {
 					`${safeFilename(doc.name)}.pdf`,
 				);
 				writeFileSync(outPath, buffer);
+				const summary = `PDF exported: ${outPath} (${Math.round(buffer.length / 1024)} KB, ${pageCount} page${pageCount > 1 ? "s" : ""})`;
+				if (mismatches.length === 0)
+					return text(`${summary}\nEvery page renders as its preview.`);
 				return text(
-					`PDF exported: ${outPath} (${Math.round(buffer.length / 1024)} KB, ${pageCount} page${pageCount > 1 ? "s" : ""})`,
+					[
+						summary,
+						`${mismatches.length} page${mismatches.length > 1 ? "s render" : " renders"} differently in the PDF than in the preview:`,
+						...mismatches.map(
+							(m) =>
+								`  page ${m.page} "${m.name}": ${m.differences} element${m.differences > 1 ? "s differ" : " differs"} (${m.detail})`,
+						),
+					].join("\n"),
+					{
+						next: mismatches.map(
+							(m) =>
+								`maket_preview action=snapshot doc=${doc.name} page=${m.page}`,
+						),
+					},
 				);
 			} catch (e) {
 				const message = e instanceof Error ? e.message : String(e);
