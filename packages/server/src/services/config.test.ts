@@ -5,6 +5,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createConfig, ensureDirs, loadEnvFile } from "./config.js";
 
 describe("createConfig", () => {
+	it("accepts a gateway browser base path and rejects unsafe paths", () => {
+		expect(
+			createConfig({ env: { MAKET_BASE_PATH: "/mobile/apps/maket" } })
+				.BASE_PATH,
+		).toBe("/mobile/apps/maket");
+		for (const value of [
+			"mobile/apps/maket",
+			"/mobile/../maket",
+			"/mobile/apps/maket/",
+			"/mobile//maket",
+			'/x" onload="x',
+		]) {
+			expect(() => createConfig({ env: { MAKET_BASE_PATH: value } })).toThrow(
+				"MAKET_BASE_PATH",
+			);
+		}
+	});
 	it("uses MAKET_DATA_DIR when set", () => {
 		const cfg = createConfig({
 			env: { MAKET_DATA_DIR: "/custom/dir" },

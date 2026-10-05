@@ -32,6 +32,7 @@ export interface Store
 		StructuredWorkspaceRepository,
 		AssetRepository,
 		AnnotationRepository {
+	transaction<T>(operation: () => T): T;
 	close(): void;
 }
 
@@ -52,6 +53,17 @@ export function createSQLiteStore(dbPath: string): Store {
 		...createStructuredWorkspaceRepository(db),
 		...createAssetRepository(db),
 		...createAnnotationRepository(db),
+		transaction(operation) {
+			db.exec("SAVEPOINT maket_store");
+			try {
+				const result = operation();
+				db.exec("RELEASE maket_store");
+				return result;
+			} catch (error) {
+				db.exec("ROLLBACK TO maket_store; RELEASE maket_store");
+				throw error;
+			}
+		},
 		close() {
 			db.close();
 		},

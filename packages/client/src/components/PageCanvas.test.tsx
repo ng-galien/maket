@@ -77,6 +77,33 @@ describe("PageCanvas toolbar interactions", () => {
 		openDocument.mockRestore();
 	});
 
+	it("opens a composed collection item inside its Workspace context", async () => {
+		const openDocument = vi
+			.spyOn(useStore.getState(), "openWorkspaceDocument")
+			.mockImplementation(() => {});
+		const doc = makeDoc(
+			'<article data-id="card" data-maket-action="open-document" data-maket-document="Ship the release" role="button" tabindex="0">Ship card</article>',
+		);
+		doc.meta = {
+			structuredWorkspace: {
+				role: "collection",
+				workspaceId: "delivery",
+				collectionId: "backlog",
+			},
+		};
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		await act(async () => {
+			fireEvent.click(screen.getByText("Ship card"));
+		});
+
+		expect(openDocument).toHaveBeenCalledWith("Ship the release", {
+			workspaceId: "delivery",
+			collectionId: "backlog",
+		});
+		openDocument.mockRestore();
+	});
+
 	it("selects an element and shows the toolbar", async () => {
 		render(
 			<PageCanvas

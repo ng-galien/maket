@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "./components/AppShell";
 import { DesktopOnboarding } from "./components/DesktopOnboarding";
+import { LinkedDocumentView } from "./components/LinkedDocumentView";
 import { ReadingWorkspace } from "./components/ReadingWorkspace";
 import { installDesktopCommands } from "./desktopCommands";
 import {
@@ -10,6 +11,7 @@ import {
 } from "./desktopConfiguration";
 import { initializeDesktopUpdates } from "./desktopUpdates";
 import { useT } from "./i18n/useT";
+import { linkedDocumentId as readLinkedDocumentId } from "./lib/browserBasePath";
 import {
 	applyAccentColor,
 	applyColorScheme,
@@ -23,6 +25,7 @@ import { initWs } from "./store/ws";
 // The application root is deliberately the composition boundary for the
 // workspace selectors and lifecycle effects it coordinates.
 export default function App() {
+	const linkedDocumentId = readLinkedDocumentId(window.location.pathname);
 	const desktop = window.maketDesktop !== undefined;
 	const configuration = useDesktopConfiguration();
 	const setupMode =
@@ -105,6 +108,7 @@ export default function App() {
 	}, [configurationFailed, configurationRequired, desktop, workspaceReady]);
 
 	useEffect(() => {
+		if (linkedDocumentId) return;
 		if (workspaceDocNames.length === 0) {
 			if (focusedDocName) setFocusedDoc(null);
 			return;
@@ -122,7 +126,13 @@ export default function App() {
 		setFocusedDoc(
 			loadedDocName ?? workspaceDocNames[workspaceDocNames.length - 1] ?? null,
 		);
-	}, [docs, focusedDocName, setFocusedDoc, workspaceDocNames]);
+	}, [
+		docs,
+		focusedDocName,
+		linkedDocumentId,
+		setFocusedDoc,
+		workspaceDocNames,
+	]);
 
 	return (
 		<div className="relative h-full w-full bg-[#111111]">
@@ -131,7 +141,11 @@ export default function App() {
 			) : configurationRequired && !settingsOpen ? (
 				<DesktopOnboarding />
 			) : !desktop || configurationRequired || workspaceReady ? (
-				workspaceView === "reading" && hasFocusedDoc && !settingsOpen ? (
+				linkedDocumentId ? (
+					<LinkedDocumentView
+						documentId={decodeURIComponent(linkedDocumentId)}
+					/>
+				) : workspaceView === "reading" && hasFocusedDoc && !settingsOpen ? (
 					<ReadingWorkspace />
 				) : (
 					<AppShell locked={locked} />

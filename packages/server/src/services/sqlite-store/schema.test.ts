@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -174,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(17);
+		const db = historicalDatabaseWithoutIds(18);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v17 is newer than supported v16/,
+			/schema v18 is newer than supported v17/,
 		);
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,7 +207,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(16);
+		expect(schemaVersion(db)).toBe(17);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -215,6 +215,75 @@ describe("SQLite schema migrations", () => {
 		expect(hasColumn(db, "pages", "provenance")).toBe(true);
 		expect(hasColumn(db, "pages", "json_forms")).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
+		db.close();
+	});
+
+	it("migrates legacy Workspace item ownership to an explicit role", () => {
+		const db = new DatabaseSync(":memory:");
+		db.exec("PRAGMA foreign_keys = ON;");
+		initializeSQLiteSchema(db);
+		db.prepare(`
+			INSERT INTO documents
+				(name, id, category, data_model, canvas, meta, active_page, next_id)
+			VALUES (?, ?, ?, ?, ?, ?, 0, 1)
+		`).run(
+			"item",
+			"item-id",
+			"Structured Workspaces/Delivery",
+			"state",
+			'{"format":"A4","orientation":"portrait","w":210,"h":297,"bg":"#fff"}',
+			'{"structuredWorkspace":{"workspaceId":"workspace-1","collectionId":"backlog","itemId":"item-1","bindingId":"task"}}',
+		);
+		db.prepare(`
+			INSERT INTO documents
+				(name, id, category, data_model, canvas, meta, active_page, next_id)
+			VALUES (?, ?, ?, ?, ?, '{}', 0, 1)
+		`).run(
+			"template",
+			"template-id",
+			"general",
+			"static",
+			'{"format":"A4","orientation":"portrait","w":210,"h":297,"bg":"#fff"}',
+		);
+		db.prepare(`
+			INSERT INTO structured_workspaces
+				(id, name, data_schema, representation_schema, revision)
+			VALUES (?, ?, '{}', ?, 1)
+		`).run(
+			"workspace-1",
+			"Delivery",
+			'{"version":1,"collections":{"backlog":{"name":"Backlog","collectionTemplateDocumentId":"template-id","bindings":{"task":{"schemaPath":"","detailTemplateDocumentId":"template-id"}}}}}',
+		);
+		db.exec("PRAGMA user_version = 16;");
+
+		initializeSQLiteSchema(db);
+
+		expect(
+			(
+				db
+					.prepare(
+						"SELECT json_extract(meta, '$.structuredWorkspace.role') AS role FROM documents WHERE id = 'item-id'",
+					)
+					.get() as { role: string }
+			).role,
+		).toBe("item");
+		expect(
+			JSON.parse(
+				(
+					db
+						.prepare("SELECT meta FROM documents WHERE id = 'template-id'")
+						.get() as { meta: string }
+				).meta,
+			).structuredWorkspace,
+		).toEqual({
+			role: "template",
+			workspaceId: "workspace-1",
+			templateRoles: [
+				{ role: "collection", collectionId: "backlog" },
+				{ role: "detail", collectionId: "backlog", bindingId: "task" },
+			],
+		});
+		expect(schemaVersion(db)).toBe(17);
 		db.close();
 	});
 });

@@ -36,6 +36,8 @@ export interface Config {
 	/** HTTP/WS bind address. Defaults to 127.0.0.1; set MAKET_BIND_HOST=0.0.0.0
 	 *  only if you intentionally want to expose Maket on the LAN. */
 	HOST: string;
+	/** Browser URL prefix when a gateway strips it before forwarding to Maket. */
+	BASE_PATH: string;
 	/** Application name shown in UI. */
 	APP_TITLE: string;
 	/** Application subtitle shown in UI (may be empty). */
@@ -85,6 +87,12 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const portRaw = env.MAKET_PORT;
 	const PORT = portRaw ? Number(portRaw) : DEFAULT_PORT;
 	const HOST = env.MAKET_BIND_HOST || "127.0.0.1";
+	const BASE_PATH = env.MAKET_BASE_PATH || "";
+	if (BASE_PATH && !/^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/.test(BASE_PATH)) {
+		throw new Error(
+			"MAKET_BASE_PATH must be a slash-prefixed path without a trailing slash",
+		);
+	}
 
 	const APP_TITLE = env.MAKET_TITLE || "Maket";
 	const APP_SUBTITLE = env.MAKET_SUBTITLE || "";
@@ -106,6 +114,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 		DB_PATH,
 		PORT,
 		HOST,
+		BASE_PATH,
 		APP_TITLE,
 		APP_SUBTITLE,
 		VERSION,

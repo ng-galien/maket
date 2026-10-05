@@ -1,7 +1,9 @@
 import type {
 	BundleAnnotationSnapshot,
 	BundleDocumentStateSnapshot,
+	BundleStructuredWorkspaceSnapshot,
 	Collection,
+	StructuredWorkspaceDefinition,
 } from "@maket/shared";
 import {
 	collectAssetFilenames,
@@ -19,6 +21,7 @@ import type { Config } from "./config.js";
 import type { DocumentRenderer } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 import type { Store } from "./store.js";
+import type { StructuredWorkspaces } from "./structured-workspaces.js";
 
 export interface BundleExportOptions {
 	names?: readonly string[];
@@ -40,6 +43,7 @@ export interface BundleExportSuccess {
 	collections: Collection[];
 	documentStates: BundleDocumentStateSnapshot[];
 	annotations: BundleAnnotationSnapshot[];
+	structuredWorkspaces: BundleStructuredWorkspaceSnapshot[];
 	assets: BundleAsset[];
 	missingAssets: string[];
 }
@@ -56,6 +60,7 @@ export interface BundleExportServiceDeps {
 	collections: Pick<Collections, "referencedBy">;
 	store: Store;
 	config: Config;
+	structuredWorkspaces?: Pick<StructuredWorkspaces, "list">;
 }
 
 export function createBundleExportService(
@@ -73,7 +78,10 @@ async function buildBundle(
 	options: BundleExportOptions = {},
 ): Promise<BundleExportResult> {
 	const names = options.names ?? [...deps.documents.all().keys()];
-	if (names.length === 0) {
+	if (
+		names.length === 0 &&
+		portableStructuredWorkspaces([], deps.structuredWorkspaces).length === 0
+	) {
 		return {
 			ok: false,
 			code: "no-documents",
@@ -96,8 +104,18 @@ async function buildBundle(
 		};
 	}
 
+	const structuredWorkspaces = portableStructuredWorkspaces(
+		documents,
+		deps.structuredWorkspaces,
+	);
+	const aggregateWorkspaceIds = new Set(
+		structuredWorkspaces.map(({ workspace }) => workspace.id),
+	);
 	const portableDocuments = documents.map((document) =>
-		portableDocument(deps.documentRenderer, document),
+		document.meta.structuredWorkspace?.role === "collection" &&
+		aggregateWorkspaceIds.has(document.meta.structuredWorkspace.workspaceId)
+			? document
+			: portableDocument(deps.documentRenderer, document),
 	);
 	const chartes = loadReferencedChartes(portableDocuments, deps.store);
 	const collections = deps.collections.referencedBy(portableDocuments);
@@ -121,6 +139,7 @@ async function buildBundle(
 		{
 			documentStates,
 			annotations,
+			structuredWorkspaces,
 		},
 	);
 	const baseName =
@@ -137,9 +156,76 @@ async function buildBundle(
 		collections,
 		documentStates,
 		annotations,
+		structuredWorkspaces,
 		assets,
 		missingAssets,
 	};
+}
+
+function portableStructuredWorkspaces(
+	documents: Document[],
+	service?: Pick<StructuredWorkspaces, "list">,
+): BundleStructuredWorkspaceSnapshot[] {
+	if (!service) return [];
+	const selectedIds = new Set(documents.map(({ id }) => id));
+	return service
+		.list()
+		.flatMap((workspace) =>
+			portableWorkspaceSnapshot(workspace, documents, selectedIds),
+		);
+}
+
+function portableWorkspaceSnapshot(
+	workspace: StructuredWorkspaceDefinition,
+	documents: Document[],
+	selectedIds: ReadonlySet<string>,
+): BundleStructuredWorkspaceSnapshot[] {
+	const templateIds = new Set<string>();
+	for (const collection of Object.values(
+		workspace.representationSchema.collections,
+	)) {
+		templateIds.add(collection.collectionTemplateDocumentId);
+		for (const binding of Object.values(collection.bindings)) {
+			templateIds.add(binding.detailTemplateDocumentId);
+			if (binding.compactTemplateDocumentId)
+				templateIds.add(binding.compactTemplateDocumentId);
+		}
+	}
+	const requiredIds = [
+		...templateIds,
+		...workspace.items.map(({ documentId }) => documentId),
+	];
+	if (!requiredIds.every((id) => selectedIds.has(id))) return [];
+	const collectionDocuments = collectionDocumentReferences(
+		workspace.id,
+		documents,
+	);
+	const requiredIdSet = new Set([
+		...requiredIds,
+		...collectionDocuments.map(({ documentId }) => documentId),
+	]);
+	const pageProvenance = documents
+		.filter(({ id }) => requiredIdSet.has(id))
+		.flatMap((document) =>
+			document.pages.flatMap((page) =>
+				page.provenance?.workspaceId === workspace.id
+					? [
+							{
+								documentId: document.id,
+								pageId: page.id,
+								provenance: page.provenance,
+							},
+						]
+					: [],
+			),
+		);
+	return [
+		{
+			workspace: structuredClone(workspace),
+			pageProvenance,
+			collectionDocuments,
+		},
+	];
 }
 
 function portableDocument(
@@ -226,5 +312,17 @@ function currentDocumentStateSnapshots(
 				data: current.data,
 			},
 		];
+	});
+}
+
+function collectionDocumentReferences(
+	workspaceId: string,
+	documents: Document[],
+): BundleStructuredWorkspaceSnapshot["collectionDocuments"] {
+	return documents.flatMap((document) => {
+		const owner = document.meta.structuredWorkspace;
+		return owner?.role === "collection" && owner.workspaceId === workspaceId
+			? [{ documentId: document.id, collectionId: owner.collectionId }]
+			: [];
 	});
 }

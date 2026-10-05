@@ -11,13 +11,26 @@ export interface AppRouterDeps {
 	config: Config;
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// This HTTP adapter combines the app shell, browser prefix, and static delivery.
 export function createAppRouter({ config }: AppRouterDeps): Router {
 	const router = createRouter();
 
-	router.get("/", (_req, res) => {
-		const html = readFileSync(join(config.PUBLIC_DIR, "index.html"), "utf-8")
+	router.get(["/", "/documents/:documentId/read"], (req, res) => {
+		let html = readFileSync(join(config.PUBLIC_DIR, "index.html"), "utf-8")
 			.replace(/{{TITLE}}/g, config.APP_TITLE)
 			.replace(/{{SUBTITLE}}/g, config.APP_SUBTITLE);
+		const basePath = config.BASE_PATH ?? "";
+		if (basePath) {
+			html = html.replace(/(\b(?:href|src)=["'])\/(?!\/)/g, `$1${basePath}/`);
+			html = html.replace(/<link\s+rel=["']manifest["'][^>]*>/i, "");
+		}
+		if (basePath || req.path !== "/") {
+			html = html.replace(
+				"<head>",
+				`<head><base href="${basePath}/" /><meta name="maket-base-path" content="${basePath}" />`,
+			);
+		}
 		res.setHeader("Cache-Control", "no-cache");
 		res.type("html").send(html);
 	});

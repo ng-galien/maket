@@ -10,7 +10,13 @@
  * can surface a clear message.
  */
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { BundleAsset } from "./maket-format.js";
 
@@ -23,6 +29,7 @@ export interface WriteAssetsResult {
 export function writeBundleAssets(
 	assets: BundleAsset[],
 	assetsDir: string,
+	opts: { onCreated?: (path: string) => void } = {},
 ): WriteAssetsResult {
 	if (assets.length === 0) {
 		return { written: 0, skipped: 0, rejected: [] };
@@ -47,8 +54,23 @@ export function writeBundleAssets(
 			skipped++;
 			continue;
 		}
-		writeFileSync(target, a.bytes);
-		written++;
+		let fd: number;
+		try {
+			fd = openSync(target, "wx");
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+				skipped++;
+				continue;
+			}
+			throw error;
+		}
+		try {
+			opts.onCreated?.(target);
+			writeFileSync(fd, a.bytes);
+			written++;
+		} finally {
+			closeSync(fd);
+		}
 	}
 	return { written, skipped, rejected };
 }

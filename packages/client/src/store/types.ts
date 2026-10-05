@@ -75,7 +75,6 @@ export interface DocSummary {
 	 * discreet "Draft ready / In draft" pill in the sidebar when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
-	structuredWorkspaceKind?: "template" | "collection" | "item";
 }
 
 import type { StructuredWorkspacePageProvenance } from "@maket/shared";

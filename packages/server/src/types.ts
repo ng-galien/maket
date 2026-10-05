@@ -82,13 +82,21 @@ export interface DocMeta {
 	emailDraftRole?: "body" | "attachment"; // How this doc was included in the last draft
 	structuredWorkspace?:
 		| {
+				role: "template";
+				workspaceId: string;
+				templateRoles: Array<{
+					role: "collection" | "compact" | "detail";
+					collectionId: string;
+					bindingId?: string;
+				}>;
+		  }
+		| {
 				role: "collection";
 				workspaceId: string;
 				collectionId: string;
 		  }
 		| {
-				/** Older persisted item documents have no explicit role. */
-				role?: "item";
+				role: "item";
 				workspaceId: string;
 				collectionId: string;
 				itemId: string;
@@ -205,7 +213,6 @@ export interface DocSummary {
 	 * sidebar + workspace label when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
-	structuredWorkspaceKind?: "template" | "collection" | "item";
 }
 
 // ---- Charte graphique ----

@@ -74,12 +74,12 @@ export function createAssetRepository(db: DatabaseSync): AssetRepository {
 			saveAsset(a);
 		},
 		saveAssets(assets) {
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				for (const asset of assets) saveAsset(asset);
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 			} catch (error) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw error;
 			}
 		},

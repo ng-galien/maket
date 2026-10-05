@@ -1,4 +1,4 @@
-import type { Collection } from "@maket/shared";
+import type { Collection, StructuredWorkspaceView } from "@maket/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSummary, Document } from "./types";
 
@@ -96,6 +96,50 @@ function bindCollection(doc: Document, collection: string): Document {
 	if (!page) throw new Error("fixture document has no active page");
 	page.collection = { name: collection };
 	return doc;
+}
+
+function workspaceView(
+	integrity: StructuredWorkspaceView["integrity"] = {
+		status: "ready",
+		issues: [],
+	},
+): StructuredWorkspaceView {
+	return {
+		id: "workspace-1",
+		name: "Delivery",
+		dataSchema: {},
+		representationSchema: { version: 1, collections: {} },
+		revision: 1,
+		items: [
+			{
+				id: "item-1",
+				position: 0,
+				collectionId: "backlog",
+				bindingId: "task",
+				documentId: "owned-item-id",
+				documentName: "Owned item",
+				data: {},
+				dataRevision: 1,
+			},
+		],
+		collectionDocuments: [
+			{
+				collectionId: "backlog",
+				documentId: "owned-collection-id",
+				documentName: "Owned collection",
+			},
+		],
+		templateDocuments: [
+			{
+				documentId: "owned-template-id",
+				documentName: "Owned template",
+				roles: [{ role: "detail", collectionId: "backlog" }],
+			},
+		],
+		integrity,
+		createdAt: "2026-09-21",
+		updatedAt: "2026-09-21",
+	};
 }
 
 function summary(name: string, category = "flyer"): DocSummary {
@@ -539,6 +583,75 @@ describe("workspace / focus", () => {
 			dataDockMode: "split",
 		});
 		expect(consumePendingFit()).toEqual({ target: { docName: "beta" } });
+	});
+
+	it("keeps the shared state dock open when focus moves to a Workspace template", () => {
+		const template = makeDoc("template");
+		template.meta = {
+			structuredWorkspace: {
+				role: "template",
+				workspaceId: "workspace-1",
+				templateRoles: [{ role: "collection", collectionId: "backlog" }],
+			},
+		};
+		useStore.setState({
+			docs: new Map([
+				["alpha", makeDoc("alpha")],
+				[template.name, template],
+			]),
+			workspaceDocNames: ["alpha", template.name],
+			focusedDocName: "alpha",
+			stateDockOpen: true,
+		});
+
+		useStore.getState().setFocusedDoc(template.name);
+
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: template.name,
+			stateDockOpen: true,
+			focusedCollectionName: null,
+		});
+	});
+
+	it("isolates free Documents from one active Workspace context", () => {
+		useStore.setState({
+			structuredWorkspaces: [workspaceView()],
+			docs: new Map([["Free", makeDoc("Free")]]),
+			workspaceDocNames: ["Free"],
+			focusedDocName: "Free",
+		});
+
+		useStore.getState().openWorkspaceDocument("Owned item", {
+			workspaceId: "workspace-1",
+			collectionId: "backlog",
+		});
+
+		expect(useStore.getState().workspaceDocNames).toEqual([]);
+	});
+
+	it("closes projections immediately when a ready Workspace becomes incomplete", () => {
+		useStore.setState({
+			structuredWorkspaces: [workspaceView()],
+			activeStructuredWorkspaceId: "workspace-1",
+			activeStructuredCollectionId: "backlog",
+			docs: new Map([
+				["Owned template", makeDoc("Owned template")],
+				["Owned collection", makeDoc("Owned collection")],
+				["Owned item", makeDoc("Owned item")],
+			]),
+			workspaceDocNames: ["Owned template", "Owned collection", "Owned item"],
+			focusedDocName: "Owned item",
+		});
+
+		useStore
+			.getState()
+			.setStructuredWorkspaces([
+				workspaceView({ status: "incomplete", issues: ["Missing template"] }),
+			]);
+
+		expect(useStore.getState().workspaceDocNames).toEqual(["Owned template"]);
+		expect(useStore.getState().docs.has("Owned collection")).toBe(false);
+		expect(useStore.getState().docs.has("Owned item")).toBe(false);
 	});
 
 	it("setFocusedDoc is a no-op when unchanged", () => {

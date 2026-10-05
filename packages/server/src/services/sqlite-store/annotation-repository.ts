@@ -84,17 +84,17 @@ export function createAnnotationRepository(
 		},
 		deleteAnnotations(ids) {
 			const matched: string[] = [];
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				for (const id of ids) {
 					if (!selectById.get(id)) continue;
 					deleteById.run(id);
 					matched.push(id);
 				}
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 				return matched;
 			} catch (error) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw error;
 			}
 		},

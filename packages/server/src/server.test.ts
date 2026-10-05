@@ -122,6 +122,58 @@ describe("embedded Maket server", () => {
 		await expect(fetch(server.url)).rejects.toThrow();
 	});
 
+	it("serves the shell, static assets and API both at the root and under its base path", async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), "maket-embedded-base-path-"));
+		directories.push(dataDir);
+		const config = createConfig({
+			packageDir: resolve(import.meta.dirname, "../../.."),
+			packaged: true,
+			env: {
+				MAKET_DATA_DIR: dataDir,
+				MAKET_PORT: "0",
+				MAKET_BIND_HOST: "127.0.0.1",
+				MAKET_BASE_PATH: "/mobile/apps/maket",
+			},
+		});
+		config.PUBLIC_DIR = join(dataDir, "public");
+		mkdirSync(join(config.PUBLIC_DIR, "assets"), { recursive: true });
+		writeFileSync(
+			join(config.PUBLIC_DIR, "index.html"),
+			'<!doctype html><html><head><script src="./assets/app.js"></script></head><body>{{TITLE}}</body></html>',
+		);
+		writeFileSync(join(config.PUBLIC_DIR, "assets", "app.js"), "// app");
+		const server = await startMaketServer({
+			config,
+			bootstrap: { store: createSQLiteStore(":memory:"), browserPool },
+			loadEnvironment: false,
+			log: () => {},
+		});
+
+		try {
+			for (const prefix of ["", "/mobile/apps/maket"]) {
+				for (const path of [
+					"/",
+					"/documents/doc-123/read",
+					"/assets/app.js",
+					"/api/assets",
+				]) {
+					const response = await fetch(`${server.url}${prefix}${path}`);
+					expect(response.status, `${prefix}${path}`).toBe(200);
+				}
+			}
+			const shell = await fetch(`${server.url}/mobile/apps/maket`);
+			expect(await shell.text()).toContain(
+				'<base href="/mobile/apps/maket/" />',
+			);
+			const sibling = await fetch(
+				`${server.url}/mobile/apps/maketx/assets/app.js`,
+			);
+			expect(sibling.status).toBe(404);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("closes active HTTP connections instead of keeping Electron alive", async () => {
 		const dataDir = mkdtempSync(join(tmpdir(), "maket-embedded-server-"));
 		directories.push(dataDir);

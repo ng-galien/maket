@@ -23,6 +23,7 @@ import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import type { SettingsService } from "./settings.js";
 import { createSQLiteStore } from "./store.js";
+import { createStructuredWorkspaces } from "./structured-workspaces.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
@@ -72,6 +73,12 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const documentRenderer = opts.documentRenderer ?? rendererStub();
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
+	const structuredWorkspaces = createStructuredWorkspaces({
+		bus,
+		documents,
+		documentStates,
+		store,
+	});
 	const handler = createWsHandler({
 		assets,
 		bus,
@@ -82,6 +89,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		pending,
 		settings: settingsStub(),
 		store,
+		structuredWorkspaces,
 		wsRegistry,
 	});
 	return {
@@ -92,6 +100,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documentStateMutations,
 		pending,
 		documentRenderer,
+		structuredWorkspaces,
 		handler,
 		wsRegistry,
 		assetsDir,
@@ -103,6 +112,81 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 }
 
 const STUB_WS: any = { readyState: 1, send() {} };
+
+describe("ws-handler — viewer and optional form boundaries", () => {
+	it("refuses viewer mutation commands while allowing document loading", () => {
+		const f = fixture();
+		const ws = { readyState: 1, send: vi.fn() } as any;
+		try {
+			const document = makeDoc("Viewer document");
+			f.documents.all().set(document.name, document);
+			f.documents.persist(document.name);
+			f.wsRegistry.add(ws, { viewer: true });
+			f.handler(
+				{ type: "rename_document", name: document.name, newName: "Mutated" },
+				ws,
+			);
+			f.handler({ type: "delete_document", name: document.name }, ws);
+			f.handler({ type: "settings_set", settings: { language: "fr" } }, ws);
+			expect(f.store.loadOne(document.name)).not.toBeNull();
+			expect(f.store.loadOne("Mutated")).toBeNull();
+			f.handler({ type: "load_document", name: document.name }, ws);
+			expect(ws.send).toHaveBeenCalledWith(
+				expect.stringContaining('"type":"state"'),
+			);
+		} finally {
+			f.dispose();
+		}
+	});
+	it("adds an absent optional field through the bound live form endpoint", () => {
+		const f = fixture();
+		const ws = { send: vi.fn() } as any;
+		try {
+			const document = makeDoc("Optional form");
+			const formPage = document.pages[0];
+			if (!formPage) throw new Error("Expected form page");
+			formPage.jsonForms = {};
+			f.documents.all().set(document.name, document);
+			f.documents.persist(document.name);
+			f.documentStates.initialize(
+				document.name,
+				{ type: "object", properties: { title: { type: "string" } } },
+				{},
+			);
+			f.handler(
+				{
+					type: "state_patch",
+					requestId: "optional",
+					docName: document.name,
+					expectedRevision: 1,
+					operation: { op: "add", path: "/title", value: "New title" },
+				},
+				ws,
+			);
+			expect(f.documentStates.get(document.name)?.current.data).toEqual({
+				title: "New title",
+			});
+			expect(ws.send).toHaveBeenCalledWith(
+				expect.stringContaining('"ok":true'),
+			);
+			f.handler(
+				{
+					type: "state_patch",
+					requestId: "overwrite",
+					docName: document.name,
+					expectedRevision: 2,
+					operation: { op: "add", path: "/title", value: "Overwrite" },
+				},
+				ws,
+			);
+			expect(f.documentStates.get(document.name)?.current.data).toEqual({
+				title: "New title",
+			});
+		} finally {
+			f.dispose();
+		}
+	});
+});
 
 describe("ws-handler — annotation persistence acknowledgement", () => {
 	it("correlates successful writes and reports rejected writes to the browser", () => {
@@ -242,6 +326,9 @@ describe("ws-handler — living document state", () => {
 			},
 			{ kind: "task", title: "Ship" },
 		);
+		const collectionRevision = documentStates.get(collection.name)?.current
+			.revision;
+		const itemRevision = documentStates.get(item.name)?.current.revision;
 		const ws = { readyState: 1, send: vi.fn() } as any;
 
 		handler(
@@ -265,9 +352,11 @@ describe("ws-handler — living document state", () => {
 			ws,
 		);
 
-		expect(documentStates.get(collection.name)?.current.revision).toBe(1);
+		expect(documentStates.get(collection.name)?.current.revision).toBe(
+			collectionRevision,
+		);
 		expect(documentStates.get(item.name)?.current).toMatchObject({
-			revision: 1,
+			revision: itemRevision,
 			data: { kind: "task", title: "Ship" },
 		});
 		expect(
@@ -543,6 +632,7 @@ describe("ws-handler — lock guards", () => {
 		const { store, bus, documents, handler, dispose } = fixture();
 		const instance = makeDoc("instance");
 		instance.meta.structuredWorkspace = {
+			role: "item",
 			workspaceId: "workspace-1",
 			collectionId: "backlog",
 			itemId: "item-1",
@@ -646,6 +736,77 @@ describe("ws-handler — lock guards", () => {
 });
 
 describe("ws-handler — document and canvas flows", () => {
+	it("routes Workspace rename and delete commands through the aggregate", () => {
+		const { store, structuredWorkspaces, handler, dispose } = fixture();
+		const workspace = structuredWorkspaces.create({
+			name: "Draft",
+			dataSchema: {},
+			representationSchema: { version: 1, collections: {} },
+		});
+
+		handler(
+			{
+				type: "rename_structured_workspace",
+				workspaceId: workspace.id,
+				newName: "Planning",
+				expectedRevision: 1,
+			},
+			STUB_WS,
+		);
+		expect(store.loadStructuredWorkspace(workspace.id)).toMatchObject({
+			name: "Planning",
+			revision: 2,
+		});
+
+		handler(
+			{ type: "delete_structured_workspace", workspaceId: workspace.id },
+			STUB_WS,
+		);
+		expect(store.loadStructuredWorkspace(workspace.id)).toBeNull();
+		dispose();
+	});
+
+	it("requires Workspace context to open an owned template", () => {
+		const { documents, structuredWorkspaces, handler, dispose } = fixture();
+		const template = makeDoc("Owned template");
+		documents.all().set(template.name, template);
+		documents.persist(template.name);
+		const workspace = structuredWorkspaces.create({
+			name: "Incomplete",
+			dataSchema: {},
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: "missing",
+						bindings: {
+							item: {
+								schemaPath: "",
+								detailTemplateDocumentId: template.name,
+							},
+						},
+					},
+				},
+			},
+		});
+		const blocked = { readyState: 1, send: vi.fn() } as any;
+		handler({ type: "load_document", name: template.name }, blocked);
+		expect(blocked.send).not.toHaveBeenCalled();
+
+		const allowed = { readyState: 1, send: vi.fn() } as any;
+		handler(
+			{
+				type: "load_document",
+				name: template.name,
+				structuredWorkspace: { workspaceId: workspace.id },
+			},
+			allowed,
+		);
+		expect(allowed.send).toHaveBeenCalledOnce();
+		dispose();
+	});
+
 	it("load_document sends a focused state and lazy-loads from the store", () => {
 		const { store, handler, dispose } = fixture();
 		store.saveDoc(makeDoc("lazy"));
@@ -699,7 +860,7 @@ describe("ws-handler — document and canvas flows", () => {
 		dispose();
 	});
 
-	it("load_document forwards Structured Workspace collection context to composition", () => {
+	it("load_document ignores a forged Workspace context for a free document", () => {
 		const render = vi.fn((doc: Document) => doc);
 		const { store, handler, dispose } = fixture({
 			documentRenderer: rendererStub(render),
@@ -721,12 +882,7 @@ describe("ws-handler — document and canvas flows", () => {
 
 		expect(render).toHaveBeenCalledWith(
 			expect.objectContaining({ name: "Delivery backlog" }),
-			{
-				structuredWorkspace: {
-					workspaceId: "delivery",
-					collectionId: "backlog",
-				},
-			},
+			{ structuredWorkspace: undefined },
 		);
 		dispose();
 	});
@@ -1448,6 +1604,7 @@ describe("ws-handler — collection cursor", () => {
 			pending: base.pending,
 			settings: settingsStub(),
 			store: base.store,
+			structuredWorkspaces: base.structuredWorkspaces,
 			wsRegistry: base.wsRegistry,
 		});
 		collections.save({

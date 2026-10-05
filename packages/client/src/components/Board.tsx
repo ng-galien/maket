@@ -392,7 +392,7 @@ function createFitToDoc(
 		if (!board) return;
 		const docEl = findBoardDocElement(board, docName, pageIndex);
 		if (!docEl) return;
-		const frame = boardDocFrame(docEl);
+		const frame = boardDocFrame(docEl, board);
 		const scale = Math.min(
 			(wrap.clientWidth * 0.85) / frame.width,
 			(wrap.clientHeight * 0.85) / frame.height,

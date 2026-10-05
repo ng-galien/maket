@@ -191,11 +191,11 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 							left: m.left * PX_PER_MM,
 						}
 					: null;
-				return (await page.evaluate(
-					measureInBrowser,
-					PAGE_BLOCK_SELECTOR,
-					marginsPx,
-				)) as LayoutReport | null;
+				// esbuild annotates nested functions with __name in watch output.
+				// Evaluate one self-contained expression so the serialized function has
+				// the same helper in Chromium and focused test doubles still observe one call.
+				const expression = `(() => { globalThis.__name ??= (target) => target; return (${measureInBrowser.toString()})(${JSON.stringify(PAGE_BLOCK_SELECTOR)}, ${JSON.stringify(marginsPx)}); })()`;
+				return (await page.evaluate(expression)) as LayoutReport | null;
 			})(),
 			timeout,
 		]);
@@ -829,7 +829,9 @@ function measureInBrowser(
 		const bottom = Math.round(rect.bottom - canvasRect.top);
 		const right = Math.round(rect.right - canvasRect.left);
 		const style = getComputedStyle(el);
-		const visuallyHidden = isVisuallyHidden(rect, style);
+		const visuallyHidden =
+			isVisuallyHidden(rect, style) ||
+			(el.tagName === "OPTION" && rect.width === 0 && rect.height === 0);
 		const interactive =
 			interactiveTags.has(el.tagName.toLowerCase()) ||
 			interactiveAttributes.some((name) => el.hasAttribute(name));

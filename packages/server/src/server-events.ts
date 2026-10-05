@@ -35,7 +35,6 @@ function broadcastDoc(
 		collectionCursors,
 		documents,
 		documentRenderer,
-		structuredWorkspaces,
 		wsRegistry,
 		pending,
 	} = deps;
@@ -47,7 +46,6 @@ function broadcastDoc(
 		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
-		structuredWorkspaces: structuredWorkspaces.listViews(),
 		collectionCursors: collectionCursors.snapshot(),
 		annotations: pending.all(),
 		charteCss: documents.charteCss(doc),

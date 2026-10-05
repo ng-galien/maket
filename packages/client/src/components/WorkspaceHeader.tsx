@@ -1,6 +1,7 @@
 import { BookOpen, Lock, Maximize, Unlock } from "lucide-react";
 import { openReadingView } from "../desktopCommands";
 import { useT } from "../i18n/useT";
+import { browserPath } from "../lib/browserBasePath";
 import { displayWorkspaceCategorySegment } from "../lib/workspaceCategoryDisplay";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
@@ -216,7 +217,7 @@ function MaketBrandButton({
 			className="shrink-0 rounded-sm opacity-90 transition-opacity duration-100 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
 		>
 			<img
-				src="/favicon.svg?v=4"
+				src={browserPath("/favicon.svg?v=4")}
 				alt=""
 				aria-hidden="true"
 				data-maket-brand-mark

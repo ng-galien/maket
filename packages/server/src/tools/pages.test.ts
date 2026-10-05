@@ -184,6 +184,7 @@ describe("maket_page — action=add", () => {
 		const { store, bus, documents } = fixture();
 		const doc = makeDoc("instance");
 		doc.meta.structuredWorkspace = {
+			role: "item",
 			workspaceId: "workspace-1",
 			collectionId: "backlog",
 			itemId: "item-1",

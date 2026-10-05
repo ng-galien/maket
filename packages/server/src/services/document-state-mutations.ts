@@ -30,7 +30,7 @@ export interface DocumentStateMutations {
 	patchTerminal(
 		docName: string,
 		expectedRevision: number,
-		operation: Extract<JsonPatchOperation, { op: "replace" }>,
+		operation: Extract<JsonPatchOperation, { op: "replace" | "add" }>,
 	): DocumentStateRevision;
 	changeSchema(
 		docName: string,
@@ -124,6 +124,12 @@ function assertDataMutationAllowed(
 	const owner = document?.meta.structuredWorkspace;
 	if (!document || !owner) return;
 	if (owner.role === "collection") throwDerivedCollection(document.name);
+	if (owner.role === "template") {
+		throw new MessageError(
+			`The state of template "${document.name}" belongs to its Workspace.`,
+			"msg_state_invalid",
+		);
+	}
 	const workspace = deps.store
 		.loadAllStructuredWorkspaces()
 		.find((candidate) => candidate.id === owner.workspaceId);

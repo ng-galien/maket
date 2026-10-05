@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import { browserPath } from "../lib/browserBasePath";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { copyToClipboard } from "../utils";
@@ -117,7 +118,7 @@ function useChartesTabModel() {
 	const chartesVersion = useStore((s) => s.chartesVersion);
 
 	useEffect(() => {
-		fetch("/api/chartes")
+		fetch(browserPath("/api/chartes"))
 			.then((r) => r.json())
 			.then((data) => {
 				setChartes(data);

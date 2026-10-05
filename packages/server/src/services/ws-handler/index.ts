@@ -44,6 +44,10 @@ import {
 } from "./document-commands.js";
 import { handleStatePatch } from "./state-commands.js";
 import {
+	handleDeleteStructuredWorkspace,
+	handleRenameStructuredWorkspace,
+} from "./structured-workspace-commands.js";
+import {
 	handleOpenOnboarding,
 	handleTextEdit,
 	handleWorkspaceUpdate,
@@ -62,6 +66,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		pending,
 		settings,
 		store,
+		structuredWorkspaces,
 		wsRegistry,
 	} = deps;
 	const collections =
@@ -81,6 +86,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		pending,
 		settings,
 		store,
+		structuredWorkspaces,
 		wsRegistry,
 		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
 		broadcastState: (d) => {
@@ -97,6 +103,7 @@ function dispatchWorkspaceCommand(
 	msg: WorkspaceCommand,
 	ws: WebSocket,
 ): void {
+	if (ctx.wsRegistry.isViewer(ws) && msg.type !== "load_document") return;
 	switch (msg.type) {
 		case "load_document":
 			handleLoadDocument(ctx, msg, ws);
@@ -151,6 +158,12 @@ function dispatchWorkspaceCommand(
 			break;
 		case "rename_document":
 			handleRenameDocument(ctx, msg);
+			break;
+		case "rename_structured_workspace":
+			handleRenameStructuredWorkspace(ctx, msg);
+			break;
+		case "delete_structured_workspace":
+			handleDeleteStructuredWorkspace(ctx, msg);
 			break;
 		case "duplicate_document":
 			handleDuplicateDocument(ctx, msg);

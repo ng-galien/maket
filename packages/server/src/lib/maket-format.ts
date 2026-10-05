@@ -21,6 +21,7 @@ import { gunzipSync, gzipSync } from "node:zlib";
 import {
 	type BundleAnnotationSnapshot,
 	type BundleDocumentStateSnapshot,
+	type BundleStructuredWorkspaceSnapshot,
 	buildBundleManifest,
 	type Collection,
 	isGzipMagic,
@@ -65,6 +66,7 @@ export interface DecodedBundle {
 	collections: Collection[];
 	documentStates: BundleDocumentStateSnapshot[];
 	annotations: BundleAnnotationSnapshot[];
+	structuredWorkspaces: BundleStructuredWorkspaceSnapshot[];
 	/** Empty for v1 bundles (they don't carry assets). */
 	assets: BundleAsset[];
 }
@@ -74,6 +76,7 @@ export interface EncodeBundleOptions {
 	entryDate?: Date;
 	documentStates?: BundleDocumentStateSnapshot[];
 	annotations?: BundleAnnotationSnapshot[];
+	structuredWorkspaces?: BundleStructuredWorkspaceSnapshot[];
 }
 
 // ── v1 (legacy gzip-JSON) ────────────────────────────────────────────────────
@@ -83,15 +86,17 @@ function buildManifest(
 	chartes: Charte[],
 	collections: Collection[],
 	version: number,
-	exportedAt = new Date().toISOString(),
-	documentStates: BundleDocumentStateSnapshot[] = [],
-	annotations: BundleAnnotationSnapshot[] = [],
+	portable: Pick<
+		EncodeBundleOptions,
+		"exportedAt" | "documentStates" | "annotations" | "structuredWorkspaces"
+	> = {},
 ) {
 	return buildBundleManifest(documents, chartes, collections, {
 		version,
-		exportedAt,
-		documentStates,
-		annotations,
+		exportedAt: portable.exportedAt ?? new Date().toISOString(),
+		documentStates: portable.documentStates,
+		annotations: portable.annotations,
+		structuredWorkspaces: portable.structuredWorkspaces,
 	}) as { documents: unknown[] };
 }
 
@@ -141,15 +146,7 @@ export async function encodeBundleV2(
 	zip.file(
 		"manifest.json",
 		`${JSON.stringify(
-			buildManifest(
-				documents,
-				chartes,
-				collections,
-				2,
-				options.exportedAt,
-				options.documentStates,
-				options.annotations,
-			),
+			buildManifest(documents, chartes, collections, 2, options),
 			null,
 			2,
 		)}\n`,
@@ -217,6 +214,7 @@ function finalizeManifest(
 		collections: data.collections as Collection[],
 		documentStates: data.documentStates,
 		annotations: data.annotations,
+		structuredWorkspaces: data.structuredWorkspaces,
 		assets,
 	};
 }

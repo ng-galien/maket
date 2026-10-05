@@ -98,6 +98,20 @@ describe("ChartesTab actions", () => {
 		expect(screen.getByRole("heading", { name: "Couleurs" })).toBeVisible();
 		expect(screen.getByRole("heading", { name: "Espacements" })).toBeVisible();
 	});
+
+	it("loads brand guides under the gateway base path", async () => {
+		document.head.insertAdjacentHTML(
+			"beforeend",
+			'<meta name="maket-base-path" content="/mobile/apps/maket" />',
+		);
+		try {
+			render(<ChartesTab />);
+			await screen.findByText("atelier-intention");
+			expect(fetch).toHaveBeenCalledWith("/mobile/apps/maket/api/chartes");
+		} finally {
+			document.querySelector('meta[name="maket-base-path"]')?.remove();
+		}
+	});
 });
 
 function makeDoc(name: string): Document {

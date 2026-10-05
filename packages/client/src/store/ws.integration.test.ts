@@ -130,6 +130,28 @@ afterEach(() => {
 });
 
 describe("initWs + onopen", () => {
+	it("opens the prefixed viewer socket without changing workspace focus", async () => {
+		document.head.insertAdjacentHTML(
+			"beforeend",
+			'<meta name="maket-base-path" content="/mobile/apps/maket" />',
+		);
+		vi.stubGlobal("location", {
+			protocol: "https:",
+			host: "trust.tailnet.example",
+			pathname: "/mobile/apps/maket/documents/doc-1/read",
+		});
+		try {
+			const { initWs } = await freshWsModule();
+			initWs();
+			expect(MockWebSocket.last().url).toBe(
+				"wss://trust.tailnet.example/mobile/apps/maket/ws?viewer=1",
+			);
+			MockWebSocket.last().open();
+			expect(MockWebSocket.last().sentPayloads()).toEqual([]);
+		} finally {
+			document.querySelector('meta[name="maket-base-path"]')?.remove();
+		}
+	});
 	it("uses a secure socket when the application is served over HTTPS", async () => {
 		vi.stubGlobal("location", {
 			protocol: "https:",

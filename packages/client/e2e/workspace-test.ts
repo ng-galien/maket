@@ -31,6 +31,7 @@ export type LibraryView =
 	| "chartes"
 	| "photos"
 	| "collections"
+	| "structured-workspaces"
 	| "exchange";
 
 export async function openLibraryView(

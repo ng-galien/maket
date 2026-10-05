@@ -36,9 +36,9 @@ export interface Documents {
 	moveCategory(
 		source: string,
 		destination: string,
-	): { moved: Document[]; lockedDocName?: string };
+	): { moved: Document[]; lockedDocName?: string; ownedDocName?: string };
 	/** Summaries of every cached document. */
-	list(): DocSummary[];
+	list(options?: { includeWorkspaceDocuments?: boolean }): DocSummary[];
 	/** Raw access to the backing map. */
 	all(): Map<string, Document>;
 	/**
@@ -85,12 +85,14 @@ function moveDocumentCategory(
 	store: Store,
 	source: string,
 	destination: string,
-): { moved: Document[]; lockedDocName?: string } {
+): { moved: Document[]; lockedDocName?: string; ownedDocName?: string } {
 	const affected = [...cache.values()].filter(
 		(doc) => doc.category === source || doc.category.startsWith(`${source}/`),
 	);
 	const locked = affected.find((doc) => doc.meta?.locked === true);
 	if (locked) return { moved: [], lockedDocName: locked.name };
+	const owned = affected.find((doc) => doc.meta.structuredWorkspace);
+	if (owned) return { moved: [], ownedDocName: owned.name };
 	const previousCategories = affected.map((doc) => doc.category);
 	for (const doc of affected) {
 		const suffix = doc.category.slice(source.length);
@@ -117,7 +119,7 @@ function deleteDocument(
 	if (
 		document &&
 		!allowStructuredWorkspace &&
-		isStructuredWorkspaceOwned(document, store)
+		isStructuredWorkspaceOwned(document)
 	) {
 		return false;
 	}
@@ -129,9 +131,9 @@ function deleteDocument(
 function listDocumentSummaries(
 	cache: Map<string, Document>,
 	store: Store,
+	includeWorkspaceDocuments = false,
 ): DocSummary[] {
 	const timestamps = store.listTimestamps();
-	const structuredWorkspaces = store.loadAllStructuredWorkspaces();
 	const charteCache = new Map<string, string | undefined>();
 	const resolveCharteColor = (name: string | undefined) => {
 		if (!name) return undefined;
@@ -150,31 +152,32 @@ function listDocumentSummaries(
 			return undefined;
 		}
 	};
-	return [...cache.values()].map((document) => ({
-		id: document.id,
-		name: document.name,
-		category: document.category || "general",
-		dataModel: document.dataModel,
-		format: document.canvas?.format,
-		orientation: document.canvas?.orientation || "portrait",
-		rating: document.meta?.rating || 0,
-		count: document.pages.reduce(
-			(total, page) =>
-				total + (page.html?.match(/data-id="[^"]+"/g)?.length ?? 0),
-			0,
-		),
-		charte: document.meta?.charte,
-		collectionBindings: collectionBindings(document.pages),
-		locked: document.meta?.locked === true,
-		updatedAt: timestamps.get(document.name),
-		charteColor: resolveCharteColor(document.meta?.charte),
-		emailDraftUrl: document.meta?.emailDraftUrl,
-		emailDraftRole: document.meta?.emailDraftRole,
-		structuredWorkspaceKind: structuredWorkspaceDocumentKind(
-			document,
-			structuredWorkspaces,
-		),
-	}));
+	return [...cache.values()]
+		.filter(
+			(document) =>
+				includeWorkspaceDocuments || !isStructuredWorkspaceOwned(document),
+		)
+		.map((document) => ({
+			id: document.id,
+			name: document.name,
+			category: document.category || "general",
+			dataModel: document.dataModel,
+			format: document.canvas?.format,
+			orientation: document.canvas?.orientation || "portrait",
+			rating: document.meta?.rating || 0,
+			count: document.pages.reduce(
+				(total, page) =>
+					total + (page.html?.match(/data-id="[^"]+"/g)?.length ?? 0),
+				0,
+			),
+			charte: document.meta?.charte,
+			collectionBindings: collectionBindings(document.pages),
+			locked: document.meta?.locked === true,
+			updatedAt: timestamps.get(document.name),
+			charteColor: resolveCharteColor(document.meta?.charte),
+			emailDraftUrl: document.meta?.emailDraftUrl,
+			emailDraftRole: document.meta?.emailDraftRole,
+		}));
 }
 
 export function createDocuments({ store }: DocumentsDeps): Documents {
@@ -238,8 +241,12 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 		moveCategory(source, destination) {
 			return moveDocumentCategory(cache, store, source, destination);
 		},
-		list() {
-			return listDocumentSummaries(cache, store);
+		list(options) {
+			return listDocumentSummaries(
+				cache,
+				store,
+				options?.includeWorkspaceDocuments,
+			);
 		},
 		all() {
 			return cache;
@@ -279,36 +286,8 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 	};
 }
 
-function isStructuredWorkspaceOwned(document: Document, store: Store): boolean {
-	return Boolean(
-		structuredWorkspaceDocumentKind(
-			document,
-			store.loadAllStructuredWorkspaces(),
-		),
-	);
-}
-
-function structuredWorkspaceDocumentKind(
-	document: Document,
-	workspaces: ReturnType<Store["loadAllStructuredWorkspaces"]>,
-): DocSummary["structuredWorkspaceKind"] {
-	if (document.meta.structuredWorkspace?.role === "collection") {
-		return "collection";
-	}
-	if (document.meta.structuredWorkspace) return "item";
-	const template = workspaces.some((workspace) => {
-		const representation = workspace.representationSchema;
-		return Object.values(representation.collections).some(
-			(collection) =>
-				collection.collectionTemplateDocumentId === document.id ||
-				Object.values(collection.bindings).some(
-					(binding) =>
-						binding.compactTemplateDocumentId === document.id ||
-						binding.detailTemplateDocumentId === document.id,
-				),
-		);
-	});
-	return template ? "template" : undefined;
+function isStructuredWorkspaceOwned(document: Document): boolean {
+	return Boolean(document.meta.structuredWorkspace);
 }
 
 function restoreCachedDocument(

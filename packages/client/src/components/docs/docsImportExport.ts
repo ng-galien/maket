@@ -1,10 +1,12 @@
+import { browserPath } from "../../lib/browserBasePath";
+
 export function exportMaketBundle(names: string[]): void {
 	const qs =
 		names.length === 1
 			? `name=${encodeURIComponent(names[0] ?? "")}`
 			: `names=${encodeURIComponent(names.join(","))}`;
 	const a = document.createElement("a");
-	a.href = `/api/export-maket?${qs}`;
+	a.href = browserPath(`/api/export-maket?${qs}`);
 	a.rel = "noopener";
 	document.body.appendChild(a);
 	a.click();
@@ -17,7 +19,7 @@ export async function importMaketBundle(file: File): Promise<{
 	count: number;
 }> {
 	try {
-		const res = await fetch("/api/import-maket", {
+		const res = await fetch(browserPath("/api/import-maket"), {
 			method: "POST",
 			headers: { "Content-Type": "application/gzip" },
 			body: file,

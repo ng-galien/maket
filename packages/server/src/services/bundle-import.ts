@@ -1,14 +1,17 @@
 import crypto from "node:crypto";
+import { rmSync } from "node:fs";
 import type { BundleAnnotationSnapshot } from "@maket/shared";
 import { writeBundleAssets } from "../lib/asset-writer.js";
 import { type DecodedBundle, uniqueName } from "../lib/maket-format.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
+import type { Document } from "../types.js";
 import { createDocument } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Config } from "./config.js";
 import type { DocumentStates } from "./document-states.js";
 import type { Documents } from "./documents.js";
 import type { Store } from "./store.js";
+import type { StructuredWorkspaces } from "./structured-workspaces.js";
 
 export interface BundleImportResult {
 	version: number;
@@ -24,6 +27,7 @@ export interface BundleImportResult {
 	assetsRejected: string[];
 	statesImported: number;
 	annotationsImported: number;
+	structuredWorkspacesImported: string[];
 }
 
 export interface BundleImportService {
@@ -36,13 +40,30 @@ export interface BundleImportServiceDeps {
 	store: Store;
 	bus: Bus;
 	config: Config;
+	structuredWorkspaces?: Pick<StructuredWorkspaces, "restorePortable">;
 }
 
 export function createBundleImportService(
 	deps: BundleImportServiceDeps,
 ): BundleImportService {
 	return {
-		restore: (bundle) => restoreBundle(deps, bundle),
+		restore(bundle) {
+			const cache = deps.documents.all();
+			const before = structuredClone(cache);
+			const createdAssets: string[] = [];
+			return deps.bus.batch(() => {
+				try {
+					return deps.store.transaction(() =>
+						restoreBundle(deps, bundle, createdAssets),
+					);
+				} catch (error) {
+					for (const path of createdAssets) rmSync(path, { force: true });
+					cache.clear();
+					for (const [name, document] of before) cache.set(name, document);
+					throw error;
+				}
+			});
+		},
 	};
 }
 
@@ -51,11 +72,27 @@ export function createBundleImportService(
 function restoreBundle(
 	deps: BundleImportServiceDeps,
 	bundle: DecodedBundle,
+	createdAssets: string[],
 ): BundleImportResult {
 	const imported = importDocuments(deps, bundle);
+	const structuredWorkspacesImported = bundle.structuredWorkspaces.map(
+		(snapshot) => {
+			if (!deps.structuredWorkspaces)
+				throw new Error("Structured Workspace import service is unavailable.");
+			return deps.structuredWorkspaces.restorePortable(
+				snapshot,
+				imported.documentsBySourceId,
+			).name;
+		},
+	);
 	const annotationsImported = importAnnotations(
 		bundle.annotations,
-		imported.documentNamesBySourceId,
+		new Map(
+			[...imported.documentsBySourceId].map(([id, document]) => [
+				id,
+				document.name,
+			]),
+		),
 		deps.store,
 	);
 	if (annotationsImported > 0) deps.bus.emit("annotations:changed", {});
@@ -65,7 +102,9 @@ function restoreBundle(
 		deps.store,
 		deps.bus,
 	);
-	const assets = writeBundleAssets(bundle.assets, deps.config.ASSETS_DIR);
+	const assets = writeBundleAssets(bundle.assets, deps.config.ASSETS_DIR, {
+		onCreated: (path) => createdAssets.push(path),
+	});
 	if (assets.written > 0) deps.bus.emit("assets:changed", {});
 	deps.bus.emit("toast", {
 		key: "toast_bundle_imported",
@@ -80,8 +119,13 @@ function restoreBundle(
 	return {
 		version: bundle.version,
 		exportedAt: bundle.exportedAt,
-		documents: imported.documents,
-		renamed: imported.renamed,
+		documents: imported.documents.map((document) => document.name),
+		renamed: imported.documents.flatMap((document, index) => {
+			const from = bundle.documents[index]?.name;
+			return from && from !== document.name
+				? [{ from, to: document.name }]
+				: [];
+		}),
 		chartesAdded: chartes.added,
 		chartesSkipped: chartes.skipped,
 		collectionsAdded: collections.added,
@@ -91,6 +135,7 @@ function restoreBundle(
 		assetsRejected: assets.rejected,
 		statesImported: imported.statesImported,
 		annotationsImported,
+		structuredWorkspacesImported,
 	};
 }
 
@@ -98,15 +143,13 @@ function importDocuments(
 	deps: Pick<BundleImportServiceDeps, "documents" | "documentStates" | "bus">,
 	bundle: DecodedBundle,
 ): {
-	documents: string[];
-	renamed: { from: string; to: string }[];
+	documents: Document[];
 	statesImported: number;
-	documentNamesBySourceId: Map<string, string>;
+	documentsBySourceId: Map<string, Document>;
 } {
-	const imported: string[] = [];
-	const renamed: { from: string; to: string }[] = [];
+	const imported: Document[] = [];
 	let statesImported = 0;
-	const documentNamesBySourceId = new Map<string, string>();
+	const documentsBySourceId = new Map<string, Document>();
 	const all = deps.documents.all();
 	const stateByDocumentId = new Map(
 		bundle.documentStates.map((state) => [state.documentId, state]),
@@ -138,17 +181,15 @@ function importDocuments(
 			statesImported++;
 		}
 		deps.bus.emit("document:created", { docName: finalName });
-		if (snapshot.id) documentNamesBySourceId.set(snapshot.id, finalName);
-		imported.push(finalName);
-		if (finalName !== snapshot.name) {
-			renamed.push({ from: snapshot.name, to: finalName });
+		if (snapshot.id) {
+			documentsBySourceId.set(snapshot.id, document);
 		}
+		imported.push(document);
 	}
 	return {
 		documents: imported,
-		renamed,
 		statesImported,
-		documentNamesBySourceId,
+		documentsBySourceId,
 	};
 }
 

@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
 import type {
+	BundleStructuredWorkspaceSnapshot,
 	StructuredWorkspaceCollectionDocumentView,
 	StructuredWorkspaceDataSchema,
 	StructuredWorkspaceDefinition,
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceRepresentationSchema,
+	StructuredWorkspaceTemplateDocumentView,
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
@@ -14,6 +16,7 @@ import {
 	validateStructuredWorkspaceItemData,
 } from "@maket/shared";
 import { parseHTML } from "linkedom";
+import { MessageError } from "../lib/message-error.js";
 import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
@@ -51,6 +54,12 @@ export interface StructuredWorkspaces {
 	updateDefinition(
 		input: UpdateStructuredWorkspaceInput,
 	): StructuredWorkspaceView;
+	rename(
+		workspace: string,
+		newName: string,
+		expectedRevision: number,
+	): StructuredWorkspaceView;
+	delete(workspace: string): string[];
 	addItem(input: AddStructuredWorkspaceItemInput): StructuredWorkspaceItemView;
 	updateItem(
 		workspaceName: string,
@@ -65,6 +74,10 @@ export interface StructuredWorkspaces {
 		bindingId?: string,
 	): number;
 	renderCollection(workspaceId: string, collectionId: string): Document;
+	restorePortable(
+		snapshot: BundleStructuredWorkspaceSnapshot,
+		documentsBySourceId: ReadonlyMap<string, Document>,
+	): StructuredWorkspaceView;
 }
 
 export interface StructuredWorkspacesDeps {
@@ -82,11 +95,7 @@ export function createStructuredWorkspaces(
 	});
 	return {
 		list() {
-			const workspaces = deps.store.loadAllStructuredWorkspaces();
-			for (const workspace of workspaces) {
-				ensureCollectionDocuments(deps, workspace);
-			}
-			return workspaces;
+			return deps.store.loadAllStructuredWorkspaces();
 		},
 		listViews() {
 			return deps.store
@@ -110,6 +119,21 @@ export function createStructuredWorkspaces(
 				workspaceId: workspace.id,
 			});
 			return workspace;
+		},
+		rename(workspaceReference, newName, expectedRevision) {
+			return renameWorkspace(
+				deps,
+				workspaceReference,
+				newName,
+				expectedRevision,
+			);
+		},
+		delete(workspaceReference) {
+			const workspace = requiredWorkspace(deps.store, workspaceReference);
+			assertWorkspaceUnlocked(deps, workspace);
+			const deleted = deps.store.deleteStructuredWorkspaceCascade(workspace.id);
+			publishWorkspaceDeletion(deps, workspace.id, deleted);
+			return deleted.map((document) => document.name);
 		},
 		addItem(input) {
 			const item = addItem(deps, input);
@@ -141,7 +165,196 @@ export function createStructuredWorkspaces(
 		renderCollection(workspaceId, collectionId) {
 			return renderCollection(deps, workspaceId, collectionId);
 		},
+		restorePortable(snapshot, documentsBySourceId) {
+			return restorePortableWorkspace(deps, snapshot, documentsBySourceId);
+		},
 	};
+}
+
+function restorePortableWorkspace(
+	deps: StructuredWorkspacesDeps,
+	snapshot: BundleStructuredWorkspaceSnapshot,
+	documentsBySourceId: ReadonlyMap<string, Document>,
+): StructuredWorkspaceView {
+	const source = snapshot.workspace;
+	let name = source.name;
+	for (let suffix = 2; deps.store.loadStructuredWorkspace(name); suffix++) {
+		name = `${source.name} (imported${suffix === 2 ? "" : ` ${suffix}`})`;
+	}
+	const resolveId = (sourceId: string): string => {
+		const document = documentsBySourceId.get(sourceId);
+		if (!document)
+			throw new Error(
+				`Portable workspace document "${sourceId}" was not imported.`,
+			);
+		return document.id;
+	};
+	const representationSchema = structuredClone(source.representationSchema);
+	for (const collection of Object.values(representationSchema.collections)) {
+		collection.collectionTemplateDocumentId = resolveId(
+			collection.collectionTemplateDocumentId,
+		);
+		for (const binding of Object.values(collection.bindings)) {
+			binding.detailTemplateDocumentId = resolveId(
+				binding.detailTemplateDocumentId,
+			);
+			if (binding.compactTemplateDocumentId)
+				binding.compactTemplateDocumentId = resolveId(
+					binding.compactTemplateDocumentId,
+				);
+		}
+	}
+	for (const item of source.items) {
+		const document = documentsBySourceId.get(item.documentId);
+		if (!document || !deps.documentStates.get(document.name))
+			throw new Error(
+				`Portable workspace item "${item.id}" has no imported state-backed document.`,
+			);
+	}
+	const workspace = deps.store.createStructuredWorkspace({
+		id: crypto.randomUUID(),
+		name,
+		description: source.description,
+		dataSchema: structuredClone(source.dataSchema),
+		representationSchema,
+	});
+	reconcileTemplateOwnership(deps, workspace);
+	const provenanceByPage = new Map(
+		snapshot.pageProvenance.map((entry) => [
+			`${entry.documentId}:${entry.pageId}`,
+			entry.provenance,
+		]),
+	);
+	for (const item of [...source.items].sort(
+		(a, b) => a.position - b.position,
+	)) {
+		const document = documentsBySourceId.get(item.documentId);
+		if (!document)
+			throw new Error(
+				`Portable workspace item document "${item.documentId}" is missing.`,
+			);
+		document.category = `Structured Workspaces/${name}`;
+		document.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: workspace.id,
+			collectionId: item.collectionId,
+			itemId: item.id,
+			bindingId: item.bindingId,
+		};
+		restorePageProvenance(
+			document,
+			item.documentId,
+			workspace.id,
+			provenanceByPage,
+			resolveId,
+		);
+		deps.documents.persist(document.name);
+		deps.store.addStructuredWorkspaceItem(workspace.id, {
+			id: item.id,
+			collectionId: item.collectionId,
+			bindingId: item.bindingId,
+			documentId: document.id,
+		});
+	}
+	for (const entry of snapshot.collectionDocuments) {
+		const document = documentsBySourceId.get(entry.documentId);
+		if (!document)
+			throw new Error(
+				`Portable collection document "${entry.documentId}" is missing.`,
+			);
+		const collection =
+			workspace.representationSchema.collections[entry.collectionId];
+		if (!collection)
+			throw new Error(
+				`Portable collection "${entry.collectionId}" is missing.`,
+			);
+		const preferredName = `${name} — ${collection.name}`;
+		if (document.name !== preferredName)
+			deps.documents.rename(
+				document.name,
+				availableCollectionDocumentName(deps.documents, preferredName),
+			);
+		document.category = `Structured Workspaces/${name}`;
+		document.meta.structuredWorkspace = {
+			role: "collection",
+			workspaceId: workspace.id,
+			collectionId: entry.collectionId,
+		};
+		restorePageProvenance(
+			document,
+			entry.documentId,
+			workspace.id,
+			provenanceByPage,
+			resolveId,
+		);
+		deps.documents.persist(document.name);
+	}
+	const restored = requiredWorkspace(deps.store, workspace.id);
+	if (workspaceIntegrity(deps, restored).status === "ready")
+		ensureCollectionDocuments(deps, restored);
+	deps.bus.emit("structured-workspace:changed", { workspaceId: workspace.id });
+	return workspaceView(deps, restored);
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Aggregate rename owns the domain plan and cache/event reconciliation around
+// the repository's single atomic persistence transaction.
+function renameWorkspace(
+	deps: StructuredWorkspacesDeps,
+	workspaceReference: string,
+	newName: string,
+	expectedRevision: number,
+): StructuredWorkspaceView {
+	const workspace = requiredWorkspace(deps.store, workspaceReference);
+	assertWorkspaceUnlocked(deps, workspace);
+	const trimmed = newName.trim();
+	if (!trimmed) throw new Error("Workspace name must not be empty.");
+	const collision = deps.store.loadStructuredWorkspace(trimmed);
+	if (collision && collision.id !== workspace.id) {
+		throw new Error(`Workspace "${trimmed}" already exists.`);
+	}
+	const collectionRenames = [...deps.documents.all().values()].flatMap(
+		(document) => {
+			const owner = document.meta.structuredWorkspace;
+			if (owner?.role !== "collection" || owner.workspaceId !== workspace.id)
+				return [];
+			const collection =
+				workspace.representationSchema.collections[owner.collectionId];
+			return collection
+				? [{ id: document.id, newName: `${trimmed} — ${collection.name}` }]
+				: [];
+		},
+	);
+	const result = deps.store.renameStructuredWorkspace(
+		workspace.id,
+		trimmed,
+		expectedRevision,
+		collectionRenames,
+	);
+	for (const document of deps.documents.all().values()) {
+		if (document.meta.structuredWorkspace?.workspaceId === workspace.id) {
+			document.category = `Structured Workspaces/${trimmed}`;
+		}
+	}
+	for (const renamed of result.renamedDocuments) {
+		if (renamed.oldName === renamed.newName) continue;
+		const document = deps.documents.all().get(renamed.oldName);
+		if (!document) continue;
+		deps.documents.all().delete(renamed.oldName);
+		document.name = renamed.newName;
+		deps.documents.all().set(renamed.newName, document);
+	}
+	for (const renamed of result.renamedDocuments) {
+		if (renamed.oldName === renamed.newName) continue;
+		deps.bus.emit("document:renamed", {
+			oldName: renamed.oldName,
+			docName: renamed.newName,
+		});
+	}
+	deps.bus.emit("structured-workspace:changed", {
+		workspaceId: workspace.id,
+	});
+	return workspaceView(deps, result.workspace);
 }
 
 function renderCollection(
@@ -154,6 +367,12 @@ function renderCollection(
 		.find((candidate) => candidate.id === workspaceId);
 	if (!workspace) {
 		throw new Error(`Structured Workspace "${workspaceId}" not found.`);
+	}
+	const integrity = workspaceIntegrity(deps, workspace);
+	if (integrity.status === "incomplete") {
+		throw new Error(
+			`Workspace "${workspace.name}" is incomplete:\n${integrity.issues.join("\n")}`,
+		);
 	}
 	requiredCollection(workspace, collectionId);
 	const collectionDocument = requiredCollectionDocument(
@@ -340,15 +559,39 @@ function updateDefinition(
 		);
 	}
 	const workspace = requiredWorkspace(deps.store, input.workspace);
+	assertWorkspaceUnlocked(deps, workspace);
 	const dataSchema = input.dataSchema ?? workspace.dataSchema;
 	const representationSchema = input.representationSchema
-		? normalizeTemplateDocuments(deps.documents, input.representationSchema)
+		? normalizeTemplateDocumentReferences(
+				deps.documents,
+				input.representationSchema,
+			)
 		: workspace.representationSchema;
+	assertTemplatesUnlocked(deps.documents, representationSchema);
 	const issues = validateStructuredWorkspaceDefinition(
 		dataSchema,
 		representationSchema,
 	);
-	if (issues.length > 0) throw new Error(issues.join("\n"));
+	if (issues.length > 0) {
+		const updated = deps.store.updateStructuredWorkspace(
+			workspace.id,
+			input.expectedRevision,
+			dataSchema,
+			representationSchema,
+		);
+		reconcileTemplateOwnership(deps, updated);
+		return workspaceView(deps, updated);
+	}
+	const candidate = { ...workspace, dataSchema, representationSchema };
+	if (workspaceIntegrity(deps, candidate).status === "incomplete") {
+		const updated = deps.store.updateStructuredWorkspace(
+			workspace.id,
+			input.expectedRevision,
+			dataSchema,
+			representationSchema,
+		);
+		return workspaceView(deps, updated);
+	}
 	const currentCollectionDocuments = ensureCollectionDocuments(deps, workspace);
 	const collectionPlans = Object.entries(
 		representationSchema.collections,
@@ -426,11 +669,12 @@ function updateDefinition(
 	});
 
 	const updated = deps.store.updateStructuredWorkspace(
-		workspace.name,
+		workspace.id,
 		input.expectedRevision,
 		dataSchema,
 		representationSchema,
 	);
+	reconcileTemplateOwnership(deps, updated);
 	for (const plan of collectionPlans) {
 		plan.document.pages = plan.pages;
 		plan.document.activePage = Math.min(
@@ -472,21 +716,20 @@ function createWorkspace(
 	if (deps.store.loadStructuredWorkspace(input.name)) {
 		throw new Error(`Structured Workspace "${input.name}" already exists.`);
 	}
-	const representationSchema = normalizeTemplateDocuments(
+	const representationSchema = normalizeTemplateDocumentReferences(
 		deps.documents,
 		input.representationSchema,
 	);
-	const issues = validateStructuredWorkspaceDefinition(
-		input.dataSchema,
-		representationSchema,
-	);
-	if (issues.length > 0) throw new Error(issues.join("\n"));
+	assertTemplatesUnlocked(deps.documents, representationSchema);
 	const workspace = deps.store.createStructuredWorkspace({
 		id: crypto.randomUUID(),
 		...input,
 		representationSchema,
 	});
-	ensureCollectionDocuments(deps, workspace);
+	reconcileTemplateOwnership(deps, workspace);
+	if (workspaceIntegrity(deps, workspace).status === "ready") {
+		ensureCollectionDocuments(deps, workspace);
+	}
 	return workspace;
 }
 
@@ -494,7 +737,8 @@ function addItem(
 	deps: StructuredWorkspacesDeps,
 	input: AddStructuredWorkspaceItemInput,
 ): StructuredWorkspaceItemView {
-	const workspace = requiredWorkspace(deps.store, input.workspace);
+	const workspace = requiredReadyWorkspace(deps, input.workspace);
+	assertCollectionUnlocked(deps, workspace, input.collectionId);
 	const collection = requiredCollection(workspace, input.collectionId);
 	const binding = collection.bindings[input.bindingId];
 	if (!binding) {
@@ -568,7 +812,7 @@ function updateItem(
 	expectedRevision: number,
 	data: Record<string, unknown>,
 ): StructuredWorkspaceItemView {
-	const workspace = requiredWorkspace(deps.store, workspaceName);
+	const workspace = requiredReadyWorkspace(deps, workspaceName);
 	const item = requiredItem(workspace, itemId);
 	assertValidItemData(workspace.dataSchema, data);
 	const document = requiredDocument(
@@ -576,6 +820,8 @@ function updateItem(
 		item.documentId,
 		"instantiated document",
 	);
+	assertDocumentUnlocked(document);
+	assertCollectionUnlocked(deps, workspace, item.collectionId);
 	const revision = deps.documentStates.update(
 		document.name,
 		expectedRevision,
@@ -595,7 +841,13 @@ function reconcileItemDocumentState(
 ): void {
 	const document = deps.documents.resolveOrLoad(docName);
 	const ownership = document?.meta.structuredWorkspace;
-	if (!document || !ownership || ownership.role === "collection") return;
+	if (
+		!document ||
+		!ownership ||
+		ownership.role === "collection" ||
+		ownership.role === "template"
+	)
+		return;
 	const workspace = deps.store
 		.loadAllStructuredWorkspaces()
 		.find((candidate) => candidate.id === ownership.workspaceId);
@@ -616,13 +868,15 @@ function deleteItem(
 	workspaceName: string,
 	itemId: string,
 ): boolean {
-	const workspace = requiredWorkspace(deps.store, workspaceName);
+	const workspace = requiredReadyWorkspace(deps, workspaceName);
 	const item = requiredItem(workspace, itemId);
 	const document = requiredDocument(
 		deps.documents,
 		item.documentId,
 		"instantiated document",
 	);
+	assertDocumentUnlocked(document);
+	assertCollectionUnlocked(deps, workspace, item.collectionId);
 	const deleted = deps.store.deleteStructuredWorkspaceItem(
 		workspace.id,
 		item.id,
@@ -641,7 +895,19 @@ function syncTemplates(
 	collectionId?: string,
 	bindingId?: string,
 ): number {
-	const workspace = requiredWorkspace(deps.store, workspaceName);
+	const workspace = requiredReadyWorkspace(deps, workspaceName);
+	const affected = [...deps.documents.all().values()].filter((document) => {
+		const owner = document.meta.structuredWorkspace;
+		return (
+			owner?.workspaceId === workspace.id &&
+			owner.role !== "template" &&
+			(!collectionId || owner.collectionId === collectionId) &&
+			(owner.role === "collection" ||
+				!bindingId ||
+				owner.bindingId === bindingId)
+		);
+	});
+	for (const document of affected) assertDocumentUnlocked(document);
 	let updated = 0;
 	for (const collectionDocument of ensureCollectionDocuments(deps, workspace)) {
 		if (collectionId && collectionDocument.collectionId !== collectionId)
@@ -720,10 +986,23 @@ function workspaceView(
 	deps: StructuredWorkspacesDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceView {
+	reconcileTemplateOwnership(deps, workspace);
+	const integrity = workspaceIntegrity(deps, workspace);
 	return {
 		...workspace,
-		items: workspace.items.map((item) => itemView(deps, item)),
-		collectionDocuments: ensureCollectionDocuments(deps, workspace),
+		integrity,
+		items: workspace.items.flatMap((item) => {
+			try {
+				return [itemView(deps, item)];
+			} catch {
+				return [];
+			}
+		}),
+		collectionDocuments:
+			integrity.status === "ready"
+				? ensureCollectionDocuments(deps, workspace)
+				: [],
+		templateDocuments: templateDocumentViews(deps, workspace),
 	};
 }
 
@@ -1010,6 +1289,171 @@ function synchronizedPages(
 	return [...generated, ...instancePages];
 }
 
+type TemplateRole = StructuredWorkspaceTemplateDocumentView["roles"][number];
+
+function templateRoles(
+	workspace: StructuredWorkspaceDefinition,
+): Map<string, TemplateRole[]> {
+	const roles = new Map<string, TemplateRole[]>();
+	const add = (documentId: string, role: TemplateRole) => {
+		const current = roles.get(documentId) ?? [];
+		if (
+			!current.some(
+				(candidate) => JSON.stringify(candidate) === JSON.stringify(role),
+			)
+		) {
+			current.push(role);
+		}
+		roles.set(documentId, current);
+	};
+	for (const [collectionId, collection] of Object.entries(
+		workspace.representationSchema.collections ?? {},
+	)) {
+		add(collection.collectionTemplateDocumentId, {
+			role: "collection",
+			collectionId,
+		});
+		for (const [bindingId, binding] of Object.entries(
+			collection.bindings ?? {},
+		)) {
+			add(binding.detailTemplateDocumentId, {
+				role: "detail",
+				collectionId,
+				bindingId,
+			});
+			if (binding.compactTemplateDocumentId) {
+				add(binding.compactTemplateDocumentId, {
+					role: "compact",
+					collectionId,
+					bindingId,
+				});
+			}
+		}
+	}
+	return roles;
+}
+
+function reconcileTemplateOwnership(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): void {
+	const desired = templateRoles(workspace);
+	for (const document of deps.documents.all().values()) {
+		const owner = document.meta.structuredWorkspace;
+		if (owner?.role !== "template" || owner.workspaceId !== workspace.id)
+			continue;
+		const roles = desired.get(document.id);
+		if (!roles) {
+			delete document.meta.structuredWorkspace;
+			deps.documents.persist(document.name);
+			continue;
+		}
+		const category = `Structured Workspaces/${workspace.name}`;
+		if (
+			JSON.stringify(owner.templateRoles) !== JSON.stringify(roles) ||
+			document.category !== category
+		) {
+			owner.templateRoles = roles;
+			document.category = category;
+			deps.documents.persist(document.name);
+		}
+		desired.delete(document.id);
+	}
+	for (const [documentId, roles] of desired) {
+		const document = deps.documents.resolveById(documentId);
+		if (!document) continue;
+		const owner = document.meta.structuredWorkspace;
+		if (owner && owner.workspaceId !== workspace.id) continue;
+		if (owner && owner.role !== "template") continue;
+		document.meta.structuredWorkspace = {
+			role: "template",
+			workspaceId: workspace.id,
+			templateRoles: roles,
+		};
+		document.category = `Structured Workspaces/${workspace.name}`;
+		deps.documents.persist(document.name);
+	}
+}
+
+function templateDocumentViews(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): StructuredWorkspaceTemplateDocumentView[] {
+	return [...templateRoles(workspace)].flatMap(([documentId, roles]) => {
+		const document = deps.documents.resolveById(documentId);
+		return document ? [{ documentId, documentName: document.name, roles }] : [];
+	});
+}
+
+function workspaceIntegrity(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): StructuredWorkspaceView["integrity"] {
+	const issues = validateStructuredWorkspaceDefinition(
+		workspace.dataSchema,
+		workspace.representationSchema,
+	);
+	for (const documentId of templateRoles(workspace).keys()) {
+		const document = deps.documents.resolveById(documentId);
+		if (!document) {
+			issues.push(`Template document "${documentId}" was not found.`);
+			continue;
+		}
+		const owner = document.meta.structuredWorkspace;
+		if (
+			owner &&
+			(owner.workspaceId !== workspace.id || owner.role !== "template")
+		) {
+			issues.push(
+				`Template document "${document.name}" is owned by another resource.`,
+			);
+		}
+	}
+	for (const item of workspace.items) {
+		const document = deps.documents.resolveById(item.documentId);
+		if (!document) {
+			issues.push(`Item "${item.id}" has no document.`);
+			continue;
+		}
+		if (document.meta.structuredWorkspace?.workspaceId !== workspace.id) {
+			issues.push(`Item document "${document.name}" has invalid ownership.`);
+		}
+		if (!deps.documentStates.get(document.name)) {
+			issues.push(`Item document "${document.name}" has no state.`);
+		}
+	}
+	if (issues.length === 0) {
+		for (const [collectionId, collection] of Object.entries(
+			workspace.representationSchema.collections,
+		)) {
+			try {
+				const template = requiredDocument(
+					deps.documents,
+					collection.collectionTemplateDocumentId,
+					"collection template",
+				);
+				const document =
+					findCollectionDocument(deps.documents, workspace.id, collectionId) ??
+					template;
+				const schema = collectionDocumentStateSchema(workspace);
+				const data = collectionDocumentStateData(deps, workspace, collectionId);
+				for (const page of [
+					...template.pages,
+					...(document !== template ? document.pages : []),
+				])
+					renderDocumentStatePage(page, data, { schema });
+			} catch (error) {
+				issues.push(
+					`Collection "${collectionId}": ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
+	}
+	return issues.length === 0
+		? { status: "ready", issues: [] }
+		: { status: "incomplete", issues };
+}
+
 function templatePage(
 	workspaceId: string,
 	templateDocumentId: string,
@@ -1029,44 +1473,40 @@ function templatePage(
 	};
 }
 
-function normalizeTemplateDocuments(
+function normalizeTemplateDocumentReferences(
 	documents: Documents,
 	representation: StructuredWorkspaceRepresentationSchema,
 ): StructuredWorkspaceRepresentationSchema {
 	const normalized = structuredClone(representation);
 	for (const collection of Object.values(normalized.collections)) {
-		collection.collectionTemplateDocumentId = resolveTemplateDocument(
+		collection.collectionTemplateDocumentId = resolveTemplateDocumentReference(
 			documents,
 			collection.collectionTemplateDocumentId,
-		).id;
+		);
 		for (const binding of Object.values(collection.bindings)) {
-			binding.detailTemplateDocumentId = resolveTemplateDocument(
+			binding.detailTemplateDocumentId = resolveTemplateDocumentReference(
 				documents,
 				binding.detailTemplateDocumentId,
-			).id;
+			);
 			if (binding.compactTemplateDocumentId) {
-				binding.compactTemplateDocumentId = resolveTemplateDocument(
+				binding.compactTemplateDocumentId = resolveTemplateDocumentReference(
 					documents,
 					binding.compactTemplateDocumentId,
-				).id;
+				);
 			}
 		}
 	}
 	return normalized;
 }
 
-function resolveTemplateDocument(
+function resolveTemplateDocumentReference(
 	documents: Documents,
 	reference: string,
-): Document {
-	const document =
-		documents.resolveById(reference) ?? documents.resolveOrLoad(reference);
-	if (!document) {
-		throw new Error(
-			`Structured Workspace representation template "${reference}" not found.`,
-		);
-	}
-	return document;
+): string {
+	return (
+		(documents.resolveById(reference) ?? documents.resolveOrLoad(reference))
+			?.id ?? reference
+	);
 }
 
 function requiredWorkspace(
@@ -1075,6 +1515,20 @@ function requiredWorkspace(
 ): StructuredWorkspaceDefinition {
 	const workspace = store.loadStructuredWorkspace(name);
 	if (!workspace) throw new Error(`Structured Workspace "${name}" not found.`);
+	return workspace;
+}
+
+function requiredReadyWorkspace(
+	deps: StructuredWorkspacesDeps,
+	reference: string,
+): StructuredWorkspaceDefinition {
+	const workspace = requiredWorkspace(deps.store, reference);
+	const integrity = workspaceIntegrity(deps, workspace);
+	if (integrity.status === "incomplete") {
+		throw new Error(
+			`Workspace "${workspace.name}" is incomplete:\n${integrity.issues.join("\n")}`,
+		);
+	}
 	return workspace;
 }
 
@@ -1120,4 +1574,93 @@ function assertValidItemData(
 ): void {
 	const issues = validateStructuredWorkspaceItemData(schema, data);
 	if (issues.length > 0) throw new Error(issues.join("\n"));
+}
+
+function restorePageProvenance(
+	document: Document,
+	sourceId: string,
+	workspaceId: string,
+	provenanceByPage: ReadonlyMap<string, NonNullable<Page["provenance"]>>,
+	resolveId: (id: string) => string,
+): void {
+	for (const page of document.pages) {
+		const source = provenanceByPage.get(`${sourceId}:${page.id}`);
+		if (!source) continue;
+		page.provenance =
+			source.kind === "instance"
+				? { kind: "instance", workspaceId }
+				: {
+						kind: "template",
+						workspaceId,
+						templateDocumentId: resolveId(source.templateDocumentId),
+						templatePageId: source.templatePageId,
+					};
+	}
+}
+
+function assertDocumentUnlocked(document: Document): void {
+	if (document.meta.locked === true)
+		throw new MessageError(
+			`Document "${document.name}" is locked. Unlock it before changing its Workspace.`,
+			"msg_document_locked",
+			{ name: document.name },
+		);
+}
+
+function assertWorkspaceUnlocked(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): void {
+	for (const document of deps.documents.all().values()) {
+		if (
+			document.meta.structuredWorkspace?.workspaceId === workspace.id ||
+			templateRoles(workspace).has(document.id)
+		)
+			assertDocumentUnlocked(document);
+	}
+}
+
+function assertCollectionUnlocked(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	collectionId: string,
+): void {
+	const document = findCollectionDocument(
+		deps.documents,
+		workspace.id,
+		collectionId,
+	);
+	if (document) assertDocumentUnlocked(document);
+}
+
+function publishWorkspaceDeletion(
+	deps: StructuredWorkspacesDeps,
+	workspaceId: string,
+	deleted: Array<{ name: string }>,
+): void {
+	for (const document of deleted) {
+		deps.documents.all().delete(document.name);
+		deps.bus.emit("document:deleted", { docName: document.name });
+	}
+	deps.bus.emit("structured-workspace:changed", { workspaceId });
+}
+
+function assertTemplatesUnlocked(
+	documents: Documents,
+	representationSchema: StructuredWorkspaceRepresentationSchema,
+): void {
+	for (const collection of Object.values(representationSchema.collections)) {
+		for (const id of [
+			collection.collectionTemplateDocumentId,
+			...Object.values(collection.bindings).flatMap((binding) => [
+				binding.detailTemplateDocumentId,
+				...(binding.compactTemplateDocumentId
+					? [binding.compactTemplateDocumentId]
+					: []),
+			]),
+		]) {
+			const document = documents.resolveById(id);
+			if (document) assertDocumentUnlocked(document);
+		}
+	}
 }

@@ -510,6 +510,9 @@ button[data-library-pin]:focus-visible {
 }
 .doc-label {
   position: relative;
+  /* Counter-scaling creates a stacking context; lift the whole bar above
+     the page canvases and their selection frames, including in top position. */
+  z-index: 2;
 }
 
 .doc-tooltip {
@@ -622,4 +625,7 @@ button[data-library-pin]:focus-visible {
   [data-reader-menu] {
     animation: none !important;
   }
+}
+[data-linked-document] [data-reading-workspace] {
+	scroll-padding-top: calc(4rem + env(safe-area-inset-top));
 }

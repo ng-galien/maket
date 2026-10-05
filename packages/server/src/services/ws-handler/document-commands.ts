@@ -26,15 +26,47 @@ export function handleLoadDocument(
 		}
 	}
 	if (!requested) return;
+	const owner = requested.meta.structuredWorkspace;
+	if (owner) {
+		if (msg.structuredWorkspace?.workspaceId !== owner.workspaceId) {
+			ctx.bus.emit("toast", {
+				key: "toast_detail",
+				params: {
+					detail: `Document "${requested.name}" must be opened from its Workspace tree.`,
+				},
+				level: "info",
+			});
+			return;
+		}
+		const workspace = ctx.structuredWorkspaces.get(owner.workspaceId);
+		if (owner.role !== "template" && workspace?.integrity.status !== "ready") {
+			ctx.bus.emit("toast", {
+				key: "toast_detail",
+				params: {
+					detail: `Workspace "${workspace?.name ?? owner.workspaceId}" is incomplete; projections cannot be opened.`,
+				},
+				level: "info",
+			});
+			return;
+		}
+	}
+	const structuredWorkspace =
+		owner?.role === "collection"
+			? {
+					workspaceId: owner.workspaceId,
+					collectionId: owner.collectionId,
+				}
+			: undefined;
+	ctx.wsRegistry.watch(ws, requested.name);
 	const state: WorkspaceStateSignal = {
 		type: "state",
 		doc: ctx.documents.lightView(
-			ctx.documentRenderer.render(requested, {
-				structuredWorkspace: msg.structuredWorkspace,
-			}),
+			ctx.documentRenderer.render(requested, { structuredWorkspace }),
 		),
 		documentState: ctx.documentRenderer.stateView(requested),
-		docList: ctx.documents.list(),
+		docList: ctx.documents.list({
+			includeWorkspaceDocuments: ctx.wsRegistry.isViewer(ws),
+		}),
 		collections: ctx.collections.loadAll(),
 		collectionCursors: ctx.collectionCursors.snapshot(),
 		annotations: ctx.pending.all(),
@@ -51,6 +83,14 @@ export function handleUpdateMeta(
 ): void {
 	const d = ctx.wsDoc(msg);
 	if (!d) return;
+	if (d.meta.structuredWorkspace) {
+		ctx.bus.emit("toast", {
+			key: "toast_detail",
+			params: { detail: `Document "${d.name}" belongs to a Workspace.` },
+			level: "info",
+		});
+		return;
+	}
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
 			key: "toast_document_locked_meta",
@@ -91,6 +131,16 @@ export function handleMoveCategory(
 		ctx.bus.emit("toast", {
 			key: "toast_category_locked_document",
 			params: { doc: result.lockedDocName },
+			level: "info",
+		});
+		return;
+	}
+	if (result.ownedDocName) {
+		ctx.bus.emit("toast", {
+			key: "toast_detail",
+			params: {
+				detail: `Document "${result.ownedDocName}" belongs to a Workspace.`,
+			},
 			level: "info",
 		});
 		return;
@@ -139,6 +189,14 @@ export function handleRenameDocument(
 	if (!name || !newName || name === newName) return;
 	const d = ctx.documents.resolve(name);
 	if (!d) return;
+	if (d.meta.structuredWorkspace) {
+		ctx.bus.emit("toast", {
+			key: "toast_detail",
+			params: { detail: `Document "${d.name}" belongs to a Workspace.` },
+			level: "info",
+		});
+		return;
+	}
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
 			key: "toast_document_locked_rename",

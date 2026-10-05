@@ -16,6 +16,7 @@ import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
 import type { SettingsService } from "../settings.js";
 import type { Store } from "../store.js";
+import type { StructuredWorkspaces } from "../structured-workspaces.js";
 import type { WsRegistry } from "../ws-registry.js";
 
 export type WorkspaceCommandHandler = (
@@ -35,6 +36,7 @@ export interface WsHandlerDeps {
 	pending: Annotations;
 	settings: SettingsService;
 	store: Store;
+	structuredWorkspaces: StructuredWorkspaces;
 	wsRegistry: WsRegistry;
 }
 

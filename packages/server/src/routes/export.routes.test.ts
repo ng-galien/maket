@@ -1,4 +1,5 @@
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -115,6 +116,7 @@ describe("export routes — .maket bundle", () => {
 			collections,
 			store,
 			config,
+			structuredWorkspaces,
 		});
 		bundleImportService = createBundleImportService({
 			documents,
@@ -122,6 +124,7 @@ describe("export routes — .maket bundle", () => {
 			store,
 			bus,
 			config,
+			structuredWorkspaces,
 		});
 		pdfService = {
 			render: vi.fn(async () => ({
@@ -445,6 +448,111 @@ describe("export routes — .maket bundle", () => {
 		const { exportedAt: _mcpExportedAt, ...mcpPortableContent } = mcpBundle;
 		expect(mcpPortableContent).toEqual(httpPortableContent);
 
+		const collectionDocument = documents.resolveOrLoad(collectionName);
+		const sourceWorkspace = structuredWorkspaces.get("Delivery");
+		if (!collectionDocument || !sourceWorkspace)
+			throw new Error("Expected source collection");
+		collectionDocument.pages.push({
+			id: "collection-note",
+			name: "User notes",
+			elements: [],
+			html: '<img src="/assets/collection-note.png"><p>Keep collection notes</p>',
+			provenance: {
+				kind: "instance",
+				workspaceId: sourceWorkspace.id,
+			},
+		});
+		documents.persist(collectionName);
+		writeFileSync(
+			join(config.ASSETS_DIR, "collection-note.png"),
+			Buffer.from("note-asset"),
+		);
+		store.saveAnnotation({
+			id: "collection-note-annotation",
+			docName: collectionName,
+			pageIndex: 1,
+			type: "note",
+			text: "Keep annotation",
+			ts: 1,
+		});
+		const aggregate = await bundleExportService.build({
+			names: [
+				collectionTemplate.name,
+				compactTemplate.name,
+				detailTemplate.name,
+				"Ship the release",
+				collectionName,
+			],
+		});
+		expect(aggregate.ok).toBe(true);
+		if (!aggregate.ok) throw new Error(aggregate.message);
+		const aggregateBundle = await decodeBundle(aggregate.buffer);
+		expect(aggregateBundle.structuredWorkspaces).toHaveLength(1);
+		expect(aggregateBundle.documents.map(({ name }) => name)).toContain(
+			collectionName,
+		);
+		const restored = bundleImportService.restore(aggregateBundle);
+		expect(restored.structuredWorkspacesImported).toEqual([
+			"Delivery (imported)",
+		]);
+		const restoredWorkspace = structuredWorkspaces.get("Delivery (imported)");
+		expect(restoredWorkspace?.integrity).toEqual({
+			status: "ready",
+			issues: [],
+		});
+		const restoredCollectionName =
+			restoredWorkspace?.collectionDocuments[0]?.documentName;
+		if (!restoredWorkspace || !restoredCollectionName)
+			throw new Error("Expected restored collection");
+		expect(restored.documents).toContain(restoredCollectionName);
+		for (const documentName of restored.documents)
+			expect(documents.resolveOrLoad(documentName)).not.toBeNull();
+		const restoredCollection = documents.resolveOrLoad(restoredCollectionName);
+		if (!restoredCollection) throw new Error("Expected restored document");
+		expect(restoredCollection.pages[1]).toMatchObject({
+			name: "User notes",
+			html: expect.stringContaining("Keep collection notes"),
+			provenance: { kind: "instance", workspaceId: restoredWorkspace.id },
+		});
+		expect(aggregateBundle.assets.map((asset) => asset.relPath)).toContain(
+			"collection-note.png",
+		);
+		expect(store.loadAnnotations()).toContainEqual(
+			expect.objectContaining({
+				docName: restoredCollectionName,
+				text: "Keep annotation",
+				pageIndex: 1,
+			}),
+		);
+		const before = store
+			.loadAll()
+			.map((document) => document.name)
+			.sort();
+		const cacheBefore = [...documents.all().keys()].sort();
+		const created = vi.fn();
+		bus.on("document:created", created);
+		const brokenBundle = structuredClone(aggregateBundle);
+		const brokenCollection =
+			brokenBundle.structuredWorkspaces[0]?.workspace.representationSchema
+				.collections.backlog;
+		if (!brokenCollection) throw new Error("Expected portable collection");
+		brokenCollection.collectionTemplateDocumentId = "missing-template";
+		expect(() => bundleImportService.restore(brokenBundle)).toThrow(
+			"was not imported",
+		);
+		expect(
+			store
+				.loadAll()
+				.map((document) => document.name)
+				.sort(),
+		).toEqual(before);
+		expect([...documents.all().keys()].sort()).toEqual(cacheBefore);
+		expect(created).not.toHaveBeenCalled();
+		expect(restoredWorkspace?.items[0]?.data).toEqual({
+			kind: "task",
+			title: "Ship the release",
+		});
+
 		const targetDir = join(testDir, "clean-target");
 		const targetAssetsDir = join(targetDir, "assets");
 		const targetExportsDir = join(targetDir, "exports");
@@ -544,6 +652,72 @@ describe("export routes — .maket bundle", () => {
 			await targetServer.close();
 			targetStore.close();
 		}
+	});
+
+	it("rolls back database, cache, events and newly created assets if the import cannot commit", async () => {
+		const keep = join(config.ASSETS_DIR, "keep.png");
+		const added = join(config.ASSETS_DIR, "added.png");
+		writeFileSync(keep, Buffer.from("local asset"));
+		const bytes = await encodeBundleV2(
+			[makeDoc("rollback-document")],
+			[],
+			[],
+			[
+				{ relPath: "keep.png", bytes: Buffer.from("replacement") },
+				{ relPath: "added.png", bytes: Buffer.from("new asset") },
+			],
+		);
+		const transaction = store.transaction.bind(store);
+		const failure = vi
+			.spyOn(store, "transaction")
+			.mockImplementation((operation) =>
+				transaction(() => {
+					operation();
+					throw new Error("Simulated commit failure");
+				}),
+			);
+		const created = vi.fn();
+		bus.on("document:created", created);
+		const response = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(bytes),
+		});
+		expect(response.status).toBe(500);
+		expect(store.loadOne("rollback-document")).toBeNull();
+		expect(documents.resolveOrLoad("rollback-document")).toBeNull();
+		expect(existsSync(added)).toBe(false);
+		expect(readFileSync(keep).toString()).toBe("local asset");
+		expect(created).not.toHaveBeenCalled();
+		failure.mockRestore();
+		const retry = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(bytes),
+		});
+		expect(retry.status).toBe(200);
+		expect(store.loadOne("rollback-document")).not.toBeNull();
+		expect(readFileSync(added).toString()).toBe("new asset");
+		expect(readFileSync(keep).toString()).toBe("local asset");
+	});
+
+	it("roundtrips an incomplete Workspace through HTTP without requiring a collection", async () => {
+		structuredWorkspaces.create({
+			name: "Draft",
+			dataSchema: {},
+			representationSchema: { version: 1, collections: {} },
+		});
+		const exported = await fetch(`${baseUrl}/api/export-maket`);
+		expect(exported.status).toBe(200);
+		const imported = await fetch(`${baseUrl}/api/import-maket`, {
+			method: "POST",
+			headers: { "Content-Type": "application/zip" },
+			body: new Uint8Array(await exported.arrayBuffer()),
+		});
+		expect(imported.status).toBe(200);
+		expect(structuredWorkspaces.get("Draft (imported)")?.integrity.status).toBe(
+			"incomplete",
+		);
 	});
 
 	it("produces the same complete bundle through HTTP and MCP", async () => {

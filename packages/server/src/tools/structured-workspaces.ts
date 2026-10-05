@@ -40,8 +40,11 @@ const StructuredWorkspaceSchema = z.object({
 		"update_item",
 		"delete_item",
 		"sync_template",
+		"rename",
+		"delete",
 	]),
 	workspace: z.string().optional(),
+	new_name: z.string().optional(),
 	description: z.string().optional(),
 	data_schema: z.record(z.string(), z.unknown()).optional(),
 	representation_schema: RepresentationSchema.optional(),
@@ -66,6 +69,8 @@ const DESCRIPTION = [
 	"  update_item   — replace item data with optimistic revision control.",
 	"  delete_item   — delete the item and its instantiated document.",
 	"  sync_template — propagate current detail-template pages while preserving instance-owned pages.",
+	"  rename        — rename the Workspace without regenerating owned documents.",
+	"  delete        — atomically delete the Workspace and every document, state revision, and annotation it owns.",
 ].join("\n");
 
 type Args = z.infer<typeof StructuredWorkspaceSchema>;
@@ -113,6 +118,8 @@ function dispatch(args: Args, workspaces: StructuredWorkspaces) {
 	if (args.action === "add_item") return runAddItem(args, workspaces);
 	if (args.action === "update_item") return runUpdateItem(args, workspaces);
 	if (args.action === "delete_item") return runDeleteItem(args, workspaces);
+	if (args.action === "rename") return runRename(args, workspaces);
+	if (args.action === "delete") return runDelete(args, workspaces);
 	return runSyncTemplate(args, workspaces);
 }
 
@@ -138,10 +145,10 @@ function runList(workspaces: StructuredWorkspaces) {
 	if (list.length === 0) return text("No Structured Workspaces.");
 	return text(
 		list
-			.map(
-				(workspace) =>
-					`- ${workspace.name}: ${workspace.items.length} item(s), revision ${workspace.revision}`,
-			)
+			.map((workspace) => {
+				const view = workspaces.get(workspace.id);
+				return `- ${workspace.name} (${workspace.id}): ${workspace.items.length} item(s), ${view?.integrity.status ?? "incomplete"}, revision ${workspace.revision}`;
+			})
 			.join("\n"),
 	);
 }
@@ -159,20 +166,53 @@ function runCreate(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = workspaces.create({
 		name,
 		description: args.description,
-		dataSchema: requiredValue(
-			args.data_schema,
-			"data_schema",
-		) as StructuredWorkspaceDataSchema,
-		representationSchema: requiredValue(
-			args.representation_schema,
-			"representation_schema",
-		) as StructuredWorkspaceRepresentationSchema,
+		dataSchema: (args.data_schema ?? {}) as StructuredWorkspaceDataSchema,
+		representationSchema: (args.representation_schema ?? {
+			version: 1,
+			collections: {},
+		}) as StructuredWorkspaceRepresentationSchema,
 	});
-	return text(`Structured Workspace "${workspace.name}" created.`, {
-		next: [
-			`maket_structured_workspace action=add_item workspace=${workspace.name} collection=<collection> binding=<binding> document_name=<name> data=<json>`,
-		],
+	const integrity = workspaces.get(workspace.id)?.integrity ?? {
+		status: "incomplete" as const,
+		issues: ["Workspace integrity is unavailable."],
+	};
+	const message =
+		integrity.status === "ready"
+			? `Structured Workspace "${workspace.name}" created and ready.`
+			: `Structured Workspace "${workspace.name}" created incomplete.\n${integrity.issues.map((issue) => `- ${issue}`).join("\n")}`;
+	return text(message, {
+		next:
+			integrity.status === "ready"
+				? [
+						`maket_structured_workspace action=add_item workspace=${workspace.id} collection=<collection> binding=<binding> document_name=<name> data=<json>`,
+					]
+				: [
+						`maket_structured_workspace action=view workspace=${workspace.id}`,
+						`maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} data_schema=<schema> representation_schema=<schema>`,
+					],
 	});
+}
+
+function runRename(args: Args, workspaces: StructuredWorkspaces) {
+	const updated = workspaces.rename(
+		required(args.workspace, "workspace"),
+		required(args.new_name, "new_name"),
+		requiredValue(
+			args.expected_workspace_revision,
+			"expected_workspace_revision",
+		),
+	);
+	return text(
+		`Workspace "${updated.name}" renamed without regenerating its documents.`,
+	);
+}
+
+function runDelete(args: Args, workspaces: StructuredWorkspaces) {
+	const workspace = required(args.workspace, "workspace");
+	const deletedDocuments = workspaces.delete(workspace);
+	return text(
+		`Workspace "${workspace}" deleted with ${deletedDocuments.length} owned document(s).`,
+	);
 }
 
 function runAddItem(args: Args, workspaces: StructuredWorkspaces) {

@@ -26,6 +26,7 @@ export const ACTIVITY_POLICIES = {
 		actions: {
 			new: "bubble_maket_doc_new",
 			list: "bubble_maket_doc_list",
+			link: null,
 			delete: "bubble_maket_doc_delete",
 			duplicate: "bubble_maket_doc_duplicate",
 			rename: "bubble_maket_doc_rename",
@@ -121,6 +122,8 @@ export const ACTIVITY_POLICIES = {
 			update_item: null,
 			delete_item: null,
 			sync_template: null,
+			rename: null,
+			delete: null,
 		},
 	},
 	maket_learn: {

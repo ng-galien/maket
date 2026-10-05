@@ -100,7 +100,7 @@ function initializeState(
 	schema: DocumentStateSchema,
 	data: DocumentStateData,
 ): DocumentStateRevision {
-	db.exec("BEGIN");
+	db.exec("SAVEPOINT maket_repository");
 	try {
 		statements.stateInsert.run({
 			document_id: documentId,
@@ -113,9 +113,9 @@ function initializeState(
 			data: JSON.stringify(data),
 		});
 		statements.documentMarkState.run({ document_id: documentId });
-		db.exec("COMMIT");
+		db.exec("RELEASE maket_repository");
 	} catch (error) {
-		db.exec("ROLLBACK");
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 		throw error;
 	}
 	return requiredRevision(statements.revisionSelect.get(documentId, 1));
@@ -130,7 +130,7 @@ function appendRevision(
 	expectedRevision: number,
 	data: DocumentStateData,
 ): DocumentStateRevision {
-	db.exec("BEGIN");
+	db.exec("SAVEPOINT maket_repository");
 	try {
 		const current = statements.revisionSelectCurrent.get(documentId);
 		if (!current) {
@@ -153,12 +153,12 @@ function appendRevision(
 			data: JSON.stringify(data),
 		});
 		statements.documentTouch.run({ document_id: documentId });
-		db.exec("COMMIT");
+		db.exec("RELEASE maket_repository");
 		return requiredRevision(
 			statements.revisionSelect.get(documentId, nextRevision),
 		);
 	} catch (error) {
-		db.exec("ROLLBACK");
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 		throw error;
 	}
 }
@@ -173,7 +173,7 @@ function replaceSchema(
 	schema: DocumentStateSchema,
 	data: DocumentStateData,
 ): DocumentStateRevision {
-	db.exec("BEGIN");
+	db.exec("SAVEPOINT maket_repository");
 	try {
 		const current = statements.revisionSelectCurrent.get(documentId);
 		if (!current) {
@@ -197,12 +197,12 @@ function replaceSchema(
 			data: JSON.stringify(data),
 		});
 		statements.documentTouch.run({ document_id: documentId });
-		db.exec("COMMIT");
+		db.exec("RELEASE maket_repository");
 		return requiredRevision(
 			statements.revisionSelect.get(documentId, nextRevision),
 		);
 	} catch (error) {
-		db.exec("ROLLBACK");
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 		throw error;
 	}
 }

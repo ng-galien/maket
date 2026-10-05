@@ -23,15 +23,11 @@ interface IsolatedServer {
 	url: string;
 }
 
-export const test = base.extend({
-	baseURL: async (
-		// Playwright requires an object destructuring pattern for fixture deps.
-		// biome-ignore lint/correctness/noEmptyPattern: no fixture dependency is needed here
-		{},
-		use,
-	) => {
+export const test = base.extend<{ gatewayBasePath: string }>({
+	gatewayBasePath: ["", { option: true }],
+	baseURL: async ({ gatewayBasePath }, use) => {
 		const dataDir = await mkdtemp(path.join(tmpdir(), "maket-playwright-"));
-		const server = await startServer(dataDir);
+		const server = await startServer(dataDir, gatewayBasePath);
 		try {
 			await use(server.url);
 		} finally {
@@ -45,7 +41,10 @@ export { expect };
 
 /** Settings are user-level by default, so each isolated server must be pointed
  *  at its own file rather than the developer's real one. */
-async function startServer(dataDir: string): Promise<IsolatedServer> {
+async function startServer(
+	dataDir: string,
+	gatewayBasePath: string,
+): Promise<IsolatedServer> {
 	const child = spawn(process.execPath, [TSX_CLI, SERVER_ENTRY], {
 		cwd: ROOT,
 		env: {
@@ -53,6 +52,7 @@ async function startServer(dataDir: string): Promise<IsolatedServer> {
 			MAKET_PORT: "0",
 			MAKET_DATA_DIR: dataDir,
 			MAKET_SETTINGS_FILE: path.join(dataDir, "settings.json"),
+			MAKET_BASE_PATH: gatewayBasePath,
 		},
 		stdio: ["ignore", "pipe", "pipe"],
 	});

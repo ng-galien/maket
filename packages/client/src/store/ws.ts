@@ -8,7 +8,9 @@ import type {
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
+import { readJsonPointer } from "@maket/shared";
 import { setLang, type TranslationKey, translate } from "../i18n/useT";
+import { browserBasePath, linkedDocumentId } from "../lib/browserBasePath";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
@@ -70,13 +72,22 @@ export function sendStateValuePatch(
 	) {
 		return null;
 	}
+	let op: "replace" | "add" = "replace";
+	const state = useStore.getState().documentStates[docName];
+	if (state) {
+		try {
+			readJsonPointer(state.data, pointer);
+		} catch {
+			op = "add";
+		}
+	}
 	const requestId = crypto.randomUUID();
 	const sent = wsSend({
 		type: "state_patch",
 		requestId,
 		docName,
 		expectedRevision,
-		operation: { op: "replace", path: pointer, value },
+		operation: { op, path: pointer, value },
 	});
 	if (!sent) {
 		useStore.getState().beginStatePatch(docName, pointer, requestId);
@@ -273,8 +284,13 @@ export function initWs(): void {
 
 function connect(): void {
 	const protocol = location.protocol === "https:" ? "wss" : "ws";
-	const path = import.meta.env.DEV ? "/ws" : "";
-	const url = `${protocol}://${location.host}${path}`;
+	const path = browserBasePath()
+		? `${browserBasePath()}/ws`
+		: import.meta.env.DEV
+			? "/ws"
+			: "";
+	const linkedReader = isLinkedReaderPath();
+	const url = `${protocol}://${location.host}${path}${linkedReader ? "?viewer=1" : ""}`;
 	ws = new WebSocket(url);
 	ws.onopen = handleWsOpen;
 	ws.onclose = handleWsClose;
@@ -286,10 +302,12 @@ function handleWsOpen(): void {
 	pendingLoadDoc = null;
 	initialStateReceived = false;
 	useStore.getState().setConnected(true);
-	wsSend({
-		type: "workspace_update",
-		displayed: useStore.getState().workspaceDocNames,
-	});
+	if (!isLinkedReaderPath()) {
+		wsSend({
+			type: "workspace_update",
+			displayed: useStore.getState().workspaceDocNames,
+		});
+	}
 	flushSettings();
 }
 
@@ -617,11 +635,16 @@ function describeFailure(
 }
 
 export function wsSend(msg: WorkspaceCommand): boolean {
+	if (msg.type === "workspace_update" && isLinkedReaderPath()) return true;
 	if (ws && ws.readyState === 1) {
 		ws.send(JSON.stringify(msg));
 		return true;
 	}
 	return false;
+}
+
+function isLinkedReaderPath(): boolean {
+	return linkedDocumentId(location.pathname) !== null;
 }
 
 export function sendAnnotationCreate(
@@ -670,7 +693,7 @@ export function sendLoadDoc(
 	name: string,
 	structuredWorkspace?: {
 		workspaceId: string;
-		collectionId: string;
+		collectionId?: string;
 	},
 ): boolean {
 	backgroundLoadDocs.delete(name);
@@ -692,6 +715,23 @@ export function sendDeleteDoc(name: string): void {
 
 export function sendRenameDoc(name: string, newName: string): void {
 	wsSend({ type: "rename_document", name, newName });
+}
+
+export function sendRenameStructuredWorkspace(
+	workspaceId: string,
+	newName: string,
+	expectedRevision: number,
+): void {
+	wsSend({
+		type: "rename_structured_workspace",
+		workspaceId,
+		newName,
+		expectedRevision,
+	});
+}
+
+export function sendDeleteStructuredWorkspace(workspaceId: string): void {
+	wsSend({ type: "delete_structured_workspace", workspaceId });
 }
 
 export function sendDuplicateDoc(name: string, newName: string): void {

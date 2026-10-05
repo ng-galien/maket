@@ -28,7 +28,7 @@
   "tools": [
     {
       "name": "maket_doc",
-      "description": "Document lifecycle: new, list, delete, duplicate, rename, meta, export/import (.maket bundle)."
+      "description": "Document lifecycle: new, list, client-local reading link, delete, duplicate, rename, meta, export/import (.maket bundle)."
     },
     {
       "name": "maket_page",
@@ -57,7 +57,7 @@
     },
     {
       "name": "maket_structured_workspace",
-      "description": "Create and operate schema-driven workspaces whose collection items own persistent instantiated Maket documents."
+      "description": "Create, inspect, rename, delete, and operate aggregate Workspaces with owned schemas, templates, projections, items, state history, and annotations."
     },
     {
       "name": "maket_learn",

@@ -1,8 +1,9 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { Boxes, Eye, History, Lock, Palette } from "lucide-react";
+import { Eye, History, Lock, Palette } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
+import { browserPath } from "../../lib/browserBasePath";
 import type { DocSummary } from "../../store/types";
 import { useStore } from "../../store/useStore";
 import { DraftPill } from "../shared/DraftPill";
@@ -95,7 +96,7 @@ export function DocCard({ model, actions }: DocItemProps) {
 
 	return (
 		<div
-			className={`relative group/card ${model.doc.structuredWorkspaceKind ? "text-text-3" : ""} ${model.dragging ? "opacity-40" : ""}`}
+			className={`relative group/card ${model.dragging ? "opacity-40" : ""}`}
 			draggable={meta.dragEnabled}
 			onDragStart={(event) => handleItemDragStart(event, meta, actions)}
 			onDragEnd={actions.dragEnd}
@@ -222,7 +223,9 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 	const doc = model.doc;
 	const chartesVersion = useStore((state) => state.chartesVersion);
 	const cacheToken = `${doc.updatedAt ?? String(Date.now())}-${chartesVersion}`;
-	const thumbSrc = `/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`;
+	const thumbSrc = browserPath(
+		`/api/thumb?name=${encodeURIComponent(doc.name)}&page=1&w=480&t=${encodeURIComponent(cacheToken)}`,
+	);
 	return (
 		<button
 			type="button"
@@ -234,7 +237,7 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 				src={thumbSrc}
 				alt={doc.name}
 				loading="lazy"
-				className={`absolute inset-0 w-full h-full object-cover ${doc.structuredWorkspaceKind ? "opacity-70 saturate-50" : ""}`}
+				className="absolute inset-0 h-full w-full object-cover"
 				style={{ background: "#fff" }}
 				draggable={false}
 			/>
@@ -278,23 +281,14 @@ function DocLockedMark({ className }: { className: string }) {
 }
 
 export function DocCardBadges({ doc }: { doc: DocSummary }) {
-	const t = useT();
 	return (
-		<>
-			{doc.structuredWorkspaceKind && (
-				<span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-2xs font-semibold text-white backdrop-blur">
-					<Boxes size={9} aria-hidden />
-					{t(`workspace_document_${doc.structuredWorkspaceKind}`)}
+		<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
+			{(doc.rating ?? 0) > 0 && (
+				<span className="px-1.5 py-0.5 rounded-md bg-amber-100/95 text-amber-600 text-2xs font-bold backdrop-blur">
+					★{doc.rating}
 				</span>
 			)}
-			<span className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
-				{(doc.rating ?? 0) > 0 && (
-					<span className="px-1.5 py-0.5 rounded-md bg-amber-100/95 text-amber-600 text-2xs font-bold backdrop-blur">
-						★{doc.rating}
-					</span>
-				)}
-			</span>
-		</>
+		</span>
 	);
 }
 
@@ -340,7 +334,7 @@ export function DocCardSummary({
 		<div className="mt-1 px-1 flex items-center gap-1.5">
 			<div className="flex-1 min-w-0">
 				<div
-					className={`text-xs truncate ${model.onWs ? "font-bold text-accent" : model.doc.structuredWorkspaceKind ? "font-medium text-text-3" : "font-semibold text-text-1"}`}
+					className={`text-xs truncate ${model.onWs ? "font-bold text-accent" : "font-semibold text-text-1"}`}
 				>
 					{model.doc.name}
 				</div>
@@ -405,8 +399,6 @@ export function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
 
 function rowBackgroundClass(model: DocItemModel): string {
 	if (model.selected) return "bg-accent/10 ring-2 ring-accent/30";
-	if (model.doc.structuredWorkspaceKind)
-		return "bg-black/[0.025] hover:bg-black/[0.055]";
 	return "hover:bg-black/[0.03]";
 }
 
@@ -448,11 +440,7 @@ export function DocRowTitle({
 	return (
 		<div
 			className={`text-base truncate flex items-center gap-1.5 ${
-				model.onWs
-					? "font-bold text-accent"
-					: model.doc.structuredWorkspaceKind
-						? "font-medium text-text-3"
-						: "font-medium text-text-2"
+				model.onWs ? "font-bold text-accent" : "font-medium text-text-2"
 			}`}
 		>
 			{meta.locked && (
@@ -463,12 +451,6 @@ export function DocRowTitle({
 				/>
 			)}
 			<span className="truncate">{model.doc.name}</span>
-			{model.doc.structuredWorkspaceKind && (
-				<span className="inline-flex shrink-0 items-center gap-1 rounded bg-black/[0.05] px-1.5 py-0.5 text-2xs font-medium text-text-3">
-					<Boxes size={9} aria-hidden />
-					{t(`workspace_document_${model.doc.structuredWorkspaceKind}`)}
-				</span>
-			)}
 		</div>
 	);
 }

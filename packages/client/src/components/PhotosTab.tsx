@@ -14,6 +14,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
+import { browserPath } from "../lib/browserBasePath";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
@@ -158,7 +159,7 @@ async function uploadFiles(
 			const formData = new FormData();
 			formData.append("file", file);
 			try {
-				const res = await fetch("/api/upload", {
+				const res = await fetch(browserPath("/api/upload"), {
 					method: "POST",
 					body: formData,
 				});
@@ -1282,10 +1283,12 @@ function PhotoTileThumbnail({
 			}`}
 		>
 			<img
-				src={`/assets/thumb/${img.file}`}
+				src={browserPath(`/assets/thumb/${img.file}`)}
 				alt={img.title || img.file}
 				onError={(event) => {
-					const fallback = `/assets/${encodeURIComponent(img.file)}`;
+					const fallback = browserPath(
+						`/assets/${encodeURIComponent(img.file)}`,
+					);
 					if (event.currentTarget.getAttribute("src") !== fallback) {
 						event.currentTarget.src = fallback;
 					}
@@ -1547,7 +1550,7 @@ function ImageDetail({
 
 			<div className="relative overflow-hidden rounded-md border border-border bg-input">
 				<img
-					src={`/assets/${img.file}`}
+					src={browserPath(`/assets/${img.file}`)}
 					alt={img.title || img.file}
 					className="w-full max-h-[250px] object-contain"
 				/>
@@ -1678,7 +1681,7 @@ function PhotoLightbox({
 			}}
 		>
 			<img
-				src={`/assets/${img.file}`}
+				src={browserPath(`/assets/${img.file}`)}
 				alt={img.title || img.file}
 				className="max-h-full max-w-full object-contain"
 			/>

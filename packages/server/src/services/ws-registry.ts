@@ -16,7 +16,9 @@ export interface WsLike {
 }
 
 export interface WsRegistry {
-	add(ws: WsLike): void;
+	add(ws: WsLike, options?: { viewer?: boolean }): void;
+	watch(ws: WsLike, docName: string): void;
+	isViewer(ws: WsLike): boolean;
 	remove(ws: WsLike): void;
 	/** True iff at least one client has readyState === 1 (OPEN). */
 	hasClients(): boolean;
@@ -30,22 +32,68 @@ export interface WsRegistry {
 const WS_OPEN = 1;
 
 export function createWsRegistry(): WsRegistry {
-	const clients = new Set<WsLike>();
+	const clients = new Map<
+		WsLike,
+		{ viewer: boolean; docName: string | null }
+	>();
 
 	return {
-		add(ws) {
-			clients.add(ws);
+		add(ws, options) {
+			clients.set(ws, { viewer: options?.viewer ?? false, docName: null });
+		},
+		isViewer(ws) {
+			return clients.get(ws)?.viewer ?? false;
+		},
+		watch(ws, docName) {
+			const client = clients.get(ws);
+			if (client?.viewer) client.docName = docName;
 		},
 		remove(ws) {
 			clients.delete(ws);
 		},
 		hasClients() {
-			for (const c of clients) if (c.readyState === WS_OPEN) return true;
+			for (const c of clients.keys()) if (c.readyState === WS_OPEN) return true;
 			return false;
 		},
 		broadcast(msg) {
 			const payload = JSON.stringify(msg);
-			for (const c of clients) if (c.readyState === WS_OPEN) c.send(payload);
+			for (const [client, options] of clients) {
+				if (client.readyState !== WS_OPEN) continue;
+				if (!options.viewer) {
+					client.send(payload);
+					continue;
+				}
+				if (
+					msg.type === "state" &&
+					(msg.doc as { name?: string } | null)?.name === options.docName
+				) {
+					client.send(
+						JSON.stringify({
+							...msg,
+							structuredWorkspaces: undefined,
+							focus: false,
+							addToWorkspace: false,
+						}),
+					);
+				} else if (
+					msg.type === "state_pages" &&
+					msg.docName === options.docName
+				) {
+					client.send(payload);
+				} else if (
+					msg.type === "doc_renamed" &&
+					msg.oldName === options.docName
+				) {
+					options.docName = (msg.doc as { name: string }).name;
+					client.send(
+						JSON.stringify({ ...msg, structuredWorkspaces: undefined }),
+					);
+				} else if (msg.type === "doc_removed" && msg.name === options.docName) {
+					client.send(payload);
+				} else if (msg.type === "reload" || msg.type === "settings") {
+					client.send(payload);
+				}
+			}
 		},
 	};
 }

@@ -176,7 +176,7 @@ export interface FitViewSignal {
 
 export interface StructuredWorkspaceRenderTarget {
 	workspaceId: string;
-	collectionId: string;
+	collectionId?: string;
 }
 
 export interface LoadDocumentCommand {
@@ -194,6 +194,18 @@ export interface RenameDocumentCommand {
 	type: "rename_document";
 	name: string;
 	newName: string;
+}
+
+export interface RenameStructuredWorkspaceCommand {
+	type: "rename_structured_workspace";
+	workspaceId: string;
+	newName: string;
+	expectedRevision: number;
+}
+
+export interface DeleteStructuredWorkspaceCommand {
+	type: "delete_structured_workspace";
+	workspaceId: string;
 }
 
 export interface DuplicateDocumentCommand {
@@ -323,7 +335,7 @@ export interface PatchDocumentStateCommand {
 	docName: string;
 	expectedRevision: number;
 	operation: {
-		op: "replace";
+		op: "replace" | "add";
 		path: string;
 		value: null | string | number | boolean;
 	};
@@ -400,6 +412,8 @@ export type WorkspaceCommand =
 	| LoadDocumentCommand
 	| DeleteDocumentCommand
 	| RenameDocumentCommand
+	| RenameStructuredWorkspaceCommand
+	| DeleteStructuredWorkspaceCommand
 	| DuplicateDocumentCommand
 	| LockDocumentCommand
 	| OpenOnboardingCommand

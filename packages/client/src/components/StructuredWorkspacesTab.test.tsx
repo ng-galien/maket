@@ -38,10 +38,11 @@ const workspace: StructuredWorkspaceView = {
 		collections: {
 			backlog: {
 				name: "Backlog",
-				collectionTemplateDocumentId: "board-doc",
+				collectionTemplateDocumentId: "board-template",
 				bindings: {
 					task: {
 						schemaPath: "",
+						compactTemplateDocumentId: "task-template",
 						detailTemplateDocumentId: "task-template",
 					},
 				},
@@ -54,6 +55,22 @@ const workspace: StructuredWorkspaceView = {
 			collectionId: "backlog",
 			documentId: "board-instance",
 			documentName: "Delivery board",
+		},
+	],
+	integrity: { status: "ready", issues: [] },
+	templateDocuments: [
+		{
+			documentId: "board-template",
+			documentName: "Board template",
+			roles: [{ role: "collection", collectionId: "backlog" }],
+		},
+		{
+			documentId: "task-template",
+			documentName: "Task template",
+			roles: [
+				{ role: "detail", collectionId: "backlog", bindingId: "task" },
+				{ role: "compact", collectionId: "backlog", bindingId: "task" },
+			],
 		},
 	],
 	items: [
@@ -88,7 +105,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("StructuredWorkspacesTab", () => {
-	it("uses the document tree hierarchy for workspaces, collections, and items", () => {
+	it("groups templates under each collection definition and keeps items direct", () => {
 		const { container } = render(<StructuredWorkspacesTab />);
 
 		expect(
@@ -100,9 +117,63 @@ describe("StructuredWorkspacesTab", () => {
 		expect(
 			container.querySelector('[data-structured-item="task-1"]'),
 		).not.toBeNull();
+		const definition = container.querySelector("[data-structured-definition]");
+		const item = container.querySelector('[data-structured-item="task-1"]');
+		expect(definition).not.toBeNull();
+		expect(
+			definition?.querySelectorAll("[data-structured-template]"),
+		).toHaveLength(2);
+		expect(definition?.contains(item)).toBe(false);
+		expect(screen.queryByText("Data schema")).not.toBeInTheDocument();
+		expect(screen.queryByText("Representation schema")).not.toBeInTheDocument();
+		expect(screen.getByText("Compact · task / Detail · task")).toBeVisible();
 		expect(
 			screen.queryByText("Collection view always open"),
 		).not.toBeInTheDocument();
+	});
+
+	it("places each template only in the definitions named by its roles", () => {
+		const multiCollection: StructuredWorkspaceView = {
+			...structuredClone(workspace),
+			representationSchema: {
+				...structuredClone(workspace.representationSchema),
+				collections: {
+					...structuredClone(workspace.representationSchema.collections),
+					archive: {
+						name: "Archive",
+						collectionTemplateDocumentId: "archive-template",
+						bindings: {},
+					},
+				},
+			},
+			templateDocuments: [
+				...structuredClone(workspace.templateDocuments),
+				{
+					documentId: "archive-template",
+					documentName: "Archive template",
+					roles: [{ role: "collection", collectionId: "archive" }],
+				},
+			],
+		};
+		useStore.setState({ structuredWorkspaces: [multiCollection] });
+
+		const { container } = render(<StructuredWorkspacesTab />);
+		const backlog = container.querySelector(
+			'[data-structured-collection="backlog"]',
+		);
+		const archive = container.querySelector(
+			'[data-structured-collection="archive"]',
+		);
+
+		expect(
+			backlog?.querySelector('[data-structured-template="Task template"]'),
+		).not.toBeNull();
+		expect(
+			backlog?.querySelector('[data-structured-template="Archive template"]'),
+		).toBeNull();
+		expect(
+			archive?.querySelector('[data-structured-template="Archive template"]'),
+		).not.toBeNull();
 	});
 
 	it("selects one workspace at a time and loads its collection projection", async () => {
@@ -229,5 +300,63 @@ describe("StructuredWorkspacesTab", () => {
 		expect(
 			screen.getByText("No Workspace matches the search"),
 		).toBeInTheDocument();
+	});
+
+	it("keeps incomplete collection definitions inspectable but blocks projections", async () => {
+		const user = userEvent.setup();
+		const sendLoadDoc = vi.spyOn(ws, "sendLoadDoc").mockReturnValue(true);
+		useStore.setState({
+			structuredWorkspaces: [
+				{
+					...workspace,
+					integrity: {
+						status: "incomplete",
+						issues: ["The collection template is missing."],
+					},
+				},
+			],
+		});
+		const { container } = render(<StructuredWorkspacesTab />);
+
+		expect(
+			screen.getByText("The collection template is missing."),
+		).toBeVisible();
+		expect(
+			container.querySelector('[data-category-path="Delivery/Backlog"]'),
+		).not.toBeNull();
+		expect(
+			container.querySelector('[data-structured-item="task-1"]'),
+		).toBeNull();
+		await user.click(
+			screen.getByRole("button", { name: "Open template Task template" }),
+		);
+		expect(sendLoadDoc).toHaveBeenCalledWith("Task template", {
+			workspaceId: "delivery",
+		});
+		expect(useStore.getState().stateDockOpen).toBe(true);
+		expect(useStore.getState().focusedCollectionName).toBeNull();
+		sendLoadDoc.mockRestore();
+	});
+
+	it("renames from the anchored Workspace menu and offers hold-to-delete", async () => {
+		const user = userEvent.setup();
+		const rename = vi
+			.spyOn(ws, "sendRenameStructuredWorkspace")
+			.mockImplementation(() => {});
+		render(<StructuredWorkspacesTab />);
+
+		await user.click(screen.getByRole("button", { name: "Workspace actions" }));
+		await user.click(screen.getByRole("menuitem", { name: "Rename" }));
+		const input = screen.getByPlaceholderText("Rename Workspace");
+		await user.clear(input);
+		await user.type(input, "Operations{Enter}");
+		expect(rename).toHaveBeenCalledWith("delivery", "Operations", 1);
+
+		await user.click(screen.getByRole("button", { name: "Workspace actions" }));
+		await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+		expect(
+			screen.getByText("Hold to delete Delivery and all owned resources"),
+		).toBeVisible();
+		rename.mockRestore();
 	});
 });

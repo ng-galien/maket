@@ -6,15 +6,25 @@ import { SegmentedControl } from "./shared/SegmentedControl";
 export function StateDockButton() {
 	const t = useT();
 	const focusedDoc = useFocusedDoc();
+	const template = useStore((state) =>
+		state.structuredWorkspaces.some((workspace) =>
+			workspace.templateDocuments.some(
+				(document) => document.documentName === focusedDoc?.name,
+			),
+		),
+	);
 	const open = useStore((state) => state.stateDockOpen);
 	const setOpen = useStore((state) => state.setStateDockOpen);
-	if (focusedDoc?.dataModel !== "state") return null;
+	if (focusedDoc?.dataModel !== "state" && !template) return null;
+	const label = template
+		? t("structured_template_schema_open")
+		: t("state_open_data");
 	return (
 		<button
 			type="button"
 			data-state-dock-trigger
-			aria-label={t("state_open_data")}
-			title={t("state_open_data")}
+			aria-label={label}
+			title={label}
 			aria-pressed={open}
 			onClick={() => setOpen(!open)}
 			className={`relative -ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-colors ${

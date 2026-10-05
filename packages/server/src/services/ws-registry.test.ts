@@ -50,4 +50,39 @@ describe("ws-registry", () => {
 		a.add(fakeClient(1));
 		expect(b.hasClients()).toBe(false);
 	});
+
+	it("keeps linked viewers on their own document and omits workspace snapshots", () => {
+		const reg = createWsRegistry();
+		const desktop = fakeClient();
+		const viewer = fakeClient();
+		reg.add(desktop);
+		reg.add(viewer, { viewer: true });
+		reg.watch(viewer, "Phone document");
+		reg.broadcast({ type: "structured_workspaces_changed", workspaces: [] });
+		reg.broadcast({
+			type: "state",
+			doc: { name: "Mac document" },
+			docList: [],
+			charteCss: "",
+			focus: true,
+		});
+		expect(viewer.send).not.toHaveBeenCalled();
+		reg.broadcast({
+			type: "state",
+			doc: { name: "Phone document" },
+			docList: [],
+			charteCss: "",
+			focus: true,
+			structuredWorkspaces: [],
+		});
+		expect(desktop.send).toHaveBeenCalledTimes(3);
+		expect(viewer.send).toHaveBeenCalledTimes(1);
+		expect(JSON.parse(viewer.send.mock.calls[0]?.[0] ?? "{}")).toMatchObject({
+			type: "state",
+			focus: false,
+		});
+		expect(
+			JSON.parse(viewer.send.mock.calls[0]?.[0] ?? "{}"),
+		).not.toHaveProperty("structuredWorkspaces");
+	});
 });

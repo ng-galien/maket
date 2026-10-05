@@ -22,6 +22,79 @@ function textOf(result: CallToolResult): string {
 }
 
 describe("maket_structured_workspace", () => {
+	it("reports incompatible collection templates as incomplete and keeps listing usable", async () => {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const documentStates = createDocumentStates({ store, bus, documents });
+		const structuredWorkspaces = createStructuredWorkspaces({
+			store,
+			bus,
+			documents,
+			documentStates,
+		});
+		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		try {
+			const template = createDocument({
+				name: "Incompatible template",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: [
+					{
+						name: "Page",
+						elements: [],
+						html: '<input type="text" data-maket-bind="state.missing">',
+					},
+				],
+			});
+			documents.all().set(template.name, template);
+			documents.persist(template.name);
+			const result = await tool.handler(
+				{
+					action: "create",
+					workspace: "Incomplete",
+					data_schema: {
+						type: "object",
+						properties: { title: { type: "string" } },
+					},
+					representation_schema: {
+						version: 1,
+						collections: {
+							backlog: {
+								name: "Backlog",
+								collectionTemplateDocumentId: template.id,
+								bindings: {
+									task: {
+										schemaPath: "",
+										detailTemplateDocumentId: template.id,
+									},
+								},
+							},
+						},
+					},
+				},
+				{} as never,
+			);
+			expect(result.isError).toBeUndefined();
+			expect(textOf(result)).toContain("incomplete");
+			const listed = await tool.handler({ action: "list" }, {} as never);
+			expect(listed.isError).toBeUndefined();
+			expect(structuredWorkspaces.listViews()[0]?.integrity).toMatchObject({
+				status: "incomplete",
+				issues: expect.arrayContaining([
+					expect.stringContaining("state.missing"),
+				]),
+			});
+			expect(documents.resolveOrLoad("Incomplete — Backlog")).toBeNull();
+		} finally {
+			store.close();
+		}
+	});
 	it("registers its dedicated tool pack", () => {
 		expect(structuredWorkspacesPack.declaresTools).toEqual([
 			"maket_structured_workspace",
@@ -78,11 +151,11 @@ describe("maket_structured_workspace", () => {
 					collections: {
 						backlog: {
 							name: "Backlog",
-							collectionTemplateDocumentId: "Task template",
+							collectionTemplateDocumentId: "Invalid template",
 							bindings: {
 								"": {
 									schemaPath: "/$defs/task",
-									detailTemplateDocumentId: "Task template",
+									detailTemplateDocumentId: "Invalid template",
 								},
 							},
 						},
@@ -91,9 +164,14 @@ describe("maket_structured_workspace", () => {
 			},
 			{} as never,
 		);
-		expect(emptyBinding.isError).toBe(true);
-		expect(textOf(emptyBinding)).toContain("Binding ids must not be empty");
-		expect(structuredWorkspaces.get("Invalid delivery")).toBeNull();
+		expect(emptyBinding.isError).toBeUndefined();
+		expect(textOf(emptyBinding)).toContain(
+			'Structured Workspace "Invalid delivery" created',
+		);
+		expect(structuredWorkspaces.get("Invalid delivery")?.integrity).toEqual({
+			status: "incomplete",
+			issues: expect.arrayContaining(["Binding ids must not be empty."]),
+		});
 
 		const created = await tool.handler(
 			{
@@ -190,6 +268,44 @@ describe("maket_structured_workspace", () => {
 		expect(updated.isError).toBeUndefined();
 		expect(textOf(updated)).toContain("revision 2");
 
+		const lockedItem = documents.resolveOrLoad("Release task");
+		if (!lockedItem) throw new Error("Expected instantiated document");
+		lockedItem.meta.locked = true;
+		documents.persist(lockedItem.name);
+		for (const args of [
+			{
+				action: "update_item",
+				workspace: "Delivery",
+				item: "task-1",
+				expected_revision: 2,
+				data: { kind: "task", title: "Forbidden" },
+			},
+			{ action: "delete_item", workspace: "Delivery", item: "task-1" },
+			{ action: "delete", workspace: "Delivery" },
+			{
+				action: "rename",
+				workspace: "Delivery",
+				new_name: "Forbidden",
+				expected_workspace_revision: 2,
+			},
+			{ action: "sync_template", workspace: "Delivery" },
+			{
+				action: "update_definition",
+				workspace: "Delivery",
+				expected_workspace_revision: 2,
+				data_schema: { type: "object" },
+			},
+		]) {
+			const rejected = await tool.handler(args, {} as never);
+			expect(rejected.isError).toBe(true);
+			expect(textOf(rejected)).toContain("locked");
+		}
+		expect(documentStates.get(lockedItem.name)?.current.data.title).toBe(
+			"Ship now",
+		);
+		expect(store.loadOne(lockedItem.name)).not.toBeNull();
+		lockedItem.meta.locked = false;
+		documents.persist(lockedItem.name);
 		const viewed = await tool.handler(
 			{ action: "view", workspace: "Delivery" },
 			{} as never,
@@ -245,6 +361,26 @@ describe("maket_structured_workspace", () => {
 			{ id: "task-3", position: 1 },
 			{ id: "task-4", position: 2 },
 		]);
+		const renamed = await tool.handler(
+			{
+				action: "rename",
+				workspace: compacted?.id,
+				new_name: "Operations",
+				expected_workspace_revision: 2,
+			},
+			{} as never,
+		);
+		expect(renamed.isError).toBeUndefined();
+		expect(textOf(renamed)).toContain(
+			'Workspace "Operations" renamed without regenerating',
+		);
+		const removed = await tool.handler(
+			{ action: "delete", workspace: compacted?.id },
+			{} as never,
+		);
+		expect(removed.isError).toBeUndefined();
+		expect(textOf(removed)).toContain("owned document(s)");
+		expect(structuredWorkspaces.get(compacted?.id ?? "")).toBeNull();
 		store.close();
 	});
 });

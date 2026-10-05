@@ -17,6 +17,7 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { translate, useT } from "../i18n/useT";
+import { prefixDocumentAssetUrls } from "../lib/browserBasePath";
 import type { Document } from "../store/types";
 import {
 	hasPendingStatePatchForDocument,
@@ -285,9 +286,11 @@ export const PageCanvas = memo(function PageCanvas({
 	}, [activePolicy.authoring, collection, page?.collection, preview, rawHtml]);
 	const html = useMemo(
 		() =>
-			collectionRender.html.replace(
-				/src=["']\/assets\/(?!(?:thumb|preview|print)\/)([\w.\-()% ]+\.(jpe?g|png|webp))["']/gi,
-				'src="/assets/preview/$1"',
+			prefixDocumentAssetUrls(
+				collectionRender.html.replace(
+					/src=["']\/assets\/(?!(?:thumb|preview|print)\/)([\w.\-()% ]+\.(jpe?g|png|webp))["']/gi,
+					'src="/assets/preview/$1"',
+				),
 			),
 		[collectionRender.html],
 	);
@@ -306,7 +309,10 @@ export const PageCanvas = memo(function PageCanvas({
 		activePolicy.stateControls === "persist" && !structuredCollection;
 	const canUseStateControls =
 		activePolicy.stateControls !== "disabled" && !structuredCollection;
-	const charteVars = useMemo(() => parseCSSVars(charteCss), [charteCss]);
+	const charteVars = useMemo(
+		() => parseCSSVars(prefixDocumentAssetUrls(charteCss)),
+		[charteCss],
+	);
 	const placeholderOptions = useMemo(
 		() => [
 			...(collection
@@ -672,7 +678,7 @@ export const PageCanvas = memo(function PageCanvas({
 			if (
 				!canPersistState ||
 				stateDocumentPending ||
-				typeof authoritative !== "string"
+				(authoritative !== undefined && typeof authoritative !== "string")
 			)
 				return "restored";
 			if (value === authoritative) return "unchanged";
@@ -705,7 +711,8 @@ export const PageCanvas = memo(function PageCanvas({
 			const pointer = select.dataset.maketPath;
 			if (!pointer || select.dataset.maketType !== "string") return;
 			const authoritative = authoritativeStateValue(pointer);
-			if (typeof authoritative !== "string") return;
+			if (authoritative !== undefined && typeof authoritative !== "string")
+				return;
 			const options = Array.from(select.options)
 				.filter((option) => !option.disabled)
 				.map((option) => ({
@@ -732,7 +739,7 @@ export const PageCanvas = memo(function PageCanvas({
 					width: anchorRect.width,
 				},
 				options,
-				selectedValue: authoritative,
+				selectedValue: authoritative ?? select.value,
 				label: stateSelectLabel(select, t("state_value")),
 			});
 		},
@@ -760,29 +767,28 @@ export const PageCanvas = memo(function PageCanvas({
 		const restoreControl = (binding: StateFormControl, pointer: string) => {
 			const authoritative = authoritativeStateValue(pointer);
 			if (binding instanceof HTMLSelectElement) {
-				if (typeof authoritative === "string") binding.value = authoritative;
+				binding.value = typeof authoritative === "string" ? authoritative : "";
 				return;
 			}
 			if (binding instanceof HTMLTextAreaElement) {
-				if (typeof authoritative === "string") binding.value = authoritative;
+				binding.value = typeof authoritative === "string" ? authoritative : "";
 				return;
 			}
 			if (binding.type === "checkbox") {
-				if (typeof authoritative === "boolean") {
-					binding.checked = authoritative;
-				}
+				binding.checked = authoritative === true;
 				return;
 			}
 			if (binding.type === "radio") {
 				binding.checked = String(authoritative) === binding.value;
 				return;
 			}
-			if (binding.type === "number" && typeof authoritative === "number") {
-				binding.value = String(authoritative);
+			if (binding.type === "number") {
+				binding.value =
+					typeof authoritative === "number" ? String(authoritative) : "";
 				return;
 			}
-			if (isStringInput(binding) && typeof authoritative === "string") {
-				binding.value = authoritative;
+			if (isStringInput(binding)) {
+				binding.value = typeof authoritative === "string" ? authoritative : "";
 			}
 		};
 		const commitStringControl = (
@@ -1022,7 +1028,15 @@ export const PageCanvas = memo(function PageCanvas({
 			);
 			const documentName = action?.getAttribute("data-maket-document");
 			if (!documentName) return false;
-			useStore.getState().openWorkspaceDocument(documentName);
+			const owner = doc.meta?.structuredWorkspace;
+			if (owner?.role === "collection") {
+				useStore.getState().openWorkspaceDocument(documentName, {
+					workspaceId: owner.workspaceId,
+					collectionId: owner.collectionId,
+				});
+			} else {
+				useStore.getState().openWorkspaceDocument(documentName);
+			}
 			return true;
 		};
 		const onClick = (event: MouseEvent) => {
@@ -1042,7 +1056,7 @@ export const PageCanvas = memo(function PageCanvas({
 			canvas.removeEventListener("click", onClick, true);
 			canvas.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [renderHtml]);
+	}, [doc.meta?.structuredWorkspace, renderHtml]);
 
 	const dismissEnumEditor = useCallback(
 		(restoreFocus: boolean) => {

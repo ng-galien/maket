@@ -15,6 +15,10 @@ import {
 	validateDocumentState,
 } from "./document-state.js";
 import { renderDocumentStatePage } from "./document-state-page.js";
+import type {
+	StructuredWorkspaceDefinition,
+	StructuredWorkspacePageProvenance,
+} from "./structured-workspace.js";
 
 export const MAKET_BUNDLE_KIND = "maket-bundle";
 export const MAKET_BUNDLE_EXT = ".maket";
@@ -62,6 +66,19 @@ export interface BundleManifestData {
 	collections: unknown[];
 	documentStates: BundleDocumentStateSnapshot[];
 	annotations: BundleAnnotationSnapshot[];
+	structuredWorkspaces: BundleStructuredWorkspaceSnapshot[];
+}
+
+/** Portable aggregate metadata. Documents and state snapshots remain in their
+ * normal manifest sections; this snapshot reconnects them on import. */
+export interface BundleStructuredWorkspaceSnapshot {
+	workspace: StructuredWorkspaceDefinition;
+	collectionDocuments: Array<{ documentId: string; collectionId: string }>;
+	pageProvenance: Array<{
+		documentId: string;
+		pageId: string;
+		provenance: StructuredWorkspacePageProvenance;
+	}>;
 }
 
 /** Current portable snapshot for one state-backed document. Revision history
@@ -377,6 +394,9 @@ export function validateBundleManifest(
 		? m.documentStates
 		: [];
 	const annotations = Array.isArray(m.annotations) ? m.annotations : [];
+	const structuredWorkspaces = Array.isArray(m.structuredWorkspaces)
+		? m.structuredWorkspaces
+		: [];
 	m.documents.forEach(validateBundleDocument);
 	chartes.forEach(validateBundleCharte);
 	collections.forEach(validateBundleCollection);
@@ -388,6 +408,10 @@ export function validateBundleManifest(
 	const validatedAnnotations = annotations.map((annotation, index) =>
 		validateBundleAnnotation(annotation, index, docsById),
 	);
+	const validatedStructuredWorkspaces = structuredWorkspaces.map(
+		(snapshot, index) =>
+			validateBundleStructuredWorkspace(snapshot, index, docsById),
+	);
 
 	return {
 		version,
@@ -397,7 +421,70 @@ export function validateBundleManifest(
 		collections,
 		documentStates: validatedStates,
 		annotations: validatedAnnotations,
+		structuredWorkspaces: validatedStructuredWorkspaces,
 	};
+}
+
+function validateBundleStructuredWorkspace(
+	value: unknown,
+	index: number,
+	docsById: BundleDocumentStateValidationContext["docsById"],
+): BundleStructuredWorkspaceSnapshot {
+	if (
+		!isPlainRecord(value) ||
+		!isPlainRecord(value.workspace) ||
+		typeof value.workspace.id !== "string" ||
+		typeof value.workspace.name !== "string" ||
+		!isPlainRecord(value.workspace.dataSchema) ||
+		!isPlainRecord(value.workspace.representationSchema) ||
+		!Array.isArray(value.workspace.items) ||
+		!Array.isArray(value.collectionDocuments) ||
+		!Array.isArray(value.pageProvenance)
+	) {
+		throw new Error(
+			`Invalid .maket file: structuredWorkspaces[${index}] is malformed`,
+		);
+	}
+	const collectionIds = new Set<string>();
+	for (const entry of value.collectionDocuments) {
+		if (
+			!isPlainRecord(entry) ||
+			typeof entry.documentId !== "string" ||
+			!docsById.has(entry.documentId) ||
+			typeof entry.collectionId !== "string" ||
+			collectionIds.has(entry.collectionId)
+		) {
+			throw new Error(
+				`Invalid .maket file: structuredWorkspaces[${index}] has invalid collection documents`,
+			);
+		}
+		collectionIds.add(entry.collectionId);
+	}
+	for (const item of value.workspace.items) {
+		if (
+			!isPlainRecord(item) ||
+			typeof item.documentId !== "string" ||
+			!docsById.has(item.documentId)
+		) {
+			throw new Error(
+				`Invalid .maket file: structuredWorkspaces[${index}] references a missing item document`,
+			);
+		}
+	}
+	for (const entry of value.pageProvenance) {
+		if (
+			!isPlainRecord(entry) ||
+			typeof entry.documentId !== "string" ||
+			!docsById.has(entry.documentId) ||
+			typeof entry.pageId !== "string" ||
+			!isPlainRecord(entry.provenance)
+		) {
+			throw new Error(
+				`Invalid .maket file: structuredWorkspaces[${index}] has malformed page provenance`,
+			);
+		}
+	}
+	return value as unknown as BundleStructuredWorkspaceSnapshot;
 }
 
 // ── Encoding side ────────────────────────────────────────────────────────────
@@ -455,6 +542,7 @@ export function buildBundleManifest(
 		exportedAt: string;
 		documentStates?: readonly BundleDocumentStateSnapshot[];
 		annotations?: readonly BundleAnnotationSnapshot[];
+		structuredWorkspaces?: readonly BundleStructuredWorkspaceSnapshot[];
 	},
 ): Record<string, unknown> {
 	return {
@@ -466,5 +554,6 @@ export function buildBundleManifest(
 		collections,
 		documentStates: opts.documentStates ?? [],
 		annotations: opts.annotations ?? [],
+		structuredWorkspaces: opts.structuredWorkspaces ?? [],
 	};
 }

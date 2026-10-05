@@ -5,6 +5,7 @@ import {
 	type DocumentStateSchema,
 	isTerminalJsonValue,
 	type JsonPatchOperation,
+	parseJsonPointer,
 	readJsonPointer,
 	renderDocumentStatePage,
 	validateDocumentState,
@@ -44,7 +45,7 @@ export interface DocumentStates {
 	patchTerminal(
 		docName: string,
 		expectedRevision: number,
-		operation: Extract<JsonPatchOperation, { op: "replace" }>,
+		operation: Extract<JsonPatchOperation, { op: "replace" | "add" }>,
 	): DocumentStateRevision;
 	changeSchema(
 		docName: string,
@@ -147,9 +148,12 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 				);
 			}
 			const { doc, current } = requiredState(deps, docName);
-			const previous = readJsonPointer(current.data, operation.path);
+			const previous =
+				operation.op === "add"
+					? missingTerminal(current.data, operation.path)
+					: readJsonPointer(current.data, operation.path);
 			if (
-				!isTerminalJsonValue(previous) ||
+				(operation.op === "replace" && !isTerminalJsonValue(previous)) ||
 				!isTerminalJsonValue(operation.value)
 			) {
 				throw new MessageError(
@@ -365,4 +369,23 @@ function emitStateChanged(
 		schemaChanged,
 		attached,
 	});
+}
+
+function missingTerminal(data: DocumentStateData, path: string): undefined {
+	const segments = parseJsonPointer(path);
+	const leaf = segments.at(-1);
+	const parent = readJsonPointer(data, path.slice(0, path.lastIndexOf("/")));
+	if (
+		!parent ||
+		typeof parent !== "object" ||
+		Array.isArray(parent) ||
+		leaf === undefined ||
+		Object.hasOwn(parent, leaf)
+	) {
+		throw new MessageError(
+			"Live additions require a missing object property.",
+			"msg_state_terminal_only",
+		);
+	}
+	return undefined;
 }

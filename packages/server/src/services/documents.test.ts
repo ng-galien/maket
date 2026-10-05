@@ -125,6 +125,7 @@ describe("documents service", () => {
 		const store = createSQLiteStore(":memory:");
 		const document = makeDoc("instance");
 		document.meta.structuredWorkspace = {
+			role: "item",
 			workspaceId: "workspace-1",
 			collectionId: "backlog",
 			itemId: "item-1",
@@ -143,7 +144,7 @@ describe("documents service", () => {
 		store.close();
 	});
 
-	it("list produces summaries for every cached document", () => {
+	it("omits every Workspace-owned resource from the Documents library", () => {
 		const store = createSQLiteStore(":memory:");
 		const a = makeDoc("a", "poster");
 		const firstPage = a.pages[0];
@@ -164,7 +165,16 @@ describe("documents service", () => {
 			},
 		);
 		const b = makeDoc("b", "flyer");
+		a.meta.structuredWorkspace = {
+			role: "template",
+			workspaceId: "workspace-1",
+			templateRoles: [
+				{ role: "collection", collectionId: "backlog" },
+				{ role: "detail", collectionId: "backlog", bindingId: "task" },
+			],
+		};
 		b.meta.structuredWorkspace = {
+			role: "item",
 			workspaceId: "workspace-1",
 			collectionId: "backlog",
 			itemId: "item-1",
@@ -199,18 +209,7 @@ describe("documents service", () => {
 			.list()
 			.map((s) => s.name)
 			.sort();
-		expect(names).toEqual(["a", "b"]);
-		const summaryA = docs.list().find((s) => s.name === "a");
-		expect(summaryA?.category).toBe("poster");
-		expect(summaryA?.format).toBe("A4");
-		expect(summaryA?.collectionBindings).toEqual([
-			{ name: "clients", pageCount: 2 },
-			{ name: "offers", pageCount: 1 },
-		]);
-		expect(summaryA?.structuredWorkspaceKind).toBe("template");
-		expect(
-			docs.list().find((s) => s.name === "b")?.structuredWorkspaceKind,
-		).toBe("item");
+		expect(names).toEqual([]);
 		store.close();
 	});
 

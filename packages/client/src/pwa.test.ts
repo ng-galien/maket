@@ -31,6 +31,19 @@ describe("PWA installation", () => {
 		dispose();
 	});
 
+	it("leaves installation and service worker ownership to a hosting gateway", () => {
+		document.head.insertAdjacentHTML(
+			"beforeend",
+			'<meta name="maket-base-path" content="/mobile/apps/maket" />',
+		);
+		try {
+			initializePwa();
+			expect(register).not.toHaveBeenCalled();
+		} finally {
+			document.querySelector('meta[name="maket-base-path"]')?.remove();
+		}
+	});
+
 	it("captures and runs Chromium's explicit install prompt", async () => {
 		const nativePrompt = vi.fn(async () => undefined);
 		const event = new Event("beforeinstallprompt", { cancelable: true });

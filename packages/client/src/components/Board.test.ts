@@ -33,14 +33,14 @@ describe("boardDocFrame", () => {
 			parent: board,
 		});
 		geometry(page, {
-			left: 900,
-			top: 160,
+			left: 0,
+			top: 120,
 			width: 794,
 			height: 1123,
 			parent: doc,
 		});
 
-		expect(boardDocFrame(page)).toEqual({
+		expect(boardDocFrame(page, board)).toEqual({
 			left: 900,
 			top: 160,
 			width: 794,

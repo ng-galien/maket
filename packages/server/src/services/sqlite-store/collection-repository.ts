@@ -34,7 +34,7 @@ export function createCollectionRepository(
 	return {
 		saveCollection(c) {
 			assertValidCollection(c);
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				statements.collectionUpsert.run({
 					name: c.name,
@@ -50,9 +50,9 @@ export function createCollectionRepository(
 						data: JSON.stringify(member.data),
 					});
 				}
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 			} catch (e) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw e;
 			}
 		},

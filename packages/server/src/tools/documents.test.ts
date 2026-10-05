@@ -254,6 +254,43 @@ describe("maket_doc — action=list", () => {
 	});
 });
 
+describe("maket_doc — action=link", () => {
+	it("returns a stable reading path with owning workspace context without changing focus", async () => {
+		const { store, bus, documents, config, collections } = fixture();
+		config.BASE_PATH = "/mobile/apps/maket";
+		const doc = makeDoc("Review proposal");
+		doc.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "workspace-1",
+			collectionId: "decisions",
+			itemId: "decision-1",
+			bindingId: "decision",
+		};
+		store.saveDoc(doc);
+		const focused = vi.fn();
+		bus.on("document:focused", focused);
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			collections,
+		});
+		const result = await tool.handler(
+			{ action: "link", doc: doc.name },
+			NO_EXTRA,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(JSON.parse(body)).toEqual({
+			documentId: doc.id,
+			path: `/mobile/apps/maket/documents/${doc.id}/read?workspace=workspace-1&collection=decisions`,
+		});
+		expect(focused).not.toHaveBeenCalled();
+		store.close();
+	});
+});
+
 describe("maket_doc — action=delete", () => {
 	it("refuses to delete the only document", async () => {
 		const { store, bus, documents, config, collections } = fixture();
@@ -321,8 +358,17 @@ describe("maket_doc — action=delete", () => {
 	it("refuses to bypass Structured Workspace ownership", async () => {
 		const { store, bus, documents, config, collections } = fixture();
 		const template = makeDoc("template");
+		template.meta.structuredWorkspace = {
+			role: "template",
+			workspaceId: "workspace-1",
+			templateRoles: [
+				{ role: "collection", collectionId: "backlog" },
+				{ role: "detail", collectionId: "backlog", bindingId: "task" },
+			],
+		};
 		const instance = makeDoc("instance");
 		instance.meta.structuredWorkspace = {
+			role: "item",
 			workspaceId: "workspace-1",
 			collectionId: "backlog",
 			itemId: "item-1",
@@ -371,6 +417,18 @@ describe("maket_doc — action=delete", () => {
 		);
 		expect(instanceResult.isError).toBe(true);
 		expect(documents.resolve("instance")).not.toBeNull();
+		for (const mutation of [
+			{ action: "rename", doc: "template", name: "renamed-template" },
+			{ action: "meta", doc: "instance", category: "other" },
+		] as const) {
+			const result = await tool.handler(mutation, NO_EXTRA);
+			expect(result.isError).toBe(true);
+			expect((result.content[0] as { text: string }).text).toContain(
+				"belongs to Workspace",
+			);
+		}
+		expect(documents.resolve("template")?.name).toBe("template");
+		expect(documents.resolve("instance")?.category).not.toBe("other");
 		store.close();
 	});
 });

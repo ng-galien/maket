@@ -381,7 +381,16 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		"A Structured Workspace contains one or more schema-driven collections whose items own persistent instantiated Maket documents. It is separate from the free-form Documents workspace and from mail-merge collections.",
+		"A Workspace is the aggregate root for its schemas, templates, collection projections, items, instantiated documents, state history, and annotations. Owned resources appear only in the Workspace tree, never in the free-form Documents library.",
+		section(
+			"Identity and integrity",
+			[
+				"- The stable Workspace id is its internal identity; its name is mutable display text.",
+				"- `list` and `view` expose `integrity.status` as `ready` or `incomplete` plus actionable issues.",
+				"- Incomplete Workspaces remain visible and their schemas and templates remain inspectable, but collection and item projections cannot open until integrity is ready.",
+				"- Templates belong to exactly one Workspace. One template may fill several roles inside that same Workspace.",
+			].join("\n"),
+		),
 		section(
 			"Two contracts",
 			[
@@ -400,9 +409,10 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"API workflow",
-			"```text\nmaket_structured_workspace action=create workspace=<name> data_schema=<schema> representation_schema=<schema>\nmaket_structured_workspace action=add_item workspace=<name> collection=<collection> binding=<binding> document_name=<doc> data=<data>\nmaket_structured_workspace action=update_item workspace=<name> item=<id> expected_revision=<n> data=<data>\nmaket_structured_workspace action=sync_template workspace=<name> [collection=<collection>] [binding=<binding>]\n```",
+			"```text\nmaket_structured_workspace action=create workspace=<name> [data_schema=<schema>] [representation_schema=<schema>]\nmaket_structured_workspace action=add_item workspace=<id-or-name> collection=<collection> binding=<binding> document_name=<doc> data=<data>\nmaket_structured_workspace action=update_item workspace=<id-or-name> item=<id> expected_revision=<n> data=<data>\nmaket_structured_workspace action=sync_template workspace=<id-or-name> [collection=<collection>] [binding=<binding>]\nmaket_structured_workspace action=rename workspace=<id-or-name> new_name=<name> expected_workspace_revision=<n>\nmaket_structured_workspace action=delete workspace=<id-or-name>\n```",
 			"Use `update_definition` with `expected_workspace_revision` to change the data schema or representation schema. Existing item data, concrete bindings, and prospective template pages are validated before the definition changes.",
 			"Template references may be current document names or stable document ids; Maket stores stable ids.",
+			"Rename preserves every owned document id, state revision, annotation, and instance-owned page. Delete is an aggregate cascade; global images, chartes, and connections are not owned and remain intact.",
 		),
 		section(
 			"Next",
@@ -519,10 +529,10 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		"Structured Workspaces group typed items whose detail views are real living Maket documents.",
+		"Workspaces own their models, templates, collections, items, documents, history, and annotations. Every Workspace stays in one tree; incomplete ones show what must be corrected before projections can open.",
 		section(
 			"Document ownership",
-			"Template pages stay synchronized for every item, while pages added to one instantiated document remain specific to that document.",
+			"Owned resources are absent from Documents. Template pages stay synchronized for every item, while pages added to one instantiated document remain specific to that document. Renaming a Workspace does not recreate those documents; deleting it removes the whole owned aggregate.",
 		),
 	),
 	review: document(

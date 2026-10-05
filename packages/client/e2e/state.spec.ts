@@ -1,6 +1,78 @@
 import { expect, openWorkspace, test } from "./workspace-test";
 
 test.describe("Living document state", () => {
+	test("persists initially absent optional JSON Forms values", async ({
+		mcp,
+		page,
+	}) => {
+		const docName = "Optional form journey";
+		await openWorkspace(page);
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: docName,
+			format: "A4",
+			orientation: "portrait",
+		});
+		await mcp.call("maket_state", {
+			action: "init",
+			doc: docName,
+			schema: {
+				type: "object",
+				properties: {
+					title: { type: "string", title: "Title" },
+					enabled: { type: "boolean", title: "Enabled" },
+					count: { type: "number", title: "Count" },
+					phase: { type: "string", title: "Phase", enum: ["draft", "ready"] },
+				},
+			},
+			data: {},
+		});
+		await mcp.call("maket_page", {
+			action: "set_form",
+			doc: docName,
+			page: 1,
+			json_forms: {},
+		});
+		await mcp.call("maket_workspace", {
+			action: "focus",
+			doc: docName,
+			page: 1,
+		});
+		await page
+			.getByRole("button", {
+				name: /Open document state|Ouvrir l’état du document/i,
+			})
+			.click();
+		const form = page.locator(`[data-doc="${docName}"] .maket-json-forms`);
+		const data = async () =>
+			(
+				await mcp.callJson<{ current: { data: Record<string, unknown> } }>(
+					"maket_state",
+					{ action: "get", doc: docName },
+				)
+			).current.data;
+		const title = form.locator('[data-maket-path="/title"]');
+		await title.fill("New title");
+		await title.press("Enter");
+		await expect.poll(data).toEqual({ title: "New title" });
+		await form.locator('[data-maket-path="/enabled"]').check();
+		await expect.poll(data).toEqual({ title: "New title", enabled: true });
+		const count = form.locator('[data-maket-path="/count"]');
+		await count.fill("3");
+		await count.press("Tab");
+		await expect
+			.poll(data)
+			.toEqual({ title: "New title", enabled: true, count: 3 });
+		await form.locator('[data-maket-path="/phase"]').click();
+		await page
+			.getByRole("listbox")
+			.getByRole("option", { name: "ready", exact: true })
+			.click();
+		await expect
+			.poll(data)
+			.toEqual({ title: "New title", enabled: true, count: 3, phase: "ready" });
+	});
+
 	test("applies charte styling to a JSON Forms page", async ({ mcp, page }) => {
 		const docName = "Styled JSON form";
 		const charteName = "Form style";

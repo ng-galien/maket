@@ -15,6 +15,7 @@ import {
 } from "@maket/shared";
 import { create } from "zustand";
 import { useShallow } from "zustand/shallow";
+import { browserPath } from "../lib/browserBasePath";
 import {
 	applyAccentColor,
 	applyColorScheme,
@@ -484,8 +485,10 @@ function stateDockForFocus(
 	docName: string | null,
 ): Pick<AppState, "stateDockOpen"> {
 	const document = docName ? state.docs.get(docName) : null;
+	const template = document?.meta?.structuredWorkspace?.role === "template";
 	return {
-		stateDockOpen: state.stateDockOpen && document?.dataModel === "state",
+		stateDockOpen:
+			state.stateDockOpen && (document?.dataModel === "state" || template),
 	};
 }
 
@@ -577,8 +580,51 @@ export const useStore = create<AppState>((set, get) => ({
 				: { connected, workspaceHydrated: false, settingsHydrated: false },
 		),
 	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
-	setStructuredWorkspaces: (structuredWorkspaces) =>
-		set({ structuredWorkspaces }),
+	setStructuredWorkspaces: (structuredWorkspaces) => {
+		const previous = get();
+		const previouslyOwned = new Set(
+			previous.structuredWorkspaces.flatMap((workspace) => [
+				...workspace.templateDocuments.map((document) => document.documentName),
+				...workspace.collectionDocuments.map(
+					(document) => document.documentName,
+				),
+				...workspace.items.map((item) => item.documentName),
+			]),
+		);
+		const active = structuredWorkspaces.find(
+			(workspace) => workspace.id === previous.activeStructuredWorkspaceId,
+		);
+		const allowed = new Set(
+			active
+				? [
+						...active.templateDocuments.map(
+							(document) => document.documentName,
+						),
+						...(active.integrity.status === "ready"
+							? [
+									...active.collectionDocuments.map(
+										(document) => document.documentName,
+									),
+									...active.items.map((item) => item.documentName),
+								]
+							: []),
+					]
+				: [],
+		);
+		set({
+			structuredWorkspaces,
+			...(active
+				? {}
+				: {
+						activeStructuredWorkspaceId: null,
+						activeStructuredCollectionId: null,
+					}),
+		});
+		const incompatible = previous.workspaceDocNames.filter(
+			(name) => previouslyOwned.has(name) && !allowed.has(name),
+		);
+		if (incompatible.length > 0) get().closeWorkspaceDocuments(incompatible);
+	},
 	setActiveStructuredCollection: (
 		activeStructuredWorkspaceId,
 		activeStructuredCollectionId,
@@ -595,7 +641,7 @@ export const useStore = create<AppState>((set, get) => ({
 		const requestRevision = assetCategoryRevision;
 		assetLoadPromise = (async () => {
 			try {
-				const response = await fetch("/api/assets");
+				const response = await fetch(browserPath("/api/assets"));
 				const data = (await response.json()) as AssetsListResponse;
 				const responseRevision = assetCategoryRevision;
 				const interveningUpdates = Array.from(
@@ -1130,7 +1176,40 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 
 	openWorkspaceDocument: (docName, structuredWorkspace) => {
-		const state = get();
+		let state = get();
+		const ownedNames = new Set(
+			state.structuredWorkspaces.flatMap((workspace) => [
+				...workspace.templateDocuments.map((document) => document.documentName),
+				...workspace.collectionDocuments.map(
+					(document) => document.documentName,
+				),
+				...workspace.items.map((item) => item.documentName),
+			]),
+		);
+		const allowed = structuredWorkspace
+			? new Set(
+					state.structuredWorkspaces
+						.filter(
+							(workspace) => workspace.id === structuredWorkspace.workspaceId,
+						)
+						.flatMap((workspace) => [
+							...workspace.templateDocuments.map(
+								(document) => document.documentName,
+							),
+							...workspace.collectionDocuments.map(
+								(document) => document.documentName,
+							),
+							...workspace.items.map((item) => item.documentName),
+						]),
+				)
+			: null;
+		const incompatible = state.workspaceDocNames.filter((name) =>
+			allowed ? !allowed.has(name) : ownedNames.has(name),
+		);
+		if (incompatible.length > 0) {
+			state.closeWorkspaceDocuments(incompatible);
+			state = get();
+		}
 		if (structuredWorkspace || !state.workspaceDocNames.includes(docName)) {
 			sendLoadDoc(docName, structuredWorkspace);
 			return;

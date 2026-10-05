@@ -54,6 +54,7 @@ export interface BusEvents {
 }
 
 export interface Bus {
+	batch<T>(operation: () => T): T;
 	emit<K extends keyof BusEvents>(event: K, payload: BusEvents[K]): void;
 	on<K extends keyof BusEvents>(
 		event: K,
@@ -67,9 +68,35 @@ export interface Bus {
 
 class BusImpl implements Bus {
 	private ee = new EventEmitter();
+	private queued: Array<() => void> | null = null;
+
+	batch<T>(operation: () => T): T {
+		if (this.queued) {
+			const checkpoint = this.queued.length;
+			try {
+				return operation();
+			} catch (error) {
+				this.queued.splice(checkpoint);
+				throw error;
+			}
+		}
+		const queue: Array<() => void> = [];
+		this.queued = queue;
+		let result: T;
+		try {
+			result = operation();
+		} catch (error) {
+			this.queued = null;
+			throw error;
+		}
+		this.queued = null;
+		for (const publish of queue) publish();
+		return result;
+	}
 
 	emit<K extends keyof BusEvents>(event: K, payload: BusEvents[K]): void {
-		this.ee.emit(event, payload);
+		if (this.queued) this.queued.push(() => this.ee.emit(event, payload));
+		else this.ee.emit(event, payload);
 	}
 
 	on<K extends keyof BusEvents>(

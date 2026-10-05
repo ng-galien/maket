@@ -48,6 +48,7 @@ export interface DocumentsDeps {
 const ActionSchema = z.enum([
 	"new",
 	"list",
+	"link",
 	"delete",
 	"duplicate",
 	"rename",
@@ -165,6 +166,7 @@ const DESCRIPTION = [
 	"Manage design documents (the workspace unit: canvas + pages + meta).",
 	"  new       — create a blank document at `doc`; sets it active. Previous unsaved work is lost.",
 	"  list      — enumerate saved documents as a hierarchy of category paths.",
+	"  link      — return a reading path for `doc`, using its stable document id and configured browser base path. Prefix it with the reachable gateway origin.",
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
@@ -228,8 +230,10 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 			return runNew(args, deps.documents, deps.bus);
 		case "list":
 			return runList(deps.documents);
+		case "link":
+			return runLink(args, deps.documents, deps.config);
 		case "delete":
-			return runDelete(args, deps.documents, deps.bus, deps.store);
+			return runDelete(args, deps.documents, deps.bus);
 		case "duplicate":
 			return runDuplicate(args, deps.documents, deps.bus);
 		case "rename":
@@ -297,6 +301,22 @@ function runList(documents: Documents) {
 	return text(lines.join("\n"));
 }
 
+function runLink(args: Args, documents: Documents, config: Config) {
+	if (!args.doc) return text("doc is required for action=link", true);
+	const doc = documents.resolveOrLoad(args.doc);
+	if (!doc) return text(`Document "${args.doc}" not found`, true);
+	const path = `${config.BASE_PATH ?? ""}/documents/${encodeURIComponent(doc.id)}/read`;
+	const owner = doc.meta?.structuredWorkspace;
+	const query = owner
+		? `?workspace=${encodeURIComponent(owner.workspaceId)}${
+				owner.role !== "template"
+					? `&collection=${encodeURIComponent(owner.collectionId)}`
+					: ""
+			}`
+		: "";
+	return text(JSON.stringify({ documentId: doc.id, path: `${path}${query}` }));
+}
+
 type ListedDocument = ReturnType<Documents["list"]>[number];
 
 interface DocumentCategoryNode {
@@ -362,7 +382,7 @@ function documentCategoryCount(node: DocumentCategoryNode): number {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runDelete`: edge adapter over services/store/bus, not domain ownership.
-function runDelete(args: Args, documents: Documents, bus: Bus, store: Store) {
+function runDelete(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=delete", true);
 	const all = documents.all();
 	const d = all.get(args.doc);
@@ -370,7 +390,7 @@ function runDelete(args: Args, documents: Documents, bus: Bus, store: Store) {
 	if (all.size <= 1) return text("Cannot delete the only document", true);
 	const locked = lockGuard(d);
 	if (locked) return locked;
-	const structuredWorkspaceGuard = structuredWorkspaceDocumentGuard(d, store);
+	const structuredWorkspaceGuard = structuredWorkspaceDocumentGuard(d);
 	if (structuredWorkspaceGuard) return structuredWorkspaceGuard;
 	documents.delete(args.doc);
 	bus.emit("document:deleted", { docName: args.doc });
@@ -382,33 +402,16 @@ function runDelete(args: Args, documents: Documents, bus: Bus, store: Store) {
 	return text(`Deleted "${args.doc}"`);
 }
 
-function structuredWorkspaceDocumentGuard(d: Document, store: Store) {
-	if (d.meta.structuredWorkspace) {
-		const collectionDocument = d.meta.structuredWorkspace.role === "collection";
-		return text(
-			collectionDocument
-				? `Document "${d.name}" is the instantiated collection document of a Structured Workspace. Remove its collection through maket_structured_workspace.`
-				: `Document "${d.name}" is instantiated by a Structured Workspace. Delete its item through maket_structured_workspace action=delete_item.`,
-			true,
-		);
-	}
-	const owner = store.loadAllStructuredWorkspaces().find((workspace) => {
-		const representation = workspace.representationSchema;
-		return Object.values(representation.collections).some(
-			(collection) =>
-				collection.collectionTemplateDocumentId === d.id ||
-				Object.values(collection.bindings).some(
-					(binding) =>
-						binding.compactTemplateDocumentId === d.id ||
-						binding.detailTemplateDocumentId === d.id,
-				),
-		);
-	});
+function structuredWorkspaceDocumentGuard(d: Document) {
+	const owner = d.meta.structuredWorkspace;
 	if (!owner) return null;
-	return text(
-		`Document "${d.name}" is a template of Structured Workspace "${owner.name}". Change the representation schema before deleting it.`,
-		true,
-	);
+	const message =
+		owner.role !== "template"
+			? `Document "${d.name}" is a Workspace collection projection and cannot be deleted independently.`
+			: owner.role === "template"
+				? `Document "${d.name}" is a Workspace template and cannot be deleted independently.`
+				: `Document "${d.name}" is a Workspace item and must be deleted through maket_structured_workspace action=delete_item.`;
+	return text(message, true);
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -453,10 +456,19 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	);
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP metadata dispatch is an edge adapter over document ownership, persistence,
+// and the server-authored propagation event.
 function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=meta", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (d.meta.structuredWorkspace) {
+		return text(
+			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace.workspaceId}" and cannot be changed through maket_doc.`,
+			true,
+		);
+	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	if (!d.meta) d.meta = {};
@@ -480,6 +492,12 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=rename", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (d.meta.structuredWorkspace) {
+		return text(
+			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace.workspaceId}" and cannot be renamed independently.`,
+			true,
+		);
+	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	if (documents.all().has(args.name))
@@ -610,6 +628,11 @@ async function runImport(
 	}
 	if (imported.statesImported > 0) {
 		lines.push(`Document states: ${imported.statesImported} initialized`);
+	}
+	if (imported.structuredWorkspacesImported.length > 0) {
+		lines.push(
+			`Structured Workspaces: ${imported.structuredWorkspacesImported.join(", ")}`,
+		);
 	}
 	if (bundle.assets.length > 0) {
 		const parts = [`Assets: ${imported.assetsWritten} written`];

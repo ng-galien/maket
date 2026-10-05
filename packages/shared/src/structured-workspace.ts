@@ -53,10 +53,26 @@ export interface StructuredWorkspaceCollectionDocumentView {
 	documentName: string;
 }
 
+export type StructuredWorkspaceIntegrity =
+	| { status: "ready"; issues: [] }
+	| { status: "incomplete"; issues: string[] };
+
+export interface StructuredWorkspaceTemplateDocumentView {
+	documentId: string;
+	documentName: string;
+	roles: Array<{
+		role: "collection" | "compact" | "detail";
+		collectionId: string;
+		bindingId?: string;
+	}>;
+}
+
 export interface StructuredWorkspaceView
 	extends Omit<StructuredWorkspaceDefinition, "items"> {
+	integrity: StructuredWorkspaceIntegrity;
 	items: StructuredWorkspaceItemView[];
 	collectionDocuments: StructuredWorkspaceCollectionDocumentView[];
+	templateDocuments: StructuredWorkspaceTemplateDocumentView[];
 }
 
 export type StructuredWorkspacePageProvenance =

@@ -14,17 +14,19 @@ export function StateJsonTree({
 	query,
 	collapsedPaths,
 	onToggle,
+	ariaLabel,
 }: {
 	value: JsonValue;
 	query: string;
 	collapsedPaths: ReadonlySet<string>;
 	onToggle: (path: string) => void;
+	ariaLabel?: string;
 }) {
 	const t = useT();
 	return (
 		<div
 			role="tree"
-			aria-label={t("state_json_tree")}
+			aria-label={ariaLabel ?? t("state_json_tree")}
 			className="min-h-0 flex-1 overflow-auto px-3 py-2 font-mono text-xs leading-5"
 		>
 			<div className="min-w-max">

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { browserBasePath } from "./lib/browserBasePath";
 
 interface BeforeInstallPromptEvent extends Event {
 	prompt(): Promise<void>;
@@ -55,6 +56,7 @@ export function initializePwa(): () => void {
 	if (
 		initialized ||
 		window.maketDesktop ||
+		browserBasePath() !== "" ||
 		!new Set(["http:", "https:"]).has(window.location.protocol)
 	) {
 		return () => undefined;

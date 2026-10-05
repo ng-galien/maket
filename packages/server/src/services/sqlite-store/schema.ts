@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 16;
+const SCHEMA_VERSION = 17;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -141,6 +141,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 14, up: migrateToV14 },
 	{ version: 15, up: migrateToV15 },
 	{ version: 16, up: migrateToV16 },
+	{ version: 17, up: migrateToV17 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -192,6 +193,8 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV13(db);
 	migrateToV14(db);
 	migrateToV15(db);
+	migrateToV16(db);
+	migrateToV17(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -355,6 +358,105 @@ function migrateToV15(db: DatabaseSync): void {
 			}),
 			row.id,
 		);
+	}
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// A schema migration is the database-owned adapter for coordinating the one-time
+// item-role and template-ownership backfill across persisted aggregate rows.
+function migrateToV17(db: DatabaseSync): void {
+	migrateToV16(db);
+	db.exec(`
+		UPDATE documents
+		SET meta = json_set(meta, '$.structuredWorkspace.role', 'item')
+		WHERE json_extract(meta, '$.structuredWorkspace.workspaceId') IS NOT NULL
+			AND json_extract(meta, '$.structuredWorkspace.itemId') IS NOT NULL
+			AND json_extract(meta, '$.structuredWorkspace.role') IS NULL
+	`);
+	const owners = new Map<
+		string,
+		{
+			workspaceId: string;
+			roles: Array<{
+				role: "collection" | "compact" | "detail";
+				collectionId: string;
+				bindingId?: string;
+			}>;
+		}
+	>();
+	const workspaces = db
+		.prepare(
+			"SELECT id, representation_schema FROM structured_workspaces ORDER BY created_at ASC, id ASC",
+		)
+		.all() as Array<{ id: string; representation_schema: string }>;
+	for (const workspace of workspaces) {
+		const representation = JSON.parse(workspace.representation_schema) as {
+			collections?: Record<
+				string,
+				{
+					collectionTemplateDocumentId?: string;
+					bindings?: Record<
+						string,
+						{
+							compactTemplateDocumentId?: string;
+							detailTemplateDocumentId?: string;
+						}
+					>;
+				}
+			>;
+		};
+		const add = (
+			documentId: string | undefined,
+			role: {
+				role: "collection" | "compact" | "detail";
+				collectionId: string;
+				bindingId?: string;
+			},
+		) => {
+			if (!documentId) return;
+			const owner = owners.get(documentId);
+			if (owner && owner.workspaceId !== workspace.id) return;
+			if (owner) owner.roles.push(role);
+			else owners.set(documentId, { workspaceId: workspace.id, roles: [role] });
+		};
+		for (const [collectionId, collection] of Object.entries(
+			representation.collections ?? {},
+		)) {
+			add(collection.collectionTemplateDocumentId, {
+				role: "collection",
+				collectionId,
+			});
+			for (const [bindingId, binding] of Object.entries(
+				collection.bindings ?? {},
+			)) {
+				add(binding.detailTemplateDocumentId, {
+					role: "detail",
+					collectionId,
+					bindingId,
+				});
+				add(binding.compactTemplateDocumentId, {
+					role: "compact",
+					collectionId,
+					bindingId,
+				});
+			}
+		}
+	}
+	const selectDocument = db.prepare("SELECT meta FROM documents WHERE id = ?");
+	const updateDocument = db.prepare(
+		"UPDATE documents SET meta = ? WHERE id = ?",
+	);
+	for (const [documentId, owner] of owners) {
+		const row = selectDocument.get(documentId) as { meta: string } | undefined;
+		if (!row) continue;
+		const meta = JSON.parse(row.meta) as Record<string, unknown>;
+		if (meta.structuredWorkspace) continue;
+		meta.structuredWorkspace = {
+			role: "template",
+			workspaceId: owner.workspaceId,
+			templateRoles: owner.roles,
+		};
+		updateDocument.run(JSON.stringify(meta), documentId);
 	}
 }
 

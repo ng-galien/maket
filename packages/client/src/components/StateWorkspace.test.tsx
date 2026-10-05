@@ -1,3 +1,4 @@
+import type { StructuredWorkspaceView } from "@maket/shared";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -219,5 +220,92 @@ describe("StateWorkspace", () => {
 		expect(container.querySelector("[data-json-highlight]")).toHaveTextContent(
 			"owner",
 		);
+	});
+
+	it("shows a selected Workspace template schema as read-only JSON in the same dock", () => {
+		const template: Document = {
+			...document,
+			id: "template-id",
+			name: "Task template",
+			dataModel: "static",
+			meta: {
+				structuredWorkspace: {
+					role: "template",
+					workspaceId: "delivery",
+					templateRoles: [
+						{ role: "detail", collectionId: "backlog", bindingId: "task" },
+					],
+				},
+			},
+		};
+		const workspace: StructuredWorkspaceView = {
+			id: "delivery",
+			name: "Delivery",
+			dataSchema: {
+				type: "object",
+				properties: { title: { type: "string" } },
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: "board-template",
+						bindings: {
+							task: {
+								schemaPath: "",
+								detailTemplateDocumentId: "template-id",
+							},
+						},
+					},
+				},
+			},
+			revision: 1,
+			items: [],
+			collectionDocuments: [],
+			templateDocuments: [
+				{
+					documentId: "template-id",
+					documentName: template.name,
+					roles: [
+						{ role: "detail", collectionId: "backlog", bindingId: "task" },
+					],
+				},
+			],
+			integrity: { status: "incomplete", issues: ["Missing collection"] },
+			createdAt: "2026-09-21T00:00:00.000Z",
+			updatedAt: "2026-09-21T00:00:00.000Z",
+		};
+		useStore.setState({
+			docs: new Map([[template.name, template]]),
+			workspaceDocNames: [template.name],
+			focusedDocName: template.name,
+			documentStates: {},
+			structuredWorkspaces: [workspace],
+			stateDockOpen: true,
+		});
+
+		const { container } = render(<StateWorkspace />);
+
+		expect(
+			screen.getByRole("region", { name: "Workspace template schema" }),
+		).toBeVisible();
+		expect(
+			screen.getByRole("tree", {
+				name: "Workspace template schema JSON tree",
+			}),
+		).toBeVisible();
+		expect(
+			container.querySelector("[data-schema-json-mode]"),
+		).toHaveTextContent("JSON");
+		expect(screen.queryByRole("button", { name: "Fields" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Live" })).toBeNull();
+		expect(screen.queryByRole("button", { name: /save/i })).toBeNull();
+		expect(container.querySelector('input:not([type="search"])')).toBeNull();
+		expect(
+			container.querySelector(
+				'[data-json-path="$.schema.properties.title.type"]',
+			),
+		).toHaveTextContent('"string"');
 	});
 });

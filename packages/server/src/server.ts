@@ -269,9 +269,22 @@ function contentSecurityPolicy(
 	next();
 }
 
+/** Serves every route also under BASE_PATH, so prefixed browser URLs resolve
+ *  when Maket is reached directly instead of through a stripping gateway. */
+function basePathAlias(basePath: string) {
+	return (req: Request, _res: Response, next: NextFunction) => {
+		const rest = req.url.slice(basePath.length);
+		if (req.url.startsWith(basePath) && (rest === "" || /^[/?]/.test(rest))) {
+			req.url = rest.startsWith("/") ? rest : `/${rest}`;
+		}
+		next();
+	};
+}
+
 function createHttpApp(config: Config, container: AppContainer): Express {
 	const app = express();
 	app.disable("x-powered-by");
+	if (config.BASE_PATH) app.use(basePathAlias(config.BASE_PATH));
 	const parseJson = express.json({ limit: "5mb" });
 	app.use((req, res, next) => {
 		if (req.path === "/api/upload") {
@@ -313,6 +326,7 @@ function handleWebSocketConnection(
 	ws: WebSocket,
 	services: RuntimeServices,
 	log: ServerLog,
+	viewer = false,
 ): void {
 	const {
 		collections,
@@ -325,22 +339,26 @@ function handleWebSocketConnection(
 		wsHandler,
 		wsRegistry,
 	} = services;
-	wsRegistry.add(ws as unknown as WsLike);
+	wsRegistry.add(ws as unknown as WsLike, { viewer });
 	const docs = documents.all();
-	const firstDoc = docs.size > 0 ? (docs.values().next().value ?? null) : null;
+	const firstDoc = viewer
+		? null
+		: ([...docs.values()].find(
+				(document) => !document.meta.structuredWorkspace,
+			) ?? null);
 	const initialState: WorkspaceStateSignal = {
 		type: "state",
 		doc: documents.lightView(
 			firstDoc ? documentRenderer.render(firstDoc) : null,
 		),
 		documentState: firstDoc ? documentRenderer.stateView(firstDoc) : null,
-		docList: documents.list(),
-		collections: collections.loadAll(),
-		structuredWorkspaces: structuredWorkspaces.listViews(),
-		collectionCursors: collectionCursors.snapshot(),
-		annotations: pending.all(),
+		docList: documents.list({ includeWorkspaceDocuments: viewer }),
+		collections: viewer ? undefined : collections.loadAll(),
+		structuredWorkspaces: viewer ? undefined : structuredWorkspaces.listViews(),
+		collectionCursors: viewer ? undefined : collectionCursors.snapshot(),
+		annotations: viewer ? undefined : pending.all(),
 		charteCss: documents.charteCss(firstDoc ?? null),
-		addToWorkspace: true,
+		addToWorkspace: !viewer,
 	};
 	ws.send(JSON.stringify(initialState));
 	const initialSettings: SettingsSignal = {
@@ -441,7 +459,16 @@ function configureWebSocketServer(
 			`WebSocket server error: ${error instanceof Error ? error.message : String(error)}`,
 		),
 	);
-	wss.on("connection", (ws) => handleWebSocketConnection(ws, services, log));
+	wss.on("connection", (ws, request) =>
+		handleWebSocketConnection(
+			ws,
+			services,
+			log,
+			new URL(request.url ?? "/", "http://localhost").searchParams.get(
+				"viewer",
+			) === "1",
+		),
+	);
 	return wss;
 }
 

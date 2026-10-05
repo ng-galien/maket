@@ -82,22 +82,22 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 
 	return {
 		saveDoc(d) {
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				saveDocInner(d);
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 			} catch (e) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw e;
 			}
 		},
 		saveDocs(docs) {
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				for (const d of docs) saveDocInner(d);
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 			} catch (e) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw e;
 			}
 		},
@@ -118,14 +118,14 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 			return rowToDoc(row, statements.pageSelectByDoc);
 		},
 		renameDoc(name, newName) {
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				db.exec("PRAGMA defer_foreign_keys = ON");
 				statements.docRename.run({ name, new_name: newName });
 				statements.pageRenameDoc.run({ name, new_name: newName });
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 			} catch (error) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw error;
 			}
 		},

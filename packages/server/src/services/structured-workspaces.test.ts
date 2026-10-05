@@ -569,4 +569,192 @@ describe("StructuredWorkspaces", () => {
 		);
 		store.close();
 	});
+
+	it("keeps incomplete Workspaces visible while withholding projections", () => {
+		const { store, documents, documentStates, bus } = fixture();
+		const workspaces = createStructuredWorkspaces({
+			store,
+			documents,
+			documentStates,
+			bus,
+		});
+		const incomplete = workspaces.create({
+			name: "Needs templates",
+			dataSchema: {},
+			representationSchema: {
+				version: 1,
+				collections: {
+					missing: {
+						name: "Missing",
+						collectionTemplateDocumentId: "missing-collection",
+						bindings: {
+							item: {
+								schemaPath: "",
+								detailTemplateDocumentId: "missing-detail",
+							},
+						},
+					},
+				},
+			},
+		});
+
+		const view = workspaces.get(incomplete.id);
+		expect(view?.integrity).toMatchObject({ status: "incomplete" });
+		expect(view?.integrity.issues).toEqual(
+			expect.arrayContaining([
+				'Template document "missing-collection" was not found.',
+				'Template document "missing-detail" was not found.',
+			]),
+		);
+		expect(view?.collectionDocuments).toEqual([]);
+		expect(workspaces.list().map((workspace) => workspace.id)).toContain(
+			incomplete.id,
+		);
+		expect(() =>
+			workspaces.addItem({
+				workspace: incomplete.id,
+				collectionId: "missing",
+				bindingId: "item",
+				documentName: "Blocked projection",
+				data: {},
+			}),
+		).toThrow(/is incomplete/);
+		store.close();
+	});
+
+	it("renames by stable identity without regenerating documents", () => {
+		const { store, documents, documentStates, workspaces, workspace } =
+			fixture();
+		const item = addTask(workspaces);
+		const itemDocument = documents.resolve(item.documentName);
+		const collection = workspaces.get(workspace.id)?.collectionDocuments[0];
+		if (!itemDocument || !collection) throw new Error("Fixture incomplete.");
+		const collectionDocument = documents.resolve(collection.documentName);
+		if (!collectionDocument) throw new Error("Collection document missing.");
+		const itemPageIds = itemDocument.pages.map((page) => page.id);
+		const itemHistory = documentStates.history(item.documentName);
+		store.saveAnnotation({
+			id: "collection-note",
+			docName: collectionDocument.name,
+			type: "note",
+			text: "Keep",
+			ts: 1,
+		});
+
+		const renamed = workspaces.rename(workspace.id, "Operations", 1);
+
+		expect(renamed).toMatchObject({
+			id: workspace.id,
+			name: "Operations",
+			revision: 2,
+		});
+		expect(documents.resolve(item.documentName)).toMatchObject({
+			id: itemDocument.id,
+			name: "Ship the release",
+			category: "Structured Workspaces/Operations",
+		});
+		expect(itemDocument.pages.map((page) => page.id)).toEqual(itemPageIds);
+		expect(documentStates.history(item.documentName)).toEqual(itemHistory);
+		expect(collectionDocument.id).toBe(collection.documentId);
+		expect(collectionDocument.name).toBe("Operations — Backlog");
+		expect(collectionDocument.category).toBe(
+			"Structured Workspaces/Operations",
+		);
+		expect(store.loadAnnotations()).toEqual([
+			expect.objectContaining({
+				id: "collection-note",
+				docName: "Operations — Backlog",
+			}),
+		]);
+		expect(workspaces.get("Delivery")).toBeNull();
+		expect(workspaces.get(workspace.id)?.name).toBe("Operations");
+		store.close();
+	});
+
+	it("deletes the aggregate cascade without touching global resources", () => {
+		const { store, documents, workspaces, workspace, template } = fixture();
+		const item = addTask(workspaces);
+		const itemDocumentId = documents.resolve(item.documentName)?.id;
+		const collection = workspaces.get(workspace.id)?.collectionDocuments[0];
+		if (!collection) throw new Error("Collection document missing.");
+		const free = createDocument({ name: "Free", canvas: template.canvas });
+		store.saveCharte({ name: "Global brand", tokens: {} });
+		documents.all().set(free.name, free);
+		documents.persist(free.name);
+		store.saveAnnotation({
+			id: "owned-note",
+			docName: item.documentName,
+			type: "note",
+			text: "Remove me",
+			ts: 1,
+		});
+		store.saveAnnotation({
+			id: "template-note",
+			docName: template.name,
+			type: "note",
+			text: "Remove template note",
+			ts: 2,
+		});
+		store.saveAnnotation({
+			id: "collection-note",
+			docName: collection.documentName,
+			type: "note",
+			text: "Remove collection note",
+			ts: 3,
+		});
+		store.saveAnnotation({
+			id: "free-note",
+			docName: free.name,
+			type: "note",
+			text: "Keep me",
+			ts: 4,
+		});
+
+		const deleted = workspaces.delete(workspace.id);
+
+		expect(deleted).toEqual(
+			expect.arrayContaining([
+				template.name,
+				item.documentName,
+				collection.documentName,
+			]),
+		);
+		expect(workspaces.get(workspace.id)).toBeNull();
+		expect(documents.resolve(template.name)).toBeNull();
+		expect(documents.resolve(item.documentName)).toBeNull();
+		expect(
+			itemDocumentId ? store.loadDocumentState(itemDocumentId) : null,
+		).toBeNull();
+		expect(store.loadAnnotations()).toEqual([
+			expect.objectContaining({ id: "free-note", docName: free.name }),
+		]);
+		expect(documents.resolve(free.name)).toMatchObject({ id: free.id });
+		expect(store.loadCharte("Global brand")).toEqual({
+			name: "Global brand",
+			tokens: {},
+		});
+		store.close();
+	});
+
+	it("rejects rename collisions without partially moving the aggregate", () => {
+		const { store, documents, workspaces, workspace, template } = fixture();
+		const collision = createDocument({
+			name: "Operations — Backlog",
+			canvas: template.canvas,
+		});
+		documents.all().set(collision.name, collision);
+		documents.persist(collision.name);
+
+		expect(() => workspaces.rename(workspace.id, "Operations", 1)).toThrow(
+			'Document "Operations — Backlog" already exists.',
+		);
+		expect(workspaces.get(workspace.id)).toMatchObject({
+			name: "Delivery",
+			revision: 1,
+		});
+		expect(
+			workspaces.get(workspace.id)?.collectionDocuments[0]?.documentName,
+		).toBe("Delivery — Backlog");
+		store.close();
+	});
 });

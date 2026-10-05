@@ -20,6 +20,18 @@ export interface StructuredWorkspaceRepository {
 	): StructuredWorkspaceDefinition;
 	loadStructuredWorkspace(name: string): StructuredWorkspaceDefinition | null;
 	loadAllStructuredWorkspaces(): StructuredWorkspaceDefinition[];
+	renameStructuredWorkspace(
+		workspaceId: string,
+		newName: string,
+		expectedRevision: number,
+		documentRenames: Array<{ id: string; newName: string }>,
+	): {
+		workspace: StructuredWorkspaceDefinition;
+		renamedDocuments: Array<{ id: string; oldName: string; newName: string }>;
+	};
+	deleteStructuredWorkspaceCascade(
+		workspaceId: string,
+	): Array<{ id: string; name: string }>;
 	updateStructuredWorkspace(
 		name: string,
 		expectedRevision: number,
@@ -57,6 +69,15 @@ type Statements = {
 	workspaceSelectOne: StatementSync;
 	workspaceSelectAll: StatementSync;
 	workspaceUpdate: StatementSync;
+	workspaceRename: StatementSync;
+	workspaceDelete: StatementSync;
+	ownedDocumentsSelect: StatementSync;
+	ownedDocumentsMove: StatementSync;
+	ownedDocumentsDelete: StatementSync;
+	documentSelectById: StatementSync;
+	documentSelectByName: StatementSync;
+	documentRenameById: StatementSync;
+	pageRenameDocument: StatementSync;
 	itemInsert: StatementSync;
 	itemSelectByWorkspace: StatementSync;
 	itemDelete: StatementSync;
@@ -78,8 +99,8 @@ export function createStructuredWorkspaceRepository(
 			});
 			return requiredWorkspace(statements, workspace.name);
 		},
-		loadStructuredWorkspace(name) {
-			const row = statements.workspaceSelectOne.get(name) as
+		loadStructuredWorkspace(reference) {
+			const row = statements.workspaceSelectOne.get(reference, reference) as
 				| WorkspaceRow
 				| undefined;
 			return row ? workspaceFromRow(statements, row) : null;
@@ -90,28 +111,58 @@ export function createStructuredWorkspaceRepository(
 			).map((row) => workspaceFromRow(statements, row));
 		},
 		updateStructuredWorkspace(
-			name,
+			reference,
 			expectedRevision,
 			dataSchema,
 			representationSchema,
 		) {
+			const current = statements.workspaceSelectOne.get(reference, reference) as
+				| WorkspaceRow
+				| undefined;
+			if (!current)
+				throw new Error(`Structured Workspace "${reference}" not found.`);
 			const result = statements.workspaceUpdate.run({
-				name,
+				id: current.id,
 				expected_revision: expectedRevision,
 				data_schema: JSON.stringify(dataSchema),
 				representation_schema: JSON.stringify(representationSchema),
 			});
 			if (result.changes === 0) {
-				const current = statements.workspaceSelectOne.get(name) as
-					| WorkspaceRow
-					| undefined;
-				if (!current)
-					throw new Error(`Structured Workspace "${name}" not found.`);
 				throw new Error(
 					`Structured Workspace revision conflict: expected ${expectedRevision}, current ${current.revision}.`,
 				);
 			}
-			return requiredWorkspace(statements, name);
+			return requiredWorkspace(statements, current.id);
+		},
+		renameStructuredWorkspace(
+			workspaceId,
+			newName,
+			expectedRevision,
+			documentRenames,
+		) {
+			return renameWorkspaceTransaction({
+				db,
+				statements,
+				workspaceId,
+				newName,
+				expectedRevision,
+				documentRenames,
+			});
+		},
+		deleteStructuredWorkspaceCascade(workspaceId) {
+			db.exec("SAVEPOINT maket_repository");
+			try {
+				const documents = statements.ownedDocumentsSelect.all(
+					workspaceId,
+				) as unknown as Array<{ id: string; name: string }>;
+				statements.ownedDocumentsDelete.run(workspaceId);
+				statements.workspaceDelete.run(workspaceId);
+				db.exec("RELEASE maket_repository");
+				return documents;
+			} catch (error) {
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
+				throw error;
+			}
 		},
 		addStructuredWorkspaceItem(workspaceId, item) {
 			const position = nextPosition(statements, workspaceId, item.collectionId);
@@ -126,18 +177,97 @@ export function createStructuredWorkspaceRepository(
 			return { ...item, position };
 		},
 		deleteStructuredWorkspaceItem(workspaceId, itemId) {
-			db.exec("BEGIN");
+			db.exec("SAVEPOINT maket_repository");
 			try {
 				const result = statements.itemDelete.run(workspaceId, itemId);
 				statements.itemCompactPositions.run(workspaceId);
-				db.exec("COMMIT");
+				db.exec("RELEASE maket_repository");
 				return result.changes > 0;
 			} catch (error) {
-				db.exec("ROLLBACK");
+				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 				throw error;
 			}
 		},
 	};
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// The repository transaction coordinates the aggregate row, derived document
+// names, page foreign keys, and owned category paths as one persistence unit.
+function renameWorkspaceTransaction({
+	db,
+	statements,
+	workspaceId,
+	newName,
+	expectedRevision,
+	documentRenames,
+}: {
+	db: DatabaseSync;
+	statements: Statements;
+	workspaceId: string;
+	newName: string;
+	expectedRevision: number;
+	documentRenames: Array<{ id: string; newName: string }>;
+}): {
+	workspace: StructuredWorkspaceDefinition;
+	renamedDocuments: Array<{ id: string; oldName: string; newName: string }>;
+} {
+	db.exec("SAVEPOINT maket_repository");
+	try {
+		db.exec("PRAGMA defer_foreign_keys = ON");
+		const renamedDocuments = documentRenames.map(({ id, newName }) => {
+			const source = statements.documentSelectById.get(id) as
+				| { id: string; name: string }
+				| undefined;
+			if (!source) throw new Error(`Workspace document "${id}" not found.`);
+			const collision = statements.documentSelectByName.get(newName) as
+				| { id: string; name: string }
+				| undefined;
+			if (collision && collision.id !== id) {
+				throw new Error(`Document "${newName}" already exists.`);
+			}
+			return { id, oldName: source.name, newName };
+		});
+		const result = statements.workspaceRename.run({
+			id: workspaceId,
+			new_name: newName,
+			expected_revision: expectedRevision,
+		});
+		if (result.changes === 0) {
+			const current = statements.workspaceSelectOne.get(
+				workspaceId,
+				workspaceId,
+			) as WorkspaceRow | undefined;
+			if (!current)
+				throw new Error(`Structured Workspace "${workspaceId}" not found.`);
+			throw new Error(
+				`Structured Workspace revision conflict: expected ${expectedRevision}, current ${current.revision}.`,
+			);
+		}
+		statements.ownedDocumentsMove.run({
+			workspace_id: workspaceId,
+			category: `Structured Workspaces/${newName}`,
+		});
+		for (const document of renamedDocuments) {
+			if (document.oldName === document.newName) continue;
+			statements.documentRenameById.run({
+				id: document.id,
+				new_name: document.newName,
+			});
+			statements.pageRenameDocument.run({
+				old_name: document.oldName,
+				new_name: document.newName,
+			});
+		}
+		db.exec("RELEASE maket_repository");
+		return {
+			workspace: requiredWorkspace(statements, workspaceId),
+			renamedDocuments,
+		};
+	} catch (error) {
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
+		throw error;
+	}
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -151,7 +281,7 @@ function prepareStatements(db: DatabaseSync): Statements {
 				($id, $name, $description, $data_schema, $representation_schema, 1)
 		`),
 		workspaceSelectOne: db.prepare(
-			"SELECT * FROM structured_workspaces WHERE name = ?",
+			"SELECT * FROM structured_workspaces WHERE id = ? OR name = ?",
 		),
 		workspaceSelectAll: db.prepare(
 			"SELECT * FROM structured_workspaces ORDER BY updated_at ASC",
@@ -162,8 +292,42 @@ function prepareStatements(db: DatabaseSync): Statements {
 				representation_schema = $representation_schema,
 				revision = revision + 1,
 				updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
-			WHERE name = $name AND revision = $expected_revision
+			WHERE id = $id AND revision = $expected_revision
 		`),
+		workspaceRename: db.prepare(`
+			UPDATE structured_workspaces
+			SET name = $new_name,
+				revision = revision + 1,
+				updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
+			WHERE id = $id AND revision = $expected_revision
+		`),
+		workspaceDelete: db.prepare(
+			"DELETE FROM structured_workspaces WHERE id = ?",
+		),
+		ownedDocumentsSelect: db.prepare(`
+			SELECT id, name FROM documents
+			WHERE json_extract(meta, '$.structuredWorkspace.workspaceId') = ?
+		`),
+		ownedDocumentsMove: db.prepare(`
+			UPDATE documents SET category = $category
+			WHERE json_extract(meta, '$.structuredWorkspace.workspaceId') = $workspace_id
+		`),
+		ownedDocumentsDelete: db.prepare(`
+			DELETE FROM documents
+			WHERE json_extract(meta, '$.structuredWorkspace.workspaceId') = ?
+		`),
+		documentSelectById: db.prepare(
+			"SELECT id, name FROM documents WHERE id = ?",
+		),
+		documentSelectByName: db.prepare(
+			"SELECT id, name FROM documents WHERE name = ?",
+		),
+		documentRenameById: db.prepare(
+			"UPDATE documents SET name = $new_name WHERE id = $id",
+		),
+		pageRenameDocument: db.prepare(
+			"UPDATE pages SET doc_name = $new_name WHERE doc_name = $old_name",
+		),
 		itemInsert: db.prepare(`
 			INSERT INTO structured_workspace_items
 				(workspace_id, id, position, collection_id, binding_id, document_id)
@@ -194,7 +358,7 @@ function requiredWorkspace(
 	statements: Statements,
 	name: string,
 ): StructuredWorkspaceDefinition {
-	const row = statements.workspaceSelectOne.get(name) as
+	const row = statements.workspaceSelectOne.get(name, name) as
 		| WorkspaceRow
 		| undefined;
 	if (!row)
