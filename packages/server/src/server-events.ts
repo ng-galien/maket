@@ -1,3 +1,4 @@
+import { readJsonPointer, type StatePageProjection } from "@maket/shared";
 import type { Annotations } from "./services/annotations.js";
 import type { Bus } from "./services/bus.js";
 import type { CollectionCursors } from "./services/collection-cursor.js";
@@ -20,7 +21,12 @@ export interface ServerEventDeps {
 	pending: Annotations;
 }
 
-type BroadcastDeps = Omit<ServerEventDeps, "bus" | "mermaidDiagrams">;
+type BroadcastDeps = Omit<ServerEventDeps, "bus" | "mermaidDiagrams"> & {
+	/** Page HTML last sent per document and page id. */
+	sentPages: SentPages;
+};
+
+type SentPages = Map<string, Map<string, string | undefined>>;
 
 // State broadcasts deliberately assemble one wire snapshot from domain-owned services.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -40,9 +46,11 @@ function broadcastDoc(
 	} = deps;
 	const doc = documents.resolve(docName);
 	if (!doc) return;
+	const rendered = documentRenderer.render(doc);
+	rememberSentPages(deps.sentPages, docName, rendered.pages);
 	wsRegistry.broadcast({
 		type: "state",
-		doc: documents.lightView(documentRenderer.render(doc), doc.activePage),
+		doc: documents.lightView(rendered, doc.activePage),
 		documentState: documentRenderer.stateView(doc),
 		docList: documents.list(),
 		collections: collections.loadAll(),
@@ -101,6 +109,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		pending,
 	} = deps;
 	const broadcasters: BroadcastDeps = {
+		sentPages: new Map(),
 		collections,
 		collectionCursors,
 		documents,
@@ -134,7 +143,8 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 	bus.on("document:renamed", ({ oldName, docName }) =>
 		broadcastRenamedDoc(broadcasters, oldName, docName),
 	);
-	bus.on("document-state:changed", ({ docName, paths, attached }) => {
+	bus.on("document-state:changed", (change) => {
+		const { docName, paths, attached } = change;
 		if (attached) {
 			broadcastDoc(broadcasters, docName);
 			return;
@@ -148,11 +158,23 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 			broadcastDoc(broadcasters, docName);
 			return;
 		}
+		const entryPointer = change.projection ? paths[0] : undefined;
 		wsRegistry.broadcast({
 			type: "state_pages",
 			docName,
-			documentState,
+			...(entryPointer === undefined
+				? { documentState }
+				: {
+						documentStateEntry: {
+							previousRevision: change.revision - 1,
+							revision: documentState.revision,
+							createdAt: documentState.createdAt,
+							pointer: entryPointer,
+							value: readJsonPointer(documentState.data, entryPointer),
+						},
+					}),
 			...update,
+			pages: unsentPages(broadcasters.sentPages, docName, update),
 			docList: documents.list(),
 		});
 	});
@@ -230,6 +252,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		});
 	});
 	bus.on("document:deleted", ({ docName }) => {
+		broadcasters.sentPages.delete(docName);
 		wsRegistry.broadcast({ type: "doc_removed", name: docName });
 		wsRegistry.broadcast({
 			type: "annotations_changed",
@@ -251,4 +274,39 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 	bus.on("settings:changed", (settings) =>
 		wsRegistry.broadcast({ type: "settings", settings }),
 	);
+}
+
+function rememberSentPages(
+	sentPages: SentPages,
+	docName: string,
+	pages: { id: string; html?: string }[],
+): void {
+	sentPages.set(docName, new Map(pages.map((page) => [page.id, page.html])));
+}
+
+/**
+ * The projections a client lacks. A full page list (`pageCount` set) whose
+ * page ids match the last one sent keeps only the pages whose HTML changed;
+ * any other update is sent whole.
+ */
+function unsentPages(
+	sentPages: SentPages,
+	docName: string,
+	update: { pages: StatePageProjection[]; pageCount?: number },
+): StatePageProjection[] {
+	if (update.pageCount === undefined) return update.pages;
+	const sent = sentPages.get(docName);
+	sentPages.set(
+		docName,
+		new Map(update.pages.map((page) => [page.id ?? "", page.html])),
+	);
+	const sentIds = sent ? [...sent.keys()] : [];
+	if (
+		!sent ||
+		sentIds.length !== update.pages.length ||
+		update.pages.some((page, index) => page.id !== sentIds[index])
+	) {
+		return update.pages;
+	}
+	return update.pages.filter((page) => sent.get(page.id ?? "") !== page.html);
 }

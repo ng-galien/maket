@@ -1,5 +1,6 @@
 import Ajv from "ajv";
 import { parseJsonPointer, readJsonPointer } from "./json-patch.js";
+import { compiledJsonSchema } from "./json-schema-validators.js";
 
 export type StructuredWorkspaceDataSchema = Record<string, unknown>;
 
@@ -217,12 +218,14 @@ export function validateStructuredWorkspaceItemData(
 	schema: StructuredWorkspaceDataSchema,
 	data: Record<string, unknown>,
 ): string[] {
-	const validator = createValidator();
-	const schemaIssues = validateDataSchema(schema, validator);
-	if (schemaIssues.length > 0) return schemaIssues;
-	const validate = validator.compile(schema);
-	if (validate(data)) return [];
-	return (validate.errors ?? []).map(
+	const compiled = compiledJsonSchema(schema);
+	if (!compiled.ok) {
+		return compiled.errors.map(
+			(error) => `Invalid data schema${error.instancePath}: ${error.message}`,
+		);
+	}
+	if (compiled.validate(data)) return [];
+	return (compiled.validate.errors ?? []).map(
 		(error) => `Invalid item data${error.instancePath}: ${error.message}`,
 	);
 }

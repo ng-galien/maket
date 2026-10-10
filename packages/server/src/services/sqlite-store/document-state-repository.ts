@@ -23,6 +23,8 @@ export interface DocumentStateRepository {
 	): DocumentStateRevision;
 	loadDocumentState(documentId: string): StoredDocumentState | null;
 	loadCurrentDocumentState(documentId: string): DocumentStateRevision | null;
+	/** Number of the current revision, without reading its schema or data. */
+	loadCurrentDocumentStateRevisionNumber(documentId: string): number | null;
 	loadDocumentStateRevision(
 		documentId: string,
 		revision: number,
@@ -39,6 +41,18 @@ export interface DocumentStateRepository {
 		schema: DocumentStateSchema,
 		data: DocumentStateData,
 	): DocumentStateRevision;
+	/**
+	 * Replace one value of the current revision in place, the row taking the
+	 * next revision number: for derived projections, whose history carries no
+	 * meaning, so a one-entry change does not append a whole snapshot.
+	 * `jsonPath` is an SQLite JSON path such as `$.items[3]`.
+	 */
+	replaceCurrentDocumentStateValue(
+		documentId: string,
+		expectedRevision: number,
+		jsonPath: string,
+		value: unknown,
+	): number;
 	/** Store the retention and prune revisions beyond it in one transaction. */
 	setDocumentStateRetention(
 		documentId: string,
@@ -68,6 +82,24 @@ export function createDocumentStateRepository(
 		loadCurrentDocumentState(documentId) {
 			const row = statements.revisionSelectCurrent.get(documentId);
 			return row ? revisionFromRow(row) : null;
+		},
+		loadCurrentDocumentStateRevisionNumber(documentId) {
+			const row = statements.revisionNumberSelectCurrent.get(documentId) as
+				| { revision: number }
+				| undefined;
+			return row ? Number(row.revision) : null;
+		},
+		replaceCurrentDocumentStateValue(
+			documentId,
+			expectedRevision,
+			jsonPath,
+			value,
+		) {
+			return replaceCurrentValue(statements, documentId, {
+				expectedRevision,
+				jsonPath,
+				value,
+			});
 		},
 		loadDocumentStateRevision(documentId, revision) {
 			const row = statements.revisionSelect.get(documentId, revision);
@@ -105,6 +137,8 @@ type DocumentStateStatements = {
 	revisionPrune: StatementSync;
 	revisionSelect: StatementSync;
 	revisionSelectCurrent: StatementSync;
+	revisionNumberSelectCurrent: StatementSync;
+	revisionReplaceValue: StatementSync;
 	revisionSelectAll: StatementSync;
 	documentMarkState: StatementSync;
 	documentTouch: StatementSync;
@@ -181,6 +215,36 @@ function appendRevision(
 		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 		throw error;
 	}
+}
+
+function replaceCurrentValue(
+	statements: DocumentStateStatements,
+	documentId: string,
+	change: { expectedRevision: number; jsonPath: string; value: unknown },
+): number {
+	const next = change.expectedRevision + 1;
+	const result = statements.revisionReplaceValue.run({
+		document_id: documentId,
+		expected: change.expectedRevision,
+		next,
+		path: change.jsonPath,
+		value: JSON.stringify(change.value),
+	});
+	if (Number(result.changes) !== 1) {
+		const current =
+			(
+				statements.revisionNumberSelectCurrent.get(documentId) as
+					| { revision: number }
+					| undefined
+			)?.revision ?? null;
+		throw new MessageError(
+			`Document state revision conflict: expected ${change.expectedRevision}, current ${current}.`,
+			"msg_state_revision_conflict",
+			{ expected: change.expectedRevision, current: current ?? 0 },
+		);
+	}
+	statements.documentTouch.run({ document_id: documentId });
+	return next;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -312,6 +376,12 @@ function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 		),
 		revisionSelectCurrent: db.prepare(
 			"SELECT document_id, revision, schema, data, created_at FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC LIMIT 1",
+		),
+		revisionNumberSelectCurrent: db.prepare(
+			"SELECT revision FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC LIMIT 1",
+		),
+		revisionReplaceValue: db.prepare(
+			"UPDATE document_state_revisions SET revision = $next, data = json_set(data, $path, json($value)), created_at = datetime('now') WHERE document_id = $document_id AND revision = $expected",
 		),
 		revisionSelectAll: db.prepare(
 			"SELECT document_id, revision, schema, data, created_at FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC",

@@ -44,6 +44,9 @@ export interface BusEvents {
 		paths: string[];
 		schemaChanged?: boolean;
 		attached?: boolean;
+		/** One entry of a derived projection was replaced in place (`paths`
+		 * holds its pointer); the revision before it is `revision - 1`. */
+		projection?: boolean;
 	};
 	/** Revision retention was set; `pruned` revisions were deleted for good. */
 	"document-state:retention-changed": {

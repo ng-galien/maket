@@ -1,4 +1,3 @@
-import Ajv from "ajv";
 import type {
 	DocumentStateData,
 	DocumentStateRenderResult,
@@ -9,6 +8,7 @@ import {
 	parseJsonPointer,
 	readJsonPointer,
 } from "./json-patch.js";
+import { compiledJsonSchema } from "./json-schema-validators.js";
 
 export interface JsonFormsTemplate {
 	/** Standard JSON Forms UI schema. Omit it to generate a vertical form. */
@@ -236,9 +236,8 @@ function evaluateRule(
 	const pointer = scopeToDataPointer(scope);
 	context.dependencies.add(pointer);
 	const value = readOptionalPointer(context.data, pointer);
-	const matches = new Ajv({ allErrors: true, strict: false }).compile(
-		conditionSchema,
-	)(value);
+	const compiled = compiledJsonSchema(conditionSchema);
+	const matches = compiled.ok && compiled.validate(value);
 	return {
 		hidden:
 			effect === "HIDE"

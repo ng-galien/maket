@@ -400,3 +400,73 @@ describe("DocumentStates", () => {
 		store.close();
 	});
 });
+
+describe("DocumentStates projection entries", () => {
+	const projectionSchema = {
+		type: "object",
+		properties: {
+			items: {
+				type: "array",
+				items: { $ref: "#/$defs/topic" },
+			},
+		},
+		required: ["items"],
+		$defs: {
+			topic: {
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+		},
+	};
+
+	it("replaces one entry in place: the revision advances without appending a snapshot", () => {
+		const { store, bus, states } = fixture();
+		states.initialize("audit", projectionSchema, {
+			items: [{ title: "A" }, { title: "B" }, { title: "C" }],
+		});
+		const events: unknown[] = [];
+		bus.on("document-state:changed", (change) => events.push(change));
+		const before = states.current("audit");
+
+		const revision = states.replaceProjectionEntry("audit", 1, "/items/1", {
+			title: "B2",
+		});
+
+		expect(revision).toBe(2);
+		expect(states.history("audit")).toHaveLength(1);
+		expect(states.current("audit")).toMatchObject({
+			revision: 2,
+			data: { items: [{ title: "A" }, { title: "B2" }, { title: "C" }] },
+		});
+		expect(before).toMatchObject({
+			revision: 1,
+			data: { items: [{}, { title: "B" }, {}] },
+		});
+		expect(Object.isFrozen(states.current("audit")?.data)).toBe(true);
+		expect(events).toEqual([
+			{ docName: "audit", revision: 2, paths: ["/items/1"], projection: true },
+		]);
+		store.close();
+	});
+
+	it("refuses an invalid entry, a stale revision and a pointer outside the list", () => {
+		const { store, states } = fixture();
+		states.initialize("audit", projectionSchema, { items: [{ title: "A" }] });
+
+		expect(() =>
+			states.replaceProjectionEntry("audit", 1, "/items/0", { title: 3 }),
+		).toThrow(/must be string/);
+		expect(() =>
+			states.replaceProjectionEntry("audit", 4, "/items/0", { title: "Z" }),
+		).toThrow(/revision conflict/);
+		expect(() =>
+			states.replaceProjectionEntry("audit", 1, "/items/3", { title: "Z" }),
+		).toThrow(/not an entry of a projected list/);
+		expect(states.current("audit")).toMatchObject({
+			revision: 1,
+			data: { items: [{ title: "A" }] },
+		});
+		store.close();
+	});
+});

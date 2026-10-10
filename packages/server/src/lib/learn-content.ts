@@ -392,7 +392,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"4. Validate before `change_schema`.",
 				"5. On conflict, call `maket_state action=get`, reconcile, and retry with the new revision.",
 				"6. Restore appends a revision instead of rewriting history.",
-				"7. History is unbounded by default. `maket_state action=set_retention doc=<doc> retention=<n>` keeps the current state plus the n previous revisions and prunes older ones on every write; `retention=0` keeps only the current state and `retention=null` restores the full history. Use it for continuously fed documents, including Workspace collection projections.",
+				"7. History is unbounded by default. `maket_state action=set_retention doc=<doc> retention=<n>` keeps the current state plus the n previous revisions and prunes older ones on every write; `retention=0` keeps only the current state and `retention=null` restores the full history. Use it for continuously fed documents. A Workspace collection projection replaces a changed item entry in place, its revision number advancing without a new snapshot, so its history does not grow with item updates.",
 			].join("\n"),
 			"Failed template, schema, or data validation is atomic.",
 		),

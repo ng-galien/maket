@@ -505,7 +505,7 @@ describe("maket_structured_workspace", () => {
 });
 
 describe("maket_structured_workspace update_item propagation", () => {
-	it("writes and broadcasts one item of a 60-item workspace", async () => {
+	it("writes and broadcasts only the touched item and the collection index of a 100-item workspace", async () => {
 		const writes: string[] = [];
 		const reads: string[] = [];
 		const sqlite = createSQLiteStore(":memory:");
@@ -520,7 +520,12 @@ describe("maket_structured_workspace update_item propagation", () => {
 				};
 			},
 		}) as Store;
-		const broadcasts: Array<{ type: string; doc?: string; bytes: number }> = [];
+		const broadcasts: Array<{
+			type: string;
+			doc?: string;
+			bytes: number;
+			message: Record<string, unknown>;
+		}> = [];
 		const container = createAppContainer({
 			config: createConfig({
 				env: { MAKET_DATA_DIR: "/nonexistent/maket-test" },
@@ -542,6 +547,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 						type: message.type,
 						doc: message.docName,
 						bytes: JSON.stringify(message).length,
+						message: message as Record<string, unknown>,
 					});
 				},
 			}),
@@ -646,7 +652,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 			{} as never,
 		);
 		expect(created.isError).toBeUndefined();
-		for (let index = 0; index < 60; index += 1) {
+		for (let index = 0; index < 100; index += 1) {
 			const added = await tool.handler(
 				{
 					action: "add_item",
@@ -680,7 +686,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 		expect(textOf(updated)).toBe('Item "topic-30" updated to data revision 2.');
 		expect(writes).toEqual([
 			"appendDocumentStateRevision",
-			"appendDocumentStateRevision",
+			"replaceCurrentDocumentStateValue",
 		]);
 		expect(events.sort()).toEqual([
 			"document-state:changed",
@@ -702,11 +708,43 @@ describe("maket_structured_workspace update_item propagation", () => {
 			);
 		const projection = documentStates.get("Graph — Topics")?.current;
 		const projected = projection?.data.items as Array<{ status: string }>;
-		expect(projected).toHaveLength(60);
+		expect(projected).toHaveLength(100);
 		expect(projected[30]?.status).toBe("closed");
 		expect(projected.filter(({ status }) => status === "open")).toHaveLength(
-			59,
+			99,
 		);
+		const index = broadcasts.find(({ doc }) => doc === "Graph — Topics");
+		expect(index?.message.documentState).toBeUndefined();
+		expect(index?.message.documentStateEntry).toEqual({
+			previousRevision: (projection?.revision ?? 0) - 1,
+			revision: projection?.revision,
+			createdAt: projection?.createdAt,
+			pointer: "/items/30",
+			value: { title: "Topic 30", status: "closed" },
+		});
+		const indexPages = (index?.message.pages ?? []) as Array<{
+			html?: string;
+		}>;
+		expect(indexPages[0]?.html).toContain("closed");
+		expect(index?.bytes).toBeLessThan(40_000);
+
+		broadcasts.length = 0;
+		writes.length = 0;
+		const unchanged = await tool.handler(
+			{
+				action: "update_item",
+				workspace: "Graph",
+				item: "topic-31",
+				expected_revision: 1,
+				data: { title: "Topic 31", status: "open" },
+			},
+			{} as never,
+		);
+		expect(unchanged.isError).toBeUndefined();
+		expect(writes).toEqual(["appendDocumentStateRevision"]);
+		expect(
+			broadcasts.filter(({ doc }) => doc === "Graph — Topics"),
+		).toHaveLength(0);
 		store.close();
 	});
 });

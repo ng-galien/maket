@@ -2,12 +2,14 @@ import {
 	type AssetCategoryUpdate,
 	type AssetsListItem,
 	type AssetsListResponse,
+	applyJsonPatch,
 	type Collection,
 	type CollectionCursorMode,
 	collectionCursorKey,
 	DEFAULT_SETTINGS,
 	type DocumentLabelPosition,
 	type DocumentStateClientView,
+	type DocumentStateEntryChange,
 	type PageCollectionCursor,
 	type Settings,
 	type StatePageProjection,
@@ -75,6 +77,25 @@ export function projectStatePages(
 		});
 	}
 	return pageCount === undefined ? next : next.slice(0, Math.max(1, pageCount));
+}
+
+/** The state view after a whole view or one projection entry change; an
+ * entry for another revision than the held view leaves the view as it is. */
+export function nextDocumentStateView(
+	held: DocumentStateClientView | null | undefined,
+	change: DocumentStateClientView | DocumentStateEntryChange | undefined,
+): DocumentStateClientView | null {
+	if (!change) return held ?? null;
+	if (!("pointer" in change)) return change;
+	if (!held || held.revision !== change.previousRevision) return held ?? null;
+	return {
+		...held,
+		revision: change.revision,
+		createdAt: change.createdAt,
+		data: applyJsonPatch(held.data, [
+			{ op: "replace", path: change.pointer, value: change.value },
+		]) as DocumentStateClientView["data"],
+	};
 }
 
 export function statePatchKey(docName: string, pointer: string): string {
@@ -168,7 +189,7 @@ interface DocumentStateSlice {
 	applyStatePages: (
 		docName: string,
 		pages: StatePageProjection[],
-		view: DocumentStateClientView,
+		view: DocumentStateClientView | DocumentStateEntryChange | undefined,
 		docList: DocSummary[],
 		pageCount?: number,
 	) => void;
@@ -778,15 +799,14 @@ export const useStore = create<AppState>((set, get) => ({
 				statePatchErrors,
 			};
 		}),
-	applyStatePages: (docName, pages, view, docList, pageCount) =>
+	applyStatePages: (docName, pages, change, docList, pageCount) =>
 		set((s) => {
+			const view = nextDocumentStateView(s.documentStates[docName], change);
+			const documentStates = view
+				? { ...s.documentStates, [docName]: view }
+				: s.documentStates;
 			const current = s.docs.get(docName);
-			if (!current) {
-				return {
-					documentStates: { ...s.documentStates, [docName]: view },
-					docList,
-				};
-			}
+			if (!current) return { documentStates, docList };
 			const nextPages = projectStatePages(current.pages, pages, pageCount);
 			const docs = new Map(s.docs);
 			docs.set(docName, {
@@ -800,7 +820,7 @@ export const useStore = create<AppState>((set, get) => ({
 			return {
 				docs,
 				docList,
-				documentStates: { ...s.documentStates, [docName]: view },
+				documentStates,
 			};
 		}),
 	setStateCanvasMode: (docName, mode) =>

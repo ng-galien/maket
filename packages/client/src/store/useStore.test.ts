@@ -10,9 +10,8 @@ vi.mock("./ws", async () => {
 	return { ...actual, wsSend: vi.fn() };
 });
 
-const { useStore, cursorForPage, previewCursorForPage } = await import(
-	"./useStore"
-);
+const { useStore, cursorForPage, previewCursorForPage, nextDocumentStateView } =
+	await import("./useStore");
 const { wsSend } = await import("./ws");
 const {
 	consumePendingFit,
@@ -1093,5 +1092,47 @@ describe("setServerState (legacy shim)", () => {
 		useStore.getState().setServerState(null, [summary("alpha")], "");
 		expect(useStore.getState().docList).toHaveLength(1);
 		expect(useStore.getState().docs.size).toBe(0);
+	});
+});
+
+describe("nextDocumentStateView", () => {
+	const held = {
+		schema: { type: "object" },
+		data: { items: [{ title: "A" }, { title: "B" }] },
+		revision: 4,
+		createdAt: "2026-10-10T18:00:00.000Z",
+		templates: {},
+	};
+
+	it("applies a projection entry to the view held at its previous revision", () => {
+		const next = nextDocumentStateView(held, {
+			previousRevision: 4,
+			revision: 5,
+			createdAt: "2026-10-10T18:01:00.000Z",
+			pointer: "/items/1",
+			value: { title: "B2" },
+		});
+
+		expect(next).toEqual({
+			...held,
+			revision: 5,
+			createdAt: "2026-10-10T18:01:00.000Z",
+			data: { items: [{ title: "A" }, { title: "B2" }] },
+		});
+		expect(held.data.items[1]).toEqual({ title: "B" });
+	});
+
+	it("keeps the held view for an entry of another revision and takes a whole view as is", () => {
+		const entry = {
+			previousRevision: 7,
+			revision: 8,
+			createdAt: "2026-10-10T18:02:00.000Z",
+			pointer: "/items/0",
+			value: { title: "Z" },
+		};
+		expect(nextDocumentStateView(held, entry)).toBe(held);
+		expect(nextDocumentStateView(undefined, entry)).toBeNull();
+		const whole = { ...held, revision: 9 };
+		expect(nextDocumentStateView(held, whole)).toBe(whole);
 	});
 });

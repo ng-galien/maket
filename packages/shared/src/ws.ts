@@ -61,10 +61,24 @@ export interface StatePageProjection {
 	name?: string;
 }
 
+/** One replaced entry of a derived projection state (a Structured Workspace
+ * collection), sent in place of the whole state view. */
+export interface DocumentStateEntryChange {
+	previousRevision: number;
+	revision: number;
+	createdAt: string;
+	pointer: string;
+	value: unknown;
+}
+
 export interface StatePageProjectionSignal {
 	type: "state_pages";
 	docName: string;
-	documentState: DocumentStateClientView;
+	/** The whole state view; absent when `documentStateEntry` carries the
+	 * change instead. */
+	documentState?: DocumentStateClientView;
+	/** Applied by a client whose view is at `previousRevision`. */
+	documentStateEntry?: DocumentStateEntryChange;
 	pages: StatePageProjection[];
 	/** Present when the rendered page count is authoritative: the client keeps
 	 * exactly this many pages. */

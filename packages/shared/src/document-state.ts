@@ -1,4 +1,3 @@
-import Ajv from "ajv";
 import Mustache from "mustache";
 import {
 	assertStateAttributePlacement,
@@ -11,6 +10,7 @@ import {
 	parseJsonPointer,
 	readJsonPointer,
 } from "./json-patch.js";
+import { compiledJsonSchema } from "./json-schema-validators.js";
 
 export type DocumentStateSchema = Record<string, unknown> & {
 	type?: unknown;
@@ -92,21 +92,16 @@ export function validateDocumentState(
 	schema: DocumentStateSchema,
 	data: DocumentStateData,
 ): string[] {
-	const ajv = createDocumentStateValidator();
-	if (!ajv.validateSchema(schema)) {
-		return (ajv.errors ?? []).map(
+	const compiled = compiledJsonSchema(schema);
+	if (!compiled.ok) {
+		return compiled.errors.map(
 			(error) => `Invalid state schema${error.instancePath}: ${error.message}`,
 		);
 	}
-	const validate = ajv.compile(schema);
-	if (validate(data)) return [];
-	return (validate.errors ?? []).map(
+	if (compiled.validate(data)) return [];
+	return (compiled.validate.errors ?? []).map(
 		(error) => `Invalid state${error.instancePath}: ${error.message}`,
 	);
-}
-
-function createDocumentStateValidator(): Ajv {
-	return new Ajv({ allErrors: true, strict: false });
 }
 
 /** Render a stateful page without collection expansion. */

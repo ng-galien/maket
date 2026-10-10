@@ -108,6 +108,7 @@ export interface StructuredWorkspacesDeps {
 export function createStructuredWorkspaces(
 	deps: StructuredWorkspacesDeps,
 ): StructuredWorkspaces {
+	const compactCards: CompactCardCache = new Map();
 	deps.bus.on("document-state:changed", ({ docName }) => {
 		reconcileItemDocumentState(deps, docName);
 	});
@@ -181,7 +182,10 @@ export function createStructuredWorkspaces(
 			return count;
 		},
 		renderCollection(workspaceId, collectionId) {
-			return renderCollection(deps, workspaceId, collectionId);
+			return renderCollection(deps, compactCards, {
+				workspaceId,
+				collectionId,
+			});
 		},
 		getItem(workspaceId, itemId) {
 			const item = deps.store
@@ -389,9 +393,10 @@ function renameWorkspace(
 
 function renderCollection(
 	deps: StructuredWorkspacesDeps,
-	workspaceId: string,
-	collectionId: string,
+	compactCards: CompactCardCache,
+	target: { workspaceId: string; collectionId: string },
 ): Document {
+	const { workspaceId, collectionId } = target;
 	const workspace = deps.store
 		.loadAllStructuredWorkspaces()
 		.find((candidate) => candidate.id === workspaceId);
@@ -433,7 +438,7 @@ function renderCollection(
 		}
 		const flowed = renderCollectionPage(
 			deps,
-			{ workspace, collection, items },
+			{ workspace, collection, items, compactCards },
 			{ doc: collectionDocument, pageId: page.id },
 			renderDocumentStatePage(page, collectionState.current.data, {
 				schema: collectionState.current.schema,
@@ -491,6 +496,43 @@ interface CollectionPageSource {
 	workspace: StructuredWorkspaceDefinition;
 	collection: StructuredWorkspaceCollectionRepresentation;
 	items: StructuredWorkspaceItemView[];
+	compactCards: CompactCardCache;
+}
+
+/** Rendered compact cards by template content, item data revision and slot,
+ * so a collection re-render after one item change renders one card. */
+type CompactCardCache = Map<
+	string,
+	{ html: string; style: CompactCard["style"] }
+>;
+
+const MAX_CACHED_COMPACT_CARDS = 5000;
+
+function cachedCompactCard(
+	source: CollectionPageSource,
+	document: ReturnType<typeof parseHTML>["document"],
+	key: string,
+	render: () => CompactCard,
+): CompactCard {
+	const cached = source.compactCards.get(key);
+	if (cached) {
+		const holder = document.createElement("div");
+		holder.innerHTML = cached.html;
+		const element = holder.firstElementChild as HTMLElement | null;
+		if (element) return { element, style: cached.style };
+	}
+	const card = render();
+	source.compactCards.delete(key);
+	source.compactCards.set(key, {
+		html: card.element.outerHTML,
+		style: card.style,
+	});
+	while (source.compactCards.size > MAX_CACHED_COMPACT_CARDS) {
+		const oldest = source.compactCards.keys().next().value;
+		if (oldest === undefined) break;
+		source.compactCards.delete(oldest);
+	}
+	return card;
 }
 
 /**
@@ -654,16 +696,28 @@ function collectionCardEntries(
 			workspace.dataSchema,
 			binding,
 		);
-		const cards = compact.pages.flatMap((page, pageIndex) =>
-			page.html || page.jsonForms
-				? [
-						renderCompactCard(document, page, item, schema, {
-							suffix: `${slotIndex}-${pageIndex}`,
-							styleKey: `${safeToken(compact.id)}-${pageIndex}`,
-						}),
-					]
-				: [],
-		);
+		const cards = compact.pages.flatMap((page, pageIndex) => {
+			if (!page.html && !page.jsonForms) return [];
+			const options = {
+				suffix: `${slotIndex}-${pageIndex}`,
+				styleKey: `${safeToken(compact.id)}-${pageIndex}`,
+			};
+			const key = [
+				compact.id,
+				pageIndex,
+				templateSignature(page),
+				workspace.revision,
+				slotIndex,
+				item.id,
+				item.documentName,
+				item.dataRevision,
+			].join("\u0000");
+			return [
+				cachedCompactCard(source, document, key, () =>
+					renderCompactCard(document, page, item, schema, options),
+				),
+			];
+		});
 		const styles = new Map<string, string>();
 		for (const card of cards) {
 			if (card.style) styles.set(card.style.key, card.style.css);
@@ -768,6 +822,15 @@ function collectionGroupHeader(
 	count.textContent = String(options.count);
 	header.append(label, document.createTextNode(" "), count);
 	return header;
+}
+
+function templateSignature(page: Pick<Page, "html" | "jsonForms">): string {
+	return crypto
+		.createHash("sha1")
+		.update(page.html ?? "")
+		.update("\u0000")
+		.update(JSON.stringify(page.jsonForms ?? null))
+		.digest("hex");
 }
 
 function renderCompactCard(
@@ -1263,16 +1326,11 @@ function alignCollectionEntry(
 		JSON.stringify(projected[index]) === JSON.stringify(itemState.current.data)
 	)
 		return "entry";
-	deps.documentStates.patch(
+	deps.documentStates.replaceProjectionEntry(
 		collectionDocument.name,
 		collectionState.current.revision,
-		[
-			{
-				op: "replace",
-				path: `/items/${index}`,
-				value: structuredClone(itemState.current.data),
-			},
-		],
+		`/items/${index}`,
+		itemState.current.data,
 	);
 	return "entry";
 }
@@ -1614,12 +1672,16 @@ function collectionDocumentStateData(
 	deps: StructuredWorkspacesDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
+	options: { clone: boolean } = { clone: true },
 ): Record<string, unknown> {
 	return {
 		items: workspace.items
 			.filter((item) => item.collectionId === collectionId)
 			.sort((left, right) => left.position - right.position)
-			.map((item) => structuredClone(itemView(deps, item).data)),
+			.map((item) => {
+				const data = itemView(deps, item).data;
+				return options.clone ? structuredClone(data) : data;
+			}),
 	};
 }
 
@@ -1642,13 +1704,14 @@ function itemView(
 		item.documentId,
 		"instantiated document",
 	);
-	const state = deps.documentStates.get(document.name);
-	if (!state) throw new Error(`Document "${document.name}" has no item data.`);
+	const current = deps.documentStates.current(document.name);
+	if (!current)
+		throw new Error(`Document "${document.name}" has no item data.`);
 	return {
 		...item,
 		documentName: document.name,
-		data: state.current.data,
-		dataRevision: state.current.revision,
+		data: current.data,
+		dataRevision: current.revision,
 	};
 }
 
@@ -1832,7 +1895,7 @@ function workspaceIntegrity(
 		if (document.meta.structuredWorkspace?.workspaceId !== workspace.id) {
 			issues.push(`Item document "${document.name}" has invalid ownership.`);
 		}
-		if (!deps.documentStates.get(document.name)) {
+		if (!deps.documentStates.current(document.name)) {
 			issues.push(`Item document "${document.name}" has no state.`);
 		}
 	}
@@ -1850,7 +1913,14 @@ function workspaceIntegrity(
 					findCollectionDocument(deps.documents, workspace.id, collectionId) ??
 					template;
 				const schema = collectionDocumentStateSchema(workspace);
-				const data = collectionDocumentStateData(deps, workspace, collectionId);
+				const data = collectionDocumentStateData(
+					deps,
+					workspace,
+					collectionId,
+					{
+						clone: false,
+					},
+				);
 				for (const page of [
 					...template.pages,
 					...(document !== template ? document.pages : []),

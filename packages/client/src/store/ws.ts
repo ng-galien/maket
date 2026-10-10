@@ -342,7 +342,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				.applyStatePages(
 					msg.docName,
 					msg.pages,
-					msg.documentState,
+					msg.documentState ?? msg.documentStateEntry,
 					(msg.docList ?? []) as DocSummary[],
 					msg.pageCount,
 				);
