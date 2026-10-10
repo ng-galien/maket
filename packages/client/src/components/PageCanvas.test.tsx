@@ -1750,3 +1750,51 @@ describe("PageCanvas edit mode", () => {
 		expect(useStore.getState().editingElementId).toBe("a");
 	});
 });
+
+describe("PageCanvas bound multiline field", () => {
+	it("commits a bound textarea on change, keeps Enter for new lines and fits its height to the content", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "textarea-request");
+		const doc = makeDoc(
+			'<textarea data-id="note" style="min-height:10mm;max-height:40mm" data-maket-bind="state.note" data-maket-path="/note" data-maket-type="string">First</textarea>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: {
+						type: "object",
+						properties: { note: { type: "string" } },
+					},
+					data: { note: "First" },
+					revision: 4,
+					createdAt: "2026-10-10T00:00:00.000Z",
+					templates: {},
+				},
+			},
+		});
+		const { container } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+		const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+		Object.defineProperty(textarea, "scrollHeight", {
+			configurable: true,
+			value: 96,
+		});
+
+		textarea.value = "First\nSecond";
+		fireEvent.input(textarea);
+		expect(textarea.style.height).toBe("96px");
+		fireEvent.keyDown(textarea, { key: "Enter" });
+		expect(sendPatch).not.toHaveBeenCalled();
+
+		fireEvent.change(textarea);
+		expect(sendPatch).toHaveBeenCalledWith(
+			"alpha",
+			"/note",
+			4,
+			"First\nSecond",
+		);
+	});
+});

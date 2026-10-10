@@ -900,6 +900,12 @@ export const PageCanvas = memo(function PageCanvas({
 			if (isTextControl(target)) {
 				textCommitRef.current.delete(target);
 			}
+			if (
+				target instanceof HTMLTextAreaElement &&
+				target.matches("[data-maket-bind][data-maket-path]")
+			) {
+				fitBoundTextareaHeight(target);
+			}
 		};
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (!canUseStateControls) {
@@ -1009,6 +1015,15 @@ export const PageCanvas = memo(function PageCanvas({
 		stateDocumentPending,
 		stateView?.data,
 	]);
+
+	useEffect(() => {
+		if (!pageRef.current || !liveState || !renderHtml) return;
+		pageRef.current
+			.querySelectorAll<HTMLTextAreaElement>(
+				"textarea[data-maket-bind][data-maket-path]",
+			)
+			.forEach(fitBoundTextareaHeight);
+	}, [liveState, renderHtml, stateView?.data]);
 
 	useEffect(() => {
 		setStateEditor(null);
@@ -1352,6 +1367,22 @@ function isStringInput(value: unknown): value is HTMLInputElement {
 	return (
 		value instanceof HTMLInputElement && STRING_INPUT_TYPES.has(value.type)
 	);
+}
+
+/**
+ * Grow or shrink a bound textarea to its content. The textarea's own CSS
+ * `min-height` (or its `rows`) and `max-height` bound the height; beyond the
+ * maximum the textarea scrolls.
+ */
+export function fitBoundTextareaHeight(textarea: HTMLTextAreaElement): void {
+	textarea.style.height = "auto";
+	const style = getComputedStyle(textarea);
+	const borders =
+		style.boxSizing === "border-box"
+			? (Number.parseFloat(style.borderTopWidth) || 0) +
+				(Number.parseFloat(style.borderBottomWidth) || 0)
+			: 0;
+	textarea.style.height = `${textarea.scrollHeight + borders}px`;
 }
 
 function isTextControl(value: unknown): value is StateTextControl {

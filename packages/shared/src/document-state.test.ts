@@ -792,3 +792,41 @@ describe("document state list flow", () => {
 		);
 	});
 });
+
+describe("bound multiline field", () => {
+	const noteSchema = {
+		type: "object",
+		properties: { note: { type: "string" }, done: { type: "boolean" } },
+		required: ["note", "done"],
+	};
+
+	it("shows the state value as the content of a bound textarea", () => {
+		const rendered = renderDocumentStateText(
+			'<textarea data-id="note" rows="3" data-maket-bind="state.note">draft</textarea>',
+			{ note: "Line 1\nLine <2> & co", done: false },
+			{ schema: noteSchema },
+		);
+
+		expect(rendered.html).toBe(
+			'<textarea data-id="note" rows="3" data-maket-bind="state.note" data-maket-path="/note" data-maket-type="string">Line 1\nLine &lt;2&gt; &amp; co</textarea>',
+		);
+		expect(rendered.bindingPaths).toEqual(["/note"]);
+	});
+
+	it("requires a string value and a closing tag", () => {
+		expect(() =>
+			renderDocumentStateText(
+				'<textarea data-maket-bind="state.done"></textarea>',
+				{ note: "", done: false },
+				{ schema: noteSchema },
+			),
+		).toThrow(/Textarea binding "state.done" requires a string state value/);
+		expect(() =>
+			renderDocumentStateText(
+				'<textarea data-maket-bind="state.note">',
+				{ note: "", done: false },
+				{ schema: noteSchema },
+			),
+		).toThrow(/closing <\/textarea>/);
+	});
+});

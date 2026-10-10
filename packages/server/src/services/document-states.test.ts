@@ -469,4 +469,29 @@ describe("DocumentStates projection entries", () => {
 		});
 		store.close();
 	});
+
+	it("accepts a live edit of a value bound to a textarea", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<textarea data-id="note" data-maket-bind="state.title"></textarea>';
+		states.initialize("audit", schema, { title: "First line", done: false });
+		const renderer = createStateRenderer({ documentStates: states });
+		expect(renderer.render(doc).pages[0]?.html).toContain(
+			'data-maket-path="/title" data-maket-type="string">First line</textarea>',
+		);
+
+		const updated = states.patchTerminal("audit", 1, {
+			op: "replace",
+			path: "/title",
+			value: "First line\nSecond line",
+		});
+
+		expect(updated.data.title).toBe("First line\nSecond line");
+		expect(renderer.render(doc).pages[0]?.html).toContain(
+			">First line\nSecond line</textarea>",
+		);
+		store.close();
+	});
 });

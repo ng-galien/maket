@@ -140,7 +140,10 @@ export function renderDocumentStateText(
 	const html = finalizeStateAttributeValues(
 		renderTokens(tokens, frames, template, dependencies, options, flow),
 	);
-	const hydrated = hydrateSelectOptions(html, data, options.schema);
+	const hydrated = hydrateTextareaContents(
+		hydrateSelectOptions(html, data, options.schema),
+		data,
+	);
 	return {
 		html: hydrated,
 		dependencies: [...dependencies],
@@ -384,6 +387,14 @@ function validateBindingTagAgainstSchema(
 		type,
 		resolved.schema,
 	);
+	if (tagName === "textarea") {
+		if (!findClosingElement(html, tagEnd + 1, "textarea")) {
+			throw new Error(
+				`Textarea binding "${expression}" must have a closing </textarea> tag.`,
+			);
+		}
+		return;
+	}
 	if (tagName !== "select") return;
 	const close = findClosingSelect(html, tagEnd + 1);
 	if (!close) {
@@ -447,6 +458,14 @@ function assertSupportedSchemaBindingControl(
 		}
 		return;
 	}
+	if (tagName === "textarea") {
+		if (type !== "string") {
+			throw new Error(
+				`Textarea binding "${expression}" requires a string state value.`,
+			);
+		}
+		return;
+	}
 	if (tagName === "select") {
 		if (readHtmlAttribute(tag, "multiple") !== null) {
 			throw new Error(
@@ -462,7 +481,7 @@ function assertSupportedSchemaBindingControl(
 	}
 	if (tagName === "button" && controlType === "button") return;
 	throw new Error(
-		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <select>, and <button type="button"> only.`,
+		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <textarea>, <select>, and <button type="button"> only.`,
 	);
 }
 
@@ -780,14 +799,17 @@ function assertSupportedBindingControl(
 		}
 		return;
 	}
-	if (tagName === "input" && controlType === "text") {
+	if (
+		(tagName === "input" && controlType === "text") ||
+		tagName === "textarea"
+	) {
 		if (
 			type !== "string" ||
 			typeof value !== "string" ||
 			(targetSchema !== undefined && schemaType(targetSchema) !== "string")
 		) {
 			throw new Error(
-				`Text input binding "${expression}" requires a string state value.`,
+				`${tagName === "textarea" ? "Textarea" : "Text input"} binding "${expression}" requires a string state value.`,
 			);
 		}
 		return;
@@ -808,7 +830,7 @@ function assertSupportedBindingControl(
 	}
 	if (tagName === "button" && controlType === "button") return;
 	throw new Error(
-		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <select>, and <button type="button"> only.`,
+		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <textarea>, <select>, and <button type="button"> only.`,
 	);
 }
 
@@ -865,6 +887,61 @@ function hydrateSelectOptions(
 		cursor = close.end + 1;
 	}
 	return output;
+}
+
+/** A bound textarea shows its state value as its content, whatever the
+ * template wrote between its tags. */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Local HTML tokenizer pass: reads tags and the state value with this module's scanning helpers.
+function hydrateTextareaContents(
+	html: string,
+	data: DocumentStateData,
+): string {
+	if (!/<\s*textarea\b/i.test(html)) return html;
+	let output = "";
+	let cursor = 0;
+	while (cursor < html.length) {
+		const start = html.indexOf("<", cursor);
+		if (start < 0) return output + html.slice(cursor);
+		const end = findHtmlTagEnd(html, start);
+		if (end < 0) return output + html.slice(cursor);
+		const opening = html.slice(start, end + 1);
+		const tagName = /^<\s*([A-Za-z][\w:-]*)/.exec(opening)?.[1]?.toLowerCase();
+		const pointer = readHtmlAttribute(opening, stateBindingPathAttribute);
+		if (
+			tagName !== "textarea" ||
+			readHtmlAttribute(opening, stateBindingAttribute) === null ||
+			pointer === null
+		) {
+			output += html.slice(cursor, end + 1);
+			cursor = end + 1;
+			continue;
+		}
+		const close = findClosingElement(html, end + 1, "textarea");
+		if (!close) {
+			throw new Error(
+				"A bound <textarea> must have a closing </textarea> tag.",
+			);
+		}
+		const value = readJsonPointer(data, pointer);
+		output += html.slice(cursor, end + 1);
+		output += Mustache.escape(typeof value === "string" ? value : "");
+		output += html.slice(close.start, close.end + 1);
+		cursor = close.end + 1;
+	}
+	return output;
+}
+
+function findClosingElement(
+	html: string,
+	from: number,
+	tagName: string,
+): { start: number; end: number } | null {
+	const pattern = new RegExp(`<\\s*/\\s*${tagName}\\s*>`, "i");
+	const match = pattern.exec(html.slice(from));
+	if (!match) return null;
+	const start = from + match.index;
+	return { start, end: start + match[0].length - 1 };
 }
 
 function collectBindingPaths(html: string): string[] {

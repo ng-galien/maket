@@ -372,6 +372,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			[
 				"- Mustache interpolation is display-only.",
 				"- Checkbox binds a boolean; text input binds a string and commits on blur or Enter. Escape cancels.",
+				'- `<textarea data-maket-bind="state.note"></textarea>` binds a multiline string: the state value replaces whatever the template writes between the tags, Enter adds a line, the field commits on blur or ⌘/Ctrl+Enter, and Escape cancels. In the live canvas and the Reader its height follows its content between its own CSS `min-height` (or `rows`) and `max-height`, beyond which it scrolls; print and PDF show it at its CSS height.',
 				"- Select binds one string enum with exactly one static option per value: no multiple, duplicates, dynamic options, or disabled optgroup coverage.",
 				"- `button[type=button]` opens the single-terminal-value editor.",
 				"- `data-id` identifies authored structure; it is not a binding.",
