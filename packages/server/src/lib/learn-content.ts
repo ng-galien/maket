@@ -433,6 +433,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- The representation schema gives each collection a global template and binds each concrete schema path to compact and detail template documents.",
 				"- A collection may group its cards: `groupBy` is a JSON Pointer into the item data (for example `/status`), `groupOrder` lists the group values to place first (other groups follow in order of first appearance), and `pageSize` (default 24, at most 500) caps the compact cards per collection page.",
 				"- A binding points to the concrete schema used by its instantiated document, so templates do not resolve `oneOf` themselves.",
+				'- A compact template renders its `[data-maket-compact-root]` element as the card and keeps the `<style>` elements of its page: they are emitted once per collection page, every selector prefixed with the card\'s `[data-maket-compact-template="<key>"]` wrapper (`body`, `html`, `:root` and `:scope` stand for the card itself), so card CSS belongs in the compact template and cannot style the rest of the page. Card `data-id` values are prefixed per item, so style cards by class or element, not by `data-id`.',
 			].join("\n"),
 		),
 		section(

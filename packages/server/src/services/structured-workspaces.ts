@@ -21,6 +21,7 @@ import {
 } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import { MessageError } from "../lib/message-error.js";
+import { scopeCssToElement } from "../lib/scoped-css.js";
 import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
@@ -462,6 +463,13 @@ function renderCollection(
 interface CollectionCardEntry {
 	item: StructuredWorkspaceItemView;
 	cards: HTMLElement[];
+	/** Scoped style sheets of the compact templates, by template key. */
+	styles: Map<string, string>;
+}
+
+interface CompactCard {
+	element: HTMLElement;
+	style: { key: string; css: string } | null;
 }
 
 interface CollectionCardGroup {
@@ -505,6 +513,7 @@ function renderCollectionPage(
 			"[data-maket-structured-items]",
 		),
 	];
+	const compactStyles = new Map<string, string>();
 	const slotPages = slots.map((slot, slotIndex) => {
 		const entries = collectionCardEntries(
 			deps,
@@ -513,6 +522,9 @@ function renderCollectionPage(
 			slot,
 			slotIndex,
 		);
+		for (const entry of entries) {
+			for (const [key, css] of entry.styles) compactStyles.set(key, css);
+		}
 		slot.replaceChildren();
 		if (collection.groupBy === undefined) {
 			return [
@@ -536,6 +548,7 @@ function renderCollectionPage(
 			collection.pageSize ?? structuredWorkspaceDefaultPageSize,
 		);
 	});
+	prependCompactStyles(document, compactStyles);
 	const lists = slots.map((_, slotIndex) => String(slotIndex));
 	const baseCount = Math.max(1, ...slotPages.map((pages) => pages.length));
 	const pages: string[] = [];
@@ -644,17 +657,22 @@ function collectionCardEntries(
 		const cards = compact.pages.flatMap((page, pageIndex) =>
 			page.html || page.jsonForms
 				? [
-						renderCompactCard(
-							document,
-							page,
-							item,
-							schema,
-							`${slotIndex}-${pageIndex}`,
-						),
+						renderCompactCard(document, page, item, schema, {
+							suffix: `${slotIndex}-${pageIndex}`,
+							styleKey: `${safeToken(compact.id)}-${pageIndex}`,
+						}),
 					]
 				: [],
 		);
-		entries.push({ item, cards });
+		const styles = new Map<string, string>();
+		for (const card of cards) {
+			if (card.style) styles.set(card.style.key, card.style.css);
+		}
+		entries.push({
+			item,
+			cards: cards.map((card) => card.element),
+			styles,
+		});
 	}
 	return entries;
 }
@@ -757,29 +775,69 @@ function renderCompactCard(
 	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
-	suffix: string,
-): HTMLElement {
-	const prefix = `structured-${safeToken(item.id)}-${suffix}`;
-	const compactRoot = renderedCompactRoot(page, item, schema);
-	prefixDataIds(compactRoot, prefix);
-	stripCompactBindings(compactRoot);
-	linkCompactActions(compactRoot, item.documentName);
-	return compactCardWrapper(document, compactRoot, item.documentName, prefix);
+	options: { suffix: string; styleKey: string },
+): CompactCard {
+	const prefix = `structured-${safeToken(item.id)}-${options.suffix}`;
+	const { root, css } = renderedCompactRoot(page, item, schema);
+	prefixDataIds(root, prefix);
+	stripCompactBindings(root);
+	linkCompactActions(root, item.documentName);
+	const element = compactCardWrapper(document, root, item.documentName, prefix);
+	if (!css) return { element, style: null };
+	element.setAttribute(compactTemplateAttribute, options.styleKey);
+	return {
+		element,
+		style: {
+			key: options.styleKey,
+			css: scopeCssToElement(
+				css,
+				`[${compactTemplateAttribute}="${options.styleKey}"]`,
+			),
+		},
+	};
 }
 
+const compactTemplateAttribute = "data-maket-compact-template";
+
+/** The compact root of a rendered compact template page and the text of
+ * every style element of that page, which the root alone would lose. */
 function renderedCompactRoot(
 	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
-): HTMLElement {
+): { root: HTMLElement; css: string } {
 	const rendered = renderDocumentStatePage(page, item.data, { schema }).html;
 	const compactDom = parseHTML(
 		`<html><body>${rendered}</body></html>`,
 	).document;
-	return (
-		compactDom.body.querySelector<HTMLElement>("[data-maket-compact-root]") ??
-		compactDom.body
-	);
+	const css = [...compactDom.querySelectorAll("style")]
+		.map((style) => {
+			const text = style.textContent ?? "";
+			style.remove();
+			return text;
+		})
+		.filter((text) => text.trim().length > 0)
+		.join("\n");
+	return {
+		root:
+			compactDom.body.querySelector<HTMLElement>("[data-maket-compact-root]") ??
+			compactDom.body,
+		css,
+	};
+}
+
+/** One style element per compact template, ahead of the collection page. */
+function prependCompactStyles(
+	document: ReturnType<typeof parseHTML>["document"],
+	styles: Map<string, string>,
+): void {
+	const elements = [...styles].map(([key, css]) => {
+		const style = document.createElement("style");
+		style.setAttribute("data-maket-compact-style", key);
+		style.textContent = css;
+		return style;
+	});
+	document.body.prepend(...elements);
 }
 
 function stripCompactBindings(compactRoot: HTMLElement): void {

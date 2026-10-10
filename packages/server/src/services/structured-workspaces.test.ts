@@ -1019,3 +1019,121 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 });
+
+describe("StructuredWorkspaces compact template styles", () => {
+	it("keeps the compact template style sheet once per page, scoped to its cards", () => {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const canvas = {
+			format: "A4" as const,
+			orientation: "portrait" as const,
+			w: 210,
+			h: 297,
+			bg: "#fff",
+		};
+		const detail = createDocument({
+			name: "Topic detail",
+			canvas,
+			pages: [
+				{ name: "Detail", elements: [], html: "<h1>{{ state.title }}</h1>" },
+			],
+		});
+		const card = createDocument({
+			name: "Topic card",
+			canvas,
+			pages: [
+				{
+					name: "Card",
+					elements: [],
+					html: '<style>body { font-size: 3mm } .card-title { font-weight: 600 } @media print { .card { color: black } }</style><div class="card" data-id="card" data-maket-compact-root><span class="card-title" data-id="title">{{ state.title }}</span><style>.card + .card { border-top: 0 }</style></div>',
+				},
+			],
+		});
+		const index = createDocument({
+			name: "Topic index",
+			canvas,
+			pages: [
+				{
+					name: "Index",
+					elements: [],
+					html: '<main data-id="page"><span class="card-title" data-id="outside">Index</span><section data-id="grid" data-maket-structured-items="topic"></section></main>',
+				},
+			],
+		});
+		for (const document of [detail, card, index]) {
+			documents.all().set(document.name, document);
+			documents.persist(document.name);
+		}
+		const workspaces = createStructuredWorkspaces({
+			store,
+			documents,
+			documentStates: createDocumentStates({ store, documents, bus }),
+			bus,
+		});
+		const workspace = workspaces.create({
+			name: "Topics",
+			dataSchema: {
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					topics: {
+						name: "Topics",
+						collectionTemplateDocumentId: index.name,
+						bindings: {
+							topic: {
+								schemaPath: "",
+								compactTemplateDocumentId: card.name,
+								detailTemplateDocumentId: detail.name,
+							},
+						},
+					},
+				},
+			},
+		});
+		for (const title of ["Maket", "Topic graph", "Corpus"]) {
+			workspaces.addItem({
+				workspace: "Topics",
+				collectionId: "topics",
+				bindingId: "topic",
+				documentName: `Topic ${title}`,
+				data: { title },
+			});
+		}
+
+		const html =
+			workspaces.renderCollection(workspace.id, "topics").pages[0]?.html ?? "";
+		const { document } = parseHTML(`<html><body>${html}</body></html>`);
+		const styles = [...document.querySelectorAll("style")];
+		const cards = [
+			...document.querySelectorAll("[data-maket-structured-items] > article"),
+		];
+		const key = cards[0]?.getAttribute("data-maket-compact-template");
+
+		expect(styles).toHaveLength(1);
+		expect(key).toBe(`${documents.resolve(card.name)?.id}-0`);
+		expect(styles[0]?.getAttribute("data-maket-compact-style")).toBe(key);
+		expect(
+			cards.every(
+				(element) =>
+					element.getAttribute("data-maket-compact-template") === key &&
+					element.querySelector("style") === null,
+			),
+		).toBe(true);
+		const scope = `[data-maket-compact-template="${key}"]`;
+		const css = styles[0]?.textContent ?? "";
+		expect(css).toContain(`${scope} { font-size: 3mm }`);
+		expect(css).toContain(`${scope} .card-title { font-weight: 600 }`);
+		expect(css).toContain(`@media print { ${scope} .card { color: black } }`);
+		expect(css).toContain(`${scope} .card + .card { border-top: 0 }`);
+		expect(css.replaceAll(`${scope} .card-title`, "")).not.toContain(
+			".card-title",
+		);
+		expect(cards).toHaveLength(3);
+		store.close();
+	});
+});
