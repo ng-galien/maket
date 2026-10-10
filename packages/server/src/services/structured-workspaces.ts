@@ -447,7 +447,7 @@ function renderCollection(
 		for (const [index, html] of flowed.entries()) {
 			pages.push({
 				...structuredClone(page),
-				...flowedPageIdentity(page, index),
+				...flowedPageIdentity(page, index, flowed.length),
 				html,
 			});
 		}

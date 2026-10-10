@@ -1560,12 +1560,14 @@ describe("maket_html — measures the page as readers see it", () => {
 					name: "P1",
 					elements: [],
 					html: '<main data-id="page"><article>Ship</article></main>',
+					flow: { sourcePageId: pageId, index: 0, count: 2 },
 				},
 				{
 					id: `${pageId}~2`,
 					name: "P1 (2)",
 					elements: [],
 					html: '<main data-id="page"><article>Review</article></main>',
+					flow: { sourcePageId: pageId, index: 1, count: 2 },
 				},
 			],
 		}));
@@ -1603,6 +1605,87 @@ describe("maket_html — measures the page as readers see it", () => {
 			'Measured with the items of Structured Workspace collection "backlog". A list flows onto 2 pages.',
 		);
 		expect(body).toContain("Page 2 of 2 (P1 (2)):");
+		store.close();
+	});
+
+	it("hints at the most severe page of a flowed set, an overflow after a tight page", async () => {
+		const { store, documents, layout, assets } = checkFixture();
+		const doc = makeDoc(
+			"Delivery — Backlog",
+			'<main data-id="page"><section data-maket-structured-items="task"></section></main>',
+			{
+				structuredWorkspace: {
+					role: "collection",
+					workspaceId: "ws-1",
+					collectionId: "backlog",
+				},
+			},
+		);
+		store.saveDoc(doc);
+		documents.loadAll();
+		const pageId = doc.pages[0]?.id ?? "";
+		const renderCollection = vi.fn(() => ({
+			...doc,
+			pages: [
+				{
+					id: pageId,
+					name: "P1",
+					elements: [],
+					html: '<main data-id="page"><article>Ship</article></main>',
+					flow: { sourcePageId: pageId, index: 0, count: 2 },
+				},
+				{
+					id: `${pageId}~2`,
+					name: "P1 (2)",
+					elements: [],
+					html: '<main data-id="page"><article>Review</article></main>',
+					flow: { sourcePageId: pageId, index: 1, count: 2 },
+				},
+			],
+		}));
+		layout.check
+			.mockResolvedValueOnce({
+				status: "tight",
+				text: "\n⚠ tight",
+				overflowIds: [],
+				overlapIds: [],
+				tightIds: ["margin-block"],
+			})
+			.mockResolvedValueOnce({
+				status: "overflow",
+				text: "\n⛔ overflow",
+				overflowIds: ["late-block"],
+				overlapIds: [],
+			});
+		const bus = createBus();
+		const tool = createMaketHtmlToolFactory({
+			documents,
+			store,
+			layout,
+			assets,
+			documentRenderer: createDocumentRenderer({
+				collectionRenderer: createCollectionRenderer({
+					collections: createCollections({ bus, documents, store }),
+				}),
+				stateRenderer: createStateRenderer({
+					documentStates: createDocumentStates({ bus, documents, store }),
+				}),
+				structuredWorkspaces: { renderCollection },
+			}),
+			collectionCursors: createCollectionCursors({ bus, documents, store }),
+		});
+
+		const result = await tool.handler(
+			{ action: "check", doc: "Delivery — Backlog", page: 1 },
+			NO_EXTRA,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+
+		expect(body).toContain("⚠ tight");
+		expect(body).toContain("⛔ overflow");
+		expect(body).toContain("# target: late-block");
+		expect(body).not.toContain("# target: margin-block");
 		store.close();
 	});
 

@@ -24,7 +24,10 @@ import type { AssetsService } from "../services/assets.js";
 import type { BrowserPool } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Config } from "../services/config.js";
-import type { DocumentRenderer } from "../services/document-renderer.js";
+import {
+	renderDocumentSettled,
+	type SettlingDocumentRenderer,
+} from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
 import type { Document } from "../types.js";
 import { text } from "./_helpers.js";
@@ -34,7 +37,7 @@ export interface PreviewDeps {
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
-	documentRenderer: Pick<DocumentRenderer, "render">;
+	documentRenderer: SettlingDocumentRenderer;
 	collectionCursors: Pick<CollectionCursors, "resolve">;
 }
 
@@ -120,8 +123,8 @@ function renderSnapshotDocument(
 		documentRenderer,
 		collectionCursors,
 	}: Pick<PreviewDeps, "documentRenderer" | "collectionCursors">,
-): Document {
-	return documentRenderer.render(document, {
+): Promise<Document> {
+	return renderDocumentSettled(documentRenderer, document, {
 		collection: cursorRenderOptions(document, (docName, pageIndex) =>
 			collectionCursors.resolve(docName, pageIndex),
 		),
@@ -147,7 +150,7 @@ async function runSnapshot(
 		return text("page is required for action=snapshot", true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	const rendered = renderSnapshotDocument(d, {
+	const rendered = await renderSnapshotDocument(d, {
 		documentRenderer,
 		collectionCursors,
 	});

@@ -113,6 +113,10 @@ export interface Page {
 	canvas?: Partial<Canvas>;
 	collection?: CollectionReference;
 	provenance?: StructuredWorkspacePageProvenance;
+	/** Set on rendered pages only, never stored: this page is page `index`
+	 * (0-based) of the `count` pages its authored page `sourcePageId` flows
+	 * onto. */
+	flow?: { sourcePageId: string; index: number; count: number };
 }
 
 export type PageInit = Page | Omit<Page, "id">;

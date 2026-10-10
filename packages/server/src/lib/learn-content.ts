@@ -400,7 +400,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Lists longer than the page",
 			[
 				"- A section over an array placed in element content, not inside another list item and not inside `svg`, `select`, `textarea` or `title`, is a flowing list.",
-				"- Maket lays the rendered page out at the canvas size. When an item of a flowing list ends below the canvas or below a clipping ancestor (`overflow` other than visible, line clamps excepted), that item and the following ones continue on a generated page `<page id>~2` named `<page name> (2)`, and so on.",
+				"- Maket lays the rendered page out at the canvas size. When an item of a flowing list ends below the canvas or below a clipping ancestor (`overflow` other than visible, line clamps excepted), that item and the following ones continue on a generated page `<page id>~2` named `<page name> (2)`, and so on. An item taller than the whole page stands alone on its own page, clipped, and the list continues after it.",
 				"- The whole template repeats on every continuation page, so its own heading heads each of them; lists already shown render no item there, and inverted sections still test the whole array. The first element of every page of a flowed set carries `data-maket-flow-page` and `data-maket-flow-pages` (1-based) for a continuation style.",
 				"- `#page=<n>` links keep pointing at the first page of their authored page. `maket_html check` measures every generated page; `set` and `patch` keep editing the authored template.",
 			].join("\n"),

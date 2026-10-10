@@ -53,8 +53,8 @@ export interface PageFlowRequest {
 export interface PageFlow {
 	/** Item ranges of every output page, or null when the page stays one page. */
 	pages(request: PageFlowRequest): FlowRanges[] | null;
-	/** Resolves once every queued plan is measured; true when one was. */
-	settle(): Promise<boolean>;
+	/** Resolves once every queued plan is measured. */
+	settle(): Promise<void>;
 }
 
 export interface PageFlowDeps {
@@ -84,24 +84,34 @@ interface MeasuredList {
 	overflow: number | null;
 }
 
-/** Identity of the n-th (0-based) output page of a flowed source page. */
+/**
+ * Identity of the n-th (0-based) output page of a source page that renders to
+ * `count` pages. Every page of a flowed set carries `flow`, which names its
+ * source page; the identifier is never parsed to find it.
+ */
 export function flowedPageIdentity(
 	page: Pick<Page, "id" | "name">,
 	index: number,
-): Pick<Page, "id" | "name"> {
-	if (index === 0) return { id: page.id, name: page.name };
+	count: number,
+): Pick<Page, "id" | "name" | "flow"> {
+	if (count <= 1) return { id: page.id, name: page.name };
+	const flow = { sourcePageId: page.id, index, count };
+	if (index === 0) return { id: page.id, name: page.name, flow };
 	return {
 		id: `${page.id}~${index + 1}`,
 		name: `${page.name ?? "Page"} (${index + 1})`,
+		flow,
 	};
 }
 
-/** The source page id of an output page id. */
-export function flowSourcePageId(pageId: string): string {
-	const separator = pageId.lastIndexOf("~");
-	return separator > 0 && /^\d+$/.test(pageId.slice(separator + 1))
-		? pageId.slice(0, separator)
-		: pageId;
+/** The authored page an output page renders. */
+export function flowSourcePageId(page: Pick<Page, "id" | "flow">): string {
+	return page.flow?.sourcePageId ?? page.id;
+}
+
+/** Whether an output page is a generated continuation page. */
+export function isFlowContinuation(page: Pick<Page, "flow">): boolean {
+	return (page.flow?.index ?? 0) > 0;
 }
 
 /** Marks a continuation page on its first element: `data-maket-flow-page`
@@ -146,8 +156,8 @@ export function createPageFlow(
 		(() => `http://localhost:${process.env.MAKET_PORT || "3333"}`);
 	const plans = new Map<string, CachedPlan>();
 	const queue = new Map<string, QueuedPlan>();
+	const measuring = new Map<string, string>();
 	let running: Promise<void> | null = null;
-	let measuredSinceSettle = false;
 
 	function remember(key: string, plan: CachedPlan): void {
 		plans.delete(key);
@@ -159,29 +169,34 @@ export function createPageFlow(
 		}
 	}
 
+	function takeQueued(): [string, QueuedPlan] {
+		const next = queue.entries().next().value as [string, QueuedPlan];
+		queue.delete(next[0]);
+		measuring.set(next[0], next[1].signature);
+		return next;
+	}
+
+	function finishPlan(
+		key: string,
+		queued: QueuedPlan,
+		pages: FlowRanges[] | null,
+	): void {
+		measuring.delete(key);
+		if (queue.has(key)) return;
+		remember(key, { signature: queued.signature, pages });
+		if (JSON.stringify(pages) !== JSON.stringify(queued.served)) {
+			deps.bus.emit("document:flowed", { docName: queued.request.doc.name });
+		}
+	}
+
 	async function drain(): Promise<void> {
 		while (queue.size > 0) {
-			const [key, queued] = queue.entries().next().value as [
-				string,
-				QueuedPlan,
-			];
-			queue.delete(key);
-			let pages: FlowRanges[] | null = null;
-			try {
-				pages = await measurePlan(queued, deps.browserPool, getAssetBaseUrl);
-			} catch (error) {
-				console.error(
-					`[page-flow] ${queued.request.doc.name}: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
-			measuredSinceSettle = true;
-			if (queue.has(key)) continue;
-			remember(key, { signature: queued.signature, pages });
-			if (JSON.stringify(pages) !== JSON.stringify(queued.served)) {
-				deps.bus.emit("document:flowed", {
-					docName: queued.request.doc.name,
-				});
-			}
+			const [key, queued] = takeQueued();
+			finishPlan(
+				key,
+				queued,
+				await measuredPlan(queued, deps.browserPool, getAssetBaseUrl),
+			);
 		}
 	}
 
@@ -201,6 +216,10 @@ export function createPageFlow(
 			const cached = plans.get(key);
 			if (cached?.signature === signature) return cached.pages;
 			const served = cached?.pages ?? null;
+			if (measuring.get(key) === signature) {
+				queue.delete(key);
+				return served;
+			}
 			if (queue.get(key)?.signature !== signature) {
 				queue.set(key, { signature, request, charteCss, served });
 			}
@@ -208,13 +227,25 @@ export function createPageFlow(
 			return served;
 		},
 		async settle() {
-			measuredSinceSettle = false;
 			while (running) await running;
-			const measured = measuredSinceSettle;
-			measuredSinceSettle = false;
-			return measured;
 		},
 	};
+}
+
+/** The plan of a queued page, or null (one page) when it cannot be measured. */
+async function measuredPlan(
+	queued: QueuedPlan,
+	browserPool: BrowserPool,
+	getAssetBaseUrl: () => string,
+): Promise<FlowRanges[] | null> {
+	try {
+		return await measurePlan(queued, browserPool, getAssetBaseUrl);
+	} catch (error) {
+		console.error(
+			`[page-flow] ${queued.request.doc.name}: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		return null;
+	}
 }
 
 function flowSignature(request: PageFlowRequest, charteCss: string): string {
@@ -276,7 +307,14 @@ async function measurePlan(
 				next[list] = result.overflow;
 			}
 			if (!overflowing) break;
-			if (!progress) break;
+			if (!progress) {
+				for (const list of rendered.lists) {
+					const start = current[list] ?? 0;
+					if (measured[rendered.lists.indexOf(list)]?.overflow === start) {
+						next[list] = start + 1;
+					}
+				}
+			}
 			current = next;
 		}
 		if (starts.length <= 1) return null;

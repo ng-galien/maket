@@ -579,7 +579,7 @@ function flowedMeasuredPages(
 	note: string,
 ): MeasuredPage[] {
 	const pages = rendered.pages.filter(
-		(candidate) => flowSourcePageId(candidate.id) === page.id,
+		(candidate) => flowSourcePageId(candidate) === page.id,
 	);
 	if (pages.length <= 1) {
 		return [{ html: pages[0]?.html ?? page.html ?? "", note }];
@@ -589,6 +589,14 @@ function flowedMeasuredPages(
 		note: `${index === 0 ? `${note} A list flows onto ${pages.length} pages.\n` : ""}Page ${index + 1} of ${pages.length} (${candidate.name ?? candidate.id}):`,
 	}));
 }
+
+/** Rank of a layout status: the most severe page of a flowed set decides. */
+const LAYOUT_SEVERITY: Record<LayoutResult["status"], number> = {
+	ok: 0,
+	tight: 1,
+	overflow: 2,
+	unchecked: 3,
+};
 
 async function measureLayout(
 	doc: Document,
@@ -606,7 +614,10 @@ async function measureLayout(
 				? await deps.layout.measure(doc, candidate.html, pageIdx)
 				: await deps.layout.check(doc, candidate.html, pageIdx);
 		reports.push(layoutReport(candidate, result));
-		if (!worst || (worst.status === "ok" && result.status !== "ok")) {
+		if (
+			!worst ||
+			LAYOUT_SEVERITY[result.status] > LAYOUT_SEVERITY[worst.status]
+		) {
 			worst = result;
 		}
 	}

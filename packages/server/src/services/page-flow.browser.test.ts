@@ -316,4 +316,169 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			store.close();
 		}
 	}, 60_000);
+
+	it("puts an item taller than its page alone on its page and continues with the rest", async () => {
+		const { store, bus, documents, documentStates, pageFlow } = services();
+		store.saveDoc(
+			createDocument({
+				name: "tall",
+				canvas,
+				pages: [
+					{
+						name: "Tall",
+						elements: [],
+						html: '<main data-id="page" style="width:100mm;height:100mm;overflow:hidden"><h1 data-id="title" style="height:10mm;font-size:5mm">Tall</h1><ul data-id="list" style="list-style:none">{{#state.items}}<li style="height:{{h}}mm">{{label}}</li>{{/state.items}}</ul></main>',
+					},
+				],
+			}),
+		);
+		documents.loadAll();
+		const heights = [50, 150, 20, 20, 20, 20];
+		documentStates.initialize(
+			"tall",
+			{
+				type: "object",
+				properties: {
+					items: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: { label: { type: "string" }, h: { type: "number" } },
+							required: ["label", "h"],
+						},
+					},
+				},
+				required: ["items"],
+			},
+			{ items: heights.map((h, index) => ({ label: `Item ${index + 1}`, h })) },
+		);
+		const documentRenderer = createDocumentRenderer({
+			collectionRenderer: createCollectionRenderer({
+				collections: createCollections({ bus, documents, store }),
+			}),
+			stateRenderer: createStateRenderer({ documentStates, pageFlow }),
+			structuredWorkspaces: {
+				renderCollection: () => {
+					throw new Error("No Structured Workspace in this test");
+				},
+			},
+			pageFlow,
+		});
+		const doc = documents.resolve("tall");
+		if (!doc) throw new Error("Expected the tall document");
+		try {
+			const rendered = await documentRenderer.renderSettled(doc);
+
+			expect(rendered.pages.map((page) => listItems(page.html))).toEqual([
+				["Item 1"],
+				["Item 2"],
+				["Item 3", "Item 4", "Item 5", "Item 6"],
+			]);
+			expect(rendered.pages.map((page) => page.flow)).toEqual([
+				{ sourcePageId: doc.pages[0]?.id, index: 0, count: 3 },
+				{ sourcePageId: doc.pages[0]?.id, index: 1, count: 3 },
+				{ sourcePageId: doc.pages[0]?.id, index: 2, count: 3 },
+			]);
+		} finally {
+			store.close();
+		}
+	}, 60_000);
+
+	it("puts a Workspace card taller than its page alone on its page", async () => {
+		const { store, bus, documents, documentStates, pageFlow } = services();
+		const detail = createDocument({
+			name: "Card detail",
+			canvas,
+			pages: [
+				{ name: "Detail", elements: [], html: "<h1>{{ state.title }}</h1>" },
+			],
+		});
+		const compact = createDocument({
+			name: "Tall card",
+			canvas,
+			pages: [
+				{
+					name: "Card",
+					elements: [],
+					html: '<div data-id="card" data-maket-compact-root style="height:{{ state.h }}mm">{{ state.title }}</div>',
+				},
+			],
+		});
+		const board = createDocument({
+			name: "Tall board",
+			canvas,
+			pages: [
+				{
+					name: "Index",
+					elements: [],
+					html: '<main data-id="page" style="width:100mm;height:100mm;overflow:hidden"><h1 data-id="heading" style="height:10mm;font-size:5mm">Cards</h1><section data-id="grid" data-maket-structured-items="card"></section></main>',
+				},
+			],
+		});
+		for (const document of [detail, compact, board]) {
+			documents.all().set(document.name, document);
+			documents.persist(document.name);
+		}
+		const workspaces = createStructuredWorkspaces({
+			store,
+			documents,
+			documentStates,
+			bus,
+			pageFlow,
+		});
+		const workspace = workspaces.create({
+			name: "Tall cards",
+			dataSchema: {
+				type: "object",
+				properties: { title: { type: "string" }, h: { type: "number" } },
+				required: ["title", "h"],
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					cards: {
+						name: "Cards",
+						collectionTemplateDocumentId: board.name,
+						bindings: {
+							card: {
+								schemaPath: "",
+								compactTemplateDocumentId: compact.name,
+								detailTemplateDocumentId: detail.name,
+							},
+						},
+					},
+				},
+			},
+		});
+		for (const [index, h] of [50, 150, 20, 20].entries()) {
+			workspaces.addItem({
+				workspace: "Tall cards",
+				itemId: `card-${index}`,
+				collectionId: "cards",
+				bindingId: "card",
+				documentName: `Card ${index + 1}`,
+				data: { title: `Card ${index + 1}`, h },
+			});
+		}
+		try {
+			workspaces.renderCollection(workspace.id, "cards");
+			await pageFlow.settle();
+			const rendered = workspaces.renderCollection(workspace.id, "cards");
+
+			expect(
+				rendered.pages.map((page) => {
+					const { document } = parseHTML(
+						`<html><body>${page.html ?? ""}</body></html>`,
+					);
+					return [
+						...document.querySelectorAll(
+							"[data-maket-structured-items] > article",
+						),
+					].map((card) => card.getAttribute("data-maket-document"));
+				}),
+			).toEqual([["Card 1"], ["Card 2"], ["Card 3", "Card 4"]]);
+		} finally {
+			store.close();
+		}
+	}, 60_000);
 });

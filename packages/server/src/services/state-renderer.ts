@@ -95,7 +95,7 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 		return {
 			pages: plan.map((ranges, index) => ({
 				...page,
-				...flowedPageIdentity(page, index),
+				...flowedPageIdentity(page, index, plan.length),
 				html: markFlowedPage(
 					stripFlowMarkers(renderMarked(ranges).html),
 					index,

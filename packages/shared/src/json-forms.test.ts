@@ -134,3 +134,34 @@ describe("JSON Forms page rendering", () => {
 		).toThrow(/require string values/);
 	});
 });
+
+describe("JSON Forms rule conditions", () => {
+	it("refuses a rule whose condition schema is not a valid JSON Schema", () => {
+		expect(() =>
+			renderDocumentStatePage(
+				{
+					jsonForms: {
+						uischema: {
+							type: "VerticalLayout",
+							elements: [
+								{
+									type: "Control",
+									scope: "#/properties/priority",
+									rule: {
+										effect: "HIDE",
+										condition: {
+											scope: "#/properties/done",
+											schema: { type: "not-a-type" },
+										},
+									},
+								},
+							],
+						},
+					},
+				},
+				{ title: "Audit", status: "todo", done: true },
+				{ schema },
+			),
+		).toThrow(/rule condition schema is invalid/);
+	});
+});

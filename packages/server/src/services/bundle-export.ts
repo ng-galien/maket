@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type {
 	BundleAnnotationSnapshot,
 	BundleDocumentStateSnapshot,
@@ -18,7 +19,10 @@ import { stripDocumentNavigationHtml } from "../lib/strip-active-html.js";
 import type { Charte, Document } from "../types.js";
 import type { Collections } from "./collections.js";
 import type { Config } from "./config.js";
-import type { DocumentRenderer } from "./document-renderer.js";
+import {
+	renderDocumentSettled,
+	type SettlingDocumentRenderer,
+} from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 import type { Store } from "./store.js";
 import type { StructuredWorkspaces } from "./structured-workspaces.js";
@@ -56,7 +60,7 @@ export interface BundleExportService {
 
 export interface BundleExportServiceDeps {
 	documents: Documents;
-	documentRenderer: Pick<DocumentRenderer, "render">;
+	documentRenderer: SettlingDocumentRenderer;
 	collections: Pick<Collections, "referencedBy">;
 	store: Store;
 	config: Config;
@@ -111,11 +115,13 @@ async function buildBundle(
 	const aggregateWorkspaceIds = new Set(
 		structuredWorkspaces.map(({ workspace }) => workspace.id),
 	);
-	const portableDocuments = documents.map((document) =>
-		document.meta.structuredWorkspace?.role === "collection" &&
-		aggregateWorkspaceIds.has(document.meta.structuredWorkspace.workspaceId)
-			? document
-			: portableDocument(deps.documentRenderer, document),
+	const portableDocuments = await Promise.all(
+		documents.map((document) =>
+			document.meta.structuredWorkspace?.role === "collection" &&
+			aggregateWorkspaceIds.has(document.meta.structuredWorkspace.workspaceId)
+				? document
+				: portableDocument(deps.documentRenderer, document),
+		),
 	);
 	const chartes = loadReferencedChartes(portableDocuments, deps.store);
 	const collections = deps.collections.referencedBy(portableDocuments);
@@ -228,20 +234,23 @@ function portableWorkspaceSnapshot(
 	];
 }
 
-function portableDocument(
-	documentRenderer: Pick<DocumentRenderer, "render">,
+/** A Workspace collection document as a static copy of its rendered pages;
+ * a generated continuation page becomes an authored page with its own id. */
+async function portableDocument(
+	documentRenderer: SettlingDocumentRenderer,
 	document: Document,
-): Document {
+): Promise<Document> {
 	if (document.meta.structuredWorkspace?.role !== "collection") return document;
-	const rendered = documentRenderer.render(document);
+	const rendered = await renderDocumentSettled(documentRenderer, document);
 	const meta = { ...rendered.meta };
 	delete meta.structuredWorkspace;
 	return {
 		...rendered,
 		dataModel: "static",
 		meta,
-		pages: rendered.pages.map((page) => ({
+		pages: rendered.pages.map(({ flow, ...page }) => ({
 			...page,
+			id: flow && flow.index > 0 ? crypto.randomUUID() : page.id,
 			provenance: undefined,
 			jsonForms: undefined,
 			html: page.html ? stripDocumentNavigationHtml(page.html) : page.html,

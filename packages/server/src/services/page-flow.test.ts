@@ -4,6 +4,7 @@ import {
 	createPageFlow,
 	flowedPageIdentity,
 	flowSourcePageId,
+	isFlowContinuation,
 	markFlowedPage,
 	remapPageLinkNumbers,
 } from "./page-flow.js";
@@ -21,17 +22,24 @@ const doc = {
 };
 
 describe("page flow helpers", () => {
-	it("names continuation pages after their source page", () => {
-		expect(flowedPageIdentity({ id: "p1", name: "Index" }, 0)).toEqual({
+	it("names continuation pages after their source page and marks the flowed set", () => {
+		const page = { id: "p1", name: "Index" };
+		expect(flowedPageIdentity(page, 0, 1)).toEqual({ id: "p1", name: "Index" });
+		expect(flowedPageIdentity(page, 0, 3)).toEqual({
 			id: "p1",
 			name: "Index",
+			flow: { sourcePageId: "p1", index: 0, count: 3 },
 		});
-		expect(flowedPageIdentity({ id: "p1", name: "Index" }, 2)).toEqual({
+		const third = flowedPageIdentity(page, 2, 3);
+		expect(third).toEqual({
 			id: "p1~3",
 			name: "Index (3)",
+			flow: { sourcePageId: "p1", index: 2, count: 3 },
 		});
-		expect(flowSourcePageId("p1~3")).toBe("p1");
-		expect(flowSourcePageId("p1")).toBe("p1");
+		expect(flowSourcePageId(third)).toBe("p1");
+		expect(isFlowContinuation(third)).toBe(true);
+		expect(flowSourcePageId({ id: "authored~2" })).toBe("authored~2");
+		expect(isFlowContinuation({ id: "authored~2" } as never)).toBe(false);
 	});
 
 	it("marks the first element of a flowed page, after any style", () => {
@@ -72,7 +80,7 @@ describe("page flow planning", () => {
 				render: () => ({ html: "", lists: [] }),
 			}),
 		).toBeNull();
-		expect(await flow.settle()).toBe(false);
+		await flow.settle();
 		expect(get).not.toHaveBeenCalled();
 	});
 
@@ -102,10 +110,48 @@ describe("page flow planning", () => {
 		};
 
 		expect(flow.pages(request)).toBeNull();
-		expect(await flow.settle()).toBe(true);
+		await flow.settle();
 		expect(flow.pages(request)).toBeNull();
 		expect(flowed).not.toHaveBeenCalled();
 		expect(error).toHaveBeenCalledWith("[page-flow] board: no browser");
 		error.mockRestore();
+	});
+
+	it("measures a page once when the same content is asked again during its measurement", async () => {
+		const newPage = vi.fn(async () => ({
+			setNetworkGuard: async () => {},
+			setViewport: async () => {},
+			setContent: async () => {},
+			waitForNetworkIdle: async () => {},
+			evaluate: async () => ({}),
+			close: async () => {},
+		}));
+		const flow = createPageFlow({
+			bus: createBus(),
+			browserPool: {
+				get: async () => ({ newPage }) as never,
+				dispose: async () => {},
+			},
+			documents: { charteCss: () => "" },
+		});
+		const request = {
+			doc,
+			pageKey: "p1",
+			full: {
+				html: "<ul><!--maket-flow:0:0--><li></li><!--/maket-flow--></ul>",
+				lists: ["/rows"],
+			},
+			render: () => ({ html: "", lists: [] }),
+		};
+
+		flow.pages(request);
+		await Promise.resolve();
+		await Promise.resolve();
+		flow.pages(request);
+		await flow.settle();
+		flow.pages(request);
+		await flow.settle();
+
+		expect(newPage).toHaveBeenCalledTimes(1);
 	});
 });

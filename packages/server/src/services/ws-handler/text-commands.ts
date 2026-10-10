@@ -14,7 +14,7 @@ import {
 import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import type { Document } from "../../types.js";
 import { validateStateTemplateUpdate } from "../document-states.js";
-import { flowSourcePageId } from "../page-flow.js";
+import { flowSourcePageId, isFlowContinuation } from "../page-flow.js";
 import { templateControlledPageMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
@@ -157,9 +157,10 @@ function authoredPageIndex(
 	if (doc.dataModel !== "state") return shownIndex;
 	const shown = ctx.documentRenderer.render(doc).pages;
 	if (shown.length === doc.pages.length) return shownIndex;
-	const shownId = shown[shownIndex]?.id;
-	if (shownId === undefined) return shownIndex;
-	if (flowSourcePageId(shownId) !== shownId) return null;
-	const index = doc.pages.findIndex((page) => page.id === shownId);
+	const shownPage = shown[shownIndex];
+	if (!shownPage) return shownIndex;
+	if (isFlowContinuation(shownPage)) return null;
+	const sourceId = flowSourcePageId(shownPage);
+	const index = doc.pages.findIndex((page) => page.id === sourceId);
 	return index >= 0 ? index : shownIndex;
 }

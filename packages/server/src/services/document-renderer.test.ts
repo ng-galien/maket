@@ -160,4 +160,33 @@ describe("DocumentRenderer", () => {
 		expect(renderCollection).toHaveBeenCalledWith("delivery", "backlog");
 		expect(renderPages).not.toHaveBeenCalled();
 	});
+
+	it("renders again after the flow settles, for every concurrent caller", async () => {
+		const state = doc("state");
+		let pagination = "before";
+		const render = vi.fn((value) => ({ ...value, name: pagination }));
+		let release: () => void = () => {};
+		const settled = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const renderer = createDocumentRenderer({
+			collectionRenderer: { render: vi.fn((value) => value) },
+			stateRenderer: {
+				render,
+				renderPages: vi.fn(() => ({ pages: [], flowed: false })),
+				clientView: vi.fn(),
+			},
+			structuredWorkspaces: { renderCollection: vi.fn() },
+			pageFlow: { settle: () => settled },
+		});
+
+		const first = renderer.renderSettled(state);
+		const second = renderer.renderSettled(state);
+		pagination = "after";
+		release();
+
+		expect((await first).name).toBe("after");
+		expect((await second).name).toBe("after");
+		expect(render).toHaveBeenCalledTimes(4);
+	});
 });

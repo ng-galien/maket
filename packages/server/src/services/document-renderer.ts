@@ -51,11 +51,9 @@ export function createDocumentRenderer(
 ): DocumentRenderer {
 	const renderer: DocumentRenderer = {
 		async renderSettled(doc, options = {}) {
-			const first = renderer.render(doc, options);
-			if (!deps.pageFlow) return first;
-			return (await deps.pageFlow.settle())
-				? renderer.render(doc, options)
-				: first;
+			renderer.render(doc, options);
+			await deps.pageFlow?.settle();
+			return renderer.render(doc, options);
 		},
 		render(doc, options = {}) {
 			const structuredWorkspace =

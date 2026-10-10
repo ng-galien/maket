@@ -95,7 +95,7 @@ export function createDocumentStateRepository(
 			jsonPath,
 			value,
 		) {
-			return replaceCurrentValue(statements, documentId, {
+			return replaceCurrentValue(db, statements, documentId, {
 				expectedRevision,
 				jsonPath,
 				value,
@@ -218,6 +218,24 @@ function appendRevision(
 }
 
 function replaceCurrentValue(
+	db: DatabaseSync,
+	statements: DocumentStateStatements,
+	documentId: string,
+	change: { expectedRevision: number; jsonPath: string; value: unknown },
+): number {
+	db.exec("SAVEPOINT maket_repository");
+	try {
+		const next = replaceRevisionValue(statements, documentId, change);
+		statements.documentTouch.run({ document_id: documentId });
+		db.exec("RELEASE maket_repository");
+		return next;
+	} catch (error) {
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
+		throw error;
+	}
+}
+
+function replaceRevisionValue(
 	statements: DocumentStateStatements,
 	documentId: string,
 	change: { expectedRevision: number; jsonPath: string; value: unknown },
@@ -243,7 +261,6 @@ function replaceCurrentValue(
 			{ expected: change.expectedRevision, current: current ?? 0 },
 		);
 	}
-	statements.documentTouch.run({ document_id: documentId });
 	return next;
 }
 

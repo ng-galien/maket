@@ -237,7 +237,12 @@ function evaluateRule(
 	context.dependencies.add(pointer);
 	const value = readOptionalPointer(context.data, pointer);
 	const compiled = compiledJsonSchema(conditionSchema);
-	const matches = compiled.ok && compiled.validate(value);
+	if (!compiled.ok) {
+		throw new Error(
+			`JSON Forms rule condition schema is invalid: ${compiled.errors.map((error) => `${error.instancePath} ${error.message}`).join("; ")}`,
+		);
+	}
+	const matches = compiled.validate(value);
 	return {
 		hidden:
 			effect === "HIDE"
