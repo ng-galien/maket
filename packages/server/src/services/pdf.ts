@@ -33,7 +33,10 @@ import type { AssetsService } from "./assets.js";
 import type { BrowserPool, RenderBrowser, RenderPage } from "./browser-pool.js";
 import type { CollectionCursors } from "./collection-cursor.js";
 import type { Config } from "./config.js";
-import type { DocumentRenderer } from "./document-renderer.js";
+import {
+	renderDocumentSettled,
+	type SettlingDocumentRenderer,
+} from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 
 const DPI_PRESETS: Record<string, number> = {
@@ -76,7 +79,7 @@ export interface PdfService {
 
 export interface PdfServiceDeps {
 	documents: Documents;
-	documentRenderer?: Pick<DocumentRenderer, "render">;
+	documentRenderer?: SettlingDocumentRenderer;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	config: Config;
 	assets: AssetsService;
@@ -98,7 +101,7 @@ async function renderPdfDocument(
 		documents: Documents;
 		config: Config;
 		assets: AssetsService;
-		documentRenderer: Pick<DocumentRenderer, "render">;
+		documentRenderer: SettlingDocumentRenderer;
 		collectionCursors: Pick<CollectionCursors, "resolve">;
 		pool: BrowserPool;
 		forcedMode: Record<
@@ -119,7 +122,7 @@ async function renderPdfDocument(
 		pool,
 		forcedMode,
 	} = ctx;
-	const renderedDoc = documentRenderer.render(doc, {
+	const renderedDoc = await renderDocumentSettled(documentRenderer, doc, {
 		collection: cursorRenderOptions(
 			doc,
 			(docName, pageIndex) => collectionCursors.resolve(docName, pageIndex),

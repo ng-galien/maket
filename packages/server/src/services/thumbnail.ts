@@ -21,7 +21,10 @@ import type { Document } from "../types.js";
 import type { AssetsService } from "./assets.js";
 import type { BrowserPool } from "./browser-pool.js";
 import type { Config } from "./config.js";
-import type { DocumentRenderer } from "./document-renderer.js";
+import {
+	renderDocumentSettled,
+	type SettlingDocumentRenderer,
+} from "./document-renderer.js";
 import type { Documents } from "./documents.js";
 
 export interface ThumbnailRenderOptions {
@@ -51,7 +54,7 @@ export interface ThumbnailDeps {
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
-	documentRenderer?: Pick<DocumentRenderer, "render">;
+	documentRenderer?: SettlingDocumentRenderer;
 }
 
 export interface ThumbnailOptions {
@@ -103,7 +106,7 @@ async function renderThumbnailDocument(ctx: {
 	doc: Document;
 	renderOpts: { page?: number; widthPx?: number; updatedAt?: string };
 	documents: Documents;
-	documentRenderer: Pick<DocumentRenderer, "render">;
+	documentRenderer: SettlingDocumentRenderer;
 	config: Config;
 	assets: AssetsService;
 	browserPool: BrowserPool;
@@ -136,7 +139,7 @@ async function renderThumbnailDocument(ctx: {
 		return cached;
 	}
 
-	const renderedDoc = documentRenderer.render(doc);
+	const renderedDoc = await renderDocumentSettled(documentRenderer, doc);
 	const pageObj = renderedDoc.pages[page];
 	if (!pageObj)
 		throw new Error(`Document "${doc.name}" has no page ${page + 1}`);

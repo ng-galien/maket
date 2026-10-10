@@ -21,7 +21,7 @@ describe("DocumentRenderer", () => {
 		const collectionRenderer = { render: vi.fn((value) => value) };
 		const stateRenderer = {
 			render: vi.fn((value) => value),
-			renderPages: vi.fn(() => []),
+			renderPages: vi.fn(() => ({ pages: [], flowed: false })),
 			clientView: vi.fn(),
 		};
 		const renderer = createDocumentRenderer({
@@ -53,7 +53,7 @@ describe("DocumentRenderer", () => {
 			structuredWorkspaces: { renderCollection: vi.fn() },
 			stateRenderer: {
 				render: (value) => value,
-				renderPages: () => [],
+				renderPages: () => ({ pages: [], flowed: false }),
 				clientView: () => ({
 					schema: {},
 					data: {},
@@ -76,7 +76,7 @@ describe("DocumentRenderer", () => {
 			collectionRenderer: { render: vi.fn((value) => value) },
 			stateRenderer: {
 				render: vi.fn((value) => value),
-				renderPages: vi.fn(() => []),
+				renderPages: vi.fn(() => ({ pages: [], flowed: false })),
 				clientView: vi.fn(),
 			},
 			structuredWorkspaces: { renderCollection },
@@ -106,7 +106,7 @@ describe("DocumentRenderer", () => {
 			collectionRenderer: { render: vi.fn((value) => value) },
 			stateRenderer: {
 				render: vi.fn((value) => value),
-				renderPages: vi.fn(() => []),
+				renderPages: vi.fn(() => ({ pages: [], flowed: false })),
 				clientView: vi.fn(),
 			},
 			structuredWorkspaces: { renderCollection },
@@ -135,7 +135,7 @@ describe("DocumentRenderer", () => {
 			],
 		};
 		const renderCollection = vi.fn(() => rendered);
-		const renderPages = vi.fn(() => []);
+		const renderPages = vi.fn(() => ({ pages: [], flowed: false }));
 		const renderer = createDocumentRenderer({
 			collectionRenderer: { render: vi.fn((value) => value) },
 			stateRenderer: {

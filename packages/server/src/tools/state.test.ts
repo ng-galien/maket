@@ -585,7 +585,7 @@ describe("maket_state drawing from state", () => {
 			patch: [{ op: "replace", path: "/count", value: 75 }],
 		});
 		expect(patched.isError).toBeUndefined();
-		expect(stateRenderer.renderPages(doc, ["/count"])).toEqual([
+		expect(stateRenderer.renderPages(doc, ["/count"]).pages).toEqual([
 			{
 				index: 0,
 				html: '<svg viewBox="0 0 100 10"><rect data-id="bar" height="10" width="75"/></svg>',

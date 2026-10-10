@@ -55,7 +55,12 @@ function settingsStub(): SettingsService {
 function rendererStub(
 	render: (doc: Document) => Document = (doc) => doc,
 ): DocumentRenderer {
-	return { render, stateView: () => null, statePages: () => ({ pages: [] }) };
+	return {
+		render,
+		renderSettled: async (doc) => render(doc),
+		stateView: () => null,
+		statePages: () => ({ pages: [] }),
+	};
 }
 
 function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {

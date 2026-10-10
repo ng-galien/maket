@@ -24,7 +24,10 @@ const PRINT_AUTOSTART_SCRIPT =
 import type { BundleExportService } from "../services/bundle-export.js";
 import type { BundleImportService } from "../services/bundle-import.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
-import type { DocumentRenderer } from "../services/document-renderer.js";
+import {
+	renderDocumentSettled,
+	type SettlingDocumentRenderer,
+} from "../services/document-renderer.js";
 import type { Documents } from "../services/documents.js";
 import { buildPrintHtml, type PdfService } from "../services/pdf.js";
 import type { Document } from "../types.js";
@@ -33,7 +36,7 @@ export interface ExportRouterDeps {
 	documents: Documents;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
-	documentRenderer?: Pick<DocumentRenderer, "render">;
+	documentRenderer?: SettlingDocumentRenderer;
 	collectionCursors?: Pick<CollectionCursors, "resolve">;
 	pdfService: PdfService;
 }
@@ -74,13 +77,13 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // HTTP handler `handlePrint`: request/response adapter over services, not envied domain logic.
-function handlePrint(
+async function handlePrint(
 	req: Request,
 	res: Response,
 	documents: Documents,
-	documentRenderer: Pick<DocumentRenderer, "render">,
+	documentRenderer: SettlingDocumentRenderer,
 	collectionCursors: Pick<CollectionCursors, "resolve">,
-): void {
+): Promise<void> {
 	const name = req.query.name as string | undefined;
 	if (!name) {
 		res.status(400).send("Missing ?name= parameter");
@@ -92,7 +95,7 @@ function handlePrint(
 		return;
 	}
 	try {
-		const rendered = documentRenderer.render(d, {
+		const rendered = await renderDocumentSettled(documentRenderer, d, {
 			collection:
 				printOptions(req) ??
 				cursorRenderOptions(d, (docName, pageIndex) =>

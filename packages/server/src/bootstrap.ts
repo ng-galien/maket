@@ -37,6 +37,7 @@ import {
 } from "./services/gmail-client.js";
 import { createLayoutService } from "./services/layout.js";
 import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
+import { createPageFlow } from "./services/page-flow.js";
 import { createPdfService } from "./services/pdf.js";
 import { createSettings } from "./services/settings.js";
 import { createStateRenderer } from "./services/state-renderer.js";
@@ -112,6 +113,8 @@ export function createAppContainer(
 		).singleton(),
 
 		structuredWorkspaces: asFunction(createStructuredWorkspaces).singleton(),
+
+		pageFlow: asFunction(createPageFlow).singleton(),
 
 		stateRenderer: asFunction(createStateRenderer).singleton(),
 

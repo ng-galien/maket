@@ -25,6 +25,13 @@ import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
 import type { Documents } from "./documents.js";
+import {
+	type FlowRanges,
+	flowedPageIdentity,
+	markFlowedPage,
+	type PageFlow,
+	remapPageLinkNumbers,
+} from "./page-flow.js";
 import type { StructuredWorkspaceRepository } from "./sqlite-store/structured-workspace-repository.js";
 
 export interface CreateStructuredWorkspaceInput {
@@ -94,6 +101,7 @@ export interface StructuredWorkspacesDeps {
 	documents: Documents;
 	documentStates: DocumentStates;
 	store: StructuredWorkspaceRepository;
+	pageFlow?: Pick<PageFlow, "pages">;
 }
 
 export function createStructuredWorkspaces(
@@ -414,35 +422,40 @@ function renderCollection(
 			`Collection document "${collectionDocument.name}" has no live state.`,
 		);
 	}
+	const pages: Page[] = [];
+	const sourceStarts: number[] = [];
+	for (const page of collectionDocument.pages) {
+		sourceStarts.push(pages.length);
+		if (!page.html && !page.jsonForms) {
+			pages.push(structuredClone(page));
+			continue;
+		}
+		const flowed = renderCollectionPage(
+			deps,
+			{ workspace, collection, items },
+			{ doc: collectionDocument, pageId: page.id },
+			renderDocumentStatePage(page, collectionState.current.data, {
+				schema: collectionState.current.schema,
+			}).html,
+		);
+		for (const [index, html] of flowed.entries()) {
+			pages.push({
+				...structuredClone(page),
+				...flowedPageIdentity(page, index),
+				html,
+			});
+		}
+	}
 	return {
 		...structuredClone(collectionDocument),
-		pages: collectionDocument.pages.flatMap((page) => {
-			if (!page.html && !page.jsonForms) return [structuredClone(page)];
-			const flowed = renderCollectionPage(
-				deps,
-				workspace,
-				collection,
-				renderDocumentStatePage(page, collectionState.current.data, {
-					schema: collectionState.current.schema,
-				}).html,
-				items,
-			);
-			return flowed.map((html, index) => ({
-				...structuredClone(page),
-				...(index === 0 ? {} : flowedPageIdentity(page, index)),
-				html,
-			}));
-		}),
-	};
-}
-
-function flowedPageIdentity(
-	page: Page,
-	index: number,
-): Pick<Page, "id" | "name"> {
-	return {
-		id: `${page.id}~${index + 1}`,
-		name: `${page.name ?? "Page"} (${index + 1})`,
+		pages:
+			pages.length === collectionDocument.pages.length
+				? pages
+				: pages.map((page) =>
+						page.html
+							? { ...page, html: remapPageLinkNumbers(page.html, sourceStarts) }
+							: page,
+					),
 	};
 }
 
@@ -456,73 +469,157 @@ interface CollectionCardGroup {
 	entries: CollectionCardEntry[];
 }
 
-/** Compose one collection template page. Without `groupBy` the result is the
- * single page; with it, every item slot is laid out group by group and the
- * page flows onto as many pages as its fullest slot needs. */
+/** Cards of one group, or of the whole slot when `label` is null, on one
+ * page of a slot. */
+interface SlotSegment {
+	label: string | null;
+	groupIndex: number;
+	count: number;
+	continued: boolean;
+	cards: HTMLElement[];
+}
+
+interface CollectionPageSource {
+	workspace: StructuredWorkspaceDefinition;
+	collection: StructuredWorkspaceCollectionRepresentation;
+	items: StructuredWorkspaceItemView[];
+}
+
+/**
+ * Compose one collection template page. Each items slot is cut into pages of
+ * at most `pageSize` cards when the collection is grouped; each such page then
+ * flows onto as many continuation pages as its cards need once laid out.
+ */
 function renderCollectionPage(
 	deps: StructuredWorkspacesDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collection: StructuredWorkspaceCollectionRepresentation,
+	source: CollectionPageSource,
+	owner: { doc: Document; pageId: string },
 	html: string,
-	items: StructuredWorkspaceItemView[],
 ): string[] {
+	const { collection } = source;
 	const { document } = parseHTML(`<html><body>${html}</body></html>`);
 	const slots = [
 		...document.body.querySelectorAll<HTMLElement>(
 			"[data-maket-structured-items]",
 		),
 	];
-	const slotEntries = slots.map((slot, slotIndex) => {
+	const slotPages = slots.map((slot, slotIndex) => {
 		const entries = collectionCardEntries(
 			deps,
-			workspace,
-			collection,
+			source,
 			document,
 			slot,
 			slotIndex,
-			items,
 		);
 		slot.replaceChildren();
-		return entries;
+		if (collection.groupBy === undefined) {
+			return [
+				[
+					{
+						label: null,
+						groupIndex: 0,
+						count: 0,
+						continued: false,
+						cards: entries.flatMap((entry) => entry.cards),
+					},
+				],
+			];
+		}
+		return flowCollectionGroups(
+			groupCollectionCards(
+				entries,
+				collection.groupBy,
+				collection.groupOrder ?? [],
+			),
+			collection.pageSize ?? structuredWorkspaceDefaultPageSize,
+		);
 	});
-	if (collection.groupBy === undefined) {
-		for (const [slotIndex, slot] of slots.entries()) {
-			for (const entry of slotEntries[slotIndex] ?? []) {
-				for (const card of entry.cards) slot.appendChild(card);
-			}
-		}
-		return [document.body.innerHTML];
-	}
-	const groupBy = collection.groupBy;
-	const pageSize = collection.pageSize ?? structuredWorkspaceDefaultPageSize;
-	const slotPages = slotEntries.map((entries, slotIndex) =>
-		flowCollectionGroups(
-			document,
-			groupCollectionCards(entries, groupBy, collection.groupOrder ?? []),
-			pageSize,
-			slotIndex,
-		),
-	);
-	const pageCount = Math.max(1, ...slotPages.map((pages) => pages.length));
+	const lists = slots.map((_, slotIndex) => String(slotIndex));
+	const baseCount = Math.max(1, ...slotPages.map((pages) => pages.length));
 	const pages: string[] = [];
-	for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
-		for (const [slotIndex, slot] of slots.entries()) {
-			slot.replaceChildren(...(slotPages[slotIndex]?.[pageIndex] ?? []));
+	for (let base = 0; base < baseCount; base += 1) {
+		const segments = slots.map(
+			(_, slotIndex) => slotPages[slotIndex]?.[base] ?? [],
+		);
+		const compose = (ranges?: FlowRanges, mark = false) => {
+			for (const [slotIndex, slot] of slots.entries()) {
+				slot.replaceChildren(
+					...slotNodes(document, segments[slotIndex] ?? [], slotIndex, {
+						range: ranges?.[String(slotIndex)],
+						mark,
+					}),
+				);
+			}
+			return { html: document.body.innerHTML, lists };
+		};
+		const plan =
+			deps.pageFlow && segments.some((slot) => slot.length > 0)
+				? deps.pageFlow.pages({
+						doc: owner.doc,
+						pageKey: `${owner.pageId}#${base}`,
+						full: compose(undefined, true),
+						render: (ranges) => compose(ranges, true),
+					})
+				: null;
+		if (!plan) {
+			pages.push(compose().html);
+			continue;
 		}
-		pages.push(document.body.innerHTML);
+		for (const ranges of plan) pages.push(compose(ranges).html);
 	}
-	return pages;
+	return pages.map((page, index) => markFlowedPage(page, index, pages.length));
+}
+
+function slotNodes(
+	document: ReturnType<typeof parseHTML>["document"],
+	segments: SlotSegment[],
+	slotIndex: number,
+	options: { range?: [number, number | null]; mark: boolean },
+): Node[] {
+	const start = options.range?.[0] ?? 0;
+	const end = options.range?.[1] ?? Number.POSITIVE_INFINITY;
+	const nodes: Node[] = [];
+	let offset = 0;
+	for (const segment of segments) {
+		const segmentStart = offset;
+		offset += segment.cards.length;
+		const from = Math.max(start, segmentStart);
+		const to = Math.min(end, offset);
+		if (from >= to) continue;
+		if (segment.label !== null) {
+			nodes.push(
+				collectionGroupHeader(document, segment.label, {
+					id: `structured-group-${slotIndex}-${segment.groupIndex}`,
+					count: segment.count,
+					continued: segment.continued || from > segmentStart,
+				}),
+			);
+		}
+		for (let index = from; index < to; index += 1) {
+			const card = segment.cards[index - segmentStart];
+			if (!card) continue;
+			if (!options.mark) {
+				nodes.push(card);
+				continue;
+			}
+			nodes.push(
+				document.createComment(`maket-flow:${slotIndex}:${index}`),
+				card,
+				document.createComment("/maket-flow"),
+			);
+		}
+	}
+	return nodes;
 }
 
 function collectionCardEntries(
 	deps: StructuredWorkspacesDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collection: StructuredWorkspaceCollectionRepresentation,
+	source: CollectionPageSource,
 	document: ReturnType<typeof parseHTML>["document"],
 	slot: HTMLElement,
 	slotIndex: number,
-	items: StructuredWorkspaceItemView[],
 ): CollectionCardEntry[] {
+	const { workspace, collection, items } = source;
 	const bindingId = slot.getAttribute("data-maket-structured-items") ?? "";
 	const filter = parseItemFilter(
 		slot.getAttribute("data-maket-structured-filter"),
@@ -596,14 +693,13 @@ function groupLabel(value: unknown): string {
 	return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
+/** Pages of at most `pageSize` cards, laid out group by group. */
 function flowCollectionGroups(
-	document: ReturnType<typeof parseHTML>["document"],
 	groups: CollectionCardGroup[],
 	pageSize: number,
-	slotIndex: number,
-): HTMLElement[][] {
-	const pages: HTMLElement[][] = [];
-	let current: HTMLElement[] = [];
+): SlotSegment[][] {
+	const pages: SlotSegment[][] = [];
+	let current: SlotSegment[] = [];
 	let used = 0;
 	for (const [groupIndex, group] of groups.entries()) {
 		const cards = group.entries.flatMap((entry) => entry.cards);
@@ -615,14 +711,13 @@ function flowCollectionGroups(
 				used = 0;
 			}
 			const taken = cards.slice(index, index + pageSize - used);
-			current.push(
-				collectionGroupHeader(document, group, {
-					id: `structured-group-${slotIndex}-${groupIndex}`,
-					count: cards.length,
-					continued: index > 0,
-				}),
-				...taken,
-			);
+			current.push({
+				label: group.label,
+				groupIndex,
+				count: cards.length,
+				continued: index > 0,
+				cards: taken,
+			});
 			used += taken.length;
 			index += taken.length;
 		}
@@ -633,19 +728,19 @@ function flowCollectionGroups(
 
 function collectionGroupHeader(
 	document: ReturnType<typeof parseHTML>["document"],
-	group: CollectionCardGroup,
+	labelText: string,
 	options: { id: string; count: number; continued: boolean },
 ): HTMLElement {
 	const header = document.createElement("header");
 	header.setAttribute("data-id", options.id);
-	header.setAttribute("data-maket-structured-group", group.label);
+	header.setAttribute("data-maket-structured-group", labelText);
 	if (options.continued) {
 		header.setAttribute("data-maket-structured-group-continued", "");
 	}
 	header.setAttribute("style", "grid-column:1 / -1;flex:0 0 100%");
 	const label = document.createElement("span");
 	label.setAttribute("data-maket-structured-group-label", "");
-	label.textContent = group.label;
+	label.textContent = labelText;
 	const count = document.createElement("span");
 	count.setAttribute("data-maket-structured-group-count", "");
 	count.textContent = String(options.count);

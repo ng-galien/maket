@@ -14,6 +14,7 @@ import {
 import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import type { Document } from "../../types.js";
 import { validateStateTemplateUpdate } from "../document-states.js";
+import { flowSourcePageId } from "../page-flow.js";
 import { templateControlledPageMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
@@ -90,7 +91,16 @@ export function handleTextEdit(
 		ctx.broadcastState(d);
 		return;
 	}
-	const pi = typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
+	const shownIndex =
+		typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
+	const pi = authoredPageIndex(ctx, d, shownIndex);
+	if (pi === null) {
+		log(
+			`[text_edit] FAIL: page ${shownIndex} of ${msg.docName} is a generated continuation page`,
+		);
+		ctx.broadcastState(d);
+		return;
+	}
 	const page = d.pages[pi];
 	if (!page?.html) {
 		log(`[text_edit] FAIL: no page html for ${msg.docName} page ${pi}`);
@@ -135,3 +145,21 @@ export function handleTextEdit(
 /** Runtime shape check for `charte_save` payloads. Returns an error message
  * when the payload would persist malformed data, `null` when it's safe. The
  * MCP tool path has zod; this is the WS equivalent. */
+
+/** The authored page behind a page index of the rendered document, which
+ * differs when a state list flows onto continuation pages; null for a
+ * continuation page. */
+function authoredPageIndex(
+	ctx: Pick<WsHandlerContext, "documentRenderer">,
+	doc: Document,
+	shownIndex: number,
+): number | null {
+	if (doc.dataModel !== "state") return shownIndex;
+	const shown = ctx.documentRenderer.render(doc).pages;
+	if (shown.length === doc.pages.length) return shownIndex;
+	const shownId = shown[shownIndex]?.id;
+	if (shownId === undefined) return shownIndex;
+	if (flowSourcePageId(shownId) !== shownId) return null;
+	const index = doc.pages.findIndex((page) => page.id === shownId);
+	return index >= 0 ? index : shownIndex;
+}

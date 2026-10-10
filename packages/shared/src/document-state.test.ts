@@ -742,3 +742,53 @@ describe("document state values in presentation attributes", () => {
 		).toThrow(/cannot combine data-maket-bind/);
 	});
 });
+
+describe("document state list flow", () => {
+	const data = {
+		rows: [{ label: "a" }, { label: "b" }, { label: "c" }],
+		points: [{ cx: 1 }, { cx: 2 }],
+	};
+
+	it("marks the items of top-level lists in element content", () => {
+		const rendered = renderDocumentStateText(
+			'<ul>{{#state.rows}}<li>{{label}}</li>{{/state.rows}}</ul><svg>{{#state.points}}<circle cx="{{cx}}"></circle>{{/state.points}}</svg>',
+			data,
+			{ flow: { mark: true } },
+		);
+
+		expect(rendered.flowLists).toEqual(["/rows"]);
+		expect(rendered.html).toBe(
+			'<ul><!--maket-flow:0:0--><li>a</li><!--/maket-flow--><!--maket-flow:0:1--><li>b</li><!--/maket-flow--><!--maket-flow:0:2--><li>c</li><!--/maket-flow--></ul><svg><circle cx="1"></circle><circle cx="2"></circle></svg>',
+		);
+	});
+
+	it("renders the range of a flowing list while inverted sections test the whole list", () => {
+		const rendered = renderDocumentStateText(
+			"<ul>{{#state.rows}}<li>{{label}}</li>{{/state.rows}}</ul>{{^state.rows}}<p>none</p>{{/state.rows}}",
+			data,
+			{ flow: { ranges: { "/rows": [3, null] } } },
+		);
+
+		expect(rendered.html).toBe("<ul></ul>");
+		expect(
+			renderDocumentStateText(
+				"{{#state.rows}}<i>{{label}}</i>{{/state.rows}}",
+				data,
+				{ flow: { ranges: { "/rows": [1, 2] } } },
+			).html,
+		).toBe("<i>b</i>");
+	});
+
+	it("leaves lists nested in a list item whole and unmarked", () => {
+		const rendered = renderDocumentStateText(
+			"{{#state.groups}}<section>{{#entries}}<b>{{.}}</b>{{/entries}}</section>{{/state.groups}}",
+			{ groups: [{ entries: ["x", "y"] }] },
+			{ flow: { mark: true } },
+		);
+
+		expect(rendered.flowLists).toEqual(["/groups"]);
+		expect(rendered.html).toBe(
+			"<!--maket-flow:0:0--><section><b>x</b><b>y</b></section><!--/maket-flow-->",
+		);
+	});
+});

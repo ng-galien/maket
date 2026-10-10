@@ -41,11 +41,42 @@ export interface DocumentStateRenderResult {
 	html: string;
 	dependencies: string[];
 	bindingPaths: string[];
+	/** Array pointers of the flowing lists, in marker order; present when
+	 * `flow` was requested. */
+	flowLists?: string[];
+}
+
+/** Items of one flowing list on one page: `[start, end)`, `end` null for
+ * every remaining item. */
+export type DocumentStateFlowRange = [number, number | null];
+
+/**
+ * A flowing list is a section over an array placed in element content, not
+ * nested in another array item, and outside svg, select, textarea and title.
+ * Its items can be spread over generated continuation pages.
+ */
+export interface DocumentStateFlowOptions {
+	/** Wrap every flowing item in `<!--maket-flow:<list>:<index>-->` and
+	 * `<!--/maket-flow-->` comments, `<list>` being its rank in `flowLists`. */
+	mark?: boolean;
+	/** Items kept per flowing list, by array pointer; other lists render whole.
+	 * An inverted section still tests the whole array. */
+	ranges?: Record<string, DocumentStateFlowRange>;
 }
 
 export interface DocumentStateRenderOptions {
 	schema?: DocumentStateSchema;
+	flow?: DocumentStateFlowOptions;
 }
+
+interface FlowContext {
+	mark: boolean;
+	ranges: Record<string, DocumentStateFlowRange>;
+	lists: string[];
+	depth: number;
+}
+
+const flowExcludedElements = ["svg", "select", "textarea", "title"];
 
 export const stateBindingAttribute = "data-maket-bind";
 export const stateBindingPathAttribute = "data-maket-path";
@@ -103,14 +134,23 @@ export function renderDocumentStateText(
 	}
 	const dependencies = new Set<string>();
 	const frames: RenderFrame[] = [{ value: data, pointer: "" }];
+	const flow: FlowContext | null = options.flow
+		? {
+				mark: options.flow.mark === true,
+				ranges: options.flow.ranges ?? {},
+				lists: [],
+				depth: 0,
+			}
+		: null;
 	const html = finalizeStateAttributeValues(
-		renderTokens(tokens, frames, template, dependencies, options),
+		renderTokens(tokens, frames, template, dependencies, options, flow),
 	);
 	const hydrated = hydrateSelectOptions(html, data, options.schema);
 	return {
 		html: hydrated,
 		dependencies: [...dependencies],
 		bindingPaths: collectBindingPaths(hydrated),
+		...(flow ? { flowLists: flow.lists } : {}),
 	};
 }
 
@@ -180,6 +220,7 @@ function renderTokens(
 	template: string,
 	dependencies: Set<string>,
 	options: DocumentStateRenderOptions,
+	flow: FlowContext | null,
 ): string {
 	let output = "";
 	for (const token of tokens) {
@@ -209,6 +250,7 @@ function renderTokens(
 				template,
 				dependencies,
 				options,
+				flow,
 			);
 			continue;
 		}
@@ -219,6 +261,7 @@ function renderTokens(
 				template,
 				dependencies,
 				options,
+				flow,
 			);
 		}
 	}
@@ -530,27 +573,41 @@ function renderSection(
 	template: string,
 	dependencies: Set<string>,
 	options: DocumentStateRenderOptions,
+	flow: FlowContext | null,
 ): string {
 	if (!resolved.found || isFalsySectionValue(resolved.value)) return "";
 	const children = sectionChildren(token);
 	if (Array.isArray(resolved.value)) {
-		return resolved.value
-			.map((value, index) =>
-				renderTokens(
-					children,
-					[
-						...frames,
-						{
-							value,
-							pointer: appendJsonPointer(resolved.pointer, index),
-						},
-					],
-					template,
-					dependencies,
-					options,
-				),
-			)
-			.join("");
+		const flowing =
+			flow !== null && flow.depth === 0 && isFlowPlacement(template, token[2]);
+		const list = flowing ? flowListRank(flow, resolved.pointer) : -1;
+		const [start, end] = flowing
+			? flowRangeBounds(flow.ranges[resolved.pointer], resolved.value.length)
+			: [0, resolved.value.length];
+		if (flow) flow.depth += 1;
+		let output = "";
+		for (let index = start; index < end; index += 1) {
+			const item = renderTokens(
+				children,
+				[
+					...frames,
+					{
+						value: resolved.value[index],
+						pointer: appendJsonPointer(resolved.pointer, index),
+					},
+				],
+				template,
+				dependencies,
+				options,
+				flow,
+			);
+			output +=
+				flowing && flow.mark
+					? `<!--maket-flow:${list}:${index}-->${item}<!--/maket-flow-->`
+					: item;
+		}
+		if (flow) flow.depth -= 1;
+		return output;
 	}
 	if (
 		typeof resolved.value === "object" ||
@@ -563,9 +620,33 @@ function renderSection(
 			template,
 			dependencies,
 			options,
+			flow,
 		);
 	}
-	return renderTokens(children, frames, template, dependencies, options);
+	return renderTokens(children, frames, template, dependencies, options, flow);
+}
+
+function isFlowPlacement(template: string, position: number): boolean {
+	return !flowExcludedElements.some((tag) =>
+		isInsideElementContent(template, position, tag),
+	);
+}
+
+function flowListRank(flow: FlowContext, pointer: string): number {
+	const rank = flow.lists.indexOf(pointer);
+	if (rank >= 0) return rank;
+	flow.lists.push(pointer);
+	return flow.lists.length - 1;
+}
+
+function flowRangeBounds(
+	range: DocumentStateFlowRange | undefined,
+	length: number,
+): [number, number] {
+	if (!range) return [0, length];
+	const start = Math.min(Math.max(0, range[0]), length);
+	const end = range[1] === null ? length : Math.min(range[1], length);
+	return [start, Math.max(start, end)];
 }
 
 function renderValue(token: MustacheToken, resolved: ResolvedValue): string {

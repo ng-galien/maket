@@ -327,7 +327,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	state: document(
-		"Document state belongs to one living document. It has one current JSON snapshot and immutable full revisions; unlike a collection, it never expands the page count.",
+		"Document state belongs to one living document. It has one current JSON snapshot and immutable full revisions; unlike a collection, it never expands into variants. A list longer than its page continues on generated pages.",
 		section(
 			"Choose the right model",
 			[
@@ -397,6 +397,15 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Failed template, schema, or data validation is atomic.",
 		),
 		section(
+			"Lists longer than the page",
+			[
+				"- A section over an array placed in element content, not inside another list item and not inside `svg`, `select`, `textarea` or `title`, is a flowing list.",
+				"- Maket lays the rendered page out at the canvas size. When an item of a flowing list ends below the canvas or below a clipping ancestor (`overflow` other than visible, line clamps excepted), that item and the following ones continue on a generated page `<page id>~2` named `<page name> (2)`, and so on.",
+				"- The whole template repeats on every continuation page, so its own heading heads each of them; lists already shown render no item there, and inverted sections still test the whole array. The first element of every page of a flowed set carries `data-maket-flow-page` and `data-maket-flow-pages` (1-based) for a continuation style.",
+				"- `#page=<n>` links keep pointing at the first page of their authored page. `maket_html check` measures every generated page; `set` and `patch` keep editing the authored template.",
+			].join("\n"),
+		),
+		section(
 			"Rendering and portability",
 			"Live mode shows hydrated interactive controls. Model/Template mode shows persistent source and is non-interactive. Static output, print, and PDF show the same current values passively, including checked, value, and selected serialization, without mutation behavior.",
 			"Portable .maket bundles carry the current schema and data snapshot, like collections carry their current members. Prior state revisions stay local; import initializes the snapshot as revision 1 and keeps the document's revision retention.",
@@ -429,9 +438,9 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Grouped, flowing collection pages",
 			[
-				"- Without `groupBy`, each collection template page renders once and holds every card of its item slots.",
+				"- Without `groupBy`, each collection template page holds every card of its item slots; the cards that do not fit the laid-out page continue on further pages of the collection document (`<page id>~2`, `~3`, …), the template repeating on each.",
 				'- With `groupBy`, every `data-maket-structured-items` slot receives, group by group, a `<header data-maket-structured-group="<value>">` with `[data-maket-structured-group-label]` and `[data-maket-structured-group-count]` children, followed by that group\'s compact cards.',
-				"- When a slot exceeds `pageSize` cards, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
+				"- When a slot exceeds `pageSize` cards, or when its cards do not fit the laid-out page, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
 				"- Headers carry `grid-column: 1 / -1` and `flex: 0 0 100%`, so they span a grid or wrapping flex slot. Choose `pageSize` so that many cards plus their headers fit the page, then check a snapshot.",
 				"- Item changes re-render the collection document and its page count.",
 			].join("\n"),

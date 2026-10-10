@@ -39,6 +39,7 @@ import type { DocumentRenderer } from "../services/document-renderer.js";
 import { validateStateTemplateUpdate } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import type { LayoutResult, LayoutService } from "../services/layout.js";
+import { flowSourcePageId } from "../services/page-flow.js";
 import type { Store } from "../services/store.js";
 import type { Charte, Document, Page } from "../types.js";
 import { lockGuard, templatePageGuard, text } from "./_helpers.js";
@@ -48,7 +49,10 @@ export interface HtmlDeps {
 	store: Store;
 	layout: LayoutService;
 	assets: AssetsService;
-	documentRenderer: Pick<DocumentRenderer, "render" | "stateView">;
+	documentRenderer: Pick<
+		DocumentRenderer,
+		"render" | "renderSettled" | "stateView"
+	>;
 	collectionCursors: Pick<CollectionCursors, "resolve">;
 }
 
@@ -514,41 +518,85 @@ interface MeasuredPage {
 	note?: string;
 }
 
+interface MeasuredLayout {
+	report: string;
+	/** The first result that is not ok, or the only one. */
+	result: LayoutResult;
+}
+
 /**
  * The page HTML a reader sees: hydrated with the document state, or with the
  * collection member shown by the page's preview cursor (first member when the
  * cursor shows the template or every member). Other pages stay as authored.
+ * A state page whose list flows yields every page it renders to.
  */
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Measurement adapter: selects the rendered page through the renderer and cursor services that own rendering.
-function measuredPage(
+async function measuredPages(
 	doc: Document,
 	page: Page,
 	rendering: PageRendering,
-): MeasuredPage {
+): Promise<MeasuredPage[]> {
 	const authored = { html: page.html ?? "" };
-	if (doc.meta.structuredWorkspace?.role === "collection") return authored;
+	if (doc.meta.structuredWorkspace?.role === "collection") return [authored];
 	try {
 		if (doc.dataModel === "state") {
-			const rendered = rendering.documentRenderer
-				.render(doc)
-				.pages.find((candidate) => candidate.id === page.id);
+			const rendered = (
+				await rendering.documentRenderer.renderSettled(doc)
+			).pages.filter((candidate) => flowSourcePageId(candidate.id) === page.id);
 			const revision = rendering.documentRenderer.stateView(doc)?.revision;
-			return {
-				html: rendered?.html ?? authored.html,
-				note: `Measured with document state revision ${revision ?? "?"}.`,
-			};
+			const note = `Measured with document state revision ${revision ?? "?"}.`;
+			if (rendered.length <= 1) {
+				return [{ html: rendered[0]?.html ?? authored.html, note }];
+			}
+			return rendered.map((candidate, index) => ({
+				html: candidate.html ?? "",
+				note: `${index === 0 ? `${note} A list flows onto ${rendered.length} pages.\n` : ""}Page ${index + 1} of ${rendered.length} (${candidate.name ?? candidate.id}):`,
+			}));
 		}
 		const collection = page.collection?.name;
-		if (!collection) return authored;
-		return collectionMeasuredPage(doc, page, collection, rendering);
+		if (!collection) return [authored];
+		return [collectionMeasuredPage(doc, page, collection, rendering)];
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return {
-			html: authored.html,
-			note: `Measured the authored template: rendering failed (${message}).`,
-		};
+		return [
+			{
+				html: authored.html,
+				note: `Measured the authored template: rendering failed (${message}).`,
+			},
+		];
 	}
+}
+
+async function measureLayout(
+	doc: Document,
+	page: Page,
+	pageIdx: number,
+	deps: Pick<MaketHtmlToolDeps, "layout" | "rendering">,
+	mode: "measure" | "check",
+): Promise<MeasuredLayout> {
+	const measured = await measuredPages(doc, page, deps.rendering);
+	const reports: string[] = [];
+	let worst: LayoutResult | undefined;
+	for (const [index, candidate] of measured.entries()) {
+		const result =
+			mode === "measure" && index === 0
+				? await deps.layout.measure(doc, candidate.html, pageIdx)
+				: await deps.layout.check(doc, candidate.html, pageIdx);
+		reports.push(layoutReport(candidate, result));
+		if (!worst || (worst.status === "ok" && result.status !== "ok")) {
+			worst = result;
+		}
+	}
+	return {
+		report: reports.join("\n"),
+		result: worst ?? {
+			status: "unchecked",
+			text: "",
+			overflowIds: [],
+			overlapIds: [],
+		},
+	};
 }
 
 function collectionMeasuredPage(
@@ -695,8 +743,14 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 
 	const count = (page.html.match(/data-id=/g) || []).length;
 	const html = page.html || "";
-	const measured = measuredPage(doc, page, rendering);
-	const layoutResult = await layout.measure(doc, measured.html, pageIdx);
+	const measured = await measureLayout(
+		doc,
+		page,
+		pageIdx,
+		{ layout, rendering },
+		"measure",
+	);
+	const layoutResult = measured.result;
 	const tree = buildIdTree(html);
 
 	return text(
@@ -704,7 +758,7 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 			`Page "${page.name || args.page}" updated — ${count} elements`,
 			"",
 			"layout:",
-			layoutReport(measured, layoutResult),
+			measured.report,
 			"",
 			"tree:",
 			tree,
@@ -755,8 +809,14 @@ async function runPatch(
 	page.html = nextHtml;
 	documents.persist(doc.name);
 
-	const measured = measuredPage(doc, page, rendering);
-	const layoutResult = await layout.measure(doc, measured.html, pageIdx);
+	const measured = await measureLayout(
+		doc,
+		page,
+		pageIdx,
+		{ layout, rendering },
+		"measure",
+	);
+	const layoutResult = measured.result;
 	const tree = buildIdTree(root);
 	return text(
 		[
@@ -764,7 +824,7 @@ async function runPatch(
 			results.join("\n"),
 			"",
 			"layout:",
-			layoutReport(measured, layoutResult),
+			measured.report,
 			"",
 			"tree:",
 			tree,
@@ -816,10 +876,16 @@ async function runCheck(
 	{ layout, rendering }: MaketHtmlToolDeps,
 ): Promise<CallToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
-	const measured = measuredPage(doc, page, rendering);
-	const layoutResult = await layout.check(doc, measured.html, pageIdx);
+	const measured = await measureLayout(
+		doc,
+		page,
+		pageIdx,
+		{ layout, rendering },
+		"check",
+	);
+	const layoutResult = measured.result;
 	const linkIssues = brokenPageLinks(page.html, doc.pages);
-	const report = [layoutReport(measured, layoutResult)];
+	const report = [measured.report];
 	if (linkIssues.length > 0) {
 		report.push("", formatPageLinkIssues(linkIssues, doc.pages.length));
 	}

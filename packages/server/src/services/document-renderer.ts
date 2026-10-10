@@ -5,6 +5,7 @@ import type {
 import type { CollectionRenderOptions } from "../lib/collection-render.js";
 import type { Document } from "../types.js";
 import type { CollectionRenderer } from "./collection-renderer.js";
+import type { PageFlow } from "./page-flow.js";
 import type { StateRenderer } from "./state-renderer.js";
 import type { StructuredWorkspaces } from "./structured-workspaces.js";
 
@@ -22,10 +23,18 @@ export interface StatePagesUpdate {
 	pages: StatePageProjection[];
 	/** Authoritative rendered page count when the page list itself changes. */
 	pageCount?: number;
+	/** The rendered page list differs from the authored one (flowed lists):
+	 * listeners send the whole document instead of page projections. */
+	restructured?: boolean;
 }
 
 export interface DocumentRenderer {
 	render(doc: Document, options?: DocumentRenderOptions): Document;
+	/** `render` once every list flow the document needs is measured. */
+	renderSettled(
+		doc: Document,
+		options?: DocumentRenderOptions,
+	): Promise<Document>;
 	stateView(doc: Document): DocumentStateClientView | null;
 	statePages(doc: Document, paths: string[]): StatePagesUpdate;
 }
@@ -34,12 +43,20 @@ export interface DocumentRendererDeps {
 	collectionRenderer: CollectionRenderer;
 	stateRenderer: StateRenderer;
 	structuredWorkspaces: Pick<StructuredWorkspaces, "renderCollection">;
+	pageFlow?: Pick<PageFlow, "settle">;
 }
 
 export function createDocumentRenderer(
 	deps: DocumentRendererDeps,
 ): DocumentRenderer {
-	return {
+	const renderer: DocumentRenderer = {
+		async renderSettled(doc, options = {}) {
+			const first = renderer.render(doc, options);
+			if (!deps.pageFlow) return first;
+			return (await deps.pageFlow.settle())
+				? renderer.render(doc, options)
+				: first;
+		},
 		render(doc, options = {}) {
 			const structuredWorkspace =
 				options.structuredWorkspace ??
@@ -88,12 +105,30 @@ export function createDocumentRenderer(
 					pageCount: pages.length,
 				};
 			}
-			return {
-				pages:
-					doc.dataModel === "state"
-						? deps.stateRenderer.renderPages(doc, paths)
-						: [],
-			};
+			if (doc.dataModel !== "state") return { pages: [] };
+			const rendered = deps.stateRenderer.renderPages(doc, paths);
+			return rendered.flowed
+				? {
+						pages: rendered.pages,
+						pageCount: rendered.pages.length,
+						restructured: true,
+					}
+				: { pages: rendered.pages };
 		},
 	};
+	return renderer;
+}
+
+/** A renderer that may wait for list flows before rendering. */
+export type SettlingDocumentRenderer = Pick<DocumentRenderer, "render"> &
+	Partial<Pick<DocumentRenderer, "renderSettled">>;
+
+export function renderDocumentSettled(
+	renderer: SettlingDocumentRenderer,
+	doc: Document,
+	options?: DocumentRenderOptions,
+): Promise<Document> {
+	return renderer.renderSettled
+		? renderer.renderSettled(doc, options)
+		: Promise.resolve(renderer.render(doc, options));
 }

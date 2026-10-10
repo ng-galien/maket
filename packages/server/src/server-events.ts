@@ -143,14 +143,22 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		if (doc?.dataModel !== "state") return;
 		const documentState = documentRenderer.stateView(doc);
 		if (!documentState) return;
+		const { restructured, ...update } = documentRenderer.statePages(doc, paths);
+		if (restructured) {
+			broadcastDoc(broadcasters, docName);
+			return;
+		}
 		wsRegistry.broadcast({
 			type: "state_pages",
 			docName,
 			documentState,
-			...documentRenderer.statePages(doc, paths),
+			...update,
 			docList: documents.list(),
 		});
 	});
+	bus.on("document:flowed", ({ docName }) =>
+		broadcastDoc(broadcasters, docName),
+	);
 	bus.on("document:focused", ({ docName }) =>
 		broadcastDoc(broadcasters, docName, true, true),
 	);

@@ -29,6 +29,8 @@ export interface BusEvents {
 	"meta:updated": { docName: string };
 	/** A document was pinned (`pinnedAt` set) or unpinned (`pinnedAt` null). */
 	"document:pinned": { docName: string; pinnedAt: string | null };
+	/** A measured list flow changed the rendered page list of a document. */
+	"document:flowed": { docName: string };
 	"charte:updated": { name: string; css: string };
 	"charte:removed": { name: string };
 	"collection:saved": { name: string };
