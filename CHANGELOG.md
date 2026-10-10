@@ -13,6 +13,16 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+### Added
+
+- Document states accept a revision retention: `maket_state action=set_retention` keeps the current state plus a chosen number of previous revisions and prunes older ones on every write, with `0` keeping only the current state. History stays unbounded by default, so existing documents keep every revision. Setting it reports how many revisions were deleted, and `.maket` bundles carry it.
+- `maket_doc action=lookup` returns a document's id, modification revision, page count, data model and state revision by exact name without opening it or changing the active document, and names near matches when the name is absent.
+
+### Changed
+
+- Updating a Structured Workspace item rewrites only that item's entry in its collection projection and broadcasts only that item to connected clients, instead of rebuilding the projection and resending every Workspace.
+- The database moves to SQLite schema v18 (`document_states.revision_retention`). Once this version has opened a workspace, earlier versions refuse to open it; back up `documents.db` before upgrading.
+
 ## [2.1.0] — 2026-09-18
 
 ### Added

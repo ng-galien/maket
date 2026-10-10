@@ -305,11 +305,13 @@ function currentDocumentStateSnapshots(
 		if (!current) {
 			throw new Error(`Document "${doc.name}" has no current state snapshot.`);
 		}
+		const retention = store.loadDocumentState(doc.id)?.retention ?? null;
 		return [
 			{
 				documentId: doc.id,
 				schema: current.schema,
 				data: current.data,
+				...(retention !== null ? { retention } : {}),
 			},
 		];
 	});

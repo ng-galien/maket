@@ -28,7 +28,7 @@
   "tools": [
     {
       "name": "maket_doc",
-      "description": "Document lifecycle: new, list, client-local reading link, delete, duplicate, rename, meta, export/import (.maket bundle)."
+      "description": "Document lifecycle: new, list, side-effect-free lookup by exact name, client-local reading link, delete, duplicate, rename, meta, export/import (.maket bundle)."
     },
     {
       "name": "maket_page",
@@ -53,7 +53,7 @@
     },
     {
       "name": "maket_state",
-      "description": "Attach document-owned state, update it with snapshots or JSON Patch, validate/change its schema, inspect history, and restore revisions."
+      "description": "Attach document-owned state, update it with snapshots or JSON Patch, validate/change its schema, inspect history, restore revisions, and bound history with a revision retention."
     },
     {
       "name": "maket_structured_workspace",

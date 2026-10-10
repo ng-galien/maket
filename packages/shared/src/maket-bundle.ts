@@ -87,6 +87,8 @@ export interface BundleDocumentStateSnapshot {
 	documentId: string;
 	schema: DocumentStateSchema;
 	data: DocumentStateData;
+	/** Previous revisions kept besides the current one; absent keeps them all. */
+	retention?: number;
 }
 
 /** Portable user annotation. Runtime ids and document names are deliberately
@@ -234,7 +236,9 @@ function validateBundleDocumentState(
 		typeof value.documentId !== "string" ||
 		value.documentId.length === 0 ||
 		!isPlainRecord(value.schema) ||
-		!isPlainRecord(value.data)
+		!isPlainRecord(value.data) ||
+		(value.retention !== undefined &&
+			(!Number.isInteger(value.retention) || (value.retention as number) < 0))
 	) {
 		throw new Error(
 			`Invalid .maket file: documentStates[${index}] is malformed`,
@@ -276,7 +280,14 @@ function validateBundleDocumentState(
 			);
 		}
 	}
-	return { documentId: value.documentId, schema, data };
+	return {
+		documentId: value.documentId,
+		schema,
+		data,
+		...(value.retention !== undefined
+			? { retention: value.retention as number }
+			: {}),
+	};
 }
 
 function validateBundleDocumentStates(

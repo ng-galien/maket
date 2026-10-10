@@ -39,6 +39,7 @@ export const ACTIVITY_KEYS = [
 	"bubble_maket_collection_bind",
 	"bubble_maket_collection_unbind",
 	"bubble_maket_collection_cursor",
+	"bubble_maket_state_set_retention",
 	"bubble_maket_image_list",
 	"bubble_maket_image_view",
 	"bubble_maket_image_meta",

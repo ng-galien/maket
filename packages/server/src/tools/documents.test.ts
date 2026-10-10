@@ -291,6 +291,95 @@ describe("maket_doc — action=link", () => {
 	});
 });
 
+describe("maket_doc — action=lookup", () => {
+	function lookupFixture() {
+		const context = fixture();
+		const synthesis = makeDoc("Synthesis", 2);
+		const board = makeDoc("Topic board");
+		for (const doc of [synthesis, board]) {
+			context.documents.all().set(doc.name, doc);
+			context.documents.persist(doc.name);
+		}
+		const states = createDocumentStates({
+			bus: context.bus,
+			documents: context.documents,
+			store: context.store,
+		});
+		states.initialize(
+			board.name,
+			{ type: "object", properties: { count: { type: "integer" } } },
+			{ count: 0 },
+		);
+		states.patch(board.name, 1, [{ op: "replace", path: "/count", value: 1 }]);
+		states.patch(board.name, 2, [{ op: "replace", path: "/count", value: 2 }]);
+		const tool = createMaketDocTool(context);
+		const emitted = vi.fn();
+		const emit = context.bus.emit.bind(context.bus);
+		context.bus.emit = (event, payload) => {
+			emitted(event);
+			emit(event, payload);
+		};
+		const lookup = async (doc: string) => {
+			const result = await tool.handler({ action: "lookup", doc }, NO_EXTRA);
+			return {
+				isError: result.isError,
+				body: result.content[0]?.type === "text" ? result.content[0].text : "",
+			};
+		};
+		return { ...context, synthesis, board, emitted, lookup };
+	}
+
+	it("reads identity, revision, page count and state revision without side effects", async () => {
+		const { store, synthesis, board, emitted, lookup } = lookupFixture();
+		const timestamps = store.listTimestamps();
+
+		const stateful = await lookup("Topic board");
+		const staticDoc = await lookup("Synthesis");
+
+		expect(stateful.isError).toBeUndefined();
+		expect(JSON.parse(stateful.body)).toEqual({
+			name: "Topic board",
+			id: board.id,
+			revision: timestamps.get("Topic board"),
+			pageCount: 1,
+			dataModel: "state",
+			stateRevision: 3,
+		});
+		expect(JSON.parse(staticDoc.body)).toMatchObject({
+			id: synthesis.id,
+			pageCount: 2,
+			dataModel: "static",
+			stateRevision: null,
+		});
+		expect(emitted).not.toHaveBeenCalled();
+		expect(store.listTimestamps()).toEqual(timestamps);
+		expect(board._displayed).toBeUndefined();
+		store.close();
+	});
+
+	it("lists near matches when the exact name is absent", async () => {
+		const { store, emitted, lookup } = lookupFixture();
+
+		const typo = await lookup("Topic bord");
+		const casing = await lookup("topic BOARD");
+		const unrelated = await lookup("Quarterly invoice");
+
+		expect(typo.isError).toBe(true);
+		expect(typo.body).toContain(
+			'Document "Topic bord" not found. Near matches: "Topic board".',
+		);
+		expect(typo.body).toContain("maket_doc action=lookup doc=Topic board");
+		expect(casing.isError).toBe(true);
+		expect(casing.body).toContain('Near matches: "Topic board"');
+		expect(unrelated.isError).toBe(true);
+		expect(unrelated.body).toBe(
+			'Document "Quarterly invoice" not found. No near match.',
+		);
+		expect(emitted).not.toHaveBeenCalled();
+		store.close();
+	});
+});
+
 describe("maket_doc — action=delete", () => {
 	it("refuses to delete the only document", async () => {
 		const { store, bus, documents, config, collections } = fixture();
@@ -1101,6 +1190,86 @@ describe("maket_doc — action=export / import", () => {
 				}),
 			);
 			expect(targetStates.history("living-checklist")).toHaveLength(1);
+			store.close();
+			target.store.close();
+		});
+	});
+
+	it("keeps the revision retention of a state-backed document across export and import", async () => {
+		await withTmp(async (dir) => {
+			const { store, bus, documents, collections } = fixture();
+			const config = {
+				ASSETS_DIR: dir,
+				EXPORTS_DIR: dir,
+			} as unknown as Config;
+			const fed = makeDoc("fed-board");
+			const unbounded = makeDoc("plain-board");
+			for (const document of [fed, unbounded]) {
+				const page = document.pages[0];
+				if (page) page.html = "<h1>{{ state.title }}</h1>";
+				store.saveDoc(document);
+			}
+			documents.loadAll();
+			const documentStates = createDocumentStates({ bus, documents, store });
+			const schema = {
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			};
+			for (const name of ["fed-board", "plain-board"]) {
+				documentStates.initialize(name, schema, { title: "Draft" });
+			}
+			documentStates.setRetention("fed-board", 2);
+			const tool = createMaketDocTool({
+				bus,
+				documents,
+				store,
+				config,
+				collections,
+			});
+			const exportResult = await tool.handler(
+				{ action: "export", docs: ["fed-board", "plain-board"] },
+				NO_EXTRA,
+			);
+			const bundlePath = (
+				exportResult.content[0] as { text: string }
+			).text.match(/→ (\S+\.maket)/)?.[1];
+			const bundle = await decodeBundle(readFileSync(bundlePath as string));
+			expect(
+				bundle.documentStates.map(({ documentId, retention }) => ({
+					documentId,
+					retention,
+				})),
+			).toEqual(
+				expect.arrayContaining([
+					{ documentId: fed.id, retention: 2 },
+					{ documentId: unbounded.id, retention: undefined },
+				]),
+			);
+
+			const target = fixture();
+			const targetStates = createDocumentStates({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+			});
+			const importResult = await createMaketDocTool({
+				bus: target.bus,
+				documents: target.documents,
+				store: target.store,
+				config,
+				collections: target.collections,
+			}).handler({ action: "import", input: bundlePath }, NO_EXTRA);
+			expect(importResult.isError).toBeUndefined();
+			expect(targetStates.get("fed-board")?.definition.retention).toBe(2);
+			expect(targetStates.get("plain-board")?.definition.retention).toBe(null);
+			for (const title of ["One", "Two", "Three"]) {
+				const current = targetStates.get("fed-board")?.current.revision ?? 0;
+				targetStates.update("fed-board", current, { title });
+			}
+			expect(
+				targetStates.history("fed-board").map(({ revision }) => revision),
+			).toEqual([4, 3, 2]);
 			store.close();
 			target.store.close();
 		});

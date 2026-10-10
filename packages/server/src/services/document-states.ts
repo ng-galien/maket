@@ -17,6 +17,7 @@ import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
 import type {
 	DocumentStateRepository,
+	DocumentStateRetentionChange,
 	StoredDocumentState,
 } from "./sqlite-store/document-state-repository.js";
 
@@ -65,6 +66,11 @@ export interface DocumentStates {
 		revision: number,
 		expectedRevision: number,
 	): DocumentStateRevision;
+	/** Keep `retention` previous revisions besides the current one; null keeps all. */
+	setRetention(
+		docName: string,
+		retention: number | null,
+	): DocumentStateRetentionChange;
 }
 
 export interface DocumentStatesDeps {
@@ -218,6 +224,25 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			);
 			emitStateChanged(deps.bus, doc.name, restored.revision, [""], true);
 			return restored;
+		},
+		setRetention(docName, retention) {
+			const { doc } = requiredState(deps, docName);
+			if (
+				retention !== null &&
+				(!Number.isInteger(retention) || retention < 0)
+			) {
+				throw new MessageError(
+					"Revision retention must be a non-negative integer or null.",
+					"msg_state_invalid",
+				);
+			}
+			const change = deps.store.setDocumentStateRetention(doc.id, retention);
+			deps.bus.emit("document-state:retention-changed", {
+				docName: doc.name,
+				retention: change.state.retention,
+				pruned: change.pruned,
+			});
+			return change;
 		},
 	};
 }

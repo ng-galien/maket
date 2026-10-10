@@ -393,6 +393,11 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "structured_workspaces_changed":
 			useStore.getState().setStructuredWorkspaces(msg.workspaces);
 			break;
+		case "structured_workspace_item_changed":
+			useStore
+				.getState()
+				.applyStructuredWorkspaceItem(msg.workspaceId, msg.item);
+			break;
 		case "collection_cursors":
 			useStore.getState().setCollectionCursors(msg.cursors ?? []);
 			break;

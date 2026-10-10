@@ -24,6 +24,6 @@ maket_learn action=topic topic=state
 maket_learn action=topic topic=structured-workspaces
 ```
 
-Use `maket_workspace` for session state and user messages, `maket_doc` for document lifecycle, `maket_html` for page composition, `maket_charte` for brand language, `maket_collection` for mail-merge data, `maket_state` for one document's living data and revisions, `maket_structured_workspace` for typed item collections with instantiated documents, `maket_preview` for visual checks, and `maket_pdf` for export.
+Use `maket_workspace` for session state and user messages, `maket_doc` for document lifecycle and side-effect-free lookup by exact name, `maket_html` for page composition, `maket_charte` for brand language, `maket_collection` for mail-merge data, `maket_state` for one document's living data, revisions, and revision retention, `maket_structured_workspace` for typed item collections with instantiated documents, `maket_preview` for visual checks, and `maket_pdf` for export.
 
 The user-facing onboarding is a built-in Help document opened from the Maket UI. Do not recreate that document from this skill.

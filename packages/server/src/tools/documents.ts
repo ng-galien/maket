@@ -1,7 +1,7 @@
 /**
  * documents pack — maket_doc (compound).
  *
- * Persistent document-lifecycle verbs: new, list, delete, duplicate, rename,
+ * Persistent document-lifecycle verbs: new, list, lookup, link, delete, duplicate, rename,
  * meta (absorbed from the old chartes pack), export/import (.maket bundles).
  * Session-scoped operations (focus, state, lock) live in maket_workspace.
  *
@@ -48,6 +48,7 @@ export interface DocumentsDeps {
 const ActionSchema = z.enum([
 	"new",
 	"list",
+	"lookup",
 	"link",
 	"delete",
 	"duplicate",
@@ -78,7 +79,7 @@ const MaketDocSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"The doc in scope. Required for every action except list. For new: the new doc's name (must be unique). For delete/meta: the doc to act on. For duplicate/rename: the source doc.",
+			"The doc in scope. Required for every action except list. For lookup: the exact name to read. For new: the new doc's name (must be unique). For delete/meta: the doc to act on. For duplicate/rename: the source doc.",
 		),
 	name: z
 		.string()
@@ -166,12 +167,13 @@ const DESCRIPTION = [
 	"Manage design documents (the workspace unit: canvas + pages + meta).",
 	"  new       — create a blank document at `doc`; sets it active. Previous unsaved work is lost.",
 	"  list      — enumerate saved documents as a hierarchy of category paths.",
+	"  lookup    — read-only identity of `doc` by exact name, Workspace documents included: JSON {name, id, revision (monotonic modification token), pageCount, dataModel, stateRevision (null without state)}. It never opens the preview nor changes the active document. When absent, the error lists near matches.",
 	"  link      — return a reading path for `doc`, using its stable document id and configured browser base path. Prefix it with the reachable gateway origin.",
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
-	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots are embedded automatically; revision history stays local. Override the filename with `output`.",
+	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots (with their revision retention) are embedded automatically; revision history stays local. Override the filename with `output`.",
 	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes and collections skip names that already exist. Current document-state snapshots initialize revision 1, and assets are restored to ASSETS_DIR with the existing collision rule.",
 ].join("\n");
 
@@ -230,6 +232,8 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 			return runNew(args, deps.documents, deps.bus);
 		case "list":
 			return runList(deps.documents);
+		case "lookup":
+			return runLookup(args, deps.documents, deps.store);
 		case "link":
 			return runLink(args, deps.documents, deps.config);
 		case "delete":
@@ -299,6 +303,88 @@ function runList(documents: Documents) {
 	if (!list.length) return text("No documents.");
 	const lines = renderDocumentCategoryTree(buildDocumentCategoryTree(list));
 	return text(lines.join("\n"));
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP tool action `runLookup`: read-only edge adapter over documents and store, not domain ownership.
+function runLookup(args: Args, documents: Documents, store: Store) {
+	if (!args.doc) return text("doc is required for action=lookup", true);
+	const timestamps = store.listTimestamps();
+	const doc = documents.resolveOrLoad(args.doc);
+	if (!doc) {
+		const near = nearDocumentNames(args.doc, [...timestamps.keys()]);
+		return text(
+			near.length
+				? `Document "${args.doc}" not found. Near matches: ${near.map((name) => `"${name}"`).join(", ")}.`
+				: `Document "${args.doc}" not found. No near match.`,
+			{
+				isError: true,
+				next: near.map((name) => `maket_doc action=lookup doc=${name}`),
+			},
+		);
+	}
+	return text(
+		JSON.stringify({
+			name: doc.name,
+			id: doc.id,
+			revision: timestamps.get(doc.name) ?? null,
+			pageCount: doc.pages.length,
+			dataModel: doc.dataModel,
+			stateRevision:
+				doc.dataModel === "state"
+					? (store.loadCurrentDocumentState(doc.id)?.revision ?? null)
+					: null,
+		}),
+	);
+}
+
+const NEAR_MATCH_LIMIT = 5;
+
+function nearDocumentNames(query: string, names: string[]): string[] {
+	const wanted = comparableName(query);
+	return names
+		.map((name) => {
+			const candidate = comparableName(name);
+			const distance =
+				candidate === wanted
+					? 0
+					: candidate.includes(wanted) || wanted.includes(candidate)
+						? 1
+						: editDistance(wanted, candidate);
+			return { name, distance };
+		})
+		.filter(
+			({ distance }) => distance <= Math.max(2, Math.floor(wanted.length / 4)),
+		)
+		.sort((a, b) => a.distance - b.distance || a.name.localeCompare(b.name))
+		.slice(0, NEAR_MATCH_LIMIT)
+		.map(({ name }) => name);
+}
+
+function comparableName(name: string): string {
+	return name
+		.normalize("NFD")
+		.replace(/\p{Diacritic}/gu, "")
+		.toLowerCase()
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+function editDistance(left: string, right: string): number {
+	let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+	for (let row = 1; row <= left.length; row += 1) {
+		const current = [row];
+		for (let column = 1; column <= right.length; column += 1) {
+			current[column] = Math.min(
+				(previous[column] ?? 0) + 1,
+				(current[column - 1] ?? 0) + 1,
+				(previous[column - 1] ?? 0) +
+					(left[row - 1] === right[column - 1] ? 0 : 1),
+			);
+		}
+		previous = current;
+	}
+	return previous[right.length] ?? 0;
 }
 
 function runLink(args: Args, documents: Documents, config: Config) {

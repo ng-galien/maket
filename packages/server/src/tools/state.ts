@@ -39,6 +39,7 @@ const StateSchema = z.object({
 			"history",
 			"revision",
 			"restore",
+			"set_retention",
 		])
 		.describe("Document-state operation to perform."),
 	doc: z.string().describe("Target document name."),
@@ -73,15 +74,24 @@ const StateSchema = z.object({
 		.positive()
 		.optional()
 		.describe("Historical revision required by revision and restore."),
+	retention: z
+		.number()
+		.int()
+		.min(0)
+		.nullable()
+		.optional()
+		.describe(
+			"For set_retention: number of previous revisions kept besides the current one (0 keeps only the current state); null keeps the full history again.",
+		),
 });
 
 const DESCRIPTION = [
 	"When to use: attach durable data and immutable snapshot history to one living document.",
 	"",
-	"Document state is separate from collections and mail merge. A state-backed document renders Mustache variables, sections, inverted sections, and loops from its latest revision. Every mutation stores a complete validated schema + data snapshot.",
+	"Document state is separate from collections and mail merge. A state-backed document renders Mustache variables, sections, inverted sections, and loops from its latest revision. Every mutation stores a complete validated schema + data snapshot. History is unbounded unless the document has a revision retention.",
 	"The page interface is either document-owned HTML/CSS or a JSON Forms template configured with maket_page set_form. HTML uses display-only Mustache plus explicit data-maket-bind controls. JSON Forms uses the document-state JSON Schema and data, with an optional UI schema. Both formats resolve to the same JSON Pointer patches and revisioned store.",
 	"  init     — attach a schema and initial data to a static document (revision 1; no expected_revision).",
-	"  get      — read the schema and current revision.",
+	"  get      — read the schema, the revision retention (`retention`, null when unbounded), and the current revision.",
 	"  update   — append a complete state snapshot; expected_revision is required.",
 	"  patch    — apply RFC 6902 JSON Patch operations; expected_revision is required.",
 	"  validate_schema — validate a proposed schema against current or supplied data without saving.",
@@ -89,6 +99,7 @@ const DESCRIPTION = [
 	"  history  — list immutable revisions newest first.",
 	"  revision — read one revision.",
 	"  restore  — append a new revision containing an older schema + data snapshot; expected_revision is required.",
+	"  set_retention — keep `retention` previous revisions besides the current one and delete older ones now and after every later write; 0 keeps only the current state, null restores unbounded history. Applies to Workspace items and collection projections too.",
 ].join("\n");
 
 type Args = z.infer<typeof StateSchema>;
@@ -151,7 +162,8 @@ function isMutation(action: Args["action"]): boolean {
 		action === "update" ||
 		action === "patch" ||
 		action === "change_schema" ||
-		action === "restore"
+		action === "restore" ||
+		action === "set_retention"
 	);
 }
 
@@ -185,6 +197,7 @@ function runStateAction(
 					{
 						doc: args.doc,
 						schema: state.definition.schema,
+						retention: state.definition.retention,
 						current: state.current,
 					},
 					null,
@@ -254,6 +267,23 @@ function runStateAction(
 			);
 			return text(
 				`State of "${args.doc}" restored as revision ${revision.revision}.`,
+			);
+		}
+		case "set_retention": {
+			if (args.retention === undefined) {
+				throw new Error("retention is required for action=set_retention");
+			}
+			const { state, pruned } = mutations.setRetention(
+				args.doc,
+				args.retention,
+			);
+			return text(
+				`${
+					state.retention === null
+						? `State of "${args.doc}" keeps its full revision history.`
+						: `State of "${args.doc}" keeps ${state.retention} previous revision(s) besides the current one.`
+				} ${pruned} older revision(s) deleted.`,
+				{ next: [`maket_state action=history doc=${args.doc}`] },
 			);
 		}
 	}

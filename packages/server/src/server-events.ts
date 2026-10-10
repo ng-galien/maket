@@ -184,6 +184,24 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 			workspaces: structuredWorkspaces.listViews(),
 		});
 	});
+	bus.on("document-state:retention-changed", ({ docName, pruned }) => {
+		wsRegistry.broadcast({
+			type: "toast",
+			key: "toast_state_revisions_pruned",
+			params: { doc: docName, count: pruned },
+			level: "info",
+			duration: 3000,
+		});
+	});
+	bus.on("structured-workspace:item-changed", ({ workspaceId, itemId }) => {
+		const item = structuredWorkspaces.getItem(workspaceId, itemId);
+		if (!item) return;
+		wsRegistry.broadcast({
+			type: "structured_workspace_item_changed",
+			workspaceId,
+			item,
+		});
+	});
 	bus.on("collection-cursor:changed", () => {
 		wsRegistry.broadcast({
 			type: "collection_cursors",

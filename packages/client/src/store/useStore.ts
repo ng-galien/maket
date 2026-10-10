@@ -10,6 +10,7 @@ import {
 	type DocumentStateClientView,
 	type PageCollectionCursor,
 	type Settings,
+	type StructuredWorkspaceItemView,
 	type StructuredWorkspaceRenderTarget,
 	type StructuredWorkspaceView,
 } from "@maket/shared";
@@ -166,6 +167,11 @@ interface StructuredWorkspaceSlice {
 	activeStructuredWorkspaceId: string | null;
 	activeStructuredCollectionId: string | null;
 	setStructuredWorkspaces: (workspaces: StructuredWorkspaceView[]) => void;
+	/** Replace one item of a known workspace; other views are kept as they are. */
+	applyStructuredWorkspaceItem: (
+		workspaceId: string,
+		item: StructuredWorkspaceItemView,
+	) => void;
 	setActiveStructuredCollection: (
 		workspaceId: string | null,
 		collectionId: string | null,
@@ -625,6 +631,19 @@ export const useStore = create<AppState>((set, get) => ({
 		);
 		if (incompatible.length > 0) get().closeWorkspaceDocuments(incompatible);
 	},
+	applyStructuredWorkspaceItem: (workspaceId, item) =>
+		set((state) => ({
+			structuredWorkspaces: state.structuredWorkspaces.map((workspace) =>
+				workspace.id === workspaceId
+					? {
+							...workspace,
+							items: workspace.items.map((candidate) =>
+								candidate.id === item.id ? item : candidate,
+							),
+						}
+					: workspace,
+			),
+		})),
 	setActiveStructuredCollection: (
 		activeStructuredWorkspaceId,
 		activeStructuredCollectionId,

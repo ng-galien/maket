@@ -2,7 +2,10 @@ import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
 import type { LocalizedMessage } from "./messages.js";
 import type { Settings } from "./settings.js";
-import type { StructuredWorkspaceView } from "./structured-workspace.js";
+import type {
+	StructuredWorkspaceItemView,
+	StructuredWorkspaceView,
+} from "./structured-workspace.js";
 import type { ToastKey, ToastLevel } from "./toast.js";
 
 /**
@@ -132,6 +135,13 @@ export interface WorkspaceReloadSignal {
 export interface StructuredWorkspacesChangedSignal {
 	type: "structured_workspaces_changed";
 	workspaces: StructuredWorkspaceView[];
+}
+
+/** One item's data changed; the rest of the workspace view is unchanged. */
+export interface StructuredWorkspaceItemChangedSignal {
+	type: "structured_workspace_item_changed";
+	workspaceId: string;
+	item: StructuredWorkspaceItemView;
 }
 
 export interface ActivitySignal {
@@ -401,6 +411,7 @@ export type WorkspaceSignal =
 	| AnnotationCreateResultSignal
 	| WorkspaceReloadSignal
 	| StructuredWorkspacesChangedSignal
+	| StructuredWorkspaceItemChangedSignal
 	| ActivitySignal
 	| AssetsChangedSignal
 	| CollectionsChangedSignal

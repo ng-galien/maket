@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -174,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(18);
+		const db = historicalDatabaseWithoutIds(19);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v18 is newer than supported v17/,
+			/schema v19 is newer than supported v18/,
 		);
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,7 +207,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -215,6 +215,38 @@ describe("SQLite schema migrations", () => {
 		expect(hasColumn(db, "pages", "provenance")).toBe(true);
 		expect(hasColumn(db, "pages", "json_forms")).toBe(true);
 		expect(integrityCheck(db)).toEqual(["ok"]);
+		db.close();
+	});
+
+	it("adds an unbounded revision retention to existing document states", () => {
+		const db = new DatabaseSync(":memory:");
+		db.exec("PRAGMA foreign_keys = ON;");
+		initializeSQLiteSchema(db);
+		db.exec(`
+			INSERT INTO documents (name, id, canvas) VALUES ('doc', 'doc-id', '{}');
+			INSERT INTO document_states (document_id, schema) VALUES ('doc-id', '{}');
+			INSERT INTO document_state_revisions (document_id, revision, schema, data)
+				VALUES ('doc-id', 1, '{}', '{}'), ('doc-id', 2, '{}', '{}');
+			ALTER TABLE document_states DROP COLUMN revision_retention;
+			PRAGMA user_version = 17;
+		`);
+
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(18);
+		expect(
+			db
+				.prepare(
+					"SELECT revision_retention AS retention FROM document_states WHERE document_id = 'doc-id'",
+				)
+				.get(),
+		).toEqual({ retention: null });
+		expect(tableCount(db, "document_state_revisions")).toBe(2);
+		expect(() =>
+			db.exec(
+				"UPDATE document_states SET revision_retention = -1 WHERE document_id = 'doc-id'",
+			),
+		).toThrow(/CHECK constraint/);
 		db.close();
 	});
 
@@ -283,7 +315,7 @@ describe("SQLite schema migrations", () => {
 				{ role: "detail", collectionId: "backlog", bindingId: "task" },
 			],
 		});
-		expect(schemaVersion(db)).toBe(17);
+		expect(schemaVersion(db)).toBe(18);
 		db.close();
 	});
 });
@@ -533,7 +565,10 @@ function stateData(db: DatabaseSync): Record<string, unknown[]> {
 			db,
 			"SELECT * FROM collection_rows ORDER BY collection_name, position",
 		),
-		states: rows(db, "SELECT * FROM document_states ORDER BY document_id"),
+		states: rows(
+			db,
+			"SELECT document_id, schema, created_at FROM document_states ORDER BY document_id",
+		),
 		revisions: rows(
 			db,
 			"SELECT document_id, revision, data, created_at FROM document_state_revisions ORDER BY document_id, revision",

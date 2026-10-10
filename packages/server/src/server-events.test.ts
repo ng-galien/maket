@@ -73,6 +73,41 @@ describe("server Mermaid refresh propagation", () => {
 	});
 });
 
+describe("server document-state retention notice", () => {
+	it("tells the user how many revisions a retention deleted", () => {
+		const bus = createBus();
+		const broadcast = vi.fn();
+		registerServerEvents({
+			bus,
+			collections: { loadAll: () => [] } as never,
+			collectionCursors: { snapshot: () => [] } as never,
+			documents: { resolve: () => null } as never,
+			documentRenderer: {} as never,
+			mermaidDiagrams: {
+				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
+				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
+			},
+			structuredWorkspaces: { listViews: () => [] } as never,
+			wsRegistry: { broadcast } as never,
+			pending: { all: () => [] } as never,
+		});
+
+		bus.emit("document-state:retention-changed", {
+			docName: "Board",
+			retention: 0,
+			pruned: 12,
+		});
+
+		expect(broadcast).toHaveBeenCalledWith({
+			type: "toast",
+			key: "toast_state_revisions_pruned",
+			params: { doc: "Board", count: 12 },
+			level: "info",
+			duration: 3000,
+		});
+	});
+});
+
 describe("server Structured Workspace propagation", () => {
 	it("broadcasts the authoritative workspace views after a domain change", () => {
 		const bus = createBus();
@@ -99,5 +134,46 @@ describe("server Structured Workspace propagation", () => {
 			type: "structured_workspaces_changed",
 			workspaces,
 		});
+	});
+
+	it("broadcasts only the changed item after an item data change", () => {
+		const bus = createBus();
+		const broadcast = vi.fn();
+		const listViews = vi.fn(() => []);
+		const item = { id: "task-1", data: { title: "Ship" }, dataRevision: 2 };
+		const getItem = vi.fn((workspaceId: string, itemId: string) =>
+			workspaceId === "delivery" && itemId === "task-1" ? item : null,
+		);
+		registerServerEvents({
+			bus,
+			collections: { loadAll: () => [] } as never,
+			collectionCursors: { snapshot: () => [] } as never,
+			documents: { resolve: () => null } as never,
+			documentRenderer: {} as never,
+			mermaidDiagrams: {
+				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
+				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
+			},
+			structuredWorkspaces: { listViews, getItem } as never,
+			wsRegistry: { broadcast } as never,
+			pending: { all: () => [] } as never,
+		});
+
+		bus.emit("structured-workspace:item-changed", {
+			workspaceId: "delivery",
+			itemId: "task-1",
+		});
+		bus.emit("structured-workspace:item-changed", {
+			workspaceId: "delivery",
+			itemId: "gone",
+		});
+
+		expect(broadcast).toHaveBeenCalledTimes(1);
+		expect(broadcast).toHaveBeenCalledWith({
+			type: "structured_workspace_item_changed",
+			workspaceId: "delivery",
+			item,
+		});
+		expect(listViews).not.toHaveBeenCalled();
 	});
 });

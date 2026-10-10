@@ -121,7 +121,12 @@ describe("PdfService.render", () => {
 		const stateRenderer = createStateRenderer({
 			documentStates: {
 				get: () => ({
-					definition: { documentId: doc.id, schema, createdAt: "" },
+					definition: {
+						documentId: doc.id,
+						schema,
+						createdAt: "",
+						retention: null,
+					},
 					current: {
 						documentId: doc.id,
 						revision: 1,

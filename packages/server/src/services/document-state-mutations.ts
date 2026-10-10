@@ -9,6 +9,7 @@ import {
 import { MessageError } from "../lib/message-error.js";
 import type { DocumentStates, DocumentStateView } from "./document-states.js";
 import type { Documents } from "./documents.js";
+import type { DocumentStateRetentionChange } from "./sqlite-store/document-state-repository.js";
 import type { Store } from "./store.js";
 
 export interface DocumentStateMutations {
@@ -43,6 +44,10 @@ export interface DocumentStateMutations {
 		revision: number,
 		expectedRevision: number,
 	): DocumentStateRevision;
+	setRetention(
+		docName: string,
+		retention: number | null,
+	): DocumentStateRetentionChange;
 }
 
 export interface DocumentStateMutationsDeps {
@@ -55,7 +60,9 @@ export interface DocumentStateMutationsDeps {
  * Public state-write boundary. Structured Workspace internals use
  * DocumentStates directly for their owned projections; MCP and WS mutations
  * pass here so collection projections stay derived and item data satisfies the
- * aggregate workspace schema before a revision is appended.
+ * aggregate workspace schema before a revision is appended. Revision retention
+ * changes neither data nor schema, so it applies to every state document,
+ * Workspace projections included.
  */
 export function createDocumentStateMutations(
 	deps: DocumentStateMutationsDeps,
@@ -93,6 +100,9 @@ export function createDocumentStateMutations(
 		restore(docName, revision, expectedRevision) {
 			assertSchemaMutationAllowed(deps, docName);
 			return deps.documentStates.restore(docName, revision, expectedRevision);
+		},
+		setRetention(docName, retention) {
+			return deps.documentStates.setRetention(docName, retention);
 		},
 	};
 }

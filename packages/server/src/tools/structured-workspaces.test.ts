@@ -1,9 +1,13 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
+import { asValue } from "awilix";
 import { describe, expect, it } from "vitest";
-import { createBus } from "../services/bus.js";
+import { createAppContainer } from "../bootstrap.js";
+import { registerServerEvents } from "../server-events.js";
+import { type Bus, createBus } from "../services/bus.js";
+import { createConfig } from "../services/config.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
-import { createSQLiteStore } from "../services/store.js";
+import { createSQLiteStore, type Store } from "../services/store.js";
 import { createStructuredWorkspaces } from "../services/structured-workspaces.js";
 import { createDocument } from "../types.js";
 import {
@@ -381,6 +385,213 @@ describe("maket_structured_workspace", () => {
 		expect(removed.isError).toBeUndefined();
 		expect(textOf(removed)).toContain("owned document(s)");
 		expect(structuredWorkspaces.get(compacted?.id ?? "")).toBeNull();
+		store.close();
+	});
+});
+
+describe("maket_structured_workspace update_item propagation", () => {
+	it("writes and broadcasts one item of a 60-item workspace", async () => {
+		const writes: string[] = [];
+		const reads: string[] = [];
+		const sqlite = createSQLiteStore(":memory:");
+		const store = new Proxy(sqlite, {
+			get(target, property, receiver) {
+				const value = Reflect.get(target, property, receiver);
+				if (typeof value !== "function" || typeof property !== "string")
+					return value;
+				return (...args: unknown[]) => {
+					(/^(load|list|is)/.test(property) ? reads : writes).push(property);
+					return value.apply(target, args);
+				};
+			},
+		}) as Store;
+		const broadcasts: Array<{ type: string; doc?: string; bytes: number }> = [];
+		const container = createAppContainer({
+			config: createConfig({
+				env: { MAKET_DATA_DIR: "/nonexistent/maket-test" },
+				homedir: () => "/nowhere",
+			}),
+			ensure: false,
+			store,
+			browserPool: {
+				async get(): Promise<never> {
+					throw new Error("Browser rendering is not used by this test");
+				},
+				async dispose() {},
+			},
+		});
+		container.register({
+			wsRegistry: asValue({
+				broadcast(message: { type: string; docName?: string }) {
+					broadcasts.push({
+						type: message.type,
+						doc: message.docName,
+						bytes: JSON.stringify(message).length,
+					});
+				},
+			}),
+		});
+		registerServerEvents({
+			bus: container.resolve("bus"),
+			collections: container.resolve("collections"),
+			collectionCursors: container.resolve("collectionCursors"),
+			documents: container.resolve("documents"),
+			documentRenderer: container.resolve("documentRenderer"),
+			mermaidDiagrams: container.resolve("mermaidDiagrams"),
+			structuredWorkspaces: container.resolve("structuredWorkspaces"),
+			wsRegistry: container.resolve("wsRegistry"),
+			pending: container.resolve("pending"),
+		});
+		const bus = container.resolve<Bus>("bus");
+		const events: string[] = [];
+		const emit = bus.emit.bind(bus);
+		bus.emit = (event, payload) => {
+			events.push(event);
+			emit(event, payload);
+		};
+		const documents =
+			container.resolve<ReturnType<typeof createDocuments>>("documents");
+		const canvas = {
+			format: "A4",
+			orientation: "portrait" as const,
+			w: 210,
+			h: 297,
+			bg: "#fff",
+		};
+		for (const document of [
+			createDocument({
+				name: "Topic detail",
+				canvas,
+				pages: [
+					{ name: "Detail", elements: [], html: "<h1>{{ state.title }}</h1>" },
+				],
+			}),
+			createDocument({
+				name: "Topic card",
+				canvas,
+				pages: [
+					{
+						name: "Card",
+						elements: [],
+						html: "<article data-maket-compact-root><h2>{{ state.title }}</h2><p>{{ state.status }}</p></article>",
+					},
+				],
+			}),
+			createDocument({
+				name: "Topic board",
+				canvas,
+				pages: [
+					{
+						name: "Board",
+						elements: [],
+						html: '<main><section data-maket-structured-items="topic"></section></main>',
+					},
+				],
+			}),
+		]) {
+			documents.all().set(document.name, document);
+			documents.persist(document.name);
+		}
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces: container.resolve("structuredWorkspaces"),
+		});
+		const created = await tool.handler(
+			{
+				action: "create",
+				workspace: "Graph",
+				data_schema: {
+					$defs: {
+						topic: {
+							type: "object",
+							properties: {
+								title: { type: "string" },
+								status: { type: "string" },
+							},
+							required: ["title", "status"],
+						},
+					},
+				},
+				representation_schema: {
+					version: 1,
+					collections: {
+						topics: {
+							name: "Topics",
+							collectionTemplateDocumentId: "Topic board",
+							bindings: {
+								topic: {
+									schemaPath: "/$defs/topic",
+									compactTemplateDocumentId: "Topic card",
+									detailTemplateDocumentId: "Topic detail",
+								},
+							},
+						},
+					},
+				},
+			},
+			{} as never,
+		);
+		expect(created.isError).toBeUndefined();
+		for (let index = 0; index < 60; index += 1) {
+			const added = await tool.handler(
+				{
+					action: "add_item",
+					workspace: "Graph",
+					item: `topic-${index}`,
+					collection: "topics",
+					binding: "topic",
+					document_name: `Topic ${index}`,
+					data: { title: `Topic ${index}`, status: "open" },
+				},
+				{} as never,
+			);
+			expect(added.isError).toBeUndefined();
+		}
+		writes.length = 0;
+		reads.length = 0;
+		events.length = 0;
+		broadcasts.length = 0;
+
+		const updated = await tool.handler(
+			{
+				action: "update_item",
+				workspace: "Graph",
+				item: "topic-30",
+				expected_revision: 1,
+				data: { title: "Topic 30", status: "closed" },
+			},
+			{} as never,
+		);
+
+		expect(textOf(updated)).toBe('Item "topic-30" updated to data revision 2.');
+		expect(writes).toEqual([
+			"appendDocumentStateRevision",
+			"appendDocumentStateRevision",
+		]);
+		expect(events.sort()).toEqual([
+			"document-state:changed",
+			"document-state:changed",
+			"structured-workspace:item-changed",
+		]);
+		expect(broadcasts.map(({ type, doc }) => ({ type, doc }))).toEqual([
+			{ type: "state_pages", doc: "Graph — Topics" },
+			{ type: "structured_workspace_item_changed", doc: undefined },
+			{ type: "state_pages", doc: "Topic 30" },
+		]);
+		const itemBroadcast = broadcasts.find(
+			({ type }) => type === "structured_workspace_item_changed",
+		);
+		expect(itemBroadcast?.bytes).toBeLessThan(1000);
+		const documentStates =
+			container.resolve<ReturnType<typeof createDocumentStates>>(
+				"documentStates",
+			);
+		const projection = documentStates.get("Graph — Topics")?.current;
+		const projected = projection?.data.items as Array<{ status: string }>;
+		expect(projected).toHaveLength(60);
+		expect(projected[30]?.status).toBe("closed");
+		expect(projected.filter(({ status }) => status === "open")).toHaveLength(
+			59,
+		);
 		store.close();
 	});
 });

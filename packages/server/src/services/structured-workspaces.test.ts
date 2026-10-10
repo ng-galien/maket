@@ -312,12 +312,14 @@ describe("StructuredWorkspaces", () => {
 	});
 
 	it("cascades generic live-document updates into the collection state", () => {
-		const { store, bus, documentStates, workspaces } = fixture();
+		const { store, bus, documentStates, workspaces, workspace } = fixture();
 		const item = addTask(workspaces);
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
 		const changed = vi.fn();
+		const itemChanged = vi.fn();
 		bus.on("structured-workspace:changed", changed);
+		bus.on("structured-workspace:item-changed", itemChanged);
 
 		documentStates.update(item.documentName, 1, {
 			kind: "task",
@@ -335,7 +337,48 @@ describe("StructuredWorkspaces", () => {
 				},
 			},
 		);
-		expect(changed).toHaveBeenCalledWith({ workspaceId: expect.any(String) });
+		expect(itemChanged).toHaveBeenCalledWith({
+			workspaceId: workspace.id,
+			itemId: "task-1",
+		});
+		expect(changed).not.toHaveBeenCalled();
+		expect(workspaces.getItem(workspace.id, "task-1")).toMatchObject({
+			dataRevision: 2,
+			data: { title: "Ship from live controls" },
+		});
+		store.close();
+	});
+
+	it("rebuilds a drifted collection projection and announces the whole Workspace", () => {
+		const { store, bus, documentStates, workspaces, workspace } = fixture();
+		const item = addTask(workspaces);
+		const collectionDocument =
+			workspaces.get("Delivery")?.collectionDocuments[0];
+		if (!collectionDocument) throw new Error("Collection projection missing.");
+		const projection = documentStates.get(collectionDocument.documentName);
+		store.appendDocumentStateRevision(
+			collectionDocument.documentId,
+			projection?.current.revision ?? 0,
+			{ items: [] },
+		);
+		const changed = vi.fn();
+		const itemChanged = vi.fn();
+		bus.on("structured-workspace:changed", changed);
+		bus.on("structured-workspace:item-changed", itemChanged);
+
+		documentStates.update(item.documentName, 1, {
+			kind: "task",
+			title: "Ship after drift",
+			done: false,
+		});
+
+		expect(
+			documentStates.get(collectionDocument.documentName)?.current.data,
+		).toEqual({
+			items: [{ kind: "task", title: "Ship after drift", done: false }],
+		});
+		expect(changed).toHaveBeenCalledWith({ workspaceId: workspace.id });
+		expect(itemChanged).not.toHaveBeenCalled();
 		store.close();
 	});
 

@@ -140,7 +140,10 @@ function restoreBundle(
 }
 
 function importDocuments(
-	deps: Pick<BundleImportServiceDeps, "documents" | "documentStates" | "bus">,
+	deps: Pick<
+		BundleImportServiceDeps,
+		"documents" | "documentStates" | "bus" | "store"
+	>,
 	bundle: DecodedBundle,
 ): {
 	documents: Document[];
@@ -177,6 +180,12 @@ function importDocuments(
 				bundledState.schema,
 				bundledState.data,
 			);
+			if (bundledState.retention !== undefined) {
+				deps.store.setDocumentStateRetention(
+					document.id,
+					bundledState.retention,
+				);
+			}
 			deps.documents.persist(finalName);
 			statesImported++;
 		}

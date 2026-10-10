@@ -32,12 +32,20 @@ export interface BusEvents {
 	"collection:saved": { name: string };
 	"collection:deleted": { name: string };
 	"structured-workspace:changed": { workspaceId: string };
+	/** One item's data changed; its collection projection entry is already aligned. */
+	"structured-workspace:item-changed": { workspaceId: string; itemId: string };
 	"document-state:changed": {
 		docName: string;
 		revision: number;
 		paths: string[];
 		schemaChanged?: boolean;
 		attached?: boolean;
+	};
+	/** Revision retention was set; `pruned` revisions were deleted for good. */
+	"document-state:retention-changed": {
+		docName: string;
+		retention: number | null;
+		pruned: number;
 	};
 	/** A page↔collection preview cursor moved; listeners re-broadcast the
 	 * full snapshot (`collectionCursors.snapshot()`). */

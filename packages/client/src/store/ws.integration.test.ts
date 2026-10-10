@@ -466,6 +466,54 @@ describe("state message", () => {
 
 		expect(useStore.getState().collections).toEqual([clientsCollection]);
 	});
+
+	it("replaces one Structured Workspace item without touching the others", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		const item = (id: string, title: string, dataRevision: number) => ({
+			id,
+			position: id === "task-1" ? 0 : 1,
+			collectionId: "backlog",
+			bindingId: "task",
+			documentId: `${id}-document`,
+			documentName: id,
+			data: { title },
+			dataRevision,
+		});
+		MockWebSocket.last().emit({
+			type: "structured_workspaces_changed",
+			workspaces: [
+				{
+					id: "delivery",
+					name: "Delivery",
+					dataSchema: {},
+					representationSchema: { version: 1, collections: {} },
+					revision: 1,
+					items: [item("task-1", "Ship", 1), item("task-2", "Test", 1)],
+					collectionDocuments: [],
+					templateDocuments: [],
+					integrity: { status: "ready", issues: [] },
+					createdAt: "2026-10-10",
+					updatedAt: "2026-10-10",
+				},
+			],
+		});
+		const untouched = useStore.getState().structuredWorkspaces[0]?.items[1];
+
+		MockWebSocket.last().emit({
+			type: "structured_workspace_item_changed",
+			workspaceId: "delivery",
+			item: item("task-1", "Ship now", 2),
+		});
+
+		const [workspace] = useStore.getState().structuredWorkspaces;
+		expect(workspace?.items[0]).toMatchObject({
+			data: { title: "Ship now" },
+			dataRevision: 2,
+		});
+		expect(workspace?.items[1]).toBe(untouched);
+	});
 });
 
 describe("living document state signals", () => {

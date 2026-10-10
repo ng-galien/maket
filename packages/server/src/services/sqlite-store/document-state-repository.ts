@@ -11,6 +11,8 @@ export interface StoredDocumentState {
 	documentId: string;
 	schema: DocumentStateSchema;
 	createdAt: string;
+	/** Previous revisions kept besides the current one; null keeps them all. */
+	retention: number | null;
 }
 
 export interface DocumentStateRepository {
@@ -37,6 +39,17 @@ export interface DocumentStateRepository {
 		schema: DocumentStateSchema,
 		data: DocumentStateData,
 	): DocumentStateRevision;
+	/** Store the retention and prune revisions beyond it in one transaction. */
+	setDocumentStateRetention(
+		documentId: string,
+		retention: number | null,
+	): DocumentStateRetentionChange;
+}
+
+export interface DocumentStateRetentionChange {
+	state: StoredDocumentState;
+	/** Number of revisions deleted by this change. */
+	pruned: number;
 }
 
 export function createDocumentStateRepository(
@@ -76,6 +89,9 @@ export function createDocumentStateRepository(
 				data,
 			);
 		},
+		setDocumentStateRetention(documentId, retention) {
+			return setRetention(db, statements, documentId, retention);
+		},
 	};
 }
 
@@ -83,7 +99,10 @@ type DocumentStateStatements = {
 	stateInsert: StatementSync;
 	stateSelect: StatementSync;
 	stateUpdate: StatementSync;
+	stateRetentionSelect: StatementSync;
+	stateRetentionUpdate: StatementSync;
 	revisionInsert: StatementSync;
+	revisionPrune: StatementSync;
 	revisionSelect: StatementSync;
 	revisionSelectCurrent: StatementSync;
 	revisionSelectAll: StatementSync;
@@ -152,6 +171,7 @@ function appendRevision(
 			schema: JSON.stringify(currentSnapshot.schema),
 			data: JSON.stringify(data),
 		});
+		pruneRevisions(statements, documentId, nextRevision);
 		statements.documentTouch.run({ document_id: documentId });
 		db.exec("RELEASE maket_repository");
 		return requiredRevision(
@@ -196,6 +216,7 @@ function replaceSchema(
 			schema: JSON.stringify(schema),
 			data: JSON.stringify(data),
 		});
+		pruneRevisions(statements, documentId, nextRevision);
 		statements.documentTouch.run({ document_id: documentId });
 		db.exec("RELEASE maket_repository");
 		return requiredRevision(
@@ -208,6 +229,60 @@ function replaceSchema(
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// SQLite transaction adapter: the retention and its pruning commit together.
+function setRetention(
+	db: DatabaseSync,
+	statements: DocumentStateStatements,
+	documentId: string,
+	retention: number | null,
+): DocumentStateRetentionChange {
+	db.exec("SAVEPOINT maket_repository");
+	let pruned: number;
+	try {
+		const current = statements.revisionSelectCurrent.get(documentId);
+		if (!current) {
+			throw new Error(`Document state not found for id "${documentId}".`);
+		}
+		statements.stateRetentionUpdate.run({
+			document_id: documentId,
+			retention,
+		});
+		pruned = pruneRevisions(
+			statements,
+			documentId,
+			revisionFromRow(current).revision,
+		);
+		db.exec("RELEASE maket_repository");
+	} catch (error) {
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
+		throw error;
+	}
+	return {
+		state: stateFromRow(statements.stateSelect.get(documentId)),
+		pruned,
+	};
+}
+
+/** Delete revisions older than the retention window; runs inside the caller's savepoint. */
+function pruneRevisions(
+	statements: DocumentStateStatements,
+	documentId: string,
+	currentRevision: number,
+): number {
+	const row = statements.stateRetentionSelect.get(documentId) as
+		| { revision_retention: number | null }
+		| undefined;
+	const retention = row?.revision_retention ?? null;
+	if (retention === null) return 0;
+	return Number(
+		statements.revisionPrune.run({
+			document_id: documentId,
+			keep_from: currentRevision - retention,
+		}).changes,
+	);
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Preparing SQL statements is database-adapter setup, not domain ownership.
 function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 	return {
@@ -215,13 +290,22 @@ function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 			"INSERT INTO document_states (document_id, schema) VALUES ($document_id, $schema)",
 		),
 		stateSelect: db.prepare(
-			"SELECT document_id, schema, created_at FROM document_states WHERE document_id = ?",
+			"SELECT document_id, schema, created_at, revision_retention FROM document_states WHERE document_id = ?",
 		),
 		stateUpdate: db.prepare(
 			"UPDATE document_states SET schema = $schema WHERE document_id = $document_id",
 		),
+		stateRetentionSelect: db.prepare(
+			"SELECT revision_retention FROM document_states WHERE document_id = ?",
+		),
+		stateRetentionUpdate: db.prepare(
+			"UPDATE document_states SET revision_retention = $retention WHERE document_id = $document_id",
+		),
 		revisionInsert: db.prepare(
 			"INSERT INTO document_state_revisions (document_id, revision, schema, data) VALUES ($document_id, $revision, $schema, $data)",
+		),
+		revisionPrune: db.prepare(
+			"DELETE FROM document_state_revisions WHERE document_id = $document_id AND revision < $keep_from",
 		),
 		revisionSelect: db.prepare(
 			"SELECT document_id, revision, schema, data, created_at FROM document_state_revisions WHERE document_id = ? AND revision = ?",
@@ -246,11 +330,13 @@ function stateFromRow(row: unknown): StoredDocumentState {
 		document_id: string;
 		schema: string;
 		created_at: string;
+		revision_retention: number | null;
 	};
 	return {
 		documentId: value.document_id,
 		schema: JSON.parse(value.schema),
 		createdAt: value.created_at,
+		retention: value.revision_retention,
 	};
 }
 

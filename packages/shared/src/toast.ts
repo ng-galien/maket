@@ -25,6 +25,7 @@ export const TOAST_KEYS = [
 	"toast_collection_deleted",
 	"toast_collection_payload_invalid",
 	"toast_bundle_imported",
+	"toast_state_revisions_pruned",
 	"toast_detail",
 	...MESSAGE_KEYS,
 ] as const;

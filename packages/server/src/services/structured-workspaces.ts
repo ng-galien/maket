@@ -74,6 +74,11 @@ export interface StructuredWorkspaces {
 		bindingId?: string,
 	): number;
 	renderCollection(workspaceId: string, collectionId: string): Document;
+	/** Current view of one item, or null when the workspace or item is gone. */
+	getItem(
+		workspaceId: string,
+		itemId: string,
+	): StructuredWorkspaceItemView | null;
 	restorePortable(
 		snapshot: BundleStructuredWorkspaceSnapshot,
 		documentsBySourceId: ReadonlyMap<string, Document>,
@@ -164,6 +169,18 @@ export function createStructuredWorkspaces(
 		},
 		renderCollection(workspaceId, collectionId) {
 			return renderCollection(deps, workspaceId, collectionId);
+		},
+		getItem(workspaceId, itemId) {
+			const item = deps.store
+				.loadAllStructuredWorkspaces()
+				.find((candidate) => candidate.id === workspaceId)
+				?.items.find((candidate) => candidate.id === itemId);
+			if (!item) return null;
+			try {
+				return itemView(deps, item);
+			} catch {
+				return null;
+			}
 		},
 		restorePortable(snapshot, documentsBySourceId) {
 			return restorePortableWorkspace(deps, snapshot, documentsBySourceId);
@@ -375,11 +392,15 @@ function renderCollection(
 		);
 	}
 	requiredCollection(workspace, collectionId);
-	const collectionDocument = requiredCollectionDocument(
-		deps,
-		workspace,
+	const existing = findCollectionDocument(
+		deps.documents,
+		workspace.id,
 		collectionId,
 	);
+	const collectionDocument =
+		existing?.dataModel === "state"
+			? existing
+			: requiredCollectionDocument(deps, workspace, collectionId);
 	const items = workspace.items
 		.filter((item) => item.collectionId === collectionId)
 		.map((item) => itemView(deps, item));
@@ -857,10 +878,71 @@ function reconcileItemDocumentState(
 			candidate.id === ownership.itemId && candidate.documentId === document.id,
 	);
 	if (!item) return;
-	refreshCollectionDocumentState(deps, workspace, item.collectionId);
-	deps.bus.emit("structured-workspace:changed", {
+	if (alignCollectionEntry(deps, workspace, item, document) === "rebuilt") {
+		deps.bus.emit("structured-workspace:changed", {
+			workspaceId: workspace.id,
+		});
+		return;
+	}
+	deps.bus.emit("structured-workspace:item-changed", {
 		workspaceId: workspace.id,
+		itemId: item.id,
 	});
+}
+
+/**
+ * Replace only this item's entry in its collection projection state. A
+ * projection whose shape no longer matches the items is rebuilt whole, which
+ * may create or replace the projection document.
+ */
+function alignCollectionEntry(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceDefinition["items"][number],
+	document: Document,
+): "entry" | "rebuilt" {
+	const collectionDocument = findCollectionDocument(
+		deps.documents,
+		workspace.id,
+		item.collectionId,
+	);
+	const collectionState =
+		collectionDocument && deps.documentStates.get(collectionDocument.name);
+	const itemState = deps.documentStates.get(document.name);
+	const entries = workspace.items
+		.filter((candidate) => candidate.collectionId === item.collectionId)
+		.sort((left, right) => left.position - right.position);
+	const index = entries.findIndex((candidate) => candidate.id === item.id);
+	const projected = collectionState?.current.data.items;
+	if (
+		!collectionDocument ||
+		!collectionState ||
+		!itemState ||
+		collectionDocument.dataModel !== "state" ||
+		!Array.isArray(projected) ||
+		projected.length !== entries.length ||
+		JSON.stringify(collectionState.current.schema) !==
+			JSON.stringify(collectionDocumentStateSchema(workspace))
+	) {
+		refreshCollectionDocumentState(deps, workspace, item.collectionId);
+		return "rebuilt";
+	}
+	if (
+		JSON.stringify(projected[index]) === JSON.stringify(itemState.current.data)
+	)
+		return "entry";
+	deps.documentStates.patch(
+		collectionDocument.name,
+		collectionState.current.revision,
+		[
+			{
+				op: "replace",
+				path: `/items/${index}`,
+				value: structuredClone(itemState.current.data),
+			},
+		],
+	);
+	return "entry";
 }
 
 function deleteItem(

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 17;
+const SCHEMA_VERSION = 18;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -81,7 +81,8 @@ const SCHEMA_SQL = `
   CREATE TABLE document_states (
     document_id TEXT PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,
     schema      TEXT NOT NULL CHECK (json_valid(schema)),
-    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    revision_retention INTEGER CHECK (revision_retention IS NULL OR revision_retention >= 0)
   );
   CREATE TABLE document_state_revisions (
     document_id TEXT NOT NULL REFERENCES document_states(document_id) ON DELETE CASCADE,
@@ -142,6 +143,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 15, up: migrateToV15 },
 	{ version: 16, up: migrateToV16 },
 	{ version: 17, up: migrateToV17 },
+	{ version: 18, up: migrateToV18 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -195,6 +197,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV15(db);
 	migrateToV16(db);
 	migrateToV17(db);
+	migrateToV18(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -460,6 +463,16 @@ function migrateToV17(db: DatabaseSync): void {
 	}
 }
 
+function migrateToV18(db: DatabaseSync): void {
+	migrateToV17(db);
+	addColumnIfMissing(
+		db,
+		"document_states",
+		"revision_retention",
+		"INTEGER CHECK (revision_retention IS NULL OR revision_retention >= 0)",
+	);
+}
+
 function migrateToV16(db: DatabaseSync): void {
 	migrateToV15(db);
 	addColumnIfMissing(db, "pages", "json_forms", "TEXT");
@@ -558,6 +571,7 @@ function assertCurrentSchema(db: DatabaseSync): void {
 		throw new Error("SQLite migration failed: documents.id is not UNIQUE");
 	}
 	assertRevisionSchemas(db);
+	assertRevisionRetentionSchema(db);
 	assertAnnotationsSchema(db);
 	assertCollectionCursorSchema(db);
 	assertStructuredWorkspaceSchema(db);
@@ -635,6 +649,15 @@ function assertAnnotationsSchema(db: DatabaseSync): void {
 	) {
 		throw new Error(
 			"SQLite migration failed: annotations.document_id foreign key is invalid",
+		);
+	}
+}
+
+function assertRevisionRetentionSchema(db: DatabaseSync): void {
+	if (!hasTable(db, "document_states")) return;
+	if (!hasColumn(db, "document_states", "revision_retention")) {
+		throw new Error(
+			"SQLite migration failed: document_states.revision_retention is missing",
 		);
 	}
 }
