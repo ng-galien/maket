@@ -28,15 +28,11 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 ### Changed
 
 - `maket_html` measures the page as readers see it: `check`, and the layout report of `set` and `patch`, hydrate a state-backed page with the current document state and a collection page with the member its preview cursor shows (the first member when the cursor shows the template or every member), and name that data on the report's first line. State-backed pages therefore report the overflow of their real content and no longer the false overflow of raw Mustache sections; pages without state or collection are measured as authored. A collection page whose sibling collection page cannot render (missing collection, invalid template) is still measured with its own member.
+- `maket_html check` also measures a JSON Forms page of a state-backed document on its rendered form, and a Structured Workspace collection document with its items, page by page when its cards flow; the first line of every report names what was measured, "Measured the authored HTML" for a page without state or collection.
+- Importing a `.maket` bundle stores `pinnedAt` in ISO 8601 UTC whatever timestamp format the bundle used, so pinned documents keep sorting by pin time.
 - The canvas updates rendered page HTML in place instead of replacing it, so elements keep their identity across state re-renders and author CSS transitions animate changed geometry. Live `state_pages` updates can now add or drop pages through an authoritative page count.
 - Updating a Structured Workspace item rewrites only that item's entry in its collection projection and broadcasts only that item to connected clients, instead of rebuilding the projection and resending every Workspace.
 - The database moves to SQLite schema v19 (`document_states.revision_retention`, then `documents.pinned_at`, null for existing documents). Once this version has opened a workspace, earlier versions refuse to open it; back up `documents.db` before upgrading.
-
-### Known limits
-
-- `maket_html` measures a JSON Forms page of a state-backed document as authored, not as rendered.
-- `maket_html` measures a Structured Workspace collection document as authored, without a first-line note saying so.
-- An imported `.maket` bundle stores `pinnedAt` as given; a value that is not an ISO timestamp sorts as plain text among pinned documents.
 
 ### Internal
 

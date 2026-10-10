@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
-import { decodeBundle } from "../lib/maket-format.js";
+import { decodeBundle, encodeBundleV1 } from "../lib/maket-format.js";
 import { createAnnotations } from "../services/annotations.js";
 import { createBundleExportService } from "../services/bundle-export.js";
 import { createBundleImportService } from "../services/bundle-import.js";
@@ -1083,6 +1083,38 @@ describe("maket_doc — action=export / import", () => {
 
 			store.close();
 			store2.close();
+		});
+	});
+
+	it("normalises an imported pin timestamp to ISO 8601", async () => {
+		await withTmp(async (dir) => {
+			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
+			const pinned = makeDoc("synthesis");
+			pinned.pinnedAt = "Sat, 10 Oct 2026 18:00:00 GMT";
+			const offset = makeDoc("board");
+			offset.pinnedAt = "2026-10-10T20:30:00+02:00";
+			const bundlePath = join(dir, "pins.maket");
+			writeFileSync(bundlePath, encodeBundleV1([pinned, offset], []));
+
+			const { store, bus, documents, collections } = fixture();
+			const tool = createMaketDocTool({
+				bus,
+				documents,
+				store,
+				config: cfg,
+				collections,
+			});
+			const imported = await tool.handler(
+				{ action: "import", input: bundlePath },
+				NO_EXTRA,
+			);
+
+			expect(imported.isError).toBeUndefined();
+			expect(store.loadOne("synthesis")?.pinnedAt).toBe(
+				"2026-10-10T18:00:00.000Z",
+			);
+			expect(store.loadOne("board")?.pinnedAt).toBe("2026-10-10T18:30:00.000Z");
+			store.close();
 		});
 	});
 

@@ -470,7 +470,7 @@ const DESCRIPTION = [
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
-	"  check — measure layout against the canvas + declared `canvas.margins`, and report page links that target a missing page; no side effects. The page is measured as readers see it: a state-backed page hydrated with the current document state, a collection page with the member its preview cursor shows (first member otherwise), named on the report's first line; other pages as authored. set and patch measure the same way. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
+	"  check — measure layout against the canvas + declared `canvas.margins`, and report page links that target a missing page; no side effects. The page is measured as readers see it: a state-backed page hydrated with the current document state (a JSON Forms page on its rendered form), a collection page with the member its preview cursor shows (first member otherwise), a Structured Workspace collection document with its items; a list that flows onto continuation pages is measured page by page; other pages as authored. The report's first line names what was measured. set and patch measure the same way. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
 	'Page links: <a href="#page=3"> (canonical, 1-based page number) or <a href="#page:Exact page name"> navigates to that page of the same document in Canvas, Reader and viewer, and becomes an internal link in print and PDF. In the authoring Canvas a plain click selects the link for editing; ⌘-click (Ctrl-click elsewhere) follows it. The href is a literal: set and patch refuse Mustache in a page link.',
 ].join("\n");
 
@@ -537,22 +537,26 @@ async function measuredPages(
 	page: Page,
 	rendering: PageRendering,
 ): Promise<MeasuredPage[]> {
-	const authored = { html: page.html ?? "" };
-	if (doc.meta.structuredWorkspace?.role === "collection") return [authored];
+	const authored = {
+		html: page.html ?? "",
+		note: "Measured the authored HTML: the page has no document state or collection.",
+	};
 	try {
+		const ownership = doc.meta.structuredWorkspace;
+		if (ownership?.role === "collection") {
+			return flowedMeasuredPages(
+				page,
+				await rendering.documentRenderer.renderSettled(doc),
+				`Measured with the items of Structured Workspace collection "${ownership.collectionId}".`,
+			);
+		}
 		if (doc.dataModel === "state") {
-			const rendered = (
-				await rendering.documentRenderer.renderSettled(doc)
-			).pages.filter((candidate) => flowSourcePageId(candidate.id) === page.id);
 			const revision = rendering.documentRenderer.stateView(doc)?.revision;
-			const note = `Measured with document state revision ${revision ?? "?"}.`;
-			if (rendered.length <= 1) {
-				return [{ html: rendered[0]?.html ?? authored.html, note }];
-			}
-			return rendered.map((candidate, index) => ({
-				html: candidate.html ?? "",
-				note: `${index === 0 ? `${note} A list flows onto ${rendered.length} pages.\n` : ""}Page ${index + 1} of ${rendered.length} (${candidate.name ?? candidate.id}):`,
-			}));
+			return flowedMeasuredPages(
+				page,
+				await rendering.documentRenderer.renderSettled(doc),
+				`Measured with document state revision ${revision ?? "?"}${page.jsonForms ? ", JSON Forms rendered" : ""}.`,
+			);
 		}
 		const collection = page.collection?.name;
 		if (!collection) return [authored];
@@ -566,6 +570,24 @@ async function measuredPages(
 			},
 		];
 	}
+}
+
+/** The rendered pages of one authored page, several when a list flows. */
+function flowedMeasuredPages(
+	page: Page,
+	rendered: Document,
+	note: string,
+): MeasuredPage[] {
+	const pages = rendered.pages.filter(
+		(candidate) => flowSourcePageId(candidate.id) === page.id,
+	);
+	if (pages.length <= 1) {
+		return [{ html: pages[0]?.html ?? page.html ?? "", note }];
+	}
+	return pages.map((candidate, index) => ({
+		html: candidate.html ?? "",
+		note: `${index === 0 ? `${note} A list flows onto ${pages.length} pages.\n` : ""}Page ${index + 1} of ${pages.length} (${candidate.name ?? candidate.id}):`,
+	}));
 }
 
 async function measureLayout(
@@ -875,7 +897,9 @@ async function runCheck(
 	pageIdx: number,
 	{ layout, rendering }: MaketHtmlToolDeps,
 ): Promise<CallToolResult> {
-	if (!page.html) return text("No HTML content on this page", true);
+	const renderedForm = Boolean(page.jsonForms) && doc.dataModel === "state";
+	if (!page.html && !renderedForm)
+		return text("No HTML content on this page", true);
 	const measured = await measureLayout(
 		doc,
 		page,
@@ -884,7 +908,7 @@ async function runCheck(
 		"check",
 	);
 	const layoutResult = measured.result;
-	const linkIssues = brokenPageLinks(page.html, doc.pages);
+	const linkIssues = page.html ? brokenPageLinks(page.html, doc.pages) : [];
 	const report = [measured.report];
 	if (linkIssues.length > 0) {
 		report.push("", formatPageLinkIssues(linkIssues, doc.pages.length));

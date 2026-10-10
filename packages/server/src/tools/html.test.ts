@@ -1052,7 +1052,11 @@ describe("maket_html — action=check", () => {
 			NO_EXTRA,
 		);
 		expect(res.isError).toBeUndefined();
-		expect((res.content[0] as any).text.startsWith(report.trim())).toBe(true);
+		expect(
+			(res.content[0] as any).text.startsWith(
+				`Measured the authored HTML: the page has no document state or collection.\n${report.trim()}`,
+			),
+		).toBe(true);
 		expect((res.content[0] as any).text).toContain("canvas: bottom +20px");
 		expect(layout.check).toHaveBeenCalled();
 		store.close();
@@ -1501,6 +1505,107 @@ describe("maket_html — measures the page as readers see it", () => {
 		store.close();
 	});
 
+	it("checks a JSON Forms page of a state document on its rendered form", async () => {
+		const { store, documents, layout, check } = checkFixture();
+		const doc = makeDoc("form");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected a page");
+		page.html = undefined;
+		page.jsonForms = {};
+		store.saveDoc(doc);
+		documents.loadAll();
+		createDocumentStates({ bus: createBus(), documents, store }).initialize(
+			"form",
+			{
+				type: "object",
+				properties: { owner: { type: "string", title: "Owner" } },
+				required: ["owner"],
+			},
+			{ owner: "Camille" },
+		);
+
+		const { result, body } = await check("form");
+
+		expect(result.isError).toBeUndefined();
+		const measured = layout.check.mock.calls[0]?.[1] as string;
+		expect(measured).toContain("Owner");
+		expect(measured).toContain('value="Camille"');
+		expect(body.split("\n")[0]).toBe(
+			"Measured with document state revision 1, JSON Forms rendered.",
+		);
+		store.close();
+	});
+
+	it("checks a Structured Workspace collection document with its items and names them first", async () => {
+		const { store, documents, layout, assets } = checkFixture();
+		const doc = makeDoc(
+			"Delivery — Backlog",
+			'<main data-id="page"><section data-maket-structured-items="task"></section></main>',
+			{
+				structuredWorkspace: {
+					role: "collection",
+					workspaceId: "ws-1",
+					collectionId: "backlog",
+				},
+			},
+		);
+		store.saveDoc(doc);
+		documents.loadAll();
+		const pageId = doc.pages[0]?.id ?? "";
+		const renderCollection = vi.fn(() => ({
+			...doc,
+			pages: [
+				{
+					id: pageId,
+					name: "P1",
+					elements: [],
+					html: '<main data-id="page"><article>Ship</article></main>',
+				},
+				{
+					id: `${pageId}~2`,
+					name: "P1 (2)",
+					elements: [],
+					html: '<main data-id="page"><article>Review</article></main>',
+				},
+			],
+		}));
+		const bus = createBus();
+		const tool = createMaketHtmlToolFactory({
+			documents,
+			store,
+			layout,
+			assets,
+			documentRenderer: createDocumentRenderer({
+				collectionRenderer: createCollectionRenderer({
+					collections: createCollections({ bus, documents, store }),
+				}),
+				stateRenderer: createStateRenderer({
+					documentStates: createDocumentStates({ bus, documents, store }),
+				}),
+				structuredWorkspaces: { renderCollection },
+			}),
+			collectionCursors: createCollectionCursors({ bus, documents, store }),
+		});
+
+		const result = await tool.handler(
+			{ action: "check", doc: "Delivery — Backlog", page: 1 },
+			NO_EXTRA,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+
+		expect(renderCollection).toHaveBeenCalledWith("ws-1", "backlog");
+		expect(layout.check.mock.calls.map((call) => call[1])).toEqual([
+			'<main data-id="page"><article>Ship</article></main>',
+			'<main data-id="page"><article>Review</article></main>',
+		]);
+		expect(body.split("\n")[0]).toBe(
+			'Measured with the items of Structured Workspace collection "backlog". A list flows onto 2 pages.',
+		);
+		expect(body).toContain("Page 2 of 2 (P1 (2)):");
+		store.close();
+	});
+
 	it("keeps checking a page without state or collection as authored", async () => {
 		const { store, documents, layout, check } = checkFixture();
 		const html = '<div data-id="a">{{ not.state }}</div>';
@@ -1510,7 +1615,9 @@ describe("maket_html — measures the page as readers see it", () => {
 		const { body } = await check("plain");
 
 		expect(layout.check).toHaveBeenCalledWith(expect.anything(), html, 0);
-		expect(body).toBe("✓ Layout OK");
+		expect(body).toBe(
+			"Measured the authored HTML: the page has no document state or collection.\n✓ Layout OK",
+		);
 		store.close();
 	});
 });

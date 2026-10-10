@@ -171,7 +171,7 @@ function importDocuments(
 			pages: sanitiseBundlePages(snapshot.pages),
 			activePage: snapshot.activePage ?? 0,
 			nextId: snapshot.nextId ?? 1,
-			pinnedAt: snapshot.pinnedAt ?? null,
+			pinnedAt: normalizedPinnedAt(snapshot.pinnedAt),
 		});
 		all.set(finalName, document);
 		deps.documents.persist(finalName);
@@ -311,4 +311,14 @@ function importCollections(
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/** A bundled pin timestamp in ISO 8601 UTC, so pinned documents sort by
+ * string comparison whatever format the bundle used. */
+export function normalizedPinnedAt(
+	pinnedAt: string | null | undefined,
+): string | null {
+	if (!pinnedAt) return null;
+	const time = Date.parse(pinnedAt);
+	return Number.isNaN(time) ? null : new Date(time).toISOString();
 }
