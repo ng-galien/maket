@@ -10,6 +10,7 @@ import {
 	type DocumentStateClientView,
 	type PageCollectionCursor,
 	type Settings,
+	type StatePageProjection,
 	type StructuredWorkspaceItemView,
 	type StructuredWorkspaceRenderTarget,
 	type StructuredWorkspaceView,
@@ -45,6 +46,36 @@ import {
 export type CollectionPreviewMode = CollectionCursorMode;
 export type StateCanvasMode = "live" | "design";
 export type WorkspaceView = "canvas" | "reading";
+
+/** Apply rendered page projections. A projection carrying an id may add a
+ * page the client does not hold yet; `pageCount` drops pages beyond it. */
+export function projectStatePages(
+	current: Document["pages"],
+	projections: StatePageProjection[],
+	pageCount?: number,
+): Document["pages"] {
+	const next = [...current];
+	for (const projection of projections) {
+		const page = next[projection.index];
+		const identity = {
+			...(projection.id ? { id: projection.id } : {}),
+			...(projection.name ? { name: projection.name } : {}),
+		};
+		if (page) {
+			next[projection.index] = { ...page, ...identity, html: projection.html };
+			continue;
+		}
+		const model = next.at(-1);
+		if (!projection.id || !model || projection.index !== next.length) continue;
+		next.push({
+			...model,
+			...identity,
+			elements: [],
+			html: projection.html,
+		});
+	}
+	return pageCount === undefined ? next : next.slice(0, Math.max(1, pageCount));
+}
 
 export function statePatchKey(docName: string, pointer: string): string {
 	return `${docName}\u0000${pointer}`;
@@ -136,9 +167,10 @@ interface DocumentStateSlice {
 	) => void;
 	applyStatePages: (
 		docName: string,
-		pages: Array<{ index: number; html?: string }>,
+		pages: StatePageProjection[],
 		view: DocumentStateClientView,
 		docList: DocSummary[],
+		pageCount?: number,
 	) => void;
 	setStateCanvasMode: (docName: string, mode: StateCanvasMode) => void;
 	setStateDockOpen: (open: boolean) => void;
@@ -744,7 +776,7 @@ export const useStore = create<AppState>((set, get) => ({
 				statePatchErrors,
 			};
 		}),
-	applyStatePages: (docName, pages, view, docList) =>
+	applyStatePages: (docName, pages, view, docList, pageCount) =>
 		set((s) => {
 			const current = s.docs.get(docName);
 			if (!current) {
@@ -753,14 +785,16 @@ export const useStore = create<AppState>((set, get) => ({
 					docList,
 				};
 			}
-			const nextPages = [...current.pages];
-			for (const projection of pages) {
-				const page = nextPages[projection.index];
-				if (!page) continue;
-				nextPages[projection.index] = { ...page, html: projection.html };
-			}
+			const nextPages = projectStatePages(current.pages, pages, pageCount);
 			const docs = new Map(s.docs);
-			docs.set(docName, { ...current, pages: nextPages });
+			docs.set(docName, {
+				...current,
+				pages: nextPages,
+				activePage: Math.min(
+					current.activePage,
+					Math.max(0, nextPages.length - 1),
+				),
+			});
 			return {
 				docs,
 				docList,

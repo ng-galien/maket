@@ -562,6 +562,70 @@ describe("living document state signals", () => {
 		expect(next.documentStates.checklist.revision).toBe(2);
 	});
 
+	it("adds and drops flowed collection pages from an authoritative page count", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({ workspaceDocNames: ["board"] });
+		initWs();
+		MockWebSocket.last().open();
+		const view = {
+			schema: { type: "object" },
+			data: { items: [] },
+			revision: 1,
+			createdAt: "2026-10-10T12:00:00.000Z",
+			templates: {},
+		};
+		MockWebSocket.last().emit({
+			type: "state",
+			doc: {
+				...doc("board"),
+				dataModel: "state" as const,
+				activePage: 0,
+				pages: [{ id: "board-1", name: "Board", elements: [], html: "A" }],
+			},
+			docList: [summary("board")],
+			charteCss: "",
+			documentState: view,
+		});
+
+		MockWebSocket.last().emit({
+			type: "state_pages",
+			docName: "board",
+			documentState: { ...view, revision: 2 },
+			pages: [
+				{ index: 0, id: "board-1", name: "Board", html: "A1" },
+				{ index: 1, id: "board-1~2", name: "Board (2)", html: "A2" },
+				{ index: 2, id: "board-1~3", name: "Board (3)", html: "A3" },
+			],
+			pageCount: 3,
+			docList: [summary("board")],
+		});
+		expect(
+			useStore
+				.getState()
+				.docs.get("board")
+				?.pages.map((page) => [page.id, page.html]),
+		).toEqual([
+			["board-1", "A1"],
+			["board-1~2", "A2"],
+			["board-1~3", "A3"],
+		]);
+
+		MockWebSocket.last().emit({
+			type: "state_pages",
+			docName: "board",
+			documentState: { ...view, revision: 3 },
+			pages: [{ index: 0, id: "board-1", name: "Board", html: "B1" }],
+			pageCount: 1,
+			docList: [summary("board")],
+		});
+		expect(
+			useStore
+				.getState()
+				.docs.get("board")
+				?.pages.map((page) => page.html),
+		).toEqual(["B1"]);
+	});
+
 	it("sends a terminal replace and clears its pending marker on acknowledgement", async () => {
 		const { initWs, sendStateValuePatch, useStore } = await freshWsModule();
 		initWs();

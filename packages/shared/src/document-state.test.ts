@@ -3,6 +3,7 @@ import {
 	renderDocumentStateText,
 	resolveDocumentStateText,
 	validateDocumentState,
+	validateDocumentStateTemplate,
 } from "./document-state.js";
 
 const schema = {
@@ -582,7 +583,7 @@ describe("document state primitives", () => {
 			resolveDocumentStateText('<p title="{{ state.title }}">x</p>', {
 				title: "unsafe placement",
 			}),
-		).toThrow(/HTML content/);
+		).toThrow(/cannot be placed in <p title>/);
 		expect(() =>
 			resolveDocumentStateText(
 				'<p class="{{#state.done}}ready{{/state.done}}">x</p>',
@@ -595,5 +596,149 @@ describe("document state primitives", () => {
 				{ done: true },
 			),
 		).toThrow(/style or script/);
+	});
+});
+
+describe("document state values in presentation attributes", () => {
+	const barSchema = {
+		type: "object",
+		properties: {
+			value: { type: ["number", "string"] },
+			bars: {
+				type: "array",
+				items: {
+					type: "object",
+					properties: { width: { type: "number" }, y: { type: "number" } },
+				},
+			},
+		},
+	};
+	const bar =
+		'<svg viewBox="0 0 100 10"><rect data-id="bar" x="0" y="0" height="10" width="{{ state.value }}" style="transition: width 300ms"/></svg>';
+
+	it("renders SVG geometry from state and tracks it as a dependency", () => {
+		const rendered = renderDocumentStateText(
+			bar,
+			{ value: 42.5 },
+			{ schema: barSchema },
+		);
+		expect(rendered.html).toContain('width="42.5"');
+		expect(rendered.html).not.toMatch(/[\uE000\uE001]/);
+		expect(rendered.dependencies).toContain("/value");
+	});
+
+	it("renders repeated bars, path data, transforms and style geometry", () => {
+		const html = renderDocumentStateText(
+			[
+				'<svg viewBox="0 0 {{ state.value }} 20">',
+				'{{#state.bars}}<rect y="{{ y }}" width="{{ width }}" height="4"/>{{/state.bars}}',
+				'<path d="M0 0 L{{ state.value }} 10 Z"/>',
+				'<g transform="translate({{ state.value }}, 2) rotate(-45)"></g>',
+				"</svg>",
+				'<div style="width: {{ state.value }}%; color: red; opacity: 0.{{ state.value }}"></div>',
+			].join(""),
+			{
+				value: 50,
+				bars: [
+					{ width: 10, y: 0 },
+					{ width: 20.25, y: 5 },
+				],
+			},
+			{ schema: barSchema },
+		).html;
+		expect(html).toContain('viewBox="0 0 50 20"');
+		expect(html).toContain('<rect y="0" width="10" height="4"/>');
+		expect(html).toContain('<rect y="5" width="20.25" height="4"/>');
+		expect(html).toContain('d="M0 0 L50 10 Z"');
+		expect(html).toContain('transform="translate(50, 2) rotate(-45)"');
+		expect(html).toContain('style="width: 50%; color: red; opacity: 0.50"');
+	});
+
+	it("fails the render when a value does not match the attribute grammar", () => {
+		expect(() =>
+			renderDocumentStateText(bar, { value: "wide" }, { schema: barSchema }),
+		).toThrow(/<rect width> must render a number or a length.*got "wide"/);
+		expect(() =>
+			renderDocumentStateText(
+				'<svg><path d="{{ state.value }}"/></svg>',
+				{ value: "M0 0 L10 10 url(x)" },
+				{ schema: barSchema },
+			),
+		).toThrow(/<path d> must render path data/);
+		expect(() =>
+			renderDocumentStateText(
+				'<svg><g transform="{{ state.value }}"></g></svg>',
+				{ value: "translate(1) perspective(2)" },
+				{ schema: barSchema },
+			),
+		).toThrow(/<g transform> must render transform functions/);
+		expect(() =>
+			renderDocumentStateText(
+				'<div style="width: {{ state.value }}"></div>',
+				{ value: "1px; background: url(x)" },
+				{ schema: barSchema },
+			),
+		).toThrow(/<div style width> must render/);
+		expect(() =>
+			renderDocumentStateText(
+				'<svg viewBox="{{ state.value }}"></svg>',
+				{ value: "0 0 10" },
+				{ schema: barSchema },
+			),
+		).toThrow(/<svg viewBox> must render four numbers/);
+	});
+
+	it("refuses attributes and properties outside the whitelist", () => {
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<svg><rect fill="{{ state.value }}"/></svg>',
+			),
+		).toThrow(/cannot be placed in <rect fill>/);
+		expect(() =>
+			validateDocumentStateTemplate('<div width="{{ state.value }}"></div>'),
+		).toThrow(/cannot be placed in <div width>/);
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<div style="background: {{ state.value }}"></div>',
+			),
+		).toThrow(/cannot set <div style background>/);
+		expect(() =>
+			validateDocumentStateTemplate(
+				"<svg><rect width={{ state.value }}/></svg>",
+			),
+		).toThrow(/quoted presentation attribute/);
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<svg><rect {{#state.value}}width="1"{{/state.value}}/></svg>',
+			),
+		).toThrow(/sections must be placed in HTML content/);
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<a title=">" href="{{ state.value }}">x</a>',
+			),
+		).toThrow(/cannot be placed in <a href>/);
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<div data-note="a>b" style="{{ state.value }}"></div>',
+			),
+		).toThrow(/cannot set <div style/);
+	});
+
+	it("refuses active constructs in a templated attribute before rendering", () => {
+		for (const template of [
+			'<div style="width: {{ state.value }}px; background: url(https://x)"></div>',
+			'<div style="width: expression({{ state.value }})"></div>',
+			'<svg><path d="javascript:{{ state.value }}"/></svg>',
+			'<div style="width: {{ state.value }}px; background: \\75rl(x)"></div>',
+		]) {
+			expect(() => validateDocumentStateTemplate(template)).toThrow(
+				/active construct/,
+			);
+		}
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<input type="text" data-maket-bind="state.value" style="width: {{ state.value }}px">',
+			),
+		).toThrow(/cannot combine data-maket-bind/);
 	});
 });

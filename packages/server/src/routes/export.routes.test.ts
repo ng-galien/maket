@@ -1168,6 +1168,37 @@ describe("export routes — .maket bundle", () => {
 		expect((html.match(/<maket-render-page/g) ?? []).length).toBe(1);
 	});
 
+	it("GET /print draws state-driven SVG geometry from the current snapshot", async () => {
+		const doc = makeDoc("living-bars");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Expected fixture page");
+		page.html =
+			'<svg data-id="chart" viewBox="0 0 100 10"><rect data-id="bar" height="10" width="{{ state.value }}"/></svg><div data-id="gauge" style="width: {{ state.value }}%; opacity: {{ state.ratio }}"></div>';
+		store.saveDoc(doc);
+		documents.loadAll();
+		documentStates.initialize(
+			"living-bars",
+			{
+				type: "object",
+				properties: {
+					value: { type: "number" },
+					ratio: { type: "number" },
+				},
+				required: ["value", "ratio"],
+			},
+			{ value: 20, ratio: 0.5 },
+		);
+		documentStates.update("living-bars", 1, { value: 64, ratio: 1 });
+
+		const res = await fetch(`${baseUrl}/print?name=living-bars`);
+
+		expect(res.status).toBe(200);
+		const html = await res.text();
+		expect(html).toContain('<rect data-id="bar" height="10" width="64"');
+		expect(html).toContain('style="width: 64%; opacity: 1"');
+		expect(html).not.toContain("{{ state.");
+	});
+
 	it("GET /api/export-pdf streams the rendered PDF with the default quality", async () => {
 		store.saveDoc(makeDoc("poster"));
 		documents.loadAll();

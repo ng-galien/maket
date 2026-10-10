@@ -191,6 +191,18 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Placeholders are template variables inside element content. The renderer wraps resolved placeholders with `data-collection-marker` attributes so the client can locate collection-driven content.",
 		),
 		section(
+			"Drawing from document state",
+			[
+				"- On a state-backed page, an escaped `{{ state.* }}` value (or a relative value inside a state section) may sit inside a quoted presentation attribute; every other attribute stays refused.",
+				"- SVG elements accept state values in `x`, `y`, `width`, `height`, `r`, `rx`, `ry`, `cx`, `cy`, `x1`, `y1`, `x2`, `y2`, `points`, `viewBox`, `d`, `transform`, `opacity`, `fill-opacity`, `stroke-width`, `stroke-dasharray`, and `stroke-dashoffset`.",
+				"- Any element accepts state values in its `style` attribute only as the value of `width`, `height`, `left`, `top`, `transform`, or `opacity`.",
+				"- The rendered value must be a number or length (`px`, `%`, `em`, `rem`, `mm`, `cm`, `in`, `pt`, …); a number or percentage for opacities; four numbers for `viewBox`; an even number list for `points`; `none` or lengths for `stroke-dasharray`; path data of numbers and `M L H V C S Q T A Z` commands starting with `M` for `d`; transform functions `translate`, `translateX`, `translateY`, `scale`, `scaleX`, `scaleY`, `rotate`, `skewX`, `skewY`, `matrix` with numeric, length, or angle arguments for `transform`.",
+				"- Any other rendered value fails the write or the state change with an issue naming the element and attribute. `url(`, `expression(`, script or data URLs, escapes, and markup in a templated attribute are refused before persistence. Such a tag cannot also carry `data-maket-bind`.",
+				"- Re-renders update the existing elements in place, so an author CSS `transition` on the attribute or property animates the change; no script is involved. Print, PDF, and snapshots render the same values.",
+			].join("\n"),
+			'```html\n<svg data-id="chart" viewBox="0 0 100 40">\n  {{#state.bars}}<rect y="{{ y }}" height="8" width="{{ value }}" style="transition: width 400ms ease"/>{{/state.bars}}\n</svg>\n<div data-id="gauge" style="width: {{ state.ratio }}%; transition: width 400ms"></div>\n```',
+		),
+		section(
 			"Next",
 			"Read `chartes` before a branded write, `collections` for mail merge, or `state` for interactive data.",
 		),
@@ -320,7 +332,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- Supported: escaped values, positive and inverted sections, loops/current context, and comments.",
 				"- Root references use `state.*`; relative names are allowed inside positive state sections.",
 				"- Examples: `{{ state.title }}`, `{{#state.items}}...{{ label }} / {{ . }}...{{/state.items}}`, and `{{^state.items}}...{{/state.items}}`.",
-				"- Invalid: triple braces, partials, lambdas, unscoped root names, and Mustache in attributes, `style`, or `script`.",
+				"- Invalid: triple braces, partials, lambdas, unscoped root names, sections inside a tag, Mustache in `<style>` or `<script>`, and values in any attribute outside the presentation whitelist (read the `html` topic, section Drawing from document state).",
 			].join("\n"),
 		),
 		section(
@@ -397,8 +409,20 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			[
 				"- The data schema is a JSON Schema for every item and may use `oneOf`.",
 				"- The representation schema gives each collection a global template and binds each concrete schema path to compact and detail template documents.",
+				"- A collection may group its cards: `groupBy` is a JSON Pointer into the item data (for example `/status`), `groupOrder` lists the group values to place first (other groups follow in order of first appearance), and `pageSize` (default 24, at most 500) caps the compact cards per collection page.",
 				"- A binding points to the concrete schema used by its instantiated document, so templates do not resolve `oneOf` themselves.",
 			].join("\n"),
+		),
+		section(
+			"Grouped, flowing collection pages",
+			[
+				"- Without `groupBy`, each collection template page renders once and holds every card of its item slots.",
+				'- With `groupBy`, every `data-maket-structured-items` slot receives, group by group, a `<header data-maket-structured-group="<value>">` with `[data-maket-structured-group-label]` and `[data-maket-structured-group-count]` children, followed by that group\'s compact cards.',
+				"- When a slot exceeds `pageSize` cards, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
+				"- Headers carry `grid-column: 1 / -1` and `flex: 0 0 100%`, so they span a grid or wrapping flex slot. Choose `pageSize` so that many cards plus their headers fit the page, then check a snapshot.",
+				"- Item changes re-render the collection document and its page count.",
+			].join("\n"),
+			'```json\n{"name":"Projects","collectionTemplateDocumentId":"<board>","groupBy":"/status","groupOrder":["live","paused","dormant"],"pageSize":24,"bindings":{"project":{"schemaPath":"","compactTemplateDocumentId":"<card>","detailTemplateDocumentId":"<detail>"}}}\n```',
 		),
 		section(
 			"Instantiated documents",

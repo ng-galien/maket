@@ -10,6 +10,7 @@ import {
 	memo,
 	useCallback,
 	useEffect,
+	useImperativeHandle,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -18,6 +19,7 @@ import {
 import { createPortal, flushSync } from "react-dom";
 import { translate, useT } from "../i18n/useT";
 import { prefixDocumentAssetUrls } from "../lib/browserBasePath";
+import { morphHtml } from "../lib/morph-html";
 import type { Document } from "../store/types";
 import {
 	hasPendingStatePatchForDocument,
@@ -153,19 +155,20 @@ interface AnnotationMarkerBounds extends AnnotationTarget {
 	inset: boolean;
 }
 
+/** Authored HTML is morphed in place so unchanged elements keep their
+ * identity across re-renders and author CSS transitions apply. */
 const AuthoredPageHtml = memo(
 	forwardRef<HTMLDivElement, { html: string }>(function AuthoredPageHtml(
 		{ html },
 		ref,
 	) {
+		const contentRef = useRef<HTMLDivElement>(null);
 		const scopedHtml = useMemo(() => scopePageStyles(html), [html]);
-		return (
-			<div
-				ref={ref}
-				className="page-authored-content"
-				dangerouslySetInnerHTML={{ __html: scopedHtml }}
-			/>
-		);
+		useImperativeHandle(ref, () => contentRef.current as HTMLDivElement);
+		useLayoutEffect(() => {
+			if (contentRef.current) morphHtml(contentRef.current, scopedHtml);
+		}, [scopedHtml]);
+		return <div ref={contentRef} className="page-authored-content" />;
 	}),
 );
 

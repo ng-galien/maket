@@ -344,6 +344,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 					msg.pages,
 					msg.documentState,
 					(msg.docList ?? []) as DocSummary[],
+					msg.pageCount,
 				);
 			break;
 		case "state_patch_result": {

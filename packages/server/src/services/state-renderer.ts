@@ -2,14 +2,10 @@ import {
 	type DocumentStateClientView,
 	jsonPointersIntersect,
 	renderDocumentStatePage,
+	type StatePageProjection,
 } from "@maket/shared";
 import type { Document, Page } from "../types.js";
 import type { DocumentStates, DocumentStateView } from "./document-states.js";
-
-export interface StatePageProjection {
-	index: number;
-	html?: string;
-}
 
 export interface StateRenderer {
 	render(doc: Document): Document;

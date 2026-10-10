@@ -144,7 +144,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 			type: "state_pages",
 			docName,
 			documentState,
-			pages: documentRenderer.statePages(doc, paths),
+			...documentRenderer.statePages(doc, paths),
 			docList: documents.list(),
 		});
 	});

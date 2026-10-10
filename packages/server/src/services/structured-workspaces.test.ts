@@ -1,3 +1,4 @@
+import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
@@ -798,6 +799,223 @@ describe("StructuredWorkspaces", () => {
 		expect(
 			workspaces.get(workspace.id)?.collectionDocuments[0]?.documentName,
 		).toBe("Delivery — Backlog");
+		store.close();
+	});
+});
+
+describe("StructuredWorkspaces grouped collection pages", () => {
+	function groupedFixture(grouping: {
+		groupBy?: string;
+		groupOrder?: string[];
+		pageSize?: number;
+	}) {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const canvas = {
+			format: "A4" as const,
+			orientation: "portrait" as const,
+			w: 210,
+			h: 297,
+			bg: "#fff",
+		};
+		const detail = createDocument({
+			name: "Project detail",
+			canvas,
+			pages: [
+				{ name: "Detail", elements: [], html: "<h1>{{ state.title }}</h1>" },
+			],
+		});
+		const compact = createDocument({
+			name: "Project card",
+			canvas,
+			pages: [
+				{
+					name: "Card",
+					elements: [],
+					html: '<article data-id="card" data-maket-compact-root><h2 data-id="title">{{ state.title }}</h2></article>',
+				},
+			],
+		});
+		const board = createDocument({
+			name: "Project board",
+			canvas,
+			pages: [
+				{
+					name: "Index",
+					elements: [],
+					html: '<main data-id="index"><h1 data-id="heading">Projects</h1><section data-id="grid" data-maket-structured-items="project"></section></main>',
+				},
+			],
+		});
+		for (const document of [detail, compact, board]) {
+			documents.all().set(document.name, document);
+			documents.persist(document.name);
+		}
+		const documentStates = createDocumentStates({ store, documents, bus });
+		const workspaces = createStructuredWorkspaces({
+			store,
+			documents,
+			documentStates,
+			bus,
+		});
+		const workspace = workspaces.create({
+			name: "Portfolio",
+			dataSchema: {
+				type: "object",
+				properties: {
+					title: { type: "string" },
+					status: { type: "string", enum: ["live", "paused", "dormant"] },
+				},
+				required: ["title", "status"],
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					projects: {
+						name: "Projects",
+						collectionTemplateDocumentId: board.name,
+						bindings: {
+							project: {
+								schemaPath: "",
+								compactTemplateDocumentId: compact.name,
+								detailTemplateDocumentId: detail.name,
+							},
+						},
+						...grouping,
+					},
+				},
+			},
+		});
+		return { store, workspaces, workspace };
+	}
+
+	function statusOf(index: number): string {
+		const slot = index % 8;
+		return slot < 3 ? "live" : slot < 6 ? "paused" : "dormant";
+	}
+
+	function addProjects(
+		workspaces: ReturnType<typeof createStructuredWorkspaces>,
+		count: number,
+	) {
+		for (let index = 0; index < count; index += 1) {
+			workspaces.addItem({
+				workspace: "Portfolio",
+				itemId: `project-${index}`,
+				collectionId: "projects",
+				bindingId: "project",
+				documentName: `Project ${index}`,
+				data: { title: `Project ${index}`, status: statusOf(index) },
+			});
+		}
+	}
+
+	function pageSummary(html: string | undefined) {
+		const { document } = parseHTML(`<html><body>${html ?? ""}</body></html>`);
+		return {
+			headers: [
+				...document.querySelectorAll("[data-maket-structured-group]"),
+			].map(
+				(header) =>
+					`${header.getAttribute("data-maket-structured-group")}${header.hasAttribute("data-maket-structured-group-continued") ? "+" : ""}:${header.querySelector("[data-maket-structured-group-count]")?.textContent}`,
+			),
+			cards: [
+				...document.querySelectorAll("[data-maket-structured-items] > article"),
+			].map((card) => card.getAttribute("data-maket-document")),
+			heading: document.querySelector('[data-id="heading"]')?.textContent,
+		};
+	}
+
+	it("lays out 80 items group by group and flows them onto further pages", () => {
+		const { store, workspaces, workspace } = groupedFixture({
+			groupBy: "/status",
+			groupOrder: ["dormant", "live"],
+			pageSize: 24,
+		});
+		addProjects(workspaces, 80);
+
+		const rendered = workspaces.renderCollection(workspace.id, "projects");
+		const pages = rendered.pages.map((page) => pageSummary(page.html));
+
+		const firstPageId = rendered.pages[0]?.id;
+		expect(rendered.pages.map((page) => [page.id, page.name])).toEqual([
+			[firstPageId, "Index"],
+			[`${firstPageId}~2`, "Index (2)"],
+			[`${firstPageId}~3`, "Index (3)"],
+			[`${firstPageId}~4`, "Index (4)"],
+		]);
+		expect(pages.map((page) => page.headers)).toEqual([
+			["dormant:20", "live:30"],
+			["live+:30"],
+			["live+:30", "paused:30"],
+			["paused+:30"],
+		]);
+		expect(pages.map((page) => page.cards.length)).toEqual([24, 24, 24, 8]);
+		expect(pages.every((page) => page.heading === "Projects")).toBe(true);
+		const placed = pages.flatMap((page) => page.cards);
+		expect(new Set(placed).size).toBe(80);
+		expect(
+			placed.slice(0, 20).every((name) => {
+				const index = Number(name?.replace("Project ", ""));
+				return statusOf(index) === "dormant";
+			}),
+		).toBe(true);
+		store.close();
+	});
+
+	it("re-renders the flowed pages when items change", () => {
+		const { store, workspaces, workspace } = groupedFixture({
+			groupBy: "/status",
+			pageSize: 10,
+		});
+		addProjects(workspaces, 10);
+		expect(
+			workspaces
+				.renderCollection(workspace.id, "projects")
+				.pages.map((page) => pageSummary(page.html).headers),
+		).toEqual([["live:5", "paused:3", "dormant:2"]]);
+
+		workspaces.addItem({
+			workspace: "Portfolio",
+			itemId: "project-extra",
+			collectionId: "projects",
+			bindingId: "project",
+			documentName: "Project extra",
+			data: { title: "Extra", status: "dormant" },
+		});
+		expect(
+			workspaces
+				.renderCollection(workspace.id, "projects")
+				.pages.map((page) => pageSummary(page.html).headers),
+		).toEqual([["live:5", "paused:3", "dormant:3"], ["dormant+:3"]]);
+		store.close();
+	});
+
+	it("keeps one page without groupBy", () => {
+		const { store, workspaces, workspace } = groupedFixture({});
+		addProjects(workspaces, 30);
+		const rendered = workspaces.renderCollection(workspace.id, "projects");
+		expect(rendered.pages).toHaveLength(1);
+		expect(pageSummary(rendered.pages[0]?.html)).toMatchObject({
+			headers: [],
+		});
+		expect(pageSummary(rendered.pages[0]?.html).cards).toHaveLength(30);
+		store.close();
+	});
+
+	it("reports invalid grouping as an incomplete definition", () => {
+		const { store, workspaces } = groupedFixture({
+			groupBy: "status",
+			pageSize: 0,
+		});
+		expect(workspaces.get("Portfolio")?.integrity).toMatchObject({
+			status: "incomplete",
+			issues: expect.arrayContaining([
+				expect.stringContaining("groupBy must be a JSON Pointer"),
+				expect.stringContaining("pageSize must be an integer"),
+			]),
+		});
 		store.close();
 	});
 });

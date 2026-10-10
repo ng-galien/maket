@@ -52,11 +52,23 @@ export interface WorkspaceStateSignal {
 	annotations?: PendingMessage[];
 }
 
+export interface StatePageProjection {
+	index: number;
+	html?: string;
+	/** Present when the projection carries the page identity, so a client can
+	 * add a page it does not hold yet (flowed Workspace collection pages). */
+	id?: string;
+	name?: string;
+}
+
 export interface StatePageProjectionSignal {
 	type: "state_pages";
 	docName: string;
 	documentState: DocumentStateClientView;
-	pages: Array<{ index: number; html?: string }>;
+	pages: StatePageProjection[];
+	/** Present when the rendered page count is authoritative: the client keeps
+	 * exactly this many pages. */
+	pageCount?: number;
 	docList: unknown[];
 }
 

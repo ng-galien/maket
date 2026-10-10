@@ -1364,6 +1364,45 @@ describe("isTextEditable", () => {
 });
 
 describe("PageCanvas rendering", () => {
+	it("keeps rendered elements in place when a state re-render changes their geometry", () => {
+		const bar = (width: number, label: string) =>
+			`<style>rect { transition: width 300ms; }</style><svg viewBox="0 0 100 10"><rect data-id="bar" height="10" width="${width}"/></svg><p data-id="label">${label}</p><input type="checkbox"${width > 50 ? " checked" : ""}>`;
+		const doc = makeDoc(bar(20, "Low"));
+		const { container, rerender } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+		const rect = container.querySelector("rect");
+		const label = container.querySelector('[data-id="label"]');
+		const checkbox = container.querySelector("input") as HTMLInputElement;
+		expect(rect?.getAttribute("width")).toBe("20");
+		expect(checkbox.checked).toBe(false);
+
+		rerender(
+			<PageCanvas
+				doc={{
+					...doc,
+					pages: [
+						{
+							...(doc.pages[0] as Document["pages"][number]),
+							html: bar(80, "High"),
+						},
+					],
+				}}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+
+		expect(container.querySelector("rect")).toBe(rect);
+		expect(rect?.getAttribute("width")).toBe("80");
+		expect(container.querySelector('[data-id="label"]')).toBe(label);
+		expect(label?.textContent).toBe("High");
+		expect(container.querySelector("input")).toBe(checkbox);
+		expect(checkbox.checked).toBe(true);
+		expect(container.querySelectorAll("style")).toHaveLength(1);
+	});
+
 	it("rewrites /assets/* image sources to /assets/preview/*", () => {
 		const html = `<img src="/assets/hero.jpg" data-id="h" />`;
 		const { container } = render(

@@ -5,6 +5,7 @@ import { createBus } from "../services/bus.js";
 import { createDocumentStateMutations } from "../services/document-state-mutations.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createStructuredWorkspaces } from "../services/structured-workspaces.js";
 import { createDocument } from "../types.js";
@@ -554,6 +555,53 @@ describe("maket_state", () => {
 			revision: 1,
 			data: { kind: "task", title: "Ship" },
 		});
+		store.close();
+	});
+});
+
+describe("maket_state drawing from state", () => {
+	it("re-renders an SVG bar width on patch and refuses a non-numeric value", async () => {
+		const { store, doc, documentStates, call } = counterFixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<svg viewBox="0 0 100 10"><rect data-id="bar" height="10" width="{{ state.count }}"/></svg>';
+		const stateRenderer = createStateRenderer({ documentStates });
+		const init = await call({
+			action: "init",
+			schema: {
+				type: "object",
+				properties: { count: { type: ["integer", "string"] } },
+				required: ["count"],
+			},
+			data: { count: 10 },
+		});
+		expect(init.isError).toBeUndefined();
+		expect(stateRenderer.render(doc).pages[0]?.html).toContain('width="10"');
+
+		const patched = await call({
+			action: "patch",
+			expected_revision: 1,
+			patch: [{ op: "replace", path: "/count", value: 75 }],
+		});
+		expect(patched.isError).toBeUndefined();
+		expect(stateRenderer.renderPages(doc, ["/count"])).toEqual([
+			{
+				index: 0,
+				html: '<svg viewBox="0 0 100 10"><rect data-id="bar" height="10" width="75"/></svg>',
+			},
+		]);
+
+		const refused = await call({
+			action: "patch",
+			expected_revision: 2,
+			patch: [{ op: "replace", path: "/count", value: "full" }],
+		});
+		expect(refused.isError).toBe(true);
+		expect(textOf(refused)).toContain(
+			"Document state value in <rect width> must render",
+		);
+		expect(documentStates.get("counter")?.current.data).toEqual({ count: 75 });
 		store.close();
 	});
 });

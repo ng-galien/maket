@@ -99,6 +99,121 @@ describe("maket_structured_workspace", () => {
 			store.close();
 		}
 	});
+	it("accepts and shows collection grouping through update_definition and view", async () => {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const documentStates = createDocumentStates({ store, bus, documents });
+		const structuredWorkspaces = createStructuredWorkspaces({
+			store,
+			bus,
+			documents,
+			documentStates,
+		});
+		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		try {
+			const canvas = {
+				format: "A4" as const,
+				orientation: "portrait" as const,
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			};
+			const detail = createDocument({
+				name: "Detail",
+				canvas,
+				pages: [
+					{ name: "Page", elements: [], html: "<h1>{{ state.title }}</h1>" },
+				],
+			});
+			const board = createDocument({
+				name: "Board",
+				canvas,
+				pages: [
+					{
+						name: "Index",
+						elements: [],
+						html: '<section data-maket-structured-items="item"></section>',
+					},
+				],
+			});
+			for (const document of [detail, board]) {
+				documents.all().set(document.name, document);
+				documents.persist(document.name);
+			}
+			const collection = {
+				name: "Items",
+				collectionTemplateDocumentId: board.id,
+				bindings: {
+					item: { schemaPath: "", detailTemplateDocumentId: detail.id },
+				},
+			};
+			const dataSchema = {
+				type: "object",
+				properties: { title: { type: "string" }, status: { type: "string" } },
+			};
+			await tool.handler(
+				{
+					action: "create",
+					workspace: "Grouped",
+					data_schema: dataSchema,
+					representation_schema: {
+						version: 1,
+						collections: { items: collection },
+					},
+				},
+				{} as never,
+			);
+			const updated = await tool.handler(
+				{
+					action: "update_definition",
+					workspace: "Grouped",
+					expected_workspace_revision: 1,
+					representation_schema: {
+						version: 1,
+						collections: {
+							items: {
+								...collection,
+								groupBy: "/status",
+								groupOrder: ["live", "dormant"],
+								pageSize: 12,
+							},
+						},
+					},
+				},
+				{} as never,
+			);
+			expect(updated.isError).toBeUndefined();
+			const view = await tool.handler(
+				{ action: "view", workspace: "Grouped" },
+				{} as never,
+			);
+			expect(
+				JSON.parse(textOf(view)).representationSchema.collections.items,
+			).toMatchObject({
+				groupBy: "/status",
+				groupOrder: ["live", "dormant"],
+				pageSize: 12,
+			});
+			const refused = await tool.handler(
+				{
+					action: "update_definition",
+					workspace: "Grouped",
+					expected_workspace_revision: 2,
+					representation_schema: {
+						version: 1,
+						collections: { items: { ...collection, pageSize: 1.5 } },
+					},
+				},
+				{} as never,
+			);
+			expect(refused.isError).toBe(true);
+			expect(textOf(refused)).toContain("pageSize");
+		} finally {
+			store.close();
+		}
+	});
+
 	it("registers its dedicated tool pack", () => {
 		expect(structuredWorkspacesPack.declaresTools).toEqual([
 			"maket_structured_workspace",

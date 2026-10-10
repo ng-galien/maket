@@ -377,6 +377,83 @@ describe("maket_html — action=set", () => {
 	});
 });
 
+describe("maket_html — state values in presentation attributes", () => {
+	function stateFixture() {
+		const context = fixture();
+		const doc = makeDoc("bars", '<div data-id="a">{{ state.label }}</div>');
+		context.store.saveDoc(doc);
+		context.store.initializeDocumentState(
+			doc.id,
+			{
+				type: "object",
+				properties: {
+					value: { type: ["number", "string"] },
+					label: { type: "string" },
+				},
+				required: ["value", "label"],
+			},
+			{ value: 40, label: "Load" },
+		);
+		context.documents.loadAll();
+		const tool = createMaketHtmlTool({
+			documents: context.documents,
+			store: context.store,
+			layout: context.layout,
+			assets: context.assets,
+		});
+		const set = (html: string) =>
+			tool.handler({ action: "set", doc: "bars", page: 1, html }, NO_EXTRA);
+		return { ...context, set };
+	}
+
+	it("persists an SVG bar whose width is a state value", async () => {
+		const { store, set } = stateFixture();
+		const result = await set(
+			'<svg data-id="chart" viewBox="0 0 100 10"><rect data-id="bar" height="10" width="{{ state.value }}" style="transition: width 300ms"></rect></svg>',
+		);
+		expect(result.isError).toBeUndefined();
+		expect(store.loadOne("bars")?.pages[0]?.html).toContain(
+			'width="{{ state.value }}"',
+		);
+		expect(store.loadOne("bars")?.pages[0]?.html).toContain("viewBox=");
+		store.close();
+	});
+
+	it.each([
+		[
+			"an attribute outside the whitelist",
+			'<svg data-id="chart"><rect data-id="bar" fill="{{ state.value }}"></rect></svg>',
+			"cannot be placed in <rect fill>",
+		],
+		[
+			"a style property outside the whitelist",
+			'<div data-id="bar" style="color: {{ state.value }}"></div>',
+			"cannot set <div style color>",
+		],
+		[
+			"an active construct",
+			'<div data-id="bar" style="width: {{ state.value }}px; background: url(https://example.test/x.png)"></div>',
+			"active construct",
+		],
+		[
+			"a value that does not render a number",
+			'<svg data-id="chart"><rect data-id="bar" width="{{ state.label }}"></rect></svg>',
+			'<rect width> must render a number or a length (number with px, %, em, rem, mm, cm, in, pt…); got "Load"',
+		],
+	])("refuses %s before changing the page", async (_case, html, message) => {
+		const { store, set } = stateFixture();
+		const result = await set(html);
+		expect(result.isError).toBe(true);
+		expect(result.content[0]).toMatchObject({
+			text: expect.stringContaining(message),
+		});
+		expect(store.loadOne("bars")?.pages[0]?.html).toContain(
+			"{{ state.label }}",
+		);
+		store.close();
+	});
+});
+
 describe("maket_html — action=get", () => {
 	it("returns the full page html", async () => {
 		const { store, documents, layout, assets } = fixture();

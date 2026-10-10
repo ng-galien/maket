@@ -17,9 +17,12 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 - Document states accept a revision retention: `maket_state action=set_retention` keeps the current state plus a chosen number of previous revisions and prunes older ones on every write, with `0` keeping only the current state. History stays unbounded by default, so existing documents keep every revision. Setting it reports how many revisions were deleted, and `.maket` bundles carry it.
 - `maket_doc action=lookup` returns a document's id, modification revision, page count, data model and state revision by exact name without opening it or changing the active document, and names near matches when the name is absent.
+- State-backed pages can draw from their state: an escaped `{{ state.* }}` value is accepted in the SVG presentation attributes `x y width height r rx ry cx cy x1 y1 x2 y2 points viewBox d transform opacity fill-opacity stroke-width stroke-dasharray stroke-dashoffset` and in `style` for `width height left top transform opacity`. The rendered value must be a number, length, number list, path data or transform list; any other value fails the write or the state change with an issue naming the element and attribute, and active constructs such as `url(` or `expression(` are refused before persistence.
+- Structured Workspace collections accept `groupBy` (a JSON Pointer into item data), `groupOrder` and `pageSize` in the representation schema. Collection pages then lay out compact cards group by group under a group header and flow onto as many pages as needed instead of clipping; without `groupBy` the collection stays one page.
 
 ### Changed
 
+- The canvas updates rendered page HTML in place instead of replacing it, so elements keep their identity across state re-renders and author CSS transitions animate changed geometry. Live `state_pages` updates can now add or drop pages through an authoritative page count.
 - Updating a Structured Workspace item rewrites only that item's entry in its collection projection and broadcasts only that item to connected clients, instead of rebuilding the projection and resending every Workspace.
 - The database moves to SQLite schema v18 (`document_states.revision_retention`). Once this version has opened a workspace, earlier versions refuse to open it; back up `documents.db` before upgrading.
 

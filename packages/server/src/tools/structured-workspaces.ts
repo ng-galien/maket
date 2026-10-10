@@ -23,6 +23,11 @@ const CollectionRepresentationSchema = z.object({
 	name: z.string(),
 	collectionTemplateDocumentId: z.string(),
 	bindings: z.record(z.string(), BindingSchema),
+	groupBy: z.string().optional(),
+	groupOrder: z
+		.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+		.optional(),
+	pageSize: z.number().int().positive().optional(),
 });
 
 const RepresentationSchema = z.object({
@@ -61,6 +66,7 @@ const DESCRIPTION = [
 	"When to use: create and operate a Structured Workspace — a schema-driven collection whose items own real instantiated Maket documents.",
 	"",
 	"The data schema validates every item. The representation schema declares one or more collections; each collection owns its global template and binds concrete schema paths to compact and detail templates. Adding an item instantiates the detail template as a persistent state-backed document. Template-controlled pages are synchronized from the template; instance-owned pages remain in the same document.",
+	'Optional collection grouping: `groupBy` is a JSON Pointer into item data (e.g. "/status"), `groupOrder` lists group values to place first, and `pageSize` (default 24) caps the compact cards per collection page. With `groupBy`, each item slot receives a group header followed by its cards and the collection document flows onto as many pages as needed; without it, the collection stays one page.',
 	"  list          — list Structured Workspaces.",
 	"  view          — read schemas, items, current data revisions, and instantiated documents.",
 	"  create        — create a workspace from data and representation schemas.",

@@ -2,16 +2,20 @@ import crypto from "node:crypto";
 import type {
 	BundleStructuredWorkspaceSnapshot,
 	StructuredWorkspaceCollectionDocumentView,
+	StructuredWorkspaceCollectionRepresentation,
 	StructuredWorkspaceDataSchema,
 	StructuredWorkspaceDefinition,
+	StructuredWorkspaceGroupValue,
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceRepresentationSchema,
 	StructuredWorkspaceTemplateDocumentView,
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
+	readJsonPointer,
 	renderDocumentStatePage,
 	structuredWorkspaceBindingSchema,
+	structuredWorkspaceDefaultPageSize,
 	validateStructuredWorkspaceDefinition,
 	validateStructuredWorkspaceItemData,
 } from "@maket/shared";
@@ -391,7 +395,7 @@ function renderCollection(
 			`Workspace "${workspace.name}" is incomplete:\n${integrity.issues.join("\n")}`,
 		);
 	}
-	requiredCollection(workspace, collectionId);
+	const collection = requiredCollection(workspace, collectionId);
 	const existing = findCollectionDocument(
 		deps.documents,
 		workspace.id,
@@ -412,70 +416,241 @@ function renderCollection(
 	}
 	return {
 		...structuredClone(collectionDocument),
-		pages: collectionDocument.pages.map((page) => ({
-			...structuredClone(page),
-			html:
-				page.html || page.jsonForms
-					? renderCollectionPage(
-							deps,
-							workspace,
-							collectionId,
-							renderDocumentStatePage(page, collectionState.current.data, {
-								schema: collectionState.current.schema,
-							}).html,
-							items,
-						)
-					: page.html,
-		})),
+		pages: collectionDocument.pages.flatMap((page) => {
+			if (!page.html && !page.jsonForms) return [structuredClone(page)];
+			const flowed = renderCollectionPage(
+				deps,
+				workspace,
+				collection,
+				renderDocumentStatePage(page, collectionState.current.data, {
+					schema: collectionState.current.schema,
+				}).html,
+				items,
+			);
+			return flowed.map((html, index) => ({
+				...structuredClone(page),
+				...(index === 0 ? {} : flowedPageIdentity(page, index)),
+				html,
+			}));
+		}),
 	};
 }
 
+function flowedPageIdentity(
+	page: Page,
+	index: number,
+): Pick<Page, "id" | "name"> {
+	return {
+		id: `${page.id}~${index + 1}`,
+		name: `${page.name ?? "Page"} (${index + 1})`,
+	};
+}
+
+interface CollectionCardEntry {
+	item: StructuredWorkspaceItemView;
+	cards: HTMLElement[];
+}
+
+interface CollectionCardGroup {
+	label: string;
+	entries: CollectionCardEntry[];
+}
+
+/** Compose one collection template page. Without `groupBy` the result is the
+ * single page; with it, every item slot is laid out group by group and the
+ * page flows onto as many pages as its fullest slot needs. */
 function renderCollectionPage(
 	deps: StructuredWorkspacesDeps,
 	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
 	html: string,
 	items: StructuredWorkspaceItemView[],
-): string {
-	const collection = requiredCollection(workspace, collectionId);
+): string[] {
 	const { document } = parseHTML(`<html><body>${html}</body></html>`);
-	const slots = document.body.querySelectorAll<HTMLElement>(
-		"[data-maket-structured-items]",
-	);
-	for (const [slotIndex, slot] of [...slots].entries()) {
-		const bindingId = slot.getAttribute("data-maket-structured-items") ?? "";
-		const filter = parseItemFilter(
-			slot.getAttribute("data-maket-structured-filter"),
+	const slots = [
+		...document.body.querySelectorAll<HTMLElement>(
+			"[data-maket-structured-items]",
+		),
+	];
+	const slotEntries = slots.map((slot, slotIndex) => {
+		const entries = collectionCardEntries(
+			deps,
+			workspace,
+			collection,
+			document,
+			slot,
+			slotIndex,
+			items,
 		);
 		slot.replaceChildren();
-		for (const item of items) {
-			if (bindingId && item.bindingId !== bindingId) continue;
-			if (filter && String(item.data[filter.field]) !== filter.value) continue;
-			const binding = collection.bindings[item.bindingId];
-			if (!binding?.compactTemplateDocumentId) continue;
-			const compact = requiredDocument(
-				deps.documents,
-				binding.compactTemplateDocumentId,
-				"compact template",
-			);
-			const schema = structuredWorkspaceBindingSchema(
-				workspace.dataSchema,
-				binding,
-			);
-			for (const [pageIndex, page] of compact.pages.entries()) {
-				if (!page.html && !page.jsonForms) continue;
-				const card = renderCompactCard(
-					document,
-					page,
-					item,
-					schema,
-					`${slotIndex}-${pageIndex}`,
-				);
-				slot.appendChild(card);
+		return entries;
+	});
+	if (collection.groupBy === undefined) {
+		for (const [slotIndex, slot] of slots.entries()) {
+			for (const entry of slotEntries[slotIndex] ?? []) {
+				for (const card of entry.cards) slot.appendChild(card);
 			}
 		}
+		return [document.body.innerHTML];
 	}
-	return document.body.innerHTML;
+	const groupBy = collection.groupBy;
+	const pageSize = collection.pageSize ?? structuredWorkspaceDefaultPageSize;
+	const slotPages = slotEntries.map((entries, slotIndex) =>
+		flowCollectionGroups(
+			document,
+			groupCollectionCards(entries, groupBy, collection.groupOrder ?? []),
+			pageSize,
+			slotIndex,
+		),
+	);
+	const pageCount = Math.max(1, ...slotPages.map((pages) => pages.length));
+	const pages: string[] = [];
+	for (let pageIndex = 0; pageIndex < pageCount; pageIndex += 1) {
+		for (const [slotIndex, slot] of slots.entries()) {
+			slot.replaceChildren(...(slotPages[slotIndex]?.[pageIndex] ?? []));
+		}
+		pages.push(document.body.innerHTML);
+	}
+	return pages;
+}
+
+function collectionCardEntries(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	collection: StructuredWorkspaceCollectionRepresentation,
+	document: ReturnType<typeof parseHTML>["document"],
+	slot: HTMLElement,
+	slotIndex: number,
+	items: StructuredWorkspaceItemView[],
+): CollectionCardEntry[] {
+	const bindingId = slot.getAttribute("data-maket-structured-items") ?? "";
+	const filter = parseItemFilter(
+		slot.getAttribute("data-maket-structured-filter"),
+	);
+	const entries: CollectionCardEntry[] = [];
+	for (const item of items) {
+		if (bindingId && item.bindingId !== bindingId) continue;
+		if (filter && String(item.data[filter.field]) !== filter.value) continue;
+		const binding = collection.bindings[item.bindingId];
+		if (!binding?.compactTemplateDocumentId) continue;
+		const compact = requiredDocument(
+			deps.documents,
+			binding.compactTemplateDocumentId,
+			"compact template",
+		);
+		const schema = structuredWorkspaceBindingSchema(
+			workspace.dataSchema,
+			binding,
+		);
+		const cards = compact.pages.flatMap((page, pageIndex) =>
+			page.html || page.jsonForms
+				? [
+						renderCompactCard(
+							document,
+							page,
+							item,
+							schema,
+							`${slotIndex}-${pageIndex}`,
+						),
+					]
+				: [],
+		);
+		entries.push({ item, cards });
+	}
+	return entries;
+}
+
+function groupCollectionCards(
+	entries: CollectionCardEntry[],
+	groupBy: string,
+	groupOrder: StructuredWorkspaceGroupValue[],
+): CollectionCardGroup[] {
+	const groups = new Map<string, CollectionCardGroup>();
+	for (const value of groupOrder) {
+		groups.set(groupKey(value), { label: groupLabel(value), entries: [] });
+	}
+	for (const entry of entries) {
+		const value = groupValue(entry.item.data, groupBy);
+		const key = groupKey(value);
+		const group = groups.get(key) ?? { label: groupLabel(value), entries: [] };
+		group.entries.push(entry);
+		groups.set(key, group);
+	}
+	return [...groups.values()].filter((group) => group.entries.length > 0);
+}
+
+function groupValue(data: Record<string, unknown>, groupBy: string): unknown {
+	try {
+		return readJsonPointer(data, groupBy) ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function groupKey(value: unknown): string {
+	return JSON.stringify(value ?? null);
+}
+
+function groupLabel(value: unknown): string {
+	if (value === null || value === undefined || value === "") return "—";
+	return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function flowCollectionGroups(
+	document: ReturnType<typeof parseHTML>["document"],
+	groups: CollectionCardGroup[],
+	pageSize: number,
+	slotIndex: number,
+): HTMLElement[][] {
+	const pages: HTMLElement[][] = [];
+	let current: HTMLElement[] = [];
+	let used = 0;
+	for (const [groupIndex, group] of groups.entries()) {
+		const cards = group.entries.flatMap((entry) => entry.cards);
+		let index = 0;
+		while (index < cards.length) {
+			if (used === pageSize) {
+				pages.push(current);
+				current = [];
+				used = 0;
+			}
+			const taken = cards.slice(index, index + pageSize - used);
+			current.push(
+				collectionGroupHeader(document, group, {
+					id: `structured-group-${slotIndex}-${groupIndex}`,
+					count: cards.length,
+					continued: index > 0,
+				}),
+				...taken,
+			);
+			used += taken.length;
+			index += taken.length;
+		}
+	}
+	if (current.length > 0) pages.push(current);
+	return pages;
+}
+
+function collectionGroupHeader(
+	document: ReturnType<typeof parseHTML>["document"],
+	group: CollectionCardGroup,
+	options: { id: string; count: number; continued: boolean },
+): HTMLElement {
+	const header = document.createElement("header");
+	header.setAttribute("data-id", options.id);
+	header.setAttribute("data-maket-structured-group", group.label);
+	if (options.continued) {
+		header.setAttribute("data-maket-structured-group-continued", "");
+	}
+	header.setAttribute("style", "grid-column:1 / -1;flex:0 0 100%");
+	const label = document.createElement("span");
+	label.setAttribute("data-maket-structured-group-label", "");
+	label.textContent = group.label;
+	const count = document.createElement("span");
+	count.setAttribute("data-maket-structured-group-count", "");
+	count.textContent = String(options.count);
+	header.append(label, document.createTextNode(" "), count);
+	return header;
 }
 
 function renderCompactCard(

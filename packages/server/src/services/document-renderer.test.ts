@@ -146,9 +146,17 @@ describe("DocumentRenderer", () => {
 			structuredWorkspaces: { renderCollection },
 		});
 
-		expect(renderer.statePages(collection, [""])).toEqual([
-			{ index: 0, html: "<article>Updated card</article>" },
-		]);
+		expect(renderer.statePages(collection, [""])).toEqual({
+			pages: [
+				{
+					index: 0,
+					id: "board",
+					name: "Board",
+					html: "<article>Updated card</article>",
+				},
+			],
+			pageCount: 1,
+		});
 		expect(renderCollection).toHaveBeenCalledWith("delivery", "backlog");
 		expect(renderPages).not.toHaveBeenCalled();
 	});

@@ -1,5 +1,5 @@
 import Ajv from "ajv";
-import { readJsonPointer } from "./json-patch.js";
+import { parseJsonPointer, readJsonPointer } from "./json-patch.js";
 
 export type StructuredWorkspaceDataSchema = Record<string, unknown>;
 
@@ -9,11 +9,24 @@ export interface StructuredWorkspaceTemplateBinding {
 	detailTemplateDocumentId: string;
 }
 
+export type StructuredWorkspaceGroupValue = string | number | boolean | null;
+
 export interface StructuredWorkspaceCollectionRepresentation {
 	name: string;
 	collectionTemplateDocumentId: string;
 	bindings: Record<string, StructuredWorkspaceTemplateBinding>;
+	/** JSON Pointer into item data; cards are laid out group by group and
+	 * flow onto as many collection pages as needed. */
+	groupBy?: string;
+	/** Group values placed first, in this order; other groups follow in order
+	 * of first appearance. */
+	groupOrder?: StructuredWorkspaceGroupValue[];
+	/** Cards per collection page when grouping (default 24). */
+	pageSize?: number;
 }
+
+export const structuredWorkspaceDefaultPageSize = 24;
+export const structuredWorkspaceMaxPageSize = 500;
 
 export interface StructuredWorkspaceRepresentationSchema {
 	version: 1;
@@ -120,6 +133,7 @@ function validateCollectionRepresentations(
 				`Collection "${collectionId}" requires a collection template document.`,
 			);
 		}
+		issues.push(...validateCollectionGrouping(collectionId, collection));
 		const bindings = Object.entries(collection.bindings ?? {});
 		if (bindings.length === 0) {
 			issues.push(
@@ -138,6 +152,63 @@ function validateCollectionRepresentations(
 		}
 	}
 	return issues;
+}
+
+function validateCollectionGrouping(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): string[] {
+	const issues: string[] = [];
+	if (collection.groupBy !== undefined) {
+		try {
+			if (parseJsonPointer(collection.groupBy).length === 0) {
+				issues.push(
+					`Collection "${collectionId}" groupBy must point inside the item data, for example "/status".`,
+				);
+			}
+		} catch {
+			issues.push(
+				`Collection "${collectionId}" groupBy must be a JSON Pointer into the item data, for example "/status".`,
+			);
+		}
+	}
+	if (collection.groupOrder !== undefined) {
+		if (collection.groupBy === undefined) {
+			issues.push(`Collection "${collectionId}" groupOrder requires groupBy.`);
+		}
+		if (
+			!Array.isArray(collection.groupOrder) ||
+			!collection.groupOrder.every(isGroupValue)
+		) {
+			issues.push(
+				`Collection "${collectionId}" groupOrder must list string, number, boolean, or null values.`,
+			);
+		}
+	}
+	if (collection.pageSize !== undefined) {
+		if (collection.groupBy === undefined) {
+			issues.push(`Collection "${collectionId}" pageSize requires groupBy.`);
+		}
+		if (
+			!Number.isInteger(collection.pageSize) ||
+			collection.pageSize < 1 ||
+			collection.pageSize > structuredWorkspaceMaxPageSize
+		) {
+			issues.push(
+				`Collection "${collectionId}" pageSize must be an integer from 1 to ${structuredWorkspaceMaxPageSize}.`,
+			);
+		}
+	}
+	return issues;
+}
+
+function isGroupValue(value: unknown): value is StructuredWorkspaceGroupValue {
+	return (
+		value === null ||
+		typeof value === "string" ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	);
 }
 
 export function validateStructuredWorkspaceItemData(

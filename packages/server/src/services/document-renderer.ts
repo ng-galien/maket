@@ -1,8 +1,11 @@
-import type { DocumentStateClientView } from "@maket/shared";
+import type {
+	DocumentStateClientView,
+	StatePageProjection,
+} from "@maket/shared";
 import type { CollectionRenderOptions } from "../lib/collection-render.js";
 import type { Document } from "../types.js";
 import type { CollectionRenderer } from "./collection-renderer.js";
-import type { StatePageProjection, StateRenderer } from "./state-renderer.js";
+import type { StateRenderer } from "./state-renderer.js";
 import type { StructuredWorkspaces } from "./structured-workspaces.js";
 
 export interface DocumentRenderOptions {
@@ -15,10 +18,16 @@ export interface DocumentRenderOptions {
 	};
 }
 
+export interface StatePagesUpdate {
+	pages: StatePageProjection[];
+	/** Authoritative rendered page count when the page list itself changes. */
+	pageCount?: number;
+}
+
 export interface DocumentRenderer {
 	render(doc: Document, options?: DocumentRenderOptions): Document;
 	stateView(doc: Document): DocumentStateClientView | null;
-	statePages(doc: Document, paths: string[]): StatePageProjection[];
+	statePages(doc: Document, paths: string[]): StatePagesUpdate;
 }
 
 export interface DocumentRendererDeps {
@@ -65,13 +74,26 @@ export function createDocumentRenderer(
 		statePages(doc, paths) {
 			const ownership = doc.meta.structuredWorkspace;
 			if (ownership?.role === "collection") {
-				return deps.structuredWorkspaces
-					.renderCollection(ownership.workspaceId, ownership.collectionId)
-					.pages.map((page, index) => ({ index, html: page.html }));
+				const { pages } = deps.structuredWorkspaces.renderCollection(
+					ownership.workspaceId,
+					ownership.collectionId,
+				);
+				return {
+					pages: pages.map((page, index) => ({
+						index,
+						id: page.id,
+						name: page.name,
+						html: page.html,
+					})),
+					pageCount: pages.length,
+				};
 			}
-			return doc.dataModel === "state"
-				? deps.stateRenderer.renderPages(doc, paths)
-				: [];
+			return {
+				pages:
+					doc.dataModel === "state"
+						? deps.stateRenderer.renderPages(doc, paths)
+						: [],
+			};
 		},
 	};
 }

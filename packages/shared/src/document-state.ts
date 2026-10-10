@@ -1,6 +1,11 @@
 import Ajv from "ajv";
 import Mustache from "mustache";
 import {
+	assertStateAttributePlacement,
+	finalizeStateAttributeValues,
+	markStateAttributeValue,
+} from "./document-state-attributes.js";
+import {
 	appendJsonPointer,
 	isTerminalJsonValue,
 	parseJsonPointer,
@@ -98,7 +103,9 @@ export function renderDocumentStateText(
 	}
 	const dependencies = new Set<string>();
 	const frames: RenderFrame[] = [{ value: data, pointer: "" }];
-	const html = renderTokens(tokens, frames, template, dependencies, options);
+	const html = finalizeStateAttributeValues(
+		renderTokens(tokens, frames, template, dependencies, options),
+	);
 	const hydrated = hydrateSelectOptions(html, data, options.schema);
 	return {
 		html: hydrated,
@@ -188,7 +195,10 @@ function renderTokens(
 		}
 		const resolved = resolveTemplateReference(name, frames);
 		if (kind === "name") {
-			output += renderValue(token, resolved);
+			const value = renderValue(token, resolved);
+			output += isInsideHtmlTag(template, token[2])
+				? markStateAttributeValue(value)
+				: value;
 			continue;
 		}
 		if (kind === "#") {
@@ -1036,12 +1046,12 @@ function validateTemplateTokens(
 		if (kind === "text" || kind === "!") continue;
 		if (kind === "name") {
 			assertStateReference(name, inStateScope, false);
-			assertTemplatePlacement(template, token[2]);
+			assertTemplatePlacement(template, token[2], true);
 			continue;
 		}
 		if (kind === "#" || kind === "^") {
 			assertStateReference(name, inStateScope, true);
-			assertTemplatePlacement(template, token[2]);
+			assertTemplatePlacement(template, token[2], false);
 			validateTemplateTokens(
 				sectionChildren(token),
 				kind === "#" ? true : inStateScope,
@@ -1067,11 +1077,19 @@ function assertStateReference(
 	);
 }
 
-function assertTemplatePlacement(template: string, position: number): void {
+function assertTemplatePlacement(
+	template: string,
+	position: number,
+	value: boolean,
+): void {
 	if (isInsideHtmlTag(template, position)) {
-		throw new Error(
-			"Document state values must be placed in HTML content, not attributes.",
-		);
+		if (!value) {
+			throw new Error(
+				"Document state sections must be placed in HTML content, not inside a tag.",
+			);
+		}
+		assertStateAttributePlacement(template, position);
+		return;
 	}
 	if (
 		isInsideElementContent(template, position, "style") ||
@@ -1099,10 +1117,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Whether `position` sits inside a tag, skipping comments and quoted
+ * attribute values that contain `>`. */
 function isInsideHtmlTag(template: string, position: number): boolean {
-	return (
-		template.lastIndexOf("<", position) > template.lastIndexOf(">", position)
-	);
+	let inTag = false;
+	let quote: '"' | "'" | null = null;
+	let index = 0;
+	while (index < position) {
+		const character = template[index];
+		if (!inTag) {
+			if (template.startsWith("<!--", index)) {
+				const end = template.indexOf("-->", index + 4);
+				if (end < 0 || end + 3 > position) return false;
+				index = end + 3;
+				continue;
+			}
+			if (character === "<") inTag = true;
+		} else if (quote) {
+			if (character === quote) quote = null;
+		} else if (character === '"' || character === "'") {
+			quote = character;
+		} else if (character === ">") {
+			inTag = false;
+		}
+		index += 1;
+	}
+	return inTag;
 }
 
 function isInsideElementContent(
