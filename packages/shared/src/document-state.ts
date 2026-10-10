@@ -81,6 +81,9 @@ const flowExcludedElements = ["svg", "select", "textarea", "title"];
 export const stateBindingAttribute = "data-maket-bind";
 export const stateBindingPathAttribute = "data-maket-path";
 export const stateBindingTypeAttribute = "data-maket-type";
+/** On a bound `<select>`: the state list its options come from. */
+export const stateOptionsAttribute = "data-maket-options";
+const stateOptionsPathAttribute = "data-maket-options-path";
 /** On a bound `<button type="button">`: the value a click writes. */
 export const stateActionValueAttribute = "data-maket-value";
 
@@ -418,6 +421,16 @@ function validateBindingTagAgainstSchema(
 		return;
 	}
 	if (tagName !== "select") return;
+	const optionsExpression = readHtmlAttribute(tag, stateOptionsAttribute);
+	if (optionsExpression !== null) {
+		assertOptionListSchema(optionsExpression, frames);
+		if (!findClosingSelect(html, tagEnd + 1)) {
+			throw new Error(
+				`Select binding "${expression}" must have a closing </select> tag.`,
+			);
+		}
+		return;
+	}
 	const close = findClosingSelect(html, tagEnd + 1);
 	if (!close) {
 		throw new Error(
@@ -494,9 +507,12 @@ function assertSupportedSchemaBindingControl(
 				`Select binding "${expression}" cannot use multiple; one terminal string is required.`,
 			);
 		}
-		if (type !== "string" || !schemaStringEnum(targetSchema)) {
+		const listed = readHtmlAttribute(tag, stateOptionsAttribute) !== null;
+		if (type !== "string" || (!listed && !schemaStringEnum(targetSchema))) {
 			throw new Error(
-				`Select binding "${expression}" requires a string state value constrained by a string enum.`,
+				listed
+					? `Select binding "${expression}" with ${stateOptionsAttribute} requires a string state value.`
+					: `Select binding "${expression}" requires a string state value constrained by a string enum.`,
 			);
 		}
 		return;
@@ -794,6 +810,17 @@ function hydrateBindingTag(
 		stateBindingPathAttribute,
 		resolved.pointer,
 	);
+	const optionsExpression =
+		tagName === "select" ? readHtmlAttribute(tag, stateOptionsAttribute) : null;
+	if (optionsExpression !== null) {
+		const list = resolveOptionList(optionsExpression, frames);
+		dependencies.add(list.pointer);
+		hydrated = setHtmlAttribute(
+			hydrated,
+			stateOptionsPathAttribute,
+			list.pointer,
+		);
+	}
 	hydrated = setHtmlAttribute(hydrated, stateBindingTypeAttribute, type);
 	if (tagName === "input" && readControlType(tag) === "checkbox") {
 		hydrated = removeHtmlAttribute(hydrated, "checked");
@@ -846,6 +873,13 @@ function assertSupportedBindingControl(
 			);
 		}
 		const enumValues = schemaStringEnum(targetSchema);
+		const listed = readHtmlAttribute(tag, stateOptionsAttribute) !== null;
+		if (listed && (type !== "string" || typeof value !== "string")) {
+			throw new Error(
+				`Select binding "${expression}" with ${stateOptionsAttribute} requires a string state value.`,
+			);
+		}
+		if (listed) return;
 		if (type !== "string" || typeof value !== "string" || !enumValues) {
 			throw new Error(
 				`Select binding "${expression}" requires a string state value constrained by a string enum.`,
@@ -901,6 +935,8 @@ function readControlType(tag: string): string | null {
 	return readHtmlAttribute(tag, "type")?.toLowerCase() ?? null;
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Local HTML tokenizer pass: rewrites the options of bound selects with this module's scanning helpers.
 function hydrateSelectOptions(
 	html: string,
 	data: DocumentStateData,
@@ -935,6 +971,20 @@ function hydrateSelectOptions(
 			);
 		}
 		const value = readJsonPointer(data, pointer);
+		const optionsPointer = readHtmlAttribute(
+			opening,
+			stateOptionsPathAttribute,
+		);
+		if (optionsPointer !== null) {
+			output += html.slice(cursor, end + 1);
+			output += listedOptionTags(
+				readJsonPointer(data, optionsPointer),
+				typeof value === "string" ? value : "",
+			);
+			output += html.slice(close.start, close.end + 1);
+			cursor = close.end + 1;
+			continue;
+		}
 		const enumValues = schemaStringEnum(
 			schema ? schemaAtPointer(schema, pointer) : undefined,
 		);
@@ -1005,6 +1055,75 @@ function findClosingElement(
 	if (!match) return null;
 	const start = from + match.index;
 	return { start, end: start + match[0].length - 1 };
+}
+
+interface OptionListEntry {
+	value: string;
+	label: string;
+}
+
+/** Entries of a state option list: strings, or objects with a string
+ * `value` and an optional string `label`. */
+function optionListEntries(list: unknown): OptionListEntry[] {
+	if (!Array.isArray(list)) {
+		throw new Error(`${stateOptionsAttribute} must name a state list.`);
+	}
+	return list.map((entry) => {
+		if (typeof entry === "string") return { value: entry, label: entry };
+		if (
+			isRecord(entry) &&
+			typeof entry.value === "string" &&
+			(entry.label === undefined || typeof entry.label === "string")
+		) {
+			return { value: entry.value, label: entry.label ?? entry.value };
+		}
+		throw new Error(
+			`${stateOptionsAttribute} entries must be strings or objects with a string value and an optional string label.`,
+		);
+	});
+}
+
+function resolveOptionList(
+	expression: string,
+	frames: RenderFrame[],
+): { pointer: string } {
+	assertStateReference(expression, frames.length > 1, false);
+	const resolved = resolveTemplateReference(expression, frames);
+	if (!resolved.found) {
+		throw new Error(
+			`${stateOptionsAttribute} "${expression}" could not be resolved.`,
+		);
+	}
+	optionListEntries(resolved.value);
+	return { pointer: resolved.pointer };
+}
+
+function assertOptionListSchema(
+	expression: string,
+	frames: SchemaFrame[],
+): void {
+	assertStateReference(expression, frames.length > 1, false);
+	const resolved = resolveSchemaReference(expression, frames);
+	if (!resolved.found || schemaType(resolved.schema) !== "array") {
+		throw new Error(
+			`${stateOptionsAttribute} "${expression}" must name a list declared by the state schema.`,
+		);
+	}
+}
+
+/** Options generated from a state list; a current value missing from the
+ * list keeps its own selected option so the control never shows another. */
+function listedOptionTags(list: unknown, selected: string): string {
+	const entries = optionListEntries(list);
+	const options = entries.some((entry) => entry.value === selected)
+		? entries
+		: [{ value: selected, label: selected }, ...entries];
+	return options
+		.map(
+			(entry) =>
+				`<option value="${escapeAttribute(entry.value)}"${entry.value === selected ? " selected" : ""}>${Mustache.escape(entry.label)}</option>`,
+		)
+		.join("");
 }
 
 function collectBindingPaths(html: string): string[] {
@@ -1141,6 +1260,7 @@ function schemaStringEnum(schema: unknown): string[] | null {
 const reservedBindingAttributes = [
 	stateBindingPathAttribute,
 	stateBindingTypeAttribute,
+	stateOptionsPathAttribute,
 	"data-maket-pending",
 	"data-maket-error",
 	"data-maket-state-bind",

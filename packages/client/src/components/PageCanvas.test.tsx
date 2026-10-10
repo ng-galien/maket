@@ -1,4 +1,4 @@
-import type { Collection } from "@maket/shared";
+import { type Collection, renderDocumentStateText } from "@maket/shared";
 import {
 	act,
 	cleanup,
@@ -1833,5 +1833,46 @@ describe("PageCanvas bound action button", () => {
 		);
 		expect(sendPatch).toHaveBeenNthCalledWith(2, "alpha", "/priority", 9, 3);
 		expect(document.querySelector('[role="dialog"]')).toBeNull();
+	});
+});
+
+describe("PageCanvas select options from a state list", () => {
+	it("offers the options rendered from the state list and patches the chosen one", () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "listed-select-request");
+		const data = {
+			agent: "builder",
+			agents: [{ value: "builder", label: "Builder" }, { value: "reviewer" }],
+		};
+		const html = renderDocumentStateText(
+			'<select aria-label="Agent" data-maket-bind="state.agent" data-maket-options="state.agents"></select>',
+			data,
+		).html;
+		const doc = makeDoc(html);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data,
+					revision: 3,
+					createdAt: "2026-10-10T00:00:00.000Z",
+					templates: {},
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.pointerDown(document.querySelector("select") as Element, {
+			button: 0,
+		});
+		const listbox = screen.getByRole("listbox", { name: "Agent" });
+		expect(
+			within(listbox).getByRole("option", { name: "Builder" }),
+		).toHaveAttribute("aria-selected", "true");
+		fireEvent.click(within(listbox).getByRole("option", { name: "reviewer" }));
+
+		expect(sendPatch).toHaveBeenCalledWith("alpha", "/agent", 3, "reviewer");
 	});
 });

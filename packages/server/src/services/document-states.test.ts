@@ -517,4 +517,43 @@ describe("DocumentStates projection entries", () => {
 		expect(updated.data.done).toBe(true);
 		store.close();
 	});
+
+	it("re-renders a select whose options come from a state list when the list changes", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<select data-maket-bind="state.agent" data-maket-options="state.agents"></select>';
+		const listSchema = {
+			type: "object",
+			properties: {
+				agent: { type: "string" },
+				agents: { type: "array", items: { type: "string" } },
+			},
+			required: ["agent", "agents"],
+		};
+		states.initialize("audit", listSchema, {
+			agent: "builder",
+			agents: ["builder"],
+		});
+		const renderer = createStateRenderer({ documentStates: states });
+
+		states.patch("audit", 1, [
+			{ op: "add", path: "/agents/-", value: "reviewer" },
+		]);
+		expect(renderer.renderPages(doc, ["/agents/1"]).pages[0]?.html).toContain(
+			'<option value="reviewer">reviewer</option>',
+		);
+		const updated = states.patchTerminal("audit", 2, {
+			op: "replace",
+			path: "/agent",
+			value: "reviewer",
+		});
+
+		expect(updated.data.agent).toBe("reviewer");
+		expect(renderer.render(doc).pages[0]?.html).toContain(
+			'<option value="reviewer" selected>reviewer</option>',
+		);
+		store.close();
+	});
 });

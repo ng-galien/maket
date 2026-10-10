@@ -886,3 +886,71 @@ describe("bound action button", () => {
 		).toThrow(/data-maket-action="set" only/);
 	});
 });
+
+describe("select options from a state list", () => {
+	const listSchema = {
+		type: "object",
+		properties: {
+			agent: { type: "string" },
+			agents: {
+				type: "array",
+				items: {
+					type: "object",
+					properties: { value: { type: "string" }, label: { type: "string" } },
+				},
+			},
+			names: { type: "array", items: { type: "string" } },
+		},
+		required: ["agent", "agents", "names"],
+	};
+
+	it("generates the options of a bound select from a state list and selects the value", () => {
+		const rendered = renderDocumentStateText(
+			'<select data-id="agent" data-maket-bind="state.agent" data-maket-options="state.agents"><option value="ignored">Ignored</option></select>',
+			{
+				agent: "builder",
+				agents: [
+					{ value: "builder", label: "Maket <builder>" },
+					{ value: "reviewer" },
+				],
+				names: [],
+			},
+			{ schema: listSchema },
+		);
+
+		expect(rendered.html).toBe(
+			'<select data-id="agent" data-maket-bind="state.agent" data-maket-options="state.agents" data-maket-path="/agent" data-maket-options-path="/agents" data-maket-type="string"><option value="builder" selected>Maket &lt;builder&gt;</option><option value="reviewer">reviewer</option></select>',
+		);
+		expect(rendered.dependencies).toEqual(
+			expect.arrayContaining(["/agent", "/agents"]),
+		);
+	});
+
+	it("keeps a current value missing from the list as its own option", () => {
+		const rendered = renderDocumentStateText(
+			'<select data-maket-bind="state.agent" data-maket-options="state.names"></select>',
+			{ agent: "", agents: [], names: ["a", "b"] },
+			{ schema: listSchema },
+		);
+
+		expect(rendered.html).toContain(
+			'<option value="" selected></option><option value="a">a</option><option value="b">b</option>',
+		);
+	});
+
+	it("refuses an option list that is not a declared list of strings or value objects", () => {
+		expect(() =>
+			renderDocumentStateText(
+				'<select data-maket-bind="state.agent" data-maket-options="state.agent"></select>',
+				{ agent: "", agents: [], names: [] },
+				{ schema: listSchema },
+			),
+		).toThrow(/must name a list declared by the state schema/);
+		expect(() =>
+			renderDocumentStateText(
+				'<select data-maket-bind="state.agent" data-maket-options="state.names"></select>',
+				{ agent: "", agents: [], names: [3] },
+			),
+		).toThrow(/entries must be strings or objects/);
+	});
+});
