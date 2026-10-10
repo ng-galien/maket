@@ -321,13 +321,13 @@ describe("DocumentStates", () => {
 		states.initialize("audit", schema, { title: "Audit", done: false });
 		const renderer = createStateRenderer({ documentStates: states });
 
-		expect(renderer.renderPages(doc, ["/done"])).toEqual([
+		expect(renderer.renderPages(doc, ["/done"]).pages).toEqual([
 			expect.objectContaining({
 				index: 1,
 				html: expect.stringContaining('data-maket-path="/done"'),
 			}),
 		]);
-		expect(renderer.renderPages(doc, ["/title"])).toEqual([
+		expect(renderer.renderPages(doc, ["/title"]).pages).toEqual([
 			{ index: 0, html: "<h1>Audit</h1>" },
 		]);
 		store.close();
