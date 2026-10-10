@@ -81,6 +81,28 @@ const flowExcludedElements = ["svg", "select", "textarea", "title"];
 export const stateBindingAttribute = "data-maket-bind";
 export const stateBindingPathAttribute = "data-maket-path";
 export const stateBindingTypeAttribute = "data-maket-type";
+/** On a bound `<button type="button">`: the value a click writes. */
+export const stateActionValueAttribute = "data-maket-value";
+
+/**
+ * The value a bound action button declares, typed as its binding: the text
+ * itself for a string, a finite number, `true` or `false`, or `null`.
+ * Undefined when the text does not fit the type.
+ */
+export function parseDeclaredStateValue(
+	raw: string,
+	type: DocumentStateTerminalType,
+): string | number | boolean | null | undefined {
+	if (type === "string") return raw;
+	if (type === "number") {
+		const value = raw.trim() === "" ? Number.NaN : Number(raw);
+		return Number.isFinite(value) ? value : undefined;
+	}
+	if (type === "boolean") {
+		return raw === "true" ? true : raw === "false" ? false : undefined;
+	}
+	return raw === "null" ? null : undefined;
+}
 
 export type DocumentStateTerminalType =
 	| "string"
@@ -479,7 +501,10 @@ function assertSupportedSchemaBindingControl(
 		}
 		return;
 	}
-	if (tagName === "button" && controlType === "button") return;
+	if (tagName === "button" && controlType === "button") {
+		assertDeclaredActionValue(tag, expression, type, targetSchema);
+		return;
+	}
 	throw new Error(
 		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <textarea>, <select>, and <button type="button"> only.`,
 	);
@@ -828,10 +853,48 @@ function assertSupportedBindingControl(
 		}
 		return;
 	}
-	if (tagName === "button" && controlType === "button") return;
+	if (tagName === "button" && controlType === "button") {
+		assertDeclaredActionValue(tag, expression, type, targetSchema);
+		return;
+	}
 	throw new Error(
 		`${stateBindingAttribute} supports <input type="checkbox">, <input type="text">, <textarea>, <select>, and <button type="button"> only.`,
 	);
+}
+
+/** A bound button that declares `data-maket-value` writes that value on
+ * click; the value must fit the bound type and its string enum. */
+function assertDeclaredActionValue(
+	tag: string,
+	expression: string,
+	type: DocumentStateTerminalType,
+	targetSchema: unknown,
+): void {
+	const raw = readHtmlAttribute(tag, stateActionValueAttribute);
+	const action = readHtmlAttribute(tag, "data-maket-action");
+	if (raw === null) {
+		if (action !== null) {
+			throw new Error(
+				`Button binding "${expression}" with data-maket-action="set" requires ${stateActionValueAttribute}.`,
+			);
+		}
+		return;
+	}
+	if (action !== null && action !== "set") {
+		throw new Error(
+			`Button binding "${expression}" supports data-maket-action="set" only.`,
+		);
+	}
+	const value = parseDeclaredStateValue(raw, type);
+	const enumValues = schemaStringEnum(targetSchema);
+	if (
+		value === undefined ||
+		(typeof value === "string" && enumValues && !enumValues.includes(value))
+	) {
+		throw new Error(
+			`Button binding "${expression}" declares ${stateActionValueAttribute}="${raw}", which is not a valid ${type} value for it.`,
+		);
+	}
 }
 
 function readControlType(tag: string): string | null {

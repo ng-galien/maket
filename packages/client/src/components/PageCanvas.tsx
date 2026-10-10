@@ -1,8 +1,10 @@
 import {
 	type Collection,
 	markCollectionPlaceholders,
+	parseDeclaredStateValue,
 	readJsonPointer,
 	resolveCollectionText,
+	stateActionValueAttribute,
 } from "@maket/shared";
 import { MessageCircle, Pencil } from "lucide-react";
 import {
@@ -679,6 +681,41 @@ export const PageCanvas = memo(function PageCanvas({
 		[stateView?.data],
 	);
 
+	const writeDeclaredStateValue = useCallback(
+		(target: HTMLElement) => {
+			if (!stateView || !canUseStateControls) return;
+			const pointer = target.dataset.maketPath;
+			const type = target.dataset.maketType;
+			const raw = target.getAttribute(stateActionValueAttribute);
+			if (
+				!pointer ||
+				raw === null ||
+				(type !== "string" &&
+					type !== "number" &&
+					type !== "boolean" &&
+					type !== "null")
+			)
+				return;
+			const value = parseDeclaredStateValue(raw, type);
+			if (value === undefined) return;
+			if (activePolicy.stateControls === "local") {
+				setLocalStateValues((current) => ({ ...current, [pointer]: value }));
+				return;
+			}
+			if (!canPersistState || stateDocumentPending) return;
+			if (readJsonPointer(stateView.data, pointer) === value) return;
+			sendStateValuePatch(doc.name, pointer, stateView.revision, value);
+		},
+		[
+			activePolicy.stateControls,
+			canPersistState,
+			canUseStateControls,
+			doc.name,
+			stateDocumentPending,
+			stateView,
+		],
+	);
+
 	const commitStateStringValue = useCallback(
 		(pointer: string, value: string): "sent" | "unchanged" | "restored" => {
 			if (!stateView) return "restored";
@@ -838,6 +875,10 @@ export const PageCanvas = memo(function PageCanvas({
 			event.preventDefault();
 			event.stopPropagation();
 			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			if (binding.hasAttribute(stateActionValueAttribute)) {
+				writeDeclaredStateValue(binding);
+				return;
+			}
 			activateStateButton(binding);
 		};
 		const onChange = (event: Event) => {
@@ -941,6 +982,7 @@ export const PageCanvas = memo(function PageCanvas({
 	}, [
 		activateStateEnum,
 		activateStateButton,
+		writeDeclaredStateValue,
 		activePolicy.stateControls,
 		authoritativeStateValue,
 		canPersistState,

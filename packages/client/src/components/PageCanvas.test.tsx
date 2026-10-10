@@ -1798,3 +1798,40 @@ describe("PageCanvas bound multiline field", () => {
 		);
 	});
 });
+
+describe("PageCanvas bound action button", () => {
+	it("writes the declared value at the revision read instead of opening the value editor", async () => {
+		const sendPatch = vi
+			.spyOn(ws, "sendStateValuePatch")
+			.mockImplementation(() => "action-request");
+		const doc = makeDoc(
+			'<button type="button" data-id="relaunch" data-maket-action="set" data-maket-bind="state.instruction" data-maket-value="Relancer l\'agent" data-maket-path="/instruction" data-maket-type="string">Relancer</button><button type="button" data-id="priority" data-maket-bind="state.priority" data-maket-value="3" data-maket-path="/priority" data-maket-type="number">Priorité 3</button>',
+		);
+		doc.dataModel = "state";
+		useStore.setState({
+			documentStates: {
+				[doc.name]: {
+					schema: { type: "object" },
+					data: { instruction: "", priority: 1 },
+					revision: 9,
+					createdAt: "2026-10-10T00:00:00.000Z",
+					templates: {},
+				},
+			},
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		fireEvent.click(screen.getByText("Relancer"));
+		fireEvent.click(screen.getByText("Priorité 3"));
+
+		expect(sendPatch).toHaveBeenNthCalledWith(
+			1,
+			"alpha",
+			"/instruction",
+			9,
+			"Relancer l'agent",
+		);
+		expect(sendPatch).toHaveBeenNthCalledWith(2, "alpha", "/priority", 9, 3);
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+	});
+});

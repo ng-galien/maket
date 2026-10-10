@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	parseDeclaredStateValue,
 	renderDocumentStateText,
 	resolveDocumentStateText,
 	validateDocumentState,
@@ -828,5 +829,60 @@ describe("bound multiline field", () => {
 				{ schema: noteSchema },
 			),
 		).toThrow(/closing <\/textarea>/);
+	});
+});
+
+describe("bound action button", () => {
+	const actionSchema = {
+		type: "object",
+		properties: {
+			instruction: { type: "string" },
+			priority: { type: "number" },
+			status: { type: "string", enum: ["open", "closed"] },
+		},
+		required: ["instruction", "priority", "status"],
+	};
+	const data = { instruction: "", priority: 1, status: "open" };
+
+	it("types a declared value as its binding", () => {
+		expect(parseDeclaredStateValue("Relancer", "string")).toBe("Relancer");
+		expect(parseDeclaredStateValue("2.5", "number")).toBe(2.5);
+		expect(parseDeclaredStateValue("", "number")).toBeUndefined();
+		expect(parseDeclaredStateValue("true", "boolean")).toBe(true);
+		expect(parseDeclaredStateValue("yes", "boolean")).toBeUndefined();
+		expect(parseDeclaredStateValue("null", "null")).toBeNull();
+	});
+
+	it("accepts a button declaring a value that fits its binding", () => {
+		const rendered = renderDocumentStateText(
+			'<button type="button" data-maket-action="set" data-maket-bind="state.instruction" data-maket-value="Relancer l\'agent">Relancer</button><button type="button" data-maket-bind="state.status" data-maket-value="closed">Clore</button>',
+			data,
+			{ schema: actionSchema },
+		);
+
+		expect(rendered.bindingPaths).toEqual(["/instruction", "/status"]);
+		expect(rendered.html).toContain(
+			'data-maket-value="Relancer l\'agent" data-maket-path="/instruction" data-maket-type="string"',
+		);
+	});
+
+	it("refuses a declared value that does not fit and an action other than set", () => {
+		const render = (html: string) =>
+			renderDocumentStateText(html, data, { schema: actionSchema });
+		expect(() =>
+			render(
+				'<button type="button" data-maket-bind="state.priority" data-maket-value="high">x</button>',
+			),
+		).toThrow(/not a valid number value/);
+		expect(() =>
+			render(
+				'<button type="button" data-maket-bind="state.status" data-maket-value="archived">x</button>',
+			),
+		).toThrow(/not a valid string value/);
+		expect(() =>
+			render(
+				'<button type="button" data-maket-action="open-document" data-maket-bind="state.instruction" data-maket-value="x">x</button>',
+			),
+		).toThrow(/data-maket-action="set" only/);
 	});
 });

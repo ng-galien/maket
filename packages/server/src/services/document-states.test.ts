@@ -494,4 +494,27 @@ describe("DocumentStates projection entries", () => {
 		);
 		store.close();
 	});
+
+	it("accepts the value a bound action button declares and refuses a button whose value does not fit", () => {
+		const { store, doc, states } = fixture();
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<button type="button" data-maket-action="set" data-maket-bind="state.done" data-maket-value="maybe">Done</button>';
+		expect(() =>
+			states.initialize("audit", schema, { title: "Audit", done: false }),
+		).toThrow(/not a valid boolean value/);
+
+		page.html =
+			'<button type="button" data-maket-action="set" data-maket-bind="state.done" data-maket-value="true">Done</button>';
+		states.initialize("audit", schema, { title: "Audit", done: false });
+		const updated = states.patchTerminal("audit", 1, {
+			op: "replace",
+			path: "/done",
+			value: true,
+		});
+
+		expect(updated.data.done).toBe(true);
+		store.close();
+	});
 });
