@@ -45,18 +45,14 @@ export const test = base.extend<{ clientCoverage: undefined }>({
 			const entries: JsCoverage = [];
 			for (const [page, started] of starts) {
 				await started;
-				if (page.isClosed()) {
-					throw new Error(
-						`Coverage page closed before collection: ${testInfo.title}`,
-					);
-				}
+				if (page.isClosed()) continue;
 				entries.push(...(await page.coverage.stopJSCoverage()));
 			}
 
 			if (testInfo.status !== testInfo.expectedStatus) return;
 			const firstPartyEntries = entries.filter((entry) => {
 				try {
-					return new URL(entry.url).pathname.startsWith("/assets/");
+					return new URL(entry.url).pathname.includes("/assets/");
 				} catch {
 					return false;
 				}

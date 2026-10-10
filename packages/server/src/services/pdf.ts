@@ -204,6 +204,8 @@ async function renderPdfDocument(
 }
 
 /** Measure each page alone on the preview (snapshot) surface. */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Browser measurement loop: drives one render page through the preview surface helpers, not a Document method.
 async function measurePreviewFrames(
 	browser: RenderBrowser,
 	viewport: { width: number; height: number },

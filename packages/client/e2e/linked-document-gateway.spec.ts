@@ -123,7 +123,6 @@ test("reads a linked document through the prefixed HTTP and WebSocket gateway", 
 		).toBe(true);
 		expect(failedResponses).toEqual([]);
 	} finally {
-		await page.close();
 		wsServer.close();
 		gateway.close();
 	}

@@ -113,12 +113,15 @@ export function WorkspaceHeader({
 							position="top"
 							onDocumentChange={setFocusedDoc}
 							onCloseDocument={(name) => closeWorkspaceDocuments([name])}
-							onCloseOthers={() =>
-								closeWorkspaceDocuments(
-									openDocumentNames.filter((name) => name !== focusedDoc.name),
-								)
-							}
-							onCloseAll={() => closeWorkspaceDocuments(openDocumentNames)}
+							bulkClose={{
+								others: () =>
+									closeWorkspaceDocuments(
+										openDocumentNames.filter(
+											(name) => name !== focusedDoc.name,
+										),
+									),
+								all: () => closeWorkspaceDocuments(openDocumentNames),
+							}}
 							variant="header"
 							className="min-w-0 max-w-[min(32vw,28rem)] shrink"
 							title={t("reader_document")}

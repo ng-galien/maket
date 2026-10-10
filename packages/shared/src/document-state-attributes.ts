@@ -170,6 +170,8 @@ const reservedOnTemplatedTag = [
  * `style` property) are accepted, and the static part of that attribute must
  * not contain an active construct.
  */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Template placement check: reads the tag around a position with the HTML scanning helpers it shares with document-state rendering.
 export function assertStateAttributePlacement(
 	template: string,
 	position: number,

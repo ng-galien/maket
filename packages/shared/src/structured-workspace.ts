@@ -114,6 +114,8 @@ export function validateStructuredWorkspaceDefinition(
 	return issues;
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Definition validation: checks each collection against the schema and pointer helpers that own those formats.
 function validateCollectionRepresentations(
 	dataSchema: StructuredWorkspaceDataSchema,
 	collectionsById: StructuredWorkspaceRepresentationSchema["collections"],

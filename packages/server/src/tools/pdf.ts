@@ -49,53 +49,53 @@ const DESCRIPTION = [
 ].join("\n");
 
 export function createMaketPdfTool(deps: PdfDeps): ToolHandler {
-	const { documents, pdfService, config } = deps;
 	return {
 		metadata: {
 			name: "maket_pdf",
 			description: DESCRIPTION,
 			schema: ExportSchema,
 		},
-		handler: async (rawArgs) => {
-			const args = ExportSchema.parse(rawArgs);
-			const doc = documents.resolveOrLoad(args.doc);
-			if (!doc) return text(`Document "${args.doc}" not found`, true);
-			try {
-				const { buffer, pageCount, mismatches } = await pdfService.render(
-					doc,
-					args.quality || "print",
-					args.rows || "preview",
-				);
-				const outPath = join(
-					config.EXPORTS_DIR,
-					`${safeFilename(doc.name)}.pdf`,
-				);
-				writeFileSync(outPath, buffer);
-				const summary = `PDF exported: ${outPath} (${Math.round(buffer.length / 1024)} KB, ${pageCount} page${pageCount > 1 ? "s" : ""})`;
-				if (mismatches.length === 0)
-					return text(`${summary}\nEvery page renders as its preview.`);
-				return text(
-					[
-						summary,
-						`${mismatches.length} page${mismatches.length > 1 ? "s render" : " renders"} differently in the PDF than in the preview:`,
-						...mismatches.map(
-							(m) =>
-								`  page ${m.page} "${m.name}": ${m.differences} element${m.differences > 1 ? "s differ" : " differs"} (${m.detail})`,
-						),
-					].join("\n"),
-					{
-						next: mismatches.map(
-							(m) =>
-								`maket_preview action=snapshot doc=${doc.name} page=${m.page}`,
-						),
-					},
-				);
-			} catch (e) {
-				const message = e instanceof Error ? e.message : String(e);
-				return text(`PDF export failed: ${message}`, true);
-			}
-		},
+		handler: (rawArgs) => handleMaketPdfTool(rawArgs, deps),
 	};
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP handlers are adapter boundaries: this one renders through the PDF service, writes the export file and reports preview mismatches.
+async function handleMaketPdfTool(rawArgs: unknown, deps: PdfDeps) {
+	const { documents, pdfService, config } = deps;
+	const args = ExportSchema.parse(rawArgs);
+	const doc = documents.resolveOrLoad(args.doc);
+	if (!doc) return text(`Document "${args.doc}" not found`, true);
+	try {
+		const { buffer, pageCount, mismatches } = await pdfService.render(
+			doc,
+			args.quality || "print",
+			args.rows || "preview",
+		);
+		const outPath = join(config.EXPORTS_DIR, `${safeFilename(doc.name)}.pdf`);
+		writeFileSync(outPath, buffer);
+		const summary = `PDF exported: ${outPath} (${Math.round(buffer.length / 1024)} KB, ${pageCount} page${pageCount > 1 ? "s" : ""})`;
+		if (mismatches.length === 0)
+			return text(`${summary}\nEvery page renders as its preview.`);
+		return text(
+			[
+				summary,
+				`${mismatches.length} page${mismatches.length > 1 ? "s render" : " renders"} differently in the PDF than in the preview:`,
+				...mismatches.map(
+					(m) =>
+						`  page ${m.page} "${m.name}": ${m.differences} element${m.differences > 1 ? "s differ" : " differs"} (${m.detail})`,
+				),
+			].join("\n"),
+			{
+				next: mismatches.map(
+					(m) => `maket_preview action=snapshot doc=${doc.name} page=${m.page}`,
+				),
+			},
+		);
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		return text(`PDF export failed: ${message}`, true);
+	}
 }
 
 export const pdfPack: ToolPack = {

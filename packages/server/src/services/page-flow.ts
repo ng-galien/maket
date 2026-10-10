@@ -197,13 +197,7 @@ export function createPageFlow(
 			if (request.full.lists.length === 0) return null;
 			const key = `${request.doc.name}\u0000${request.pageKey}`;
 			const charteCss = deps.documents.charteCss(request.doc as Document);
-			const signature = createHash("sha1")
-				.update(request.full.html)
-				.update("\u0000")
-				.update(JSON.stringify(request.doc.canvas))
-				.update("\u0000")
-				.update(charteCss)
-				.digest("hex");
+			const signature = flowSignature(request, charteCss);
 			const cached = plans.get(key);
 			if (cached?.signature === signature) return cached.pages;
 			const served = cached?.pages ?? null;
@@ -221,6 +215,16 @@ export function createPageFlow(
 			return measured;
 		},
 	};
+}
+
+function flowSignature(request: PageFlowRequest, charteCss: string): string {
+	return createHash("sha1")
+		.update(request.full.html)
+		.update("\u0000")
+		.update(JSON.stringify(request.doc.canvas))
+		.update("\u0000")
+		.update(charteCss)
+		.digest("hex");
 }
 
 // Planning loop: Chromium measures one candidate page per iteration.

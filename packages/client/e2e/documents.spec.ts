@@ -1004,7 +1004,9 @@ test.describe("Document library", () => {
 
 		await page.getByRole("button", { name: "Document", exact: true }).click();
 		await page
-			.getByRole("button", { name: /^(Close all|Tout fermer)$/i })
+			.getByRole("button", {
+				name: /^(Close all documents|Tout fermer)$/i,
+			})
 			.click();
 		await expect(
 			page.getByRole("button", {

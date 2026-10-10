@@ -79,9 +79,10 @@ process.stdout.write(
 
 function browserScriptPath(url) {
   try {
-    const pathname = decodeURIComponent(new URL(url).pathname).replace(/^\/+/, "");
-    if (!pathname.startsWith("assets/")) return null;
-    return path.join(PUBLIC_DIR, pathname);
+    const pathname = decodeURIComponent(new URL(url).pathname);
+    const assets = pathname.indexOf("/assets/");
+    if (assets < 0) return null;
+    return path.join(PUBLIC_DIR, pathname.slice(assets + 1));
   } catch {
     return null;
   }

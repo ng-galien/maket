@@ -490,6 +490,8 @@ interface CollectionPageSource {
  * at most `pageSize` cards when the collection is grouped; each such page then
  * flows onto as many continuation pages as its cards need once laid out.
  */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Collection page composition: assembles DOM slots, card groups and the page flow planner, each owning its part.
 function renderCollectionPage(
 	deps: StructuredWorkspacesDeps,
 	source: CollectionPageSource,
@@ -726,6 +728,8 @@ function flowCollectionGroups(
 	return pages;
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// DOM construction: builds one header element through the linkedom document API.
 function collectionGroupHeader(
 	document: ReturnType<typeof parseHTML>["document"],
 	labelText: string,

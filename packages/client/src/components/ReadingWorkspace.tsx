@@ -755,8 +755,7 @@ export function ReaderDocumentPicker({
 	position,
 	onDocumentChange,
 	onCloseDocument,
-	onCloseOthers,
-	onCloseAll,
+	bulkClose,
 	className = "",
 	title,
 	variant = "reader",
@@ -766,8 +765,8 @@ export function ReaderDocumentPicker({
 	position: "top" | "bottom";
 	onDocumentChange: (name: string) => void;
 	onCloseDocument?: (name: string) => void;
-	onCloseOthers?: () => void;
-	onCloseAll?: () => void;
+	/** Close every other document, or every document. */
+	bulkClose?: { others: () => void; all: () => void };
 	className?: string;
 	title?: string;
 	variant?: "reader" | "header";
@@ -817,8 +816,8 @@ export function ReaderDocumentPicker({
 					label={t("reader_document")}
 					variant={variant}
 					onCloseDocument={onCloseDocument}
-					onCloseOthers={onCloseOthers}
-					onCloseAll={onCloseAll}
+					onCloseOthers={bulkClose?.others}
+					onCloseAll={bulkClose?.all}
 				/>
 			)}
 		</div>

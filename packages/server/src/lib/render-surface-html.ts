@@ -56,6 +56,8 @@ const GLOBAL_AT_RULES = new Set([
 	"font-palette-values",
 ]);
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// CSS scoping pipeline: chains the PostCSS-backed rebase and prefix helpers of this module over one stylesheet.
 function scopedPageCss(css: string, scope: string): string {
 	const rebased = rebasePageRootSelectors(css);
 	try {
