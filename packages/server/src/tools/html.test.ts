@@ -1019,6 +1019,75 @@ describe("maket_html — action=check", () => {
 		store.close();
 	});
 
+	it("reports page links to a missing page", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const doc = makeDoc(
+			"d",
+			'<nav data-id="nav"><a data-id="to-p1" href="#page=1">P1</a><a data-id="to-summary" href="#page:Summary">Summary</a><a data-id="to-p4" href="#page=4">P4</a><a href="#page:Missing">x</a><a data-id="to-n" href="#page={{n}}">n</a></nav>',
+		);
+		doc.pages.push({ id: "summary", name: "Summary", elements: [], html: "" });
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "check", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+		const output = (res.content[0] as any).text as string;
+		expect(res.isError).toBeUndefined();
+		expect(output).toContain(
+			"⛔ page links: 3 link(s) target no page of this document (document has 2 page(s))",
+		);
+		expect(output).toContain(
+			'`#page={{n}}` on data-id="to-n" (Mustache is not accepted in a page link)',
+		);
+		expect(output).toContain('`#page=4` on data-id="to-p4"');
+		expect(output).toContain('`#page:Missing` on data-id="nav"');
+		expect(output).not.toContain("`#page=1`");
+		expect(output).not.toContain("`#page:Summary`");
+		expect(output).toContain("fix page links: to-p4, nav, to-n");
+		store.close();
+	});
+
+	it("refuses Mustache in a page link on set and patch", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", '<div data-id="root">x</div>'));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const set = await tool.handler(
+			{
+				action: "set",
+				doc: "d",
+				page: 1,
+				html: '<a data-id="next" href="#page={{ state.next }}">Next</a>',
+			},
+			NO_EXTRA,
+		);
+		expect(set.isError).toBe(true);
+		expect((set.content[0] as any).text).toContain(
+			'Mustache is not accepted in a page link:\n- `#page={{ state.next }}` on data-id="next"',
+		);
+		const patch = await tool.handler(
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [
+					{
+						id: "root",
+						insert: '<a data-id="by-name" href="#page:{{name}}">n</a>',
+					},
+				],
+			},
+			NO_EXTRA,
+		);
+		expect(patch.isError).toBe(true);
+		expect(documents.resolve("d")?.pages[0]?.html).toBe(
+			'<div data-id="root">x</div>',
+		);
+		store.close();
+	});
+
 	it("errors when the page has no html", async () => {
 		const { store, documents, layout, assets } = fixture();
 		store.saveDoc(makeDoc("d"));

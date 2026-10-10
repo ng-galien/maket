@@ -19,6 +19,11 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { checkCharteCompliance } from "../lib/charte-check.js";
+import {
+	brokenPageLinks,
+	formatPageLinkIssues,
+	templatedPageLinkError,
+} from "../lib/page-links.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateCharteToken } from "../services/assets.js";
@@ -450,7 +455,8 @@ const DESCRIPTION = [
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
-	"  check — measure layout against the canvas + declared `canvas.margins`; no side effects. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
+	"  check — measure layout against the canvas + declared `canvas.margins`, and report page links that target a missing page; no side effects. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
+	'Page links: <a href="#page=3"> (canonical, 1-based page number) or <a href="#page:Exact page name"> navigates to that page of the same document in Canvas, Reader and viewer, and becomes an internal link in print and PDF. In the authoring Canvas a plain click selects the link for editing; ⌘-click (Ctrl-click elsewhere) follows it. The href is a literal: set and patch refuse Mustache in a page link.',
 ].join("\n");
 
 export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
@@ -554,6 +560,8 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	}
 
 	const nextHtml = stripActiveHtml(normalizeImageSrc(args.html));
+	const pageLinkError = templatedPageLinkError(nextHtml);
+	if (pageLinkError) return text(pageLinkError, true);
 	const stateTemplateError = stateTemplateValidationError(doc, store, {
 		...page,
 		html: nextHtml,
@@ -619,6 +627,8 @@ async function runPatch(
 	const results = args.ops.map((op) => applyOp(op, root, charte));
 
 	const nextHtml = stripActiveHtml(normalizeImageSrc(root.innerHTML));
+	const pageLinkError = templatedPageLinkError(nextHtml);
+	if (pageLinkError) return text(pageLinkError, true);
 	const stateTemplateError = stateTemplateValidationError(doc, store, {
 		...page,
 		html: nextHtml,
@@ -678,6 +688,8 @@ function runGet(args: Args, page: Page): CallToolResult {
 	return text(html || "<!-- empty page -->");
 }
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP tool action `runCheck`: edge adapter over layout measurement and page-link validation.
 async function runCheck(
 	doc: Document,
 	page: Page,
@@ -686,8 +698,21 @@ async function runCheck(
 ): Promise<CallToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
 	const layoutResult = await layout.check(doc, page.html, pageIdx);
-	return text(layoutResult.text.trim(), {
-		next: layoutNextHints(layoutResult, doc.name, pageIdx + 1),
+	const linkIssues = brokenPageLinks(page.html, doc.pages);
+	const report = [layoutResult.text.trim()];
+	if (linkIssues.length > 0) {
+		report.push("", formatPageLinkIssues(linkIssues, doc.pages.length));
+	}
+	const layoutHints = layoutNextHints(layoutResult, doc.name, pageIdx + 1);
+	const linkHint =
+		linkIssues.length > 0
+			? [
+					`maket_html action=patch doc=${doc.name} page=${pageIdx + 1} ops=[...]  # fix page links: ${linkIssues.map((issue) => issue.elementId ?? issue.href).join(", ")}`,
+				]
+			: [];
+	const next = [...(layoutHints ?? []), ...linkHint];
+	return text(report.join("\n"), {
+		next: next.length > 0 ? next : undefined,
 	});
 }
 

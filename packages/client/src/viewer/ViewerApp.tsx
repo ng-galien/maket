@@ -211,6 +211,7 @@ function ViewerDocument({
 				embedded={options.embedded}
 				barPosition={options.embedded ? undefined : "bottom"}
 				onVisiblePage={handleVisiblePage}
+				onNavigatePage={showPage}
 				status={localStateStatus}
 			/>
 			{!options.embedded && (

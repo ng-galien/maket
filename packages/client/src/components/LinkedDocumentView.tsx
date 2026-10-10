@@ -1,9 +1,10 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
 import { ReaderSurface, scrollToReadingPage } from "./ReadingWorkspace";
+import { collectionPageViews } from "./WorkspaceDoc";
 
 /** A document-only entry point for a caller such as the TRUST mobile extension. */
 // This view is the client composition boundary between the linked route, Zustand and the existing reader.
@@ -19,6 +20,23 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 	const [timedOut, setTimedOut] = useState(false);
 	const summary = docList.find((entry) => entry.id === documentId);
 	const doc = [...docs.values()].find((entry) => entry.id === documentId);
+	const collections = useStore((state) => state.collections);
+	const pageLabel = t("page");
+	const rowLabel = t("collection_row_lower");
+	const pageTotal = useMemo(
+		() =>
+			doc
+				? collectionPageViews(
+						doc,
+						collections,
+						{},
+						{},
+						{ page: pageLabel, row: rowLabel },
+						"reader",
+					).length
+				: 0,
+		[collections, doc, pageLabel, rowLabel],
+	);
 
 	useEffect(() => {
 		const previous = useStore.getState().readOnly;
@@ -69,7 +87,7 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 		);
 	}
 	const showPage = (next: number) => {
-		const index = Math.max(0, Math.min(doc.pages.length - 1, next));
+		const index = Math.max(0, Math.min(pageTotal - 1, next));
 		setPageIndex(index);
 		scrollToReadingPage(doc.name, index);
 	};
@@ -79,7 +97,7 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-text-1">
 					{doc.name}
 				</h1>
-				{doc.pages.length > 1 && (
+				{pageTotal > 1 && (
 					<div className="flex shrink-0 items-center gap-1 text-sm text-text-2">
 						<button
 							type="button"
@@ -94,12 +112,12 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 							aria-live="polite"
 							className="min-w-12 text-center tabular-nums"
 						>
-							{pageIndex + 1}/{doc.pages.length}
+							{pageIndex + 1}/{pageTotal}
 						</span>
 						<button
 							type="button"
 							aria-label={t("next_page")}
-							disabled={pageIndex >= doc.pages.length - 1}
+							disabled={pageIndex >= pageTotal - 1}
 							onClick={() => showPage(pageIndex + 1)}
 							className="grid h-10 w-10 place-items-center rounded-md disabled:opacity-40"
 						>
@@ -113,6 +131,7 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 				dataSource="connected"
 				barPosition="top"
 				onVisiblePage={(index) => setPageIndex(index)}
+				onNavigatePage={showPage}
 			/>
 		</div>
 	);

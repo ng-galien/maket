@@ -107,7 +107,12 @@ function handlePrint(
 			return;
 		}
 		const charteCssStr = documents.charteCss(rendered);
-		const printHtml = buildPrintHtml(rendered, rawHtmls, charteCssStr);
+		const printHtml = buildPrintHtml({
+			source: d,
+			rendered,
+			pageHtmls: rawHtmls,
+			charteCss: charteCssStr,
+		});
 		const html =
 			req.query.auto_print === "false"
 				? printHtml

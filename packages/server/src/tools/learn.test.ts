@@ -39,6 +39,11 @@ describe("maket_learn", () => {
 		expect(htmlBody).toContain("only operation in the patch request");
 		expect(htmlBody).toContain("no child elements or text");
 		expect(htmlBody).toContain("`data-maket-bind` elements");
+		expect(htmlBody).toContain("## Links between pages");
+		expect(htmlBody).toContain("canonical form is `#page=<n>`");
+		expect(htmlBody).toContain("`#page:<exact page name>`");
+		expect(htmlBody).toContain("⌘-click (Ctrl-click outside Apple platforms)");
+		expect(htmlBody).toContain("refuse Mustache in a page link");
 		expect(htmlBody).toContain("## Authored structure");
 		expect(htmlBody).toContain("## Layout measurement report");
 		expect(htmlBody).toContain("physical canvas and total content extents");

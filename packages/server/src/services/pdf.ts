@@ -20,6 +20,7 @@ import {
 	cursorRenderOptions,
 } from "../lib/collection-render.js";
 import { inlineImages } from "../lib/image-inline.js";
+import { linkPrintPages } from "../lib/page-links.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import {
 	comparePageRenders,
@@ -150,7 +151,12 @@ async function renderPdfDocument(
 		width: Math.ceil(w * PX_PER_MM),
 		height: Math.ceil(h * PX_PER_MM),
 	};
-	const fullHtml = buildPrintHtml(renderedDoc, pageHtmls, charteCss);
+	const fullHtml = buildPrintHtml({
+		source: doc,
+		rendered: renderedDoc,
+		pageHtmls,
+		charteCss,
+	});
 
 	const b = await pool.get();
 	const page = await b.newPage();
@@ -275,16 +281,28 @@ export function createPdfService(
 
 /**
  * Build the print-ready HTML for a document — shared by the `/print` route
- * and `PdfService.render`.
+ * and `PdfService.render`. `pageHtmls` follow the rendered pages that carry
+ * HTML, in order. Each printed page carries the anchor id targeted by the
+ * rewritten in-document page links, which Chromium keeps as internal PDF
+ * links.
  */
-export function buildPrintHtml(
-	doc: Document,
-	pageHtmls: string[],
-	charteCss: string,
-): string {
+export function buildPrintHtml({
+	source,
+	rendered,
+	pageHtmls,
+	charteCss,
+}: {
+	source: Document;
+	rendered: Document;
+	pageHtmls: string[];
+	charteCss: string;
+}): string {
+	const printedPageIds = rendered.pages
+		.filter((page) => Boolean(page.html))
+		.map((page) => page.id);
 	return buildRenderSurfaceHtml({
-		canvas: doc.canvas,
-		pageHtmls,
+		canvas: rendered.canvas,
+		pageHtmls: linkPrintPages(source.pages, printedPageIds, pageHtmls),
 		charteCss,
 		surface: { kind: "print" },
 	});

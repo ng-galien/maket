@@ -29,6 +29,12 @@ import {
 import { sendStateValuePatch, sendTextEdit } from "../store/ws";
 import { scopePageStyles } from "../viewer/scope-page-styles";
 import {
+	dispatchPageLink,
+	followCanvasPageLink,
+	followsPageLinkWhileAuthoring,
+	pageLinkTarget,
+} from "./page-link-navigation";
+import {
 	type PresentationPolicy,
 	presentationPolicy,
 } from "./presentation-policy";
@@ -1021,6 +1027,7 @@ export const PageCanvas = memo(function PageCanvas({
 		useStore.getState().selectElement(null);
 	}, [activePolicy.authoring]);
 
+	const authoring = activePolicy.authoring;
 	useEffect(() => {
 		const canvas = pageRef.current;
 		if (!canvas) return;
@@ -1042,7 +1049,19 @@ export const PageCanvas = memo(function PageCanvas({
 			}
 			return true;
 		};
+		const followPageLink = (event: MouseEvent) => {
+			const targetPage = pageLinkTarget(event.target, doc);
+			if (targetPage === undefined) return false;
+			event.preventDefault();
+			if (authoring && !followsPageLinkWhileAuthoring(event)) return false;
+			event.stopPropagation();
+			if (targetPage === null) return true;
+			const request = { docName: doc.name, pageIndex: targetPage };
+			if (!dispatchPageLink(canvas, request)) followCanvasPageLink(request);
+			return true;
+		};
 		const onClick = (event: MouseEvent) => {
+			if (followPageLink(event)) return;
 			if (!openInstantiatedDocument(event.target)) return;
 			event.preventDefault();
 			event.stopPropagation();
@@ -1059,7 +1078,7 @@ export const PageCanvas = memo(function PageCanvas({
 			canvas.removeEventListener("click", onClick, true);
 			canvas.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [doc.meta?.structuredWorkspace, renderHtml]);
+	}, [authoring, doc, renderHtml]);
 
 	const dismissEnumEditor = useCallback(
 		(restoreFocus: boolean) => {

@@ -76,14 +76,23 @@ describe("ReadingWorkspace", () => {
 		expect(zoomed.style.zoom).toBe("1");
 		await user.click(screen.getByRole("button", { name: "Zoom in" }));
 		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.1);
-		fireEvent.wheel(workspace, { ctrlKey: true, deltaY: -1 });
-		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.2);
+		const pinched = 1.1 * Math.exp(0.1);
+		fireEvent.wheel(workspace, { ctrlKey: true, deltaY: -10 });
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(pinched);
+		fireEvent.wheel(workspace, { deltaY: -10 });
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(pinched);
 		fireEvent.keyDown(window, { key: "-" });
-		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(1.1);
+		expect(Number.parseFloat(zoomed.style.zoom)).toBeCloseTo(pinched - 0.1);
+		expect(localStorage.getItem("maket.reader.zoom:id-report")).toBe(
+			String(Math.round((pinched - 0.1) * 1000) / 1000),
+		);
 		await user.click(
-			screen.getByRole("button", { name: "Fit to view — 110%" }),
+			screen.getByRole("button", {
+				name: `Fit to view — ${Math.round((pinched - 0.1) * 100)}%`,
+			}),
 		);
 		expect(zoomed.style.zoom).toBe("1");
+		expect(localStorage.getItem("maket.reader.zoom:id-report")).toBeNull();
 		expect(useStore.getState().zoom).toBe(100);
 	});
 

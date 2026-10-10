@@ -68,6 +68,28 @@ describe("maket_page — action=add", () => {
 		store.close();
 	});
 
+	it("refuses Mustache in a page link", async () => {
+		const { store, bus, documents } = fixture();
+		store.saveDoc(makeDoc("d"));
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+		const res = await tool.handler(
+			{
+				action: "add",
+				doc: "d",
+				name: "Second",
+				html: '<a data-id="back" href="#page={{n}}">Back</a>',
+			},
+			NO_EXTRA,
+		);
+		expect(res.isError).toBe(true);
+		expect((res.content[0] as any).text).toContain(
+			'`#page={{n}}` on data-id="back"',
+		);
+		expect(documents.resolve("d")?.pages).toHaveLength(1);
+		store.close();
+	});
+
 	it("errors when the document is missing", async () => {
 		const { store, bus, documents } = fixture();
 		const tool = createMaketPageTool({ bus, documents });

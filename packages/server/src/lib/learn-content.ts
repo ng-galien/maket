@@ -203,6 +203,17 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			'```html\n<svg data-id="chart" viewBox="0 0 100 40">\n  {{#state.bars}}<rect y="{{ y }}" height="8" width="{{ value }}" style="transition: width 400ms ease"/>{{/state.bars}}\n</svg>\n<div data-id="gauge" style="width: {{ state.ratio }}%; transition: width 400ms"></div>\n```',
 		),
 		section(
+			"Links between pages",
+			[
+				"- A link to another page of the same document is a plain anchor. The canonical form is `#page=<n>` with the 1-based page number; `#page:<exact page name>` is also accepted and keeps working when pages are reordered (the first page carrying that name wins).",
+				"- The connected Reader and the standalone viewer navigate to that page on a plain click. In the authoring Canvas a plain click on the link, or on a block it wraps, selects it for editing; ⌘-click (Ctrl-click outside Apple platforms) follows it and fits the view on the target page.",
+				"- Print and PDF turn it into an internal link to the first printed page of the target (a collection template page expands into several printed pages).",
+				"- The href is a literal. `maket_html` set and patch and `maket_page` add refuse Mustache in a page link such as `#page={{ n }}`, naming the element. Any element may sit inside the anchor; style it like any other link.",
+				"- `maket_html action=check` lists every page link that targets no page of the document with its `data-id`, including a Mustache target that reached the page another way.",
+			].join("\n"),
+			'```html\n<nav data-id="nav">\n  <a data-id="nav-detail" href="#page=3">Details</a>\n  <a data-id="nav-summary" href="#page:Synthèse">Summary</a>\n</nav>\n```',
+		),
+		section(
 			"Next",
 			"Read `chartes` before a branded write, `collections` for mail merge, or `state` for interactive data.",
 		),
@@ -523,6 +534,10 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Layout report",
 			"The layout check returns a Markdown measurement report with canvas size, content extent, root geometry, and exact excess for problematic elements. It distinguishes page overflow, container overflow, clipping, and overlap.",
+		),
+		section(
+			"Links between pages",
+			"A link written `#page=3` or `#page:Page name` opens that page of the same document in the Reader and the viewer, and stays a clickable internal link in the PDF. In the canvas a click selects the link for editing; ⌘-click (Ctrl-click on Windows and Linux) follows it.",
 		),
 	),
 	chartes: document(

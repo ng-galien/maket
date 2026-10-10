@@ -1,3 +1,4 @@
+import { printPageAnchorId } from "@maket/shared";
 import postcss from "postcss";
 import { escapeCssValue, stripStyleClose } from "./css-escape.js";
 
@@ -169,7 +170,8 @@ export function buildRenderSurfaceHtml({
 				print && pageHtmls.length > 1
 					? scopeAuthoredStyles(html, index + 1)
 					: html;
-			return `<${RENDER_PAGE_TAG} data-maket-render-page="${index + 1}" style="${style}">${pageHtml}</${RENDER_PAGE_TAG}>`;
+			const anchor = print ? ` id="${printPageAnchorId(index + 1)}"` : "";
+			return `<${RENDER_PAGE_TAG}${anchor} data-maket-render-page="${index + 1}" style="${style}">${pageHtml}</${RENDER_PAGE_TAG}>`;
 		})
 		.join("\n");
 

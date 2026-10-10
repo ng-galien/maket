@@ -17,6 +17,7 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { templatedPageLinkError } from "../lib/page-links.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
@@ -164,14 +165,17 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 			return text(error instanceof Error ? error.message : String(error), true);
 		}
 	}
+	const html =
+		args.html === undefined
+			? undefined
+			: stripActiveHtml(normalizeImageSrc(args.html));
+	const pageLinkError = html ? templatedPageLinkError(html) : null;
+	if (pageLinkError) return text(pageLinkError, true);
 	const page: Page = {
 		id: crypto.randomUUID(),
 		name: args.name,
 		elements: [],
-		html:
-			args.html === undefined
-				? undefined
-				: stripActiveHtml(normalizeImageSrc(args.html)),
+		html,
 		jsonForms: args.json_forms as JsonFormsTemplate | undefined,
 		provenance: d.meta.structuredWorkspace
 			? {

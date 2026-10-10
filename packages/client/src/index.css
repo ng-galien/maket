@@ -443,6 +443,12 @@ button[data-library-pin]:focus-visible {
   background: var(--color-accent-soft);
 }
 
+[data-doc].reader-panning,
+[data-doc].reader-panning * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 [data-reader-appearance="app"] .page-canvas.reader-page {
 	border: 0;
 	box-shadow:

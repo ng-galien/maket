@@ -24,6 +24,15 @@ describe("stripActiveHtml (DOMParser backend)", () => {
 		expect(out).toContain('alt="a"');
 	});
 
+	it("keeps in-document page links on HTML and SVG anchors", () => {
+		const out = stripActiveHtml(
+			'<a href="#page=3">3</a><a href="#page:Synthèse annuelle">S</a><svg><a href="#page=2"><text>2</text></a></svg>',
+		);
+		expect(out).toContain('href="#page=3"');
+		expect(out).toContain('href="#page:Synthèse annuelle"');
+		expect(out).toContain('<a href="#page=2">');
+	});
+
 	it("removes every passive network load but keeps bundled blob assets", () => {
 		const out = stripActiveHtml(
 			'<link rel="stylesheet" href="https://evil.example/x.css">' +

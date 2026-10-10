@@ -21,6 +21,7 @@ export * from "./json-forms.js";
 export * from "./json-patch.js";
 export * from "./maket-bundle.js";
 export * from "./messages.js";
+export * from "./page-links.js";
 export * from "./settings.js";
 export * from "./strip-active-policy.js";
 export * from "./structured-workspace.js";

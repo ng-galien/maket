@@ -51,6 +51,15 @@ describe("stripActiveHtml", () => {
 		expect(stripActiveHtml(html)).toBe(html);
 	});
 
+	it("keeps in-document page links", () => {
+		const out = stripActiveHtml(
+			'<a data-id="a" href="#page=3">3</a><a data-id="b" href="#page:Synthèse annuelle">S</a><svg><a href="#page=2"><text>2</text></a></svg>',
+		);
+		expect(out).toContain('href="#page=3"');
+		expect(out).toContain('href="#page:Synthèse annuelle"');
+		expect(out).toContain('href="#page=2"');
+	});
+
 	it("returns empty input untouched", () => {
 		expect(stripActiveHtml("")).toBe("");
 	});

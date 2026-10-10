@@ -12,6 +12,7 @@ import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { statePatchKey, useStore } from "../store/useStore";
 import * as ws from "../store/ws";
+import { registerFitToDoc } from "../store/zoomBridge";
 import { isTextEditable, PageCanvas, parseCSSVars } from "./PageCanvas";
 import { presentationPolicy } from "./presentation-policy";
 
@@ -75,6 +76,91 @@ describe("PageCanvas toolbar interactions", () => {
 		});
 		expect(openDocument).toHaveBeenCalledWith("Ship the release");
 		openDocument.mockRestore();
+	});
+
+	it("selects page links on a plain click and follows them with the command modifier while authoring", async () => {
+		const doc = pageLinkDoc();
+		const initialAutoFocusFit = useStore.getState().autoFocusFit;
+		const fit = vi.fn();
+		registerFitToDoc(fit);
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+			autoFocusFit: false,
+		});
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		const third = screen.getByText("Third");
+		expect(fireEvent.click(third)).toBe(false);
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+		expect(useStore.getState().selectedIds).toEqual(["to-3"]);
+		expect(location.hash).toBe("");
+
+		expect(fireEvent.click(third, { ctrlKey: true })).toBe(false);
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		expect(fit).toHaveBeenLastCalledWith(doc.name, 2);
+
+		fireEvent.click(screen.getByText("Summary"), { ctrlKey: true });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		expect(fit).toHaveBeenLastCalledWith(doc.name, 1);
+
+		fit.mockClear();
+		expect(
+			fireEvent.click(screen.getByText("Missing"), { ctrlKey: true }),
+		).toBe(false);
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		expect(fit).not.toHaveBeenCalled();
+
+		useStore.setState({ autoFocusFit: true });
+		fireEvent.click(third, { ctrlKey: true });
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+		expect(fit).not.toHaveBeenCalled();
+		fireEvent.click(third, { ctrlKey: true });
+		expect(fit).toHaveBeenCalledTimes(1);
+
+		fireEvent.click(screen.getByTestId("icon-use"), { ctrlKey: true });
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		registerFitToDoc(() => {});
+		useStore.setState({ autoFocusFit: initialAutoFocusFit });
+		resetPageLinkStore();
+	});
+
+	it("follows page links on a plain click outside authoring", () => {
+		const doc = pageLinkDoc();
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 0,
+		});
+		render(
+			<PageCanvas
+				doc={doc}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={presentationPolicy({
+					surface: "reader",
+					dataSource: "connected",
+					access: "writable",
+				})}
+			/>,
+		);
+		const readerRequests: number[] = [];
+		const handleReaderRequest = (event: Event) => {
+			event.preventDefault();
+			readerRequests.push((event as CustomEvent).detail.pageIndex);
+		};
+		document.body.addEventListener("maket:page-link", handleReaderRequest);
+		expect(fireEvent.click(screen.getByText("Third"))).toBe(false);
+		fireEvent.click(screen.getByTestId("icon-use"));
+		document.body.removeEventListener("maket:page-link", handleReaderRequest);
+		expect(readerRequests).toEqual([2, 1]);
+		expect(useStore.getState().focusedPageIndex).toBe(0);
+		expect(useStore.getState().selectedIds).toEqual([]);
+		resetPageLinkStore();
 	});
 
 	it("opens a composed collection item inside its Workspace context", async () => {
@@ -1259,6 +1345,27 @@ function mockRect(
 		bottom: y + height,
 		toJSON: () => ({}),
 	} as DOMRect;
+}
+
+function pageLinkDoc(): Document {
+	const doc = makeDoc(
+		'<nav data-id="nav"><a data-id="to-3" href="#page=3">Third</a><a data-id="to-summary" href="#page:Synthèse annuelle">Summary</a><a data-id="to-missing" href="#page=9">Missing</a><a data-id="to-2-icon" href="#page=2"><svg><use data-testid="icon-use" href="#arrow"></use></svg></a></nav>',
+	);
+	doc.pages.push(
+		{ id: "alpha-page-2", name: "Synthèse annuelle", elements: [], html: "" },
+		{ id: "alpha-page-3", name: "p3", elements: [], html: "" },
+	);
+	return doc;
+}
+
+function resetPageLinkStore(): void {
+	useStore.setState({
+		docs: new Map(),
+		workspaceDocNames: [],
+		focusedDocName: null,
+		focusedPageIndex: 0,
+		selectedIds: [],
+	});
 }
 
 function makeDoc(html: string, marginUniform?: number): Document {

@@ -69,15 +69,62 @@ function makeDoc(overrides: Partial<Document> = {}): Document {
 describe("buildPrintHtml", () => {
 	it("wraps each page in a private render frame and inserts @page size", () => {
 		const doc = makeDoc();
-		const out = buildPrintHtml(
-			doc,
-			[`<p data-id="a">A</p>`, `<p data-id="b">B</p>`],
-			"",
-		);
+		const out = buildPrintHtml({
+			source: doc,
+			rendered: doc,
+			pageHtmls: [`<p data-id="a">A</p>`, `<p data-id="b">B</p>`],
+			charteCss: "",
+		});
 		expect(out).toMatch(/@page \{ size: 210mm 297mm/);
 		expect(out).toMatch(/<maket-render-page/);
 		// Second page starts with page-break-before
 		expect(out).toMatch(/page-break-before:always/);
+	});
+
+	it("turns page links into anchors of the printed pages", () => {
+		const cover = {
+			id: "cover",
+			name: "Cover",
+			elements: [],
+			html: '<a data-id="to-detail" href="#page:Détails">Détails</a><a data-id="to-cards" href="#page=2">Cards</a><a data-id="lost" href="#page=9">Lost</a>',
+		};
+		const detail = {
+			id: "detail",
+			name: "Détails",
+			elements: [],
+			html: '<a data-id="back" href="#page=1">Back</a>',
+		};
+		const source = makeDoc({
+			pages: [
+				cover,
+				{ id: "cards", name: "Cards", elements: [], html: "<p>{{name}}</p>" },
+				detail,
+			],
+		});
+		const rendered = makeDoc({
+			pages: [
+				cover,
+				{ id: "cards:people:a", elements: [], html: "<p>A</p>" },
+				{ id: "cards:people:b", elements: [], html: "<p>B</p>" },
+				detail,
+			],
+		});
+		const out = buildPrintHtml({
+			source,
+			rendered,
+			pageHtmls: rendered.pages.map((page) => page.html ?? ""),
+			charteCss: "",
+		});
+
+		for (const number of [1, 2, 3, 4]) {
+			expect(out).toContain(
+				`<maket-render-page id="maket-page-${number}" data-maket-render-page="${number}"`,
+			);
+		}
+		expect(out).toContain('href="#maket-page-4"');
+		expect(out).toContain('href="#maket-page-2"');
+		expect(out).toContain('href="#maket-page-1"');
+		expect(out).toContain('href="#page=9"');
 	});
 });
 
