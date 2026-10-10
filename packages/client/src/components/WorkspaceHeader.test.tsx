@@ -234,9 +234,69 @@ describe("WorkspaceHeader", () => {
 		expect(useStore.getState().workspaceDocNames).toEqual(["Alpha"]);
 		expect(useStore.getState().focusedDocName).toBe("Alpha");
 
-		await user.click(screen.getByRole("button", { name: "Close all" }));
+		await user.click(
+			screen.getByRole("button", { name: "Close all documents" }),
+		);
 		expect(useStore.getState().workspaceDocNames).toEqual([]);
 		expect(useStore.getState().focusedDocName).toBeNull();
+	});
+
+	it("closes every other open document and keeps the current one", async () => {
+		const user = userEvent.setup();
+		const alpha = makeDoc("Alpha");
+		const beta = makeDoc("Beta");
+		const gamma = makeDoc("Gamma");
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+				[gamma.name, gamma],
+			]),
+			workspaceDocNames: [alpha.name, beta.name, gamma.name],
+			focusedDocName: beta.name,
+		});
+		render(<WorkspaceHeader />);
+
+		await user.click(screen.getByRole("button", { name: "Document" }));
+		const closeOthers = screen.getByRole("button", {
+			name: "Close other documents",
+		});
+		expect(closeOthers).toHaveAttribute("title", "Close other documents");
+		expect(
+			screen.getByRole("button", { name: "Close all documents" }),
+		).toHaveAttribute("title", "Close all documents");
+		await user.click(closeOthers);
+
+		expect(useStore.getState().workspaceDocNames).toEqual(["Beta"]);
+		expect(useStore.getState().focusedDocName).toBe("Beta");
+		expect(
+			screen.getByRole("button", { name: "Close other documents" }),
+		).toBeDisabled();
+	});
+
+	it("names the open-document commands in French", async () => {
+		setLang("fr");
+		const user = userEvent.setup();
+		const alpha = makeDoc("Alpha");
+		const beta = makeDoc("Beta");
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+			]),
+			workspaceDocNames: [alpha.name, beta.name],
+			focusedDocName: alpha.name,
+		});
+		render(<WorkspaceHeader />);
+
+		await user.click(screen.getByRole("button", { name: "Document" }));
+		expect(
+			screen.getByRole("button", { name: "Fermer les autres" }),
+		).toHaveAttribute("title", "Fermer les autres");
+		expect(screen.getByRole("button", { name: "Tout fermer" })).toHaveAttribute(
+			"title",
+			"Tout fermer",
+		);
 	});
 
 	it("switches to reading while clearing transient authoring surfaces", async () => {

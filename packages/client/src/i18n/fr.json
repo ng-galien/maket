@@ -13,6 +13,7 @@
 	"open_documents_title": "Documents ouverts",
 	"open_documents_summary": "{count} ouverts",
 	"close_document": "Fermer {name}",
+	"close_other_documents": "Fermer les autres",
 	"close_all_documents": "Tout fermer",
 	"expand_navigation": "Déployer la navigation",
 	"collapse_navigation": "Replier la navigation",

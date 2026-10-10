@@ -3,6 +3,8 @@ import {
 	ChevronDown,
 	ChevronLeft,
 	ChevronRight,
+	CopyX,
+	ListX,
 	Minus,
 	Pin,
 	Plus,
@@ -753,6 +755,7 @@ export function ReaderDocumentPicker({
 	position,
 	onDocumentChange,
 	onCloseDocument,
+	onCloseOthers,
 	onCloseAll,
 	className = "",
 	title,
@@ -763,6 +766,7 @@ export function ReaderDocumentPicker({
 	position: "top" | "bottom";
 	onDocumentChange: (name: string) => void;
 	onCloseDocument?: (name: string) => void;
+	onCloseOthers?: () => void;
 	onCloseAll?: () => void;
 	className?: string;
 	title?: string;
@@ -813,6 +817,7 @@ export function ReaderDocumentPicker({
 					label={t("reader_document")}
 					variant={variant}
 					onCloseDocument={onCloseDocument}
+					onCloseOthers={onCloseOthers}
 					onCloseAll={onCloseAll}
 				/>
 			)}
@@ -982,6 +987,7 @@ interface ReaderDocumentListProps {
 	label: string;
 	variant: "reader" | "header";
 	onCloseDocument?: (name: string) => void;
+	onCloseOthers?: () => void;
 	onCloseAll?: () => void;
 }
 
@@ -994,6 +1000,7 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 		label,
 		variant,
 		onCloseDocument,
+		onCloseOthers,
 		onCloseAll,
 	} = props;
 	const t = useT();
@@ -1019,14 +1026,28 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 					<span className="text-xs text-text-3">
 						{t("open_documents_summary", { count: documents.length })}
 					</span>
-					{onCloseAll && (
-						<button
-							type="button"
-							onClick={onCloseAll}
-							className="rounded-sm px-1.5 py-1 text-xs font-medium text-text-2 transition-colors hover:bg-input hover:text-text-1"
-						>
-							{t("close_all_documents")}
-						</button>
+					{(onCloseOthers || onCloseAll) && (
+						<div className="flex items-center gap-0.5">
+							{onCloseOthers && (
+								<DocumentListCommand
+									label={t("close_other_documents")}
+									disabled={documents.every(
+										(document) => document.name === docName,
+									)}
+									onClick={onCloseOthers}
+								>
+									<CopyX size={14} strokeWidth={1.75} />
+								</DocumentListCommand>
+							)}
+							{onCloseAll && (
+								<DocumentListCommand
+									label={t("close_all_documents")}
+									onClick={onCloseAll}
+								>
+									<ListX size={14} strokeWidth={1.75} />
+								</DocumentListCommand>
+							)}
+						</div>
 					)}
 				</div>
 			</div>
@@ -1070,6 +1091,31 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 				})}
 			</div>
 		</div>
+	);
+}
+
+function DocumentListCommand({
+	label,
+	disabled = false,
+	onClick,
+	children,
+}: {
+	label: string;
+	disabled?: boolean;
+	onClick: () => void;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type="button"
+			aria-label={label}
+			title={label}
+			disabled={disabled}
+			onClick={onClick}
+			className="flex h-6 w-6 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-black/[0.05] hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-text-3"
+		>
+			{children}
+		</button>
 	);
 }
 
