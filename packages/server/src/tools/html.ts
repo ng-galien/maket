@@ -8,8 +8,14 @@
  *             a valid context_token from maket_charte view.
  *   - patch — rolls back each violating op individually, keeping the rest.
  *
+ * Layout is measured on the page as readers see it: a state-backed page is
+ * hydrated with the current document state, a collection page with the
+ * member its preview cursor shows (the first member otherwise). Other pages
+ * are measured as authored.
+ *
  * Deps: `documents`, `store` (charte reads), `layout` (WS broadcast +
- * measurement), `assets` (charteToken / validateCharteToken).
+ * measurement), `assets` (charteToken / validateCharteToken),
+ * `documentRenderer` + `collectionCursors` (the rendered page to measure).
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
@@ -19,6 +25,7 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { checkCharteCompliance } from "../lib/charte-check.js";
+import { cursorRenderOptions } from "../lib/collection-render.js";
 import {
 	brokenPageLinks,
 	formatPageLinkIssues,
@@ -27,6 +34,8 @@ import {
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import { validateCharteToken } from "../services/assets.js";
+import type { CollectionCursors } from "../services/collection-cursor.js";
+import type { DocumentRenderer } from "../services/document-renderer.js";
 import { validateStateTemplateUpdate } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
 import type { LayoutResult, LayoutService } from "../services/layout.js";
@@ -39,6 +48,8 @@ export interface HtmlDeps {
 	store: Store;
 	layout: LayoutService;
 	assets: AssetsService;
+	documentRenderer: Pick<DocumentRenderer, "render" | "stateView">;
+	collectionCursors: Pick<CollectionCursors, "resolve">;
 }
 
 // ============================================================
@@ -455,12 +466,19 @@ const DESCRIPTION = [
 	"  set   — REPLACE the full page HTML. Rejects the whole payload on any violation. Requires context_token when the doc has a charte.",
 	"  patch — apply ops by data-id: style/content/attr/insert/replace/remove/clone/moveTo. Violating ops roll back individually, the rest still apply.",
 	"  get   — return current HTML; pass id=<data-id> for a single element, format=text to strip tags.",
-	"  check — measure layout against the canvas + declared `canvas.margins`, and report page links that target a missing page; no side effects. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
+	"  check — measure layout against the canvas + declared `canvas.margins`, and report page links that target a missing page; no side effects. The page is measured as readers see it: a state-backed page hydrated with the current document state, a collection page with the member its preview cursor shows (first member otherwise), named on the report's first line; other pages as authored. set and patch measure the same way. Returns a Markdown measurement report with physical canvas and content extents, root geometry, problematic addressable blocks, parent/canvas excess per side, clipping, and overlap pairs. Status: ✓ OK, ⚠ tight (block crosses a declared margin band — tighten or move into the safe zone before shipping), ⛔ overflow (block escapes the canvas, not shippable; pairwise overlaps between `[data-id]` blocks are reported under this same status), or ⛔ unchecked when headless validation could not run. On tight/overflow, the `next:` block points to a snapshot + targeted patch; unchecked is diagnostic-only to avoid blind retry loops.",
 	'Page links: <a href="#page=3"> (canonical, 1-based page number) or <a href="#page:Exact page name"> navigates to that page of the same document in Canvas, Reader and viewer, and becomes an internal link in print and PDF. In the authoring Canvas a plain click selects the link for editing; ⌘-click (Ctrl-click elsewhere) follows it. The href is a literal: set and patch refuse Mustache in a page link.',
 ].join("\n");
 
 export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
-	const { documents, store, layout, assets } = deps;
+	const {
+		documents,
+		store,
+		layout,
+		assets,
+		documentRenderer,
+		collectionCursors,
+	} = deps;
 	return {
 		metadata: {
 			name: "maket_html",
@@ -468,17 +486,123 @@ export function createMaketHtmlTool(deps: HtmlDeps): ToolHandler {
 			schema: MaketHtmlSchema,
 		},
 		handler: (rawArgs) =>
-			handleMaketHtmlTool(rawArgs, { documents, store, layout, assets }),
+			handleMaketHtmlTool(rawArgs, {
+				documents,
+				store,
+				layout,
+				assets,
+				rendering: { documentRenderer, collectionCursors },
+			}),
 	};
 }
 
 type Args = z.infer<typeof MaketHtmlSchema>;
+
+type PageRendering = Pick<HtmlDeps, "documentRenderer" | "collectionCursors">;
 
 interface MaketHtmlToolDeps {
 	documents: Documents;
 	store: Store;
 	layout: LayoutService;
 	assets: AssetsService;
+	rendering: PageRendering;
+}
+
+interface MeasuredPage {
+	html: string;
+	/** Names the data the page was rendered with; absent for an authored page. */
+	note?: string;
+}
+
+/**
+ * The page HTML a reader sees: hydrated with the document state, or with the
+ * collection member shown by the page's preview cursor (first member when the
+ * cursor shows the template or every member). Other pages stay as authored.
+ */
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Measurement adapter: selects the rendered page through the renderer and cursor services that own rendering.
+function measuredPage(
+	doc: Document,
+	page: Page,
+	rendering: PageRendering,
+): MeasuredPage {
+	const authored = { html: page.html ?? "" };
+	if (doc.meta.structuredWorkspace?.role === "collection") return authored;
+	try {
+		if (doc.dataModel === "state") {
+			const rendered = rendering.documentRenderer
+				.render(doc)
+				.pages.find((candidate) => candidate.id === page.id);
+			const revision = rendering.documentRenderer.stateView(doc)?.revision;
+			return {
+				html: rendered?.html ?? authored.html,
+				note: `Measured with document state revision ${revision ?? "?"}.`,
+			};
+		}
+		const collection = page.collection?.name;
+		if (!collection) return authored;
+		return collectionMeasuredPage(doc, page, collection, rendering);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return {
+			html: authored.html,
+			note: `Measured the authored template: rendering failed (${message}).`,
+		};
+	}
+}
+
+function collectionMeasuredPage(
+	doc: Document,
+	page: Page,
+	collection: string,
+	rendering: PageRendering,
+): MeasuredPage {
+	const options = cursorRenderOptions(doc, (docName, pageIndex) =>
+		rendering.collectionCursors.resolve(docName, pageIndex),
+	);
+	const cursor = options.pages?.[page.id];
+	options.pages = {
+		...options.pages,
+		[page.id]: cursor?.mode === "rendered" ? cursor : { mode: "all" },
+	};
+	const prefix = `${page.id}:${collection}:`;
+	const renderPage = (source: Document) =>
+		rendering.documentRenderer
+			.render(source, { collection: options })
+			.pages.find((candidate) => candidate.id.startsWith(prefix));
+	let rendered: Page | undefined;
+	try {
+		rendered = renderPage(doc);
+	} catch {
+		rendered = renderPage(withOnlyCollectionPage(doc, page.id));
+	}
+	if (!rendered) {
+		return {
+			html: page.html ?? "",
+			note: `Measured the authored template: collection "${collection}" has no member.`,
+		};
+	}
+	return {
+		html: rendered.html ?? page.html ?? "",
+		note: `Measured with collection "${collection}" member "${rendered.id.slice(prefix.length)}".`,
+	};
+}
+
+/** The document with every other collection page left as authored, so a
+ * failure on another page cannot stand for this page's rendering. */
+function withOnlyCollectionPage(doc: Document, pageId: string): Document {
+	return {
+		...doc,
+		pages: doc.pages.map((candidate) =>
+			candidate.id === pageId || !candidate.collection
+				? candidate
+				: { ...candidate, collection: undefined },
+		),
+	};
+}
+
+function layoutReport(measured: MeasuredPage, layoutResult: LayoutResult) {
+	return [measured.note, layoutResult.text.trim()].filter(Boolean).join("\n");
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -502,39 +626,36 @@ async function handleMaketHtmlTool(rawArgs: unknown, deps: MaketHtmlToolDeps) {
 			if (locked) return locked;
 			const controlled = templatePageGuard(doc, page);
 			if (controlled) return controlled;
-			return runPatch(
-				args,
-				doc,
-				page,
-				pageIdx,
-				deps.documents,
-				deps.store,
-				deps.layout,
-			);
+			return runPatch(args, { doc, page, pageIdx, ...deps });
 		}
 		case "get":
 			return runGet(args, page);
 		case "check":
-			return runCheck(doc, page, pageIdx, deps.layout);
+			return runCheck(doc, page, pageIdx, deps);
 	}
 }
 
-interface HtmlSetContext {
+interface HtmlSetContext extends MaketHtmlToolDeps {
 	args: Args;
 	doc: Document;
 	page: Page;
 	pageIdx: number;
-	documents: Documents;
-	store: Store;
-	layout: LayoutService;
-	assets: AssetsService;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runSet`: edge adapter over services/store/bus, not domain ownership.
 async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
-	const { args, doc, page, pageIdx, documents, store, layout, assets } =
-		context;
+	const {
+		args,
+		doc,
+		page,
+		pageIdx,
+		documents,
+		store,
+		layout,
+		assets,
+		rendering,
+	} = context;
 	if (args.html == null) return text("html is required for action=set", true);
 	if (containsLayoutControlAttribute(args.html)) {
 		return text(
@@ -574,7 +695,8 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 
 	const count = (page.html.match(/data-id=/g) || []).length;
 	const html = page.html || "";
-	const layoutResult = await layout.measure(doc, html, pageIdx);
+	const measured = measuredPage(doc, page, rendering);
+	const layoutResult = await layout.measure(doc, measured.html, pageIdx);
 	const tree = buildIdTree(html);
 
 	return text(
@@ -582,7 +704,7 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 			`Page "${page.name || args.page}" updated — ${count} elements`,
 			"",
 			"layout:",
-			layoutResult.text.trim(),
+			layoutReport(measured, layoutResult),
 			"",
 			"tree:",
 			tree,
@@ -598,13 +720,9 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 // persistence, and layout at this adapter boundary.
 async function runPatch(
 	args: Args,
-	doc: Document,
-	page: Page,
-	pageIdx: number,
-	documents: Documents,
-	store: Store,
-	layout: LayoutService,
+	context: Omit<HtmlSetContext, "args">,
 ): Promise<CallToolResult> {
+	const { doc, page, pageIdx, documents, store, layout, rendering } = context;
 	if (!args.ops) return text("ops is required for action=patch", true);
 	if (page.jsonForms) {
 		return text(
@@ -637,7 +755,8 @@ async function runPatch(
 	page.html = nextHtml;
 	documents.persist(doc.name);
 
-	const layoutResult = await layout.measure(doc, page.html || "", pageIdx);
+	const measured = measuredPage(doc, page, rendering);
+	const layoutResult = await layout.measure(doc, measured.html, pageIdx);
 	const tree = buildIdTree(root);
 	return text(
 		[
@@ -645,7 +764,7 @@ async function runPatch(
 			results.join("\n"),
 			"",
 			"layout:",
-			layoutResult.text.trim(),
+			layoutReport(measured, layoutResult),
 			"",
 			"tree:",
 			tree,
@@ -694,12 +813,13 @@ async function runCheck(
 	doc: Document,
 	page: Page,
 	pageIdx: number,
-	layout: LayoutService,
+	{ layout, rendering }: MaketHtmlToolDeps,
 ): Promise<CallToolResult> {
 	if (!page.html) return text("No HTML content on this page", true);
-	const layoutResult = await layout.check(doc, page.html, pageIdx);
+	const measured = measuredPage(doc, page, rendering);
+	const layoutResult = await layout.check(doc, measured.html, pageIdx);
 	const linkIssues = brokenPageLinks(page.html, doc.pages);
-	const report = [layoutResult.text.trim()];
+	const report = [layoutReport(measured, layoutResult)];
 	if (linkIssues.length > 0) {
 		report.push("", formatPageLinkIssues(linkIssues, doc.pages.length));
 	}
@@ -719,7 +839,14 @@ async function runCheck(
 export const htmlPack: ToolPack = {
 	id: "html",
 	name: "Html",
-	requires: ["documents", "store", "layout", "assets"],
+	requires: [
+		"documents",
+		"store",
+		"layout",
+		"assets",
+		"documentRenderer",
+		"collectionCursors",
+	],
 	declaresTools: ["maket_html"],
 	register(container) {
 		container.register({

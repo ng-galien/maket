@@ -1,5 +1,5 @@
 import { computeCanvasDims, DEFAULT_ORIENTATION } from "@maket/shared";
-import { Eye, History, Lock, Palette } from "lucide-react";
+import { Eye, History, Lock, Palette, Pin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../i18n/useT";
@@ -51,6 +51,8 @@ export interface DocItemFactoryArgs {
 	setDragOverCat: React.Dispatch<React.SetStateAction<string | null>>;
 	rowClick: (name: string, event: React.MouseEvent) => void;
 	requestMoveCategory: (doc: DocSummary) => void;
+	canPin: boolean;
+	setPinned: (name: string, pinned: boolean) => void;
 }
 
 export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
@@ -68,6 +70,8 @@ export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
 					: ({ kind: "idle" } as RowMode),
 			canDelete: args.docList.length > 1,
 			dragging: args.draggingName === doc.name,
+			pinned: Boolean(doc.pinnedAt),
+			canPin: args.canPin,
 		},
 		actions: {
 			click: (event) => args.rowClick(doc.name, event),
@@ -77,6 +81,7 @@ export function createDocItemProps(args: DocItemFactoryArgs): DocItemProps {
 			changeMode: (mode) =>
 				args.setModeFor(mode.kind === "idle" ? null : { name: doc.name, mode }),
 			moveCategory: () => args.requestMoveCategory(doc),
+			togglePin: () => args.setPinned(doc.name, !doc.pinnedAt),
 			dragStart: (event) => {
 				event.dataTransfer.effectAllowed = "move";
 				event.dataTransfer.setData(DRAG_MIME, doc.name);
@@ -179,6 +184,9 @@ export function DocRow({ model, actions }: DocItemProps) {
 				{showsInfo && <DocRowInfo doc={model.doc} point={tooltipPoint} />}
 			</div>
 			{!meta.editing && !meta.confirming && <DocDraftPill doc={model.doc} />}
+			{!meta.editing && !meta.confirming && (
+				<DocPinButton model={model} actions={actions} />
+			)}
 			<DocRowMenuButton
 				model={model}
 				meta={meta}
@@ -340,6 +348,7 @@ export function DocCardSummary({
 				</div>
 				<DocCardMetadata doc={model.doc} />
 			</div>
+			<DocPinButton model={model} actions={actions} />
 			<DocMenuButton
 				model={model}
 				actions={actions}
@@ -400,6 +409,54 @@ export function DocRowButton({ model, meta, actions }: DocItemRenderProps) {
 function rowBackgroundClass(model: DocItemModel): string {
 	if (model.selected) return "bg-accent/10 ring-2 ring-accent/30";
 	return "hover:bg-black/[0.03]";
+}
+
+/** Pin toggle in writable contexts; a static pin mark in read-only ones. */
+export function DocPinButton({
+	model,
+	actions,
+}: {
+	model: DocItemModel;
+	actions: DocItemActions;
+}) {
+	const t = useT();
+	if (!model.canPin) {
+		if (!model.pinned) return null;
+		return (
+			<Pin
+				size={13}
+				role="img"
+				aria-label={t("doc_pinned")}
+				className="shrink-0 fill-current text-accent"
+			/>
+		);
+	}
+	const label = t("pin_document", { name: model.doc.name });
+	return (
+		<button
+			type="button"
+			data-doc-pin={model.doc.name}
+			aria-label={label}
+			aria-pressed={model.pinned}
+			title={label}
+			onClick={(event) => {
+				event.stopPropagation();
+				actions.togglePin();
+			}}
+			className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-[opacity,color,background-color] focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${
+				model.pinned
+					? "text-accent hover:bg-accent/10"
+					: "text-text-3 opacity-0 hover:bg-black/[0.05] hover:text-text-1 group-hover:opacity-100 group-hover/card:opacity-100"
+			}`}
+		>
+			<Pin
+				size={13}
+				strokeWidth={2}
+				className={model.pinned ? "fill-current" : ""}
+				aria-hidden
+			/>
+		</button>
+	);
 }
 
 function DocViewButton({

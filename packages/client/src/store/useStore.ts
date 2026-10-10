@@ -185,6 +185,8 @@ interface DocumentStateSlice {
 }
 
 interface DocumentIdentitySlice {
+	/** Server-authored pin change: set or clear one document list entry's pin. */
+	applyDocumentPin: (name: string, pinnedAt: string | null) => void;
 	replaceRenamedDoc: (
 		oldName: string,
 		doc: Document,
@@ -1088,6 +1090,18 @@ export const useStore = create<AppState>((set, get) => ({
 				...stateDock,
 				docList,
 				chartesCss,
+			};
+		}),
+
+	applyDocumentPin: (name, pinnedAt) =>
+		set((s) => {
+			if (!s.docList.some((entry) => entry.name === name)) return {};
+			return {
+				docList: s.docList.map((entry) => {
+					if (entry.name !== name) return entry;
+					const { pinnedAt: _previous, ...rest } = entry;
+					return pinnedAt ? { ...rest, pinnedAt } : rest;
+				}),
 			};
 		}),
 

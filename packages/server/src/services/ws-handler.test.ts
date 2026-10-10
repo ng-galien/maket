@@ -188,6 +188,80 @@ describe("ws-handler — viewer and optional form boundaries", () => {
 	});
 });
 
+describe("ws-handler — document pins", () => {
+	it("pins and unpins from a writable client and broadcasts the pin to editors only", () => {
+		const f = fixture();
+		try {
+			f.store.saveDoc(makeDoc("synthesis"));
+			f.documents.loadAll();
+			const updatedAt = f.store.listTimestamps().get("synthesis");
+			registerServerEvents({
+				bus: f.bus,
+				collections: createCollections({
+					bus: f.bus,
+					documents: f.documents,
+					store: f.store,
+				}),
+				collectionCursors: createCollectionCursors({
+					bus: f.bus,
+					documents: f.documents,
+					store: f.store,
+				}),
+				documents: f.documents,
+				documentRenderer: f.documentRenderer,
+				mermaidDiagrams: {
+					refreshCharte: () => ({ docNames: [], errors: [] }),
+					refreshDocument: () => ({ docNames: [], errors: [] }),
+				},
+				structuredWorkspaces: { listViews: () => [] } as never,
+				wsRegistry: f.wsRegistry,
+				pending: f.pending,
+			});
+			const editor = { readyState: 1, send: vi.fn() };
+			const viewer = { readyState: 1, send: vi.fn() };
+			f.wsRegistry.add(editor);
+			f.wsRegistry.add(viewer, { viewer: true });
+
+			f.handler(
+				{ type: "pin_document", name: "synthesis", pinned: true },
+				viewer as never,
+			);
+			expect(f.store.loadOne("synthesis")?.pinnedAt).toBeNull();
+
+			f.handler(
+				{ type: "pin_document", name: "synthesis", pinned: true },
+				editor as never,
+			);
+			const pinnedAt = f.store.loadOne("synthesis")?.pinnedAt;
+			expect(pinnedAt).toEqual(expect.any(String));
+			expect(f.documents.list()).toEqual([
+				expect.objectContaining({ name: "synthesis", pinnedAt }),
+			]);
+			expect(f.store.listTimestamps().get("synthesis")).toBe(updatedAt);
+			expect(editor.send).toHaveBeenLastCalledWith(
+				JSON.stringify({ type: "doc_pinned", name: "synthesis", pinnedAt }),
+			);
+
+			f.handler(
+				{ type: "pin_document", name: "synthesis", pinned: false },
+				editor as never,
+			);
+			expect(f.store.loadOne("synthesis")?.pinnedAt).toBeNull();
+			expect(editor.send).toHaveBeenLastCalledWith(
+				JSON.stringify({
+					type: "doc_pinned",
+					name: "synthesis",
+					pinnedAt: null,
+				}),
+			);
+			expect(editor.send).toHaveBeenCalledTimes(2);
+			expect(viewer.send).not.toHaveBeenCalled();
+		} finally {
+			f.dispose();
+		}
+	});
+});
+
 describe("ws-handler — annotation persistence acknowledgement", () => {
 	it("correlates successful writes and reports rejected writes to the browser", () => {
 		const { store, documents, pending, handler, dispose } = fixture();

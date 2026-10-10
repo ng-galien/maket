@@ -128,6 +128,9 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		mermaidDiagrams.refreshDocument(docName);
 		broadcastDoc(broadcasters, docName);
 	});
+	bus.on("document:pinned", ({ docName, pinnedAt }) =>
+		wsRegistry.broadcast({ type: "doc_pinned", name: docName, pinnedAt }),
+	);
 	bus.on("document:renamed", ({ oldName, docName }) =>
 		broadcastRenamedDoc(broadcasters, oldName, docName),
 	);

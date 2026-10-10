@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -174,12 +174,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(19);
+		const db = historicalDatabaseWithoutIds(20);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v19 is newer than supported v18/,
+			/schema v20 is newer than supported v19/,
 		);
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,7 +207,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -233,7 +233,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		expect(
 			db
 				.prepare(
@@ -247,6 +247,41 @@ describe("SQLite schema migrations", () => {
 				"UPDATE document_states SET revision_retention = -1 WHERE document_id = 'doc-id'",
 			),
 		).toThrow(/CHECK constraint/);
+		db.close();
+	});
+
+	it("adds an unpinned pin timestamp to existing documents without touching their revision", () => {
+		const db = new DatabaseSync(":memory:");
+		db.exec("PRAGMA foreign_keys = ON;");
+		initializeSQLiteSchema(db);
+		db.exec(`
+			INSERT INTO documents (name, id, canvas, updated_at)
+				VALUES ('synthesis', 'synthesis-id', '{}', '2026-01-02 03:04:05.006');
+			ALTER TABLE documents DROP COLUMN pinned_at;
+			PRAGMA user_version = 18;
+		`);
+		expect(hasColumn(db, "documents", "pinned_at")).toBe(false);
+
+		initializeSQLiteSchema(db);
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(19);
+		expect(
+			db
+				.prepare(
+					"SELECT pinned_at AS pinnedAt, updated_at AS updatedAt FROM documents WHERE name = 'synthesis'",
+				)
+				.get(),
+		).toEqual({ pinnedAt: null, updatedAt: "2026-01-02 03:04:05.006" });
+		const documents = createDocumentRepository(db);
+		expect(documents.loadOne("synthesis")?.pinnedAt).toBeNull();
+		documents.setDocumentPin("synthesis", "2026-10-10T08:00:00.000Z");
+		expect(documents.loadOne("synthesis")?.pinnedAt).toBe(
+			"2026-10-10T08:00:00.000Z",
+		);
+		expect(documents.listTimestamps().get("synthesis")).toBe(
+			"2026-01-02 03:04:05.006",
+		);
 		db.close();
 	});
 
@@ -315,7 +350,7 @@ describe("SQLite schema migrations", () => {
 				{ role: "detail", collectionId: "backlog", bindingId: "task" },
 			],
 		});
-		expect(schemaVersion(db)).toBe(18);
+		expect(schemaVersion(db)).toBe(19);
 		db.close();
 	});
 });
@@ -558,7 +593,7 @@ function businessData(db: DatabaseSync): Record<string, unknown[]> {
 
 function stateData(db: DatabaseSync): Record<string, unknown[]> {
 	return {
-		documents: rows(db, "SELECT * FROM documents ORDER BY name"),
+		documents: documentRowsBeforePins(db),
 		pages: pageBusinessRows(db),
 		collections: rows(db, "SELECT * FROM collections ORDER BY name"),
 		collectionRows: rows(
@@ -589,6 +624,18 @@ function collectionData(db: DatabaseSync): Record<string, unknown[]> {
 			"SELECT * FROM collection_rows ORDER BY collection_name, position",
 		),
 	};
+}
+
+/** Every document column except the v19 pin, which migrations add as null. */
+function documentRowsBeforePins(db: DatabaseSync): unknown[] {
+	return (
+		db.prepare("SELECT * FROM documents ORDER BY name").all() as Array<
+			Record<string, unknown>
+		>
+	).map(({ pinned_at, ...row }) => {
+		expect(pinned_at ?? null).toBeNull();
+		return row;
+	});
 }
 
 function rows(db: DatabaseSync, sql: string): unknown[] {

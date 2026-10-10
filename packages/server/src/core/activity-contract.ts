@@ -32,6 +32,8 @@ export const ACTIVITY_POLICIES = {
 			duplicate: "bubble_maket_doc_duplicate",
 			rename: "bubble_maket_doc_rename",
 			meta: "bubble_maket_doc_meta",
+			pin: "bubble_maket_doc_pin",
+			unpin: "bubble_maket_doc_unpin",
 			export: "bubble_maket_doc_export",
 			import: "bubble_maket_doc_import",
 		},

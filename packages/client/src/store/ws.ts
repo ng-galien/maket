@@ -371,6 +371,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			}));
 			useStore.getState().closeWorkspaceDocuments([msg.name]);
 			break;
+		case "doc_pinned":
+			useStore.getState().applyDocumentPin(msg.name, msg.pinnedAt);
+			break;
 		case "doc_renamed":
 			applyRenamedDocument(msg);
 			break;
@@ -746,4 +749,8 @@ export function sendDuplicateDoc(name: string, newName: string): void {
 
 export function sendLockDoc(name: string, locked: boolean): void {
 	wsSend({ type: "lock_document", name, locked });
+}
+
+export function sendPinDoc(name: string, pinned: boolean): void {
+	wsSend({ type: "pin_document", name, pinned });
 }

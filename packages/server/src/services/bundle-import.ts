@@ -171,6 +171,7 @@ function importDocuments(
 			pages: sanitiseBundlePages(snapshot.pages),
 			activePage: snapshot.activePage ?? 0,
 			nextId: snapshot.nextId ?? 1,
+			pinnedAt: snapshot.pinnedAt ?? null,
 		});
 		all.set(finalName, document);
 		deps.documents.persist(finalName);

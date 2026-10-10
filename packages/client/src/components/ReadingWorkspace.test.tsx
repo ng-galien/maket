@@ -4,10 +4,19 @@ import {
 	fireEvent,
 	render,
 	screen,
+	within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 import { setLang } from "../i18n/useT";
 import { enterReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
@@ -253,6 +262,70 @@ describe("ReadingWorkspace", () => {
 			editingElementId: "element-1",
 			showPopover: true,
 		});
+	});
+
+	it("lists pinned documents as a first group in the Reader navigation and opens them", async () => {
+		const user = userEvent.setup();
+		const alpha = makeDoc("alpha");
+		const beta = makeDoc("beta");
+		const summary = (name: string, pinnedAt?: string) => ({
+			id: `id-${name}`,
+			name,
+			category: "reports",
+			format: "A4",
+			pageCount: 1,
+			elementCount: 0,
+			collectionBindings: [],
+			...(pinnedAt ? { pinnedAt } : {}),
+		});
+		const openWorkspaceDocument = vi.fn();
+		const original = useStore.getState();
+		onTestFinished(() =>
+			useStore.setState({
+				docList: original.docList,
+				openWorkspaceDocument: original.openWorkspaceDocument,
+			}),
+		);
+		useStore.setState({
+			docs: new Map([
+				[alpha.name, alpha],
+				[beta.name, beta],
+			]),
+			docList: [
+				summary("alpha"),
+				summary("beta", "2026-10-10T08:00:00.000Z"),
+				summary("dossier", "2026-10-10T09:00:00.000Z"),
+				summary("archive"),
+			],
+			workspaceDocNames: [alpha.name, beta.name],
+			focusedDocName: alpha.name,
+			focusedPageIndex: 0,
+			workspaceView: "reading",
+			openWorkspaceDocument,
+		});
+
+		render(<ReadingWorkspace />);
+		await user.click(screen.getByRole("button", { name: "Document" }));
+
+		const listbox = screen.getByRole("listbox", { name: "Document" });
+		const groups = within(listbox).getAllByRole("group");
+		expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
+			"Pinned",
+			"Open documents",
+		]);
+		expect(
+			within(groups[0] as HTMLElement)
+				.getAllByRole("option")
+				.map((option) => option.getAttribute("aria-label")),
+		).toEqual(["dossier", "beta"]);
+		expect(
+			within(groups[1] as HTMLElement)
+				.getAllByRole("option")
+				.map((option) => option.getAttribute("aria-label")),
+		).toEqual(["alpha"]);
+
+		await user.keyboard("{Home}{Enter}");
+		expect(openWorkspaceDocument).toHaveBeenCalledWith("dossier");
 	});
 
 	it("keeps the document picker keyboard-accessible", async () => {

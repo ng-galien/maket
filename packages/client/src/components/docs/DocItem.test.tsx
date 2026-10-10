@@ -8,7 +8,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../../i18n/useT";
 import type { DocSummary } from "../../store/types";
-import { DocRow } from "./DocItem";
+import { DocPinButton, DocRow } from "./DocItem";
 import type { DocItemActions, DocItemModel } from "./types";
 
 afterEach(() => {
@@ -42,6 +42,8 @@ describe("DocRow", () => {
 			mode: { kind: "idle" },
 			canDelete: true,
 			dragging: false,
+			pinned: false,
+			canPin: true,
 		};
 		const actions: DocItemActions = {
 			click: vi.fn(),
@@ -50,6 +52,7 @@ describe("DocRow", () => {
 			closeMenu: vi.fn(),
 			changeMode: vi.fn(),
 			moveCategory: vi.fn(),
+			togglePin: vi.fn(),
 			dragStart: vi.fn(),
 			dragEnd: vi.fn(),
 		};
@@ -134,6 +137,7 @@ describe("DocRow", () => {
 			closeMenu: vi.fn(),
 			changeMode: vi.fn(),
 			moveCategory: vi.fn(),
+			togglePin: vi.fn(),
 			dragStart: vi.fn(),
 			dragEnd: vi.fn(),
 		};
@@ -149,6 +153,8 @@ describe("DocRow", () => {
 					mode: { kind: "idle" },
 					canDelete: true,
 					dragging: false,
+					pinned: false,
+					canPin: true,
 				}}
 				actions={actions}
 			/>,
@@ -160,5 +166,45 @@ describe("DocRow", () => {
 			expect(writeText).toHaveBeenCalledWith("clients/acme/proposals/Proposal"),
 		);
 		expect(actions.closeMenu).toHaveBeenCalledOnce();
+	});
+
+	it("keeps one pin label and reports the pinned state through aria-pressed", () => {
+		setLang("en");
+		const model: DocItemModel = {
+			doc: {
+				id: "budget-id",
+				name: "Budget",
+				category: "",
+				format: "A4",
+				pageCount: 1,
+				elementCount: 0,
+				collectionBindings: [],
+			},
+			onWs: false,
+			focused: false,
+			selected: false,
+			menuOpen: false,
+			mode: { kind: "idle" },
+			canDelete: true,
+			dragging: false,
+			pinned: false,
+			canPin: true,
+		};
+		const actions = { togglePin: vi.fn() } as unknown as DocItemActions;
+
+		const { rerender } = render(
+			<DocPinButton model={model} actions={actions} />,
+		);
+		const button = screen.getByRole("button", { name: "Pin Budget" });
+		expect(button).toHaveAttribute("aria-pressed", "false");
+		expect(button).toHaveAttribute("title", "Pin Budget");
+
+		rerender(
+			<DocPinButton model={{ ...model, pinned: true }} actions={actions} />,
+		);
+		const pressed = screen.getByRole("button", { name: "Pin Budget" });
+		expect(pressed).toHaveAttribute("aria-pressed", "true");
+		fireEvent.click(pressed);
+		expect(actions.togglePin).toHaveBeenCalledOnce();
 	});
 });

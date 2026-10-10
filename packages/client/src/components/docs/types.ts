@@ -35,6 +35,7 @@ export interface QueryChip {
 
 export interface DocsTabModel {
 	toolbar: DocsToolbarModel;
+	pinned: PinnedDocsModel;
 	categories: DocsCategoryModel[];
 	empty: boolean;
 	selected: Set<string>;
@@ -60,6 +61,13 @@ export interface DocsToolbarModel {
 	handleImportDrop: (event: React.DragEvent) => void;
 	view: View;
 	setView: (view: View) => void;
+}
+
+/** First library group: pinned documents, most recently pinned first. */
+export interface PinnedDocsModel {
+	docs: DocSummary[];
+	view: View;
+	itemFor: (doc: DocSummary) => DocItemProps;
 }
 
 export interface DocsCategoryModel {
@@ -107,6 +115,9 @@ export interface DocItemModel {
 	mode: RowMode;
 	canDelete: boolean;
 	dragging: boolean;
+	pinned: boolean;
+	/** False in read-only contexts: the pin mark shows, the toggle does not. */
+	canPin: boolean;
 }
 
 export interface DocItemActions {
@@ -116,6 +127,7 @@ export interface DocItemActions {
 	closeMenu: () => void;
 	changeMode: (mode: RowMode) => void;
 	moveCategory: () => void;
+	togglePin: () => void;
 	dragStart: (event: React.DragEvent) => void;
 	dragEnd: () => void;
 }

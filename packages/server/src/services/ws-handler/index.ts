@@ -39,6 +39,7 @@ import {
 	handleLoadDocument,
 	handleLockDocument,
 	handleMoveCategory,
+	handlePinDocument,
 	handleRenameDocument,
 	handleUpdateMeta,
 } from "./document-commands.js";
@@ -170,6 +171,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "lock_document":
 			handleLockDocument(ctx, msg);
+			break;
+		case "pin_document":
+			handlePinDocument(ctx, msg);
 			break;
 		case "open_onboarding":
 			handleOpenOnboarding(ctx, msg, ws);

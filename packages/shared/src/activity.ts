@@ -6,6 +6,8 @@ export const ACTIVITY_KEYS = [
 	"bubble_maket_doc_duplicate",
 	"bubble_maket_doc_rename",
 	"bubble_maket_doc_meta",
+	"bubble_maket_doc_pin",
+	"bubble_maket_doc_unpin",
 	"bubble_maket_doc_export",
 	"bubble_maket_doc_import",
 	"bubble_maket_page_add",

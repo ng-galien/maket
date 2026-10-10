@@ -107,6 +107,14 @@ export interface DocumentRemovedSignal {
 	name: string;
 }
 
+/** A document's pin changed. Clients update the matching document list
+ * entry; `pinnedAt` is null once the document is unpinned. */
+export interface DocumentPinnedSignal {
+	type: "doc_pinned";
+	name: string;
+	pinnedAt: string | null;
+}
+
 /** Atomically replaces a persistent document identity in each browser.
  * Clients that display or focus `oldName` must preserve that local position
  * under the renamed document instead of treating the rename as delete + open. */
@@ -240,6 +248,12 @@ export interface LockDocumentCommand {
 	type: "lock_document";
 	name: string;
 	locked: boolean;
+}
+
+export interface PinDocumentCommand {
+	type: "pin_document";
+	name: string;
+	pinned: boolean;
 }
 
 export interface OpenOnboardingCommand {
@@ -417,6 +431,7 @@ export type WorkspaceSignal =
 	| CharteUpdatedSignal
 	| CharteRemovedSignal
 	| DocumentRemovedSignal
+	| DocumentPinnedSignal
 	| DocumentRenamedSignal
 	| PendingAcknowledgedSignal
 	| AnnotationsChangedSignal
@@ -439,6 +454,7 @@ export type WorkspaceCommand =
 	| DeleteStructuredWorkspaceCommand
 	| DuplicateDocumentCommand
 	| LockDocumentCommand
+	| PinDocumentCommand
 	| OpenOnboardingCommand
 	| UpdateDocumentMetadataCommand
 	| MoveCategoryCommand

@@ -593,6 +593,118 @@ describe("maket_doc — action=duplicate", () => {
 	});
 });
 
+describe("maket_doc — action=pin/unpin", () => {
+	function pinFixture(names: string[]) {
+		const { store, bus, documents, config, collections } = fixture();
+		for (const name of names) {
+			const document = makeDoc(name);
+			document.category = name === "notes" ? "archive" : "reports";
+			store.saveDoc(document);
+		}
+		documents.loadAll();
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			collections,
+		});
+		const call = async (args: Record<string, unknown>) => {
+			const result = await tool.handler(args, NO_EXTRA);
+			return {
+				isError: result.isError,
+				body: result.content[0]?.type === "text" ? result.content[0].text : "",
+			};
+		};
+		return { store, bus, documents, call };
+	}
+
+	it("lists pinned documents first, most recently pinned first, and the rest as a category tree", async () => {
+		const { store, bus, documents, call } = pinFixture([
+			"board",
+			"dossier",
+			"notes",
+			"synthesis",
+		]);
+		const events: unknown[] = [];
+		bus.on("document:pinned", (payload) => events.push(payload));
+
+		expect((await call({ action: "pin", doc: "synthesis" })).isError).toBe(
+			undefined,
+		);
+		await call({ action: "pin", doc: "board" });
+
+		const listed = (await call({ action: "list" })).body.split("\n");
+		expect(listed.slice(0, 3)).toEqual([
+			"pinned (2)",
+			"  - 📌 board (A4 portrait, 1 el.) · reports",
+			"  - 📌 synthesis (A4 portrait, 1 el.) · reports",
+		]);
+		expect(listed.slice(3)).toEqual([
+			"archive (1)",
+			"  - notes (A4 portrait, 1 el.)",
+			"reports (1)",
+			"  - dossier (A4 portrait, 1 el.)",
+		]);
+		expect(events).toEqual([
+			{ docName: "synthesis", pinnedAt: expect.any(String) },
+			{ docName: "board", pinnedAt: expect.any(String) },
+		]);
+		const reloaded = createDocuments({ store });
+		reloaded.loadAll();
+		expect(reloaded.resolve("synthesis")?.pinnedAt).toBe(
+			documents.resolve("synthesis")?.pinnedAt,
+		);
+		store.close();
+	});
+
+	it("keeps an already pinned document in place and unpins it back into its category", async () => {
+		const { store, bus, documents, call } = pinFixture(["board", "synthesis"]);
+		await call({ action: "pin", doc: "synthesis" });
+		await call({ action: "pin", doc: "board" });
+		const events: unknown[] = [];
+		bus.on("document:pinned", (payload) => events.push(payload));
+
+		const repeated = await call({ action: "pin", doc: "synthesis" });
+		expect(repeated).toEqual({
+			isError: undefined,
+			body: '"synthesis" is already pinned',
+		});
+		expect((await call({ action: "list" })).body.split("\n")[1]).toContain(
+			"board",
+		);
+
+		await call({ action: "unpin", doc: "board" });
+		expect((await call({ action: "list" })).body.split("\n")).toEqual([
+			"pinned (1)",
+			"  - 📌 synthesis (A4 portrait, 1 el.) · reports",
+			"reports (1)",
+			"  - board (A4 portrait, 1 el.)",
+		]);
+		expect(events).toEqual([{ docName: "board", pinnedAt: null }]);
+		expect(store.loadOne("board")?.pinnedAt).toBeNull();
+		expect(documents.resolve("board")?.pinnedAt).toBeNull();
+		store.close();
+	});
+
+	it("pins a locked document and refuses an unknown one", async () => {
+		const { store, documents, call } = pinFixture(["board"]);
+		const board = documents.resolve("board");
+		if (board) board.meta.locked = true;
+
+		expect((await call({ action: "pin", doc: "board" })).isError).toBe(
+			undefined,
+		);
+		expect(documents.resolve("board")?.pinnedAt).toEqual(expect.any(String));
+		expect(await call({ action: "unpin", doc: "missing" })).toEqual({
+			isError: true,
+			body: 'Document "missing" not found',
+		});
+		expect((await call({ action: "pin" })).isError).toBe(true);
+		store.close();
+	});
+});
+
 describe("maket_doc — action=meta", () => {
 	it("errors when the document does not exist", async () => {
 		const { store, bus, documents, config, collections } = fixture();
@@ -909,6 +1021,65 @@ describe("maket_doc — action=export / import", () => {
 			expect(importRes.isError).toBeUndefined();
 			expect(documents2.resolve("poster")?.meta.charte).toBe("brand");
 			expect(store2.loadCharte("brand")?.tokens.color?.primary).toBe("#f00");
+
+			store.close();
+			store2.close();
+		});
+	});
+
+	it("carries the pin timestamp through export and import", async () => {
+		await withTmp(async (dir) => {
+			const { store, bus, documents, collections } = fixture();
+			const cfg = { EXPORTS_DIR: dir } as unknown as Config;
+			store.saveDoc(makeDoc("synthesis"));
+			store.saveDoc(makeDoc("draft"));
+			documents.loadAll();
+			const tool = createMaketDocTool({
+				bus,
+				documents,
+				store,
+				config: cfg,
+				collections,
+			});
+			await tool.handler({ action: "pin", doc: "synthesis" }, NO_EXTRA);
+			const pinnedAt = documents.resolve("synthesis")?.pinnedAt;
+			const exported = await tool.handler(
+				{ action: "export", docs: ["synthesis", "draft"] },
+				NO_EXTRA,
+			);
+			const bundlePath = ((exported.content[0] as any).text as string).match(
+				/→ (\S+\.maket)/,
+			)?.[1];
+			expect(bundlePath).toBeDefined();
+			const bundle = await decodeBundle(readFileSync(bundlePath as string));
+			expect(
+				bundle.documents.map(({ name, pinnedAt }) => ({ name, pinnedAt })),
+			).toEqual([
+				{ name: "synthesis", pinnedAt },
+				{ name: "draft", pinnedAt: undefined },
+			]);
+
+			const store2 = createSQLiteStore(":memory:");
+			const bus2 = createBus();
+			const documents2 = createDocuments({ store: store2 });
+			const tool2 = createMaketDocTool({
+				bus: bus2,
+				documents: documents2,
+				store: store2,
+				config: cfg,
+				collections: createCollections({
+					bus: bus2,
+					documents: documents2,
+					store: store2,
+				}),
+			});
+			const imported = await tool2.handler(
+				{ action: "import", input: bundlePath },
+				NO_EXTRA,
+			);
+			expect(imported.isError).toBeUndefined();
+			expect(store2.loadOne("synthesis")?.pinnedAt).toBe(pinnedAt);
+			expect(store2.loadOne("draft")?.pinnedAt).toBeNull();
 
 			store.close();
 			store2.close();

@@ -28,7 +28,7 @@
   "tools": [
     {
       "name": "maket_doc",
-      "description": "Document lifecycle: new, list, side-effect-free lookup by exact name, client-local reading link, delete, duplicate, rename, meta, export/import (.maket bundle)."
+      "description": "Document lifecycle: new, list, side-effect-free lookup by exact name, client-local reading link, delete, duplicate, rename, meta, pin/unpin (pinned documents lead the document lists), export/import (.maket bundle)."
     },
     {
       "name": "maket_page",
@@ -37,7 +37,7 @@
     { "name": "maket_canvas", "description": "Set a document's canvas: format, orientation, background, margin." },
     {
       "name": "maket_html",
-      "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (detailed layout measurements, overflow, and page links to a missing page). Links between pages use #page=<n> or #page:<name>. State-backed pages may draw from state through whitelisted SVG presentation attributes and style geometry."
+      "description": "Read and write page HTML: set (full replace), patch (surgical ops by data-id), get, check (detailed layout measurements of the page as rendered with its document state or collection member, overflow, and page links to a missing page). Links between pages use #page=<n> or #page:<name>. State-backed pages may draw from state through whitelisted SVG presentation attributes and style geometry."
     },
     {
       "name": "maket_workspace",

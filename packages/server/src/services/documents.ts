@@ -30,6 +30,14 @@ export interface Documents {
 	persist(name: string): void;
 	/** Delete from store + cache. Structured Workspace ownership is protected. */
 	delete(name: string, opts?: { allowStructuredWorkspace?: boolean }): boolean;
+	/**
+	 * Pin a cached document to the top of document lists. Each pin is stamped
+	 * strictly after every existing pin; an already pinned document keeps its
+	 * place. Returns null when the document is not cached.
+	 */
+	pin(name: string): Document | null;
+	/** Remove a cached document's pin. Returns null when the document is not cached. */
+	unpin(name: string): Document | null;
 	/** Rename while preserving the stable document identity and related state. */
 	rename(name: string, newName: string): void;
 	/** Atomically move every cached document in one category subtree. */
@@ -177,7 +185,32 @@ function listDocumentSummaries(
 			charteColor: resolveCharteColor(document.meta?.charte),
 			emailDraftUrl: document.meta?.emailDraftUrl,
 			emailDraftRole: document.meta?.emailDraftRole,
+			...(document.pinnedAt ? { pinnedAt: document.pinnedAt } : {}),
 		}));
+}
+
+function nextPinTimestamp(cache: Map<string, Document>): string {
+	let latest = 0;
+	for (const document of cache.values()) {
+		if (!document.pinnedAt) continue;
+		latest = Math.max(latest, Date.parse(document.pinnedAt) || 0);
+	}
+	return new Date(Math.max(Date.now(), latest + 1)).toISOString();
+}
+
+function setDocumentPin(
+	cache: Map<string, Document>,
+	store: Store,
+	name: string,
+	pinned: boolean,
+): Document | null {
+	const document = cache.get(name);
+	if (!document) return null;
+	if (pinned === Boolean(document.pinnedAt)) return document;
+	const pinnedAt = pinned ? nextPinTimestamp(cache) : null;
+	store.setDocumentPin(name, pinnedAt);
+	document.pinnedAt = pinnedAt;
+	return document;
 }
 
 export function createDocuments({ store }: DocumentsDeps): Documents {
@@ -226,6 +259,12 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				restoreCachedDocument(cache, store, name);
 				throw error;
 			}
+		},
+		pin(name) {
+			return setDocumentPin(cache, store, name, true);
+		},
+		unpin(name) {
+			return setDocumentPin(cache, store, name, false);
 		},
 		delete(name, opts) {
 			return deleteDocument(cache, store, name, opts?.allowStructuredWorkspace);

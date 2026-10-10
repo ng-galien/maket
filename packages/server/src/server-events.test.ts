@@ -177,3 +177,41 @@ describe("server Structured Workspace propagation", () => {
 		expect(listViews).not.toHaveBeenCalled();
 	});
 });
+
+describe("server document pin propagation", () => {
+	it("broadcasts a pin change as one document list update", () => {
+		const bus = createBus();
+		const broadcast = vi.fn();
+		registerServerEvents({
+			bus,
+			collections: { loadAll: () => [] } as never,
+			collectionCursors: { snapshot: () => [] } as never,
+			documents: { resolve: () => null } as never,
+			documentRenderer: {} as never,
+			mermaidDiagrams: {
+				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
+				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
+			},
+			structuredWorkspaces: { listViews: () => [] } as never,
+			wsRegistry: { broadcast } as never,
+			pending: { all: () => [] } as never,
+		});
+
+		bus.emit("document:pinned", {
+			docName: "synthesis",
+			pinnedAt: "2026-10-10T08:00:00.000Z",
+		});
+		bus.emit("document:pinned", { docName: "synthesis", pinnedAt: null });
+
+		expect(broadcast.mock.calls).toEqual([
+			[
+				{
+					type: "doc_pinned",
+					name: "synthesis",
+					pinnedAt: "2026-10-10T08:00:00.000Z",
+				},
+			],
+			[{ type: "doc_pinned", name: "synthesis", pinnedAt: null }],
+		]);
+	});
+});

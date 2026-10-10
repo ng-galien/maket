@@ -917,6 +917,7 @@ describe("workspace command wire format", () => {
 			sendDeleteDoc,
 			sendDuplicateDoc,
 			sendLockDoc,
+			sendPinDoc,
 			sendRenameDoc,
 			sendTextEdit,
 		} = await freshWsModule();
@@ -930,6 +931,7 @@ describe("workspace command wire format", () => {
 		sendRenameDoc("draft", "final");
 		sendDuplicateDoc("final", "variant");
 		sendLockDoc("final", true);
+		sendPinDoc("final", true);
 
 		expect(socket.sentPayloads()).toEqual([
 			{
@@ -943,6 +945,7 @@ describe("workspace command wire format", () => {
 			{ type: "rename_document", name: "draft", newName: "final" },
 			{ type: "duplicate_document", name: "final", newName: "variant" },
 			{ type: "lock_document", name: "final", locked: true },
+			{ type: "pin_document", name: "final", pinned: true },
 		]);
 	});
 
@@ -1162,5 +1165,42 @@ describe("fit_view", () => {
 		MockWebSocket.last().emit({ type: "fit_view" });
 
 		expect(requestFit).not.toHaveBeenCalled();
+	});
+});
+
+describe("doc_pinned", () => {
+	it("sets and clears the pin on the matching document list entry", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		MockWebSocket.last().open();
+		useStore.setState({ docList: [summary("alpha"), summary("beta")] });
+
+		MockWebSocket.last().emit({
+			type: "doc_pinned",
+			name: "beta",
+			pinnedAt: "2026-10-10T08:00:00.000Z",
+		});
+		expect(useStore.getState().docList).toEqual([
+			summary("alpha"),
+			{ ...summary("beta"), pinnedAt: "2026-10-10T08:00:00.000Z" },
+		]);
+
+		MockWebSocket.last().emit({
+			type: "doc_pinned",
+			name: "beta",
+			pinnedAt: null,
+		});
+		expect(useStore.getState().docList).toEqual([
+			summary("alpha"),
+			summary("beta"),
+		]);
+
+		const before = useStore.getState().docList;
+		MockWebSocket.last().emit({
+			type: "doc_pinned",
+			name: "unknown",
+			pinnedAt: "2026-10-10T09:00:00.000Z",
+		});
+		expect(useStore.getState().docList).toBe(before);
 	});
 });

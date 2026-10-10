@@ -133,6 +133,8 @@ export interface Document {
 	pages: Page[];
 	activePage: number;
 	nextId: number;
+	/** When the document was pinned to the top of document lists; null when unpinned. */
+	pinnedAt: string | null;
 	// Runtime-only presentation state. User annotations are persisted separately.
 	_displayed?: boolean;
 }
@@ -148,6 +150,7 @@ export interface DocumentInit {
 	elements?: unknown[];
 	activePage?: number;
 	nextId?: number;
+	pinnedAt?: string | null;
 }
 
 function pageWithIdentity(page: PageInit): Page {
@@ -174,6 +177,7 @@ export function createDocument(init: DocumentInit): Document {
 		pages,
 		activePage: init.activePage || 0,
 		nextId: init.nextId || 1,
+		pinnedAt: init.pinnedAt ?? null,
 	};
 }
 
@@ -213,6 +217,8 @@ export interface DocSummary {
 	 * sidebar + workspace label when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
+	/** Pin timestamp; present only on pinned documents. */
+	pinnedAt?: string;
 }
 
 // ---- Charte graphique ----

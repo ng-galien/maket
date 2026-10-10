@@ -4,6 +4,7 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Minus,
+	Pin,
 	Plus,
 	X,
 } from "lucide-react";
@@ -23,8 +24,9 @@ import {
 	useState,
 } from "react";
 import { useT } from "../i18n/useT";
+import { pinnedDocuments } from "../lib/pinnedDocuments";
 import { exitReadingSession } from "../store/readingSession";
-import type { Document } from "../store/types";
+import type { DocSummary, Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
 import { PAGE_LINK_EVENT, type PageLinkEvent } from "./page-link-navigation";
@@ -99,8 +101,11 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	const collections = useStore((state) => state.collections);
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
 	const docs = useStore((state) => state.docs);
+	const docList = useStore((state) => state.docList);
 	const focusedPageIndex = useStore((state) => state.focusedPageIndex);
-	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
+	const openWorkspaceDocument = useStore(
+		(state) => state.openWorkspaceDocument,
+	);
 	const setFocusedPage = useStore((state) => state.setFocusedPage);
 	const t = useT();
 	const pageLabel = t("page");
@@ -171,12 +176,7 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	});
 
 	if (!doc) return null;
-	const documents = workspaceDocNames.flatMap((name) => {
-		const workspaceDoc = docs.get(name);
-		return workspaceDoc
-			? [{ name: workspaceDoc.name, category: workspaceDoc.category }]
-			: [];
-	});
+	const documents = readerDocuments(docList, workspaceDocNames, docs);
 	return {
 		doc,
 		initialReaderPageIndex,
@@ -193,11 +193,33 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 				readerPageIndex,
 				t("reader_empty_collection"),
 			),
-			onDocumentChange: setFocusedDoc,
+			onDocumentChange: (name) => openWorkspaceDocument(name),
 			onPageChange: showReaderPage,
 			onExit: returnToCanvasView,
 		},
 	};
+}
+
+/** Reader navigation order: pinned documents first, most recently pinned
+ * first, then the other open workspace documents in workspace order. */
+function readerDocuments(
+	docList: DocSummary[],
+	workspaceDocNames: string[],
+	docs: Map<string, Document>,
+): DocumentPickerItem[] {
+	const pinned = pinnedDocuments(docList).map((summary) => ({
+		name: summary.name,
+		category: summary.category,
+		pinned: true,
+	}));
+	const pinnedNames = new Set(pinned.map((item) => item.name));
+	const open = workspaceDocNames.flatMap((name) => {
+		const workspaceDoc = docs.get(name);
+		return workspaceDoc && !pinnedNames.has(name)
+			? [{ name: workspaceDoc.name, category: workspaceDoc.category }]
+			: [];
+	});
+	return [...pinned, ...open];
 }
 
 export function ReaderSurface({
@@ -801,6 +823,8 @@ export function ReaderDocumentPicker({
 export interface DocumentPickerItem {
 	name: string;
 	category: string;
+	/** Pinned items lead the list under their own group label. */
+	pinned?: boolean;
 }
 
 interface ReaderDocumentPickerModel {
@@ -1012,59 +1036,130 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 				aria-label={label}
 				className="max-h-72 overflow-y-auto py-1"
 			>
-				{documents.map((document, index) => {
-					const { name, category } = document;
-					const selected = name === docName;
-					const categoryId = `${model.listboxId}-category-${index}`;
+				{documentGroups(documents, t).map((group) => {
+					const options = group.items.map(({ document, index }) => (
+						<ReaderDocumentOption
+							key={document.name}
+							model={model}
+							document={document}
+							index={index}
+							selected={document.name === docName}
+							onCloseDocument={onCloseDocument}
+						/>
+					));
+					if (!group.label) return options;
 					return (
-						<div key={name} className="group/document relative">
-							<button
-								ref={(element) => {
-									model.optionRefs.current[index] = element;
-								}}
-								type="button"
-								role="option"
-								aria-selected={selected}
-								aria-label={name}
-								aria-describedby={categoryId}
-								tabIndex={index === model.activeIndex ? 0 : -1}
-								onClick={() => model.choose(name)}
-								onKeyDown={(event) => model.onOptionKeyDown(event, index)}
-								className={`relative flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors ${onCloseDocument ? "pr-10" : ""} ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
+						<div
+							key={group.key}
+							role="group"
+							aria-label={group.label}
+							data-reader-document-group={group.key}
+						>
+							<div
+								aria-hidden
+								className="flex items-center gap-1.5 px-2.5 pt-1.5 pb-1 text-2xs font-semibold uppercase tracking-wide text-text-3"
 							>
-								{selected && (
-									<span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-accent" />
+								{group.key === "pinned" && (
+									<Pin size={11} className="fill-current text-accent" />
 								)}
-								<span className="min-w-0 flex-1">
-									<span className="block truncate text-sm font-semibold text-text-1">
-										{name}
-									</span>
-									<span
-										id={categoryId}
-										className="mt-0.5 block truncate text-xs text-text-3"
-									>
-										{documentCategoryLabel(category)}
-									</span>
-								</span>
-								{selected && !onCloseDocument && (
-									<Check size={16} className="shrink-0 text-accent" />
-								)}
-							</button>
-							{onCloseDocument && (
-								<button
-									type="button"
-									onClick={() => onCloseDocument(name)}
-									aria-label={t("close_document", { name })}
-									title={t("close_document", { name })}
-									className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-text-3 opacity-70 transition-colors hover:bg-black/[0.05] hover:text-text-1 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/30 group-hover/document:opacity-100"
-								>
-									<X size={14} strokeWidth={1.75} />
-								</button>
-							)}
+								{group.label}
+							</div>
+							{options}
 						</div>
 					);
 				})}
 			</div>
+		</div>
+	);
+}
+
+function documentGroups(
+	documents: DocumentPickerItem[],
+	t: ReturnType<typeof useT>,
+): Array<{
+	key: string;
+	label?: string;
+	items: Array<{ document: DocumentPickerItem; index: number }>;
+}> {
+	const indexed = documents.map((document, index) => ({ document, index }));
+	const pinned = indexed.filter(({ document }) => document.pinned);
+	if (pinned.length === 0) return [{ key: "documents", items: indexed }];
+	const others = indexed.filter(({ document }) => !document.pinned);
+	return [
+		{ key: "pinned", label: t("pinned_documents"), items: pinned },
+		...(others.length > 0
+			? [
+					{
+						key: "documents",
+						label: t("open_documents_title"),
+						items: others,
+					},
+				]
+			: []),
+	];
+}
+
+function ReaderDocumentOption({
+	model,
+	document,
+	index,
+	selected,
+	onCloseDocument,
+}: {
+	model: ReaderDocumentPickerModel;
+	document: DocumentPickerItem;
+	index: number;
+	selected: boolean;
+	onCloseDocument?: (name: string) => void;
+}) {
+	const t = useT();
+	const { name, category } = document;
+	const categoryId = `${model.listboxId}-category-${index}`;
+	return (
+		<div key={name} className="group/document relative">
+			<button
+				ref={(element) => {
+					model.optionRefs.current[index] = element;
+				}}
+				type="button"
+				role="option"
+				aria-selected={selected}
+				aria-label={name}
+				aria-describedby={categoryId}
+				tabIndex={index === model.activeIndex ? 0 : -1}
+				onClick={() => model.choose(name)}
+				onKeyDown={(event) => model.onOptionKeyDown(event, index)}
+				className={`relative flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors ${onCloseDocument ? "pr-10" : ""} ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
+			>
+				{selected && (
+					<span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-accent" />
+				)}
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-sm font-semibold text-text-1">
+						{name}
+					</span>
+					<span
+						id={categoryId}
+						className="mt-0.5 block truncate text-xs text-text-3"
+					>
+						{documentCategoryLabel(category)}
+					</span>
+				</span>
+				{selected && !onCloseDocument && (
+					<Check size={16} className="shrink-0 text-accent" />
+				)}
+			</button>
+			{onCloseDocument && (
+				<button
+					type="button"
+					onClick={() => onCloseDocument(name)}
+					aria-label={t("close_document", { name })}
+					title={t("close_document", { name })}
+					className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm text-text-3 opacity-70 transition-colors hover:bg-black/[0.05] hover:text-text-1 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-accent/30 group-hover/document:opacity-100"
+				>
+					<X size={14} strokeWidth={1.75} />
+				</button>
+			)}
 		</div>
 	);
 }

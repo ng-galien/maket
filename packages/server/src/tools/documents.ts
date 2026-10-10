@@ -2,7 +2,7 @@
  * documents pack — maket_doc (compound).
  *
  * Persistent document-lifecycle verbs: new, list, lookup, link, delete, duplicate, rename,
- * meta (absorbed from the old chartes pack), export/import (.maket bundles).
+ * meta (absorbed from the old chartes pack), pin/unpin, export/import (.maket bundles).
  * Session-scoped operations (focus, state, lock) live in maket_workspace.
  *
  * Deps: `documents` (cache + persist), `bus` (document:* + toast events),
@@ -54,6 +54,8 @@ const ActionSchema = z.enum([
 	"duplicate",
 	"rename",
 	"meta",
+	"pin",
+	"unpin",
 	"export",
 	"import",
 ]);
@@ -79,7 +81,7 @@ const MaketDocSchema = z.object({
 		.string()
 		.optional()
 		.describe(
-			"The doc in scope. Required for every action except list. For lookup: the exact name to read. For new: the new doc's name (must be unique). For delete/meta: the doc to act on. For duplicate/rename: the source doc.",
+			"The doc in scope. Required for every action except list. For lookup: the exact name to read. For new: the new doc's name (must be unique). For delete/meta/pin/unpin: the doc to act on. For duplicate/rename: the source doc.",
 		),
 	name: z
 		.string()
@@ -166,13 +168,15 @@ const DESCRIPTION = [
 	"",
 	"Manage design documents (the workspace unit: canvas + pages + meta).",
 	"  new       — create a blank document at `doc`; sets it active. Previous unsaved work is lost.",
-	"  list      — enumerate saved documents as a hierarchy of category paths.",
+	"  list      — enumerate saved documents: pinned documents first (most recently pinned first, marked 📌, with their category), then the other documents as a hierarchy of category paths.",
 	"  lookup    — read-only identity of `doc` by exact name, Workspace documents included: JSON {name, id, revision (monotonic modification token), pageCount, dataModel, stateRevision (null without state)}. It never opens the preview nor changes the active document. When absent, the error lists near matches.",
 	"  link      — return a reading path for `doc`, using its stable document id and configured browser base path. Prefix it with the reachable gateway origin.",
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
+	"  pin       — pin `doc` at the top of the document lists (desktop library, Reader navigation, list). The most recently pinned document comes first; pinning an already pinned doc keeps its place. Allowed on locked documents.",
+	"  unpin     — remove `doc`'s pin; it returns to its category.",
 	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots (with their revision retention) are embedded automatically; revision history stays local. Override the filename with `output`.",
 	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes and collections skip names that already exist. Current document-state snapshots initialize revision 1, and assets are restored to ASSETS_DIR with the existing collision rule.",
 ].join("\n");
@@ -244,6 +248,9 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 			return runRename(args, deps.documents, deps.bus);
 		case "meta":
 			return runMeta(args, deps.documents, deps.bus);
+		case "pin":
+		case "unpin":
+			return runPin(args, deps.documents, deps.bus, args.action === "pin");
 		case "export":
 			return runExport(args, deps.config, deps.bundleExportService);
 		case "import":
@@ -301,8 +308,68 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 function runList(documents: Documents) {
 	const list = documents.list();
 	if (!list.length) return text("No documents.");
-	const lines = renderDocumentCategoryTree(buildDocumentCategoryTree(list));
+	const pinned = pinnedDocuments(list);
+	const others = list.filter((document) => !document.pinnedAt);
+	const lines: string[] = [];
+	if (pinned.length > 0) {
+		lines.push(`pinned (${pinned.length})`);
+		for (const document of pinned) {
+			lines.push(
+				`  - 📌 ${documentLine(document)} · ${normalizeCategoryPath(document.category)}`,
+			);
+		}
+	}
+	lines.push(...renderDocumentCategoryTree(buildDocumentCategoryTree(others)));
 	return text(lines.join("\n"));
+}
+
+/** Pinned documents, most recently pinned first; equal stamps fall back to name. */
+function pinnedDocuments(list: ListedDocument[]): ListedDocument[] {
+	return list
+		.filter((document) => document.pinnedAt)
+		.sort(
+			(a, b) =>
+				(b.pinnedAt ?? "").localeCompare(a.pinnedAt ?? "") ||
+				a.name.localeCompare(b.name),
+		);
+}
+
+function documentLine(document: ListedDocument): string {
+	const stars = document.rating ? ` ${"★".repeat(document.rating)}` : "";
+	const charte = document.charte ? ` [${document.charte}]` : "";
+	return `${document.name} (${document.format} ${document.orientation}, ${document.count} el.)${stars}${charte}`;
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// MCP tool action `runPin`: edge adapter over the documents service and the propagation event.
+function runPin(args: Args, documents: Documents, bus: Bus, pinned: boolean) {
+	const action = pinned ? "pin" : "unpin";
+	if (!args.doc) return text(`doc is required for action=${action}`, true);
+	const d = documents.resolve(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (d.meta.structuredWorkspace) {
+		return text(
+			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace.workspaceId}" and cannot be pinned.`,
+			true,
+		);
+	}
+	if (Boolean(d.pinnedAt) === pinned) {
+		return text(
+			pinned ? `"${d.name}" is already pinned` : `"${d.name}" is not pinned`,
+		);
+	}
+	const updated = pinned ? documents.pin(d.name) : documents.unpin(d.name);
+	if (!updated) return text(`Document "${args.doc}" not found`, true);
+	bus.emit("document:pinned", {
+		docName: updated.name,
+		pinnedAt: updated.pinnedAt,
+	});
+	return text(
+		pinned
+			? `Pinned "${updated.name}" at the top of the document list`
+			: `Unpinned "${updated.name}"`,
+		{ next: ["maket_doc action=list"] },
+	);
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -447,11 +514,7 @@ function renderDocumentCategoryTree(
 		for (const document of [...node.documents].sort((a, b) =>
 			a.name.localeCompare(b.name),
 		)) {
-			const stars = document.rating ? ` ${"★".repeat(document.rating)}` : "";
-			const charte = document.charte ? ` [${document.charte}]` : "";
-			lines.push(
-				`${indent}  - ${document.name} (${document.format} ${document.orientation}, ${document.count} el.)${stars}${charte}`,
-			);
+			lines.push(`${indent}  - ${documentLine(document)}`);
 		}
 		lines.push(...renderDocumentCategoryTree(node.children, depth + 1));
 	}

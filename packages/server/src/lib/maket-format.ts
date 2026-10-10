@@ -48,6 +48,7 @@ export interface BundleDocument {
 	pages: Document["pages"];
 	activePage?: number;
 	nextId?: number;
+	pinnedAt?: string | null;
 }
 
 /** Single asset file carried alongside the manifest in a v2 bundle. */

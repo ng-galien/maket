@@ -121,7 +121,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"| --- | --- |",
 				"| `maket_learn` | Operational Markdown documentation for agents |",
 				"| `maket_workspace` | Focus, state, locks, and pending human messages |",
-				"| `maket_doc` | Document lifecycle, side-effect-free lookup by exact name, metadata, and portable `.maket` bundles |",
+				"| `maket_doc` | Document lifecycle, side-effect-free lookup by exact name, metadata, pins, and portable `.maket` bundles |",
 				"| `maket_page` | Page structure: add, remove, rename, reorder, list |",
 				"| `maket_canvas` | Format, orientation, background, and print margins |",
 				"| `maket_html` | Full HTML writes, surgical patches, reads, and layout checks |",
@@ -144,6 +144,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- `maket_image action=view` returns the `context_token` required before asset metadata is changed.",
 				"- Use `maket_html action=check` for structure and `maket_preview action=snapshot` for visual evidence; neither replaces the other.",
 				"- Gmail is draft-only. `maket_gmail` never sends messages; the human reviews and sends in Gmail.",
+				"- `maket_doc action=pin doc=<name>` keeps a document the user consults daily at the top of the desktop document list, the Reader navigation, and `maket_doc list`, most recently pinned first; `action=unpin` returns it to its category.",
 			].join("\n"),
 		),
 		section(
@@ -185,6 +186,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Run `maket_html action=check doc=<doc> page=<n>` after composition and before export. The returned Markdown report records the physical canvas and total content extents, root position and size, and every problematic addressable block.",
 			"For each problem, compare the measured box with both the physical canvas and its nearest `data-id` parent. Per-side excess identifies whether the block escapes the page or only its intended container; clipping and overlap pairs are reported separately.",
 			"Treat `overflow` and clipped content as non-shippable. A page can be `ok` even when the application preview was previously wrong; in that case compare the canonical report with a snapshot and fix the preview/runtime mismatch instead of distorting the document.",
+			"The check measures the page as readers see it. A state-backed page is hydrated with the current document state and a collection page with the member its preview cursor shows (the first member otherwise); the report's first line names that data. Other pages are measured as authored. Set and patch measure the same way, so a state-backed layout can be verified without a PDF or PNG snapshot.",
 		),
 		section(
 			"Placeholders",

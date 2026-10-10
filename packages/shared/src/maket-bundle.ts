@@ -140,6 +140,16 @@ function validateBundleDocument(value: unknown, index: number): void {
 			`Invalid .maket file: documents[${index}].pages is missing`,
 		);
 	}
+	if (
+		value.pinnedAt !== undefined &&
+		value.pinnedAt !== null &&
+		(typeof value.pinnedAt !== "string" ||
+			Number.isNaN(Date.parse(value.pinnedAt)))
+	) {
+		throw new Error(
+			`Invalid .maket file: documents[${index}].pinnedAt is not a timestamp`,
+		);
+	}
 	for (const [pageIndex, page] of value.pages.entries()) {
 		if (!isPlainRecord(page)) {
 			throw new Error(
@@ -511,6 +521,7 @@ export interface BundleDocumentLike {
 	pages?: readonly object[] | undefined;
 	activePage?: number;
 	nextId?: number;
+	pinnedAt?: string | null;
 }
 
 /** Strip runtime-only fields so the snapshot round-trips cleanly. This is
@@ -541,6 +552,7 @@ export function snapshotBundleDocument(
 		}),
 		activePage: doc.activePage,
 		nextId: doc.nextId,
+		...(doc.pinnedAt ? { pinnedAt: doc.pinnedAt } : {}),
 	};
 }
 

@@ -8,8 +8,8 @@ import {
 } from "./document-timestamp.js";
 
 const DOC_UPSERT_SQL = `
-  INSERT INTO documents (name, id, category, data_model, canvas, meta, active_page, next_id, created_at, updated_at)
-  VALUES ($name, $id, $category, $data_model, $canvas, $meta, $active_page, $next_id, ${DOCUMENT_NOW_SQL}, ${DOCUMENT_NOW_SQL})
+  INSERT INTO documents (name, id, category, data_model, canvas, meta, active_page, next_id, pinned_at, created_at, updated_at)
+  VALUES ($name, $id, $category, $data_model, $canvas, $meta, $active_page, $next_id, $pinned_at, ${DOCUMENT_NOW_SQL}, ${DOCUMENT_NOW_SQL})
   ON CONFLICT(name) DO UPDATE SET
     id          = coalesce(excluded.id, documents.id),
     category    = excluded.category,
@@ -18,6 +18,7 @@ const DOC_UPSERT_SQL = `
     meta        = excluded.meta,
     active_page = excluded.active_page,
     next_id     = excluded.next_id,
+    pinned_at   = excluded.pinned_at,
     updated_at  = ${NEXT_DOCUMENT_UPDATED_AT_SQL}
 `;
 
@@ -42,6 +43,8 @@ export interface DocumentRepository {
 	loadOne(name: string): Document | null;
 	loadById(id: string): Document | null;
 	renameDoc(name: string, newName: string): void;
+	/** Write only the pin timestamp; the document revision is unchanged. */
+	setDocumentPin(name: string, pinnedAt: string | null): void;
 	deleteDoc(name: string): void;
 	isEmpty(): boolean;
 	listTimestamps(): Map<string, string>;
@@ -60,6 +63,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 			meta: JSON.stringify(d.meta || {}),
 			active_page: d.activePage,
 			next_id: d.nextId,
+			pinned_at: d.pinnedAt ?? null,
 		});
 		statements.pageDeleteByDoc.run({ doc_name: d.name });
 		for (let i = 0; i < d.pages.length; i++) {
@@ -129,6 +133,9 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 				throw error;
 			}
 		},
+		setDocumentPin(name, pinnedAt) {
+			statements.docSetPin.run({ name, pinned_at: pinnedAt });
+		},
 		deleteDoc(name) {
 			statements.docDelete.run({ name });
 		},
@@ -160,6 +167,7 @@ function prepareDocumentStatements(db: DatabaseSync): {
 	docSelectOne: StatementSync;
 	docDelete: StatementSync;
 	docRename: StatementSync;
+	docSetPin: StatementSync;
 	pageUpsert: StatementSync;
 	pageDeleteByDoc: StatementSync;
 	pageRenameDoc: StatementSync;
@@ -172,6 +180,9 @@ function prepareDocumentStatements(db: DatabaseSync): {
 		docDelete: db.prepare("DELETE FROM documents WHERE name = $name"),
 		docRename: db.prepare(
 			`UPDATE documents SET name = $new_name, updated_at = ${NEXT_DOCUMENT_UPDATED_AT_SQL} WHERE name = $name`,
+		),
+		docSetPin: db.prepare(
+			"UPDATE documents SET pinned_at = $pinned_at WHERE name = $name",
 		),
 		pageUpsert: db.prepare(PAGE_UPSERT_SQL),
 		pageDeleteByDoc: db.prepare("DELETE FROM pages WHERE doc_name = $doc_name"),
@@ -209,5 +220,6 @@ function rowToDoc(row: any, pageSelectByDoc: StatementSync): Document {
 		pages,
 		activePage: row.active_page || 0,
 		nextId: row.next_id,
+		pinnedAt: row.pinned_at ?? null,
 	});
 }

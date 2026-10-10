@@ -27,6 +27,8 @@ export interface BusEvents {
 	"element:updated": { docName: string; id: string };
 	"assets:changed": { categoryUpdates?: AssetCategoryUpdate[] };
 	"meta:updated": { docName: string };
+	/** A document was pinned (`pinnedAt` set) or unpinned (`pinnedAt` null). */
+	"document:pinned": { docName: string; pinnedAt: string | null };
 	"charte:updated": { name: string; css: string };
 	"charte:removed": { name: string };
 	"collection:saved": { name: string };

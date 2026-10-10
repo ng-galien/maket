@@ -4,11 +4,50 @@ import { join } from "node:path";
 import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { createAssetsService } from "../services/assets.js";
+import { createBus } from "../services/bus.js";
+import { createCollectionCursors } from "../services/collection-cursor.js";
+import { createCollectionRenderer } from "../services/collection-renderer.js";
+import { createCollections } from "../services/collections.js";
+import { createDocumentRenderer } from "../services/document-renderer.js";
+import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
 import type { LayoutResult, LayoutService } from "../services/layout.js";
+import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
-import { createMaketHtmlTool, htmlPack } from "./html.js";
+import {
+	createMaketHtmlTool as createMaketHtmlToolFactory,
+	type HtmlDeps,
+	htmlPack,
+} from "./html.js";
+
+/** The tool wired to the real renderers over the test's store and documents. */
+function createMaketHtmlTool(
+	deps: Omit<HtmlDeps, "documentRenderer" | "collectionCursors"> &
+		Partial<Pick<HtmlDeps, "collectionCursors">>,
+) {
+	const bus = createBus();
+	const { documents, store } = deps;
+	return createMaketHtmlToolFactory({
+		...deps,
+		documentRenderer: createDocumentRenderer({
+			collectionRenderer: createCollectionRenderer({
+				collections: createCollections({ bus, documents, store }),
+			}),
+			stateRenderer: createStateRenderer({
+				documentStates: createDocumentStates({ bus, documents, store }),
+			}),
+			structuredWorkspaces: {
+				renderCollection: () => {
+					throw new Error("No Structured Workspace in this test");
+				},
+			},
+		}),
+		collectionCursors:
+			deps.collectionCursors ??
+			createCollectionCursors({ bus, documents, store }),
+	});
+}
 
 const OK_RESULT: LayoutResult = {
 	status: "ok",
@@ -1298,6 +1337,180 @@ describe("maket_html — lock guard", () => {
 			NO_EXTRA,
 		);
 		expect(checkRes.isError).toBeUndefined();
+		store.close();
+	});
+});
+
+describe("maket_html — measures the page as readers see it", () => {
+	function checkFixture() {
+		const context = fixture();
+		const collectionCursors = createCollectionCursors({
+			bus: createBus(),
+			documents: context.documents,
+			store: context.store,
+		});
+		const tool = createMaketHtmlTool({
+			documents: context.documents,
+			store: context.store,
+			layout: context.layout,
+			assets: context.assets,
+			collectionCursors,
+		});
+		const check = async (doc: string) => {
+			const result = await tool.handler(
+				{ action: "check", doc, page: 1 },
+				NO_EXTRA,
+			);
+			const body =
+				result.content[0]?.type === "text" ? result.content[0].text : "";
+			return { result, body };
+		};
+		return { ...context, tool, check, collectionCursors };
+	}
+
+	it("checks a state-backed page hydrated with the current state", async () => {
+		const { store, documents, layout, check } = checkFixture();
+		store.saveDoc(
+			makeDoc("graph", '<div data-id="title">{{ state.title }}</div>'),
+		);
+		documents.loadAll();
+		createDocumentStates({ bus: createBus(), documents, store }).initialize(
+			"graph",
+			{
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			{ title: "Decisions" },
+		);
+
+		const { body } = await check("graph");
+
+		const measured = layout.check.mock.calls[0]?.[1] as string;
+		expect(measured).toContain(">Decisions</div>");
+		expect(measured).not.toContain("{{");
+		expect(body.split("\n")[0]).toBe(
+			"Measured with document state revision 1.",
+		);
+		store.close();
+	});
+
+	it("checks a collection page with the member shown by its preview cursor", async () => {
+		const { store, documents, layout, check, collectionCursors } =
+			checkFixture();
+		store.saveCollection({
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client: { type: "string" } },
+				required: ["client"],
+			},
+			members: [
+				{ id: "member_1", position: 0, data: { client: "Helios" } },
+				{ id: "member_2", position: 1, data: { client: "Acme" } },
+			],
+		});
+		store.saveDoc(
+			createDocument({
+				name: "merge",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: [
+					{
+						id: "offer",
+						name: "Offer",
+						elements: [],
+						collection: { name: "clients" },
+						html: '<div data-id="client">{{client}}</div>',
+					},
+				],
+			}),
+		);
+		documents.loadAll();
+
+		await check("merge");
+		expect(layout.check.mock.calls[0]?.[1]).toBe(
+			'<div data-id="client">Helios</div>',
+		);
+
+		collectionCursors.set("merge", 0, { memberId: "member_2" });
+		const { body } = await check("merge");
+		expect(layout.check.mock.calls[1]?.[1]).toBe(
+			'<div data-id="client">Acme</div>',
+		);
+		expect(body.split("\n")[0]).toBe(
+			'Measured with collection "clients" member "member_2".',
+		);
+		store.close();
+	});
+
+	it("checks a collection page without breaking on another page's rendering", async () => {
+		const { store, documents, layout, check } = checkFixture();
+		store.saveCollection({
+			name: "clients",
+			schema: {
+				type: "object",
+				properties: { client: { type: "string" } },
+				required: ["client"],
+			},
+			members: [{ id: "member_1", position: 0, data: { client: "Helios" } }],
+		});
+		store.saveDoc(
+			createDocument({
+				name: "mixed",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: [
+					{
+						id: "offer",
+						name: "Offer",
+						elements: [],
+						collection: { name: "clients" },
+						html: '<div data-id="client">{{client}}</div>',
+					},
+					{
+						id: "broken",
+						name: "Broken",
+						elements: [],
+						collection: { name: "clients" },
+						html: '<div data-id="missing">{{unknown_field}}</div>',
+					},
+				],
+			}),
+		);
+		documents.loadAll();
+
+		const { body } = await check("mixed");
+
+		expect(layout.check.mock.calls[0]?.[1]).toBe(
+			'<div data-id="client">Helios</div>',
+		);
+		expect(body.split("\n")[0]).toBe(
+			'Measured with collection "clients" member "member_1".',
+		);
+		store.close();
+	});
+
+	it("keeps checking a page without state or collection as authored", async () => {
+		const { store, documents, layout, check } = checkFixture();
+		const html = '<div data-id="a">{{ not.state }}</div>';
+		store.saveDoc(makeDoc("plain", html));
+		documents.loadAll();
+
+		const { body } = await check("plain");
+
+		expect(layout.check).toHaveBeenCalledWith(expect.anything(), html, 0);
+		expect(body).toBe("✓ Layout OK");
 		store.close();
 	});
 });

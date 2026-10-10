@@ -75,6 +75,9 @@ export interface DocSummary {
 	 * discreet "Draft ready / In draft" pill in the sidebar when present. */
 	emailDraftUrl?: string;
 	emailDraftRole?: "body" | "attachment";
+	/** Pin timestamp; present only on pinned documents, which lead the
+	 * document lists most recently pinned first. */
+	pinnedAt?: string;
 }
 
 import type { StructuredWorkspacePageProvenance } from "@maket/shared";

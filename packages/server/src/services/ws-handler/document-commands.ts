@@ -286,3 +286,22 @@ export function handleLockDocument(
 		level: "info",
 	});
 }
+
+export function handlePinDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "pin_document" }>,
+): void {
+	const d = ctx.documents.resolve(msg.name);
+	if (!d || d.meta.structuredWorkspace) return;
+	const wasPinned = Boolean(d.pinnedAt);
+	const pinned = msg.pinned === true;
+	if (wasPinned === pinned) return;
+	const updated = pinned
+		? ctx.documents.pin(d.name)
+		: ctx.documents.unpin(d.name);
+	if (!updated) return;
+	ctx.bus.emit("document:pinned", {
+		docName: updated.name,
+		pinnedAt: updated.pinnedAt,
+	});
+}

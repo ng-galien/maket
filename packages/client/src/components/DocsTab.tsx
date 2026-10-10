@@ -1,8 +1,10 @@
 import { categoryPathContains, normalizeCategoryPath } from "@maket/shared";
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import { pinnedDocuments } from "../lib/pinnedDocuments";
+import type { DocSummary } from "../store/types";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
-import { wsSend } from "../store/ws";
+import { sendPinDoc, wsSend } from "../store/ws";
 import { BulkActionBar } from "./docs/BulkActionBar";
 import { CategoryPicker } from "./docs/CategoryPicker";
 import {
@@ -25,6 +27,7 @@ import {
 	parseQuery,
 } from "./docs/docsQuery";
 import { createBulkActions, handleDocSelection } from "./docs/docsSelection";
+import { PinnedDocs } from "./docs/PinnedDocs";
 import type { DocsTabModel, RowMode, View } from "./docs/types";
 import { COLLAPSED_KEY, VIEW_KEY } from "./docs/types";
 import { LibraryToolbar } from "./shared/LibraryToolbar";
@@ -61,6 +64,7 @@ function useDocsTabModel(): DocsTabModel {
 	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
 	const focusedDocName = useStore((state) => state.focusedDocName);
+	const readOnly = useStore((state) => state.readOnly);
 	const closeWorkspaceDocuments = useStore(
 		(state) => state.closeWorkspaceDocuments,
 	);
@@ -95,7 +99,10 @@ function useDocsTabModel(): DocsTabModel {
 		filtered,
 		visibleCollapsed,
 	} = useDocumentFilters(docList, collapsed);
-	const categoryTree = buildCategoryTree(filtered);
+	const pinned = pinnedDocuments(filtered);
+	const categoryTree = buildCategoryTree(
+		filtered.filter((doc) => !doc.pinnedAt),
+	);
 	const categoryPaths = categoryPathsForDocs(docList);
 	const categoryMove = useCategoryMove(
 		categoryPaths,
@@ -106,7 +113,10 @@ function useDocsTabModel(): DocsTabModel {
 		sendCategoryMove,
 	);
 	const openDocNames = new Set(workspaceDocNames);
-	const flatOrder = visibleDocOrder(categoryTree, visibleCollapsed);
+	const flatOrder = [
+		...pinned.map((doc) => doc.name),
+		...visibleDocOrder(categoryTree, visibleCollapsed),
+	];
 	const clearSelection = () => setSelected(new Set());
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
@@ -128,6 +138,31 @@ function useDocsTabModel(): DocsTabModel {
 		handleDocSelection(name, event, selection);
 
 	const bulkActions = createBulkActions(docList, selected, clearSelection);
+	const itemFor = (doc: DocSummary) =>
+		createDocItemProps({
+			doc,
+			docList,
+			selected,
+			menuFor,
+			modeFor,
+			draggingName,
+			isOnWorkspace,
+			isFocused: (name) => focusedDocName === name,
+			focusDoc,
+			setMenuFor,
+			setModeFor,
+			setDraggingName,
+			setDragOverCat,
+			rowClick,
+			requestMoveCategory: (doc) =>
+				categoryMove.requestItemMove({
+					kind: "document",
+					name: doc.name,
+					category: doc.category,
+				}),
+			canPin: !readOnly,
+			setPinned: sendPinDoc,
+		});
 	return {
 		toolbar: createToolbarModel({
 			search,
@@ -140,6 +175,7 @@ function useDocsTabModel(): DocsTabModel {
 			setView,
 			importState,
 		}),
+		pinned: { docs: pinned, view, itemFor },
 		categories: buildCategoryModels({
 			nodes: categoryTree,
 			collapsed: visibleCollapsed,
@@ -159,29 +195,7 @@ function useDocsTabModel(): DocsTabModel {
 			docList,
 			openDocNames,
 			view,
-			itemFor: (doc) =>
-				createDocItemProps({
-					doc,
-					docList,
-					selected,
-					menuFor,
-					modeFor,
-					draggingName,
-					isOnWorkspace,
-					isFocused: (name) => focusedDocName === name,
-					focusDoc,
-					setMenuFor,
-					setModeFor,
-					setDraggingName,
-					setDragOverCat,
-					rowClick,
-					requestMoveCategory: (doc) =>
-						categoryMove.requestItemMove({
-							kind: "document",
-							name: doc.name,
-							category: doc.category,
-						}),
-				}),
+			itemFor,
 		}),
 		empty: filtered.length === 0,
 		selected,
@@ -326,6 +340,7 @@ function DocsTabView({ model }: { model: DocsTabModel }) {
 				onScroll={showLibraryScrollActivity}
 				className="library-scroll-area flex-1 min-h-0 overflow-x-hidden overflow-y-auto p-2.5"
 			>
+				<PinnedDocs model={model.pinned} />
 				{model.categories.map((category) => (
 					<DocsCategory key={category.path} model={category} />
 				))}

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -17,6 +17,7 @@ const SCHEMA_SQL = `
     meta       TEXT NOT NULL DEFAULT '{}',
     active_page INTEGER NOT NULL DEFAULT 0,
     next_id    INTEGER NOT NULL DEFAULT 1,
+    pinned_at  TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
   );
@@ -144,6 +145,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 16, up: migrateToV16 },
 	{ version: 17, up: migrateToV17 },
 	{ version: 18, up: migrateToV18 },
+	{ version: 19, up: migrateToV19 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -198,6 +200,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV16(db);
 	migrateToV17(db);
 	migrateToV18(db);
+	migrateToV19(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -473,6 +476,11 @@ function migrateToV18(db: DatabaseSync): void {
 	);
 }
 
+function migrateToV19(db: DatabaseSync): void {
+	migrateToV18(db);
+	addColumnIfMissing(db, "documents", "pinned_at", "TEXT");
+}
+
 function migrateToV16(db: DatabaseSync): void {
 	migrateToV15(db);
 	addColumnIfMissing(db, "pages", "json_forms", "TEXT");
@@ -572,6 +580,9 @@ function assertCurrentSchema(db: DatabaseSync): void {
 	}
 	assertRevisionSchemas(db);
 	assertRevisionRetentionSchema(db);
+	if (!hasColumn(db, "documents", "pinned_at")) {
+		throw new Error("SQLite migration failed: documents.pinned_at is missing");
+	}
 	assertAnnotationsSchema(db);
 	assertCollectionCursorSchema(db);
 	assertStructuredWorkspaceSchema(db);
