@@ -20,6 +20,14 @@ npm run lint:fix  # Biome autofix
 
 Node `>=22`. The server must already be running before Codex connects; the human normally owns that process, so do not start a second development server.
 
+### Development and simulation runtime
+
+- Use the repository development server for feature simulation and manual verification: `npm run dev` starts the checkout server on `http://localhost:24844` (`/mcp`) and Vite HMR on `http://localhost:5173`.
+- Port `24843` belongs to the installed desktop application. It does not reload checkout changes and MUST NOT be used to validate development changes.
+- Check the identified development ports before launching. Reuse a suitable running checkout server; when the owner requests a launch, start the documented workflow without replacing or stopping the desktop application.
+- Create explicitly named simulation documents and preserve existing development data. Simulate the requested user journey before launching automated suites when the owner asks for that order.
+- Automated browser tests use isolated runtimes: `3399` and `.e2e-maket` in `playwright.config.ts`, or a per-test random port and temporary directory through `e2e/isolated-test.ts`. Never point these suites at development or desktop data.
+
 - `npm run quality` is the required local gate before review and again after addressing findings.
 - The pre-commit hook runs staged Biome fixes, typecheck, and tests in parallel. It is a commit guard, not a substitute for `quality`.
 - Tests are co-located (`foo.ts` + `foo.test.ts`). Database tests use `createSQLiteStore(":memory:")`; never use the filesystem.

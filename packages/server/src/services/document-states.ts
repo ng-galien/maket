@@ -99,7 +99,14 @@ export function validateStateTemplateUpdate(
 	store: DocumentStateRepository,
 	page: Page,
 ): void {
-	if (doc.dataModel !== "state") return;
+	if (doc.dataModel !== "state") {
+		if (page.html !== undefined && page.jsonForms !== undefined) {
+			throw new Error(
+				"Embedded JSON Forms requires document state. Initialize state before attaching the form.",
+			);
+		}
+		return;
+	}
 	const definition = store.loadDocumentState(doc.id);
 	const current = store.loadCurrentDocumentState(doc.id);
 	if (!definition || !current) {

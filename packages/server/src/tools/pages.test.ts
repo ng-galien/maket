@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
+import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketPageTool, pagesPack } from "./pages.js";
@@ -42,6 +44,113 @@ describe("pagesPack — registration", () => {
 });
 
 describe("maket_page — action=add", () => {
+	it("replaces an embedded question without losing its shell or answers, and rejects invalid replacements atomically", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("refinement");
+		const html =
+			'<main data-id="page"><h1 data-id="subject">{{ state.subject }}</h1><ol data-id="history">{{#state.answers}}<li data-id="answer">{{ . }}</li>{{/state.answers}}</ol><section data-id="current"><!--maket-json-form--></section></main>';
+		const firstPage = doc.pages[0];
+		if (!firstPage) throw new Error("Missing fixture page");
+		firstPage.html = html;
+		store.saveDoc(doc);
+		documents.loadAll();
+		const states = createDocumentStates({ store, bus, documents });
+		states.initialize(
+			"refinement",
+			{
+				type: "object",
+				properties: {
+					subject: { type: "string" },
+					answers: { type: "array", items: { type: "string" } },
+					choice: { type: "string", enum: ["Developers", "Managers"] },
+					note: { type: "string" },
+				},
+			},
+			{ subject: "Portfolio", answers: [], choice: "Developers", note: "" },
+		);
+		const tool = createMaketPageTool({ bus, documents });
+		const first = {
+			uischema: {
+				type: "Control",
+				scope: "#/properties/choice",
+				options: { format: "radio" },
+			},
+		};
+		const second = {
+			uischema: {
+				type: "Control",
+				scope: "#/properties/note",
+				options: { multi: true },
+			},
+		};
+		expect(
+			(
+				await tool.handler(
+					{ action: "set_form", doc: "refinement", page: 1, json_forms: first },
+					NO_EXTRA,
+				)
+			).isError,
+		).toBeUndefined();
+		states.patchTerminal("refinement", 1, {
+			op: "replace",
+			path: "/choice",
+			value: "Managers",
+		});
+		states.patch("refinement", 2, [
+			{ op: "replace", path: "/answers", value: ["Managers"] },
+		]);
+		expect(
+			(
+				await tool.handler(
+					{
+						action: "set_form",
+						doc: "refinement",
+						page: 1,
+						json_forms: second,
+					},
+					NO_EXTRA,
+				)
+			).isError,
+		).toBeUndefined();
+		const saved = store.loadOne("refinement");
+		if (!saved) throw new Error("Missing saved document");
+		expect(saved.pages[0]?.html).toBe(html);
+		expect(saved.pages[0]?.jsonForms).toEqual(second);
+		const renderer = createStateRenderer({ documentStates: states });
+		const loaded = documents.resolve("refinement");
+		if (!loaded) throw new Error("Missing loaded document");
+		const rendered = renderer.render(loaded).pages[0]?.html ?? "";
+		expect(rendered).toContain("Portfolio");
+		expect(rendered).toContain("Managers</li>");
+		expect(rendered).toContain("<textarea");
+		expect(rendered).not.toContain('type="radio"');
+		expect(rendered.indexOf("Managers</li>")).toBeLessThan(
+			rendered.indexOf("<textarea"),
+		);
+		// An obsolete control cannot write once its form is replaced.
+		expect(() =>
+			states.patchTerminal("refinement", 3, {
+				op: "replace",
+				path: "/choice",
+				value: "Developers",
+			}),
+		).toThrow();
+		const invalid = await tool.handler(
+			{
+				action: "set_form",
+				doc: "refinement",
+				page: 1,
+				json_forms: {
+					uischema: { type: "Control", scope: "#/properties/missing" },
+				},
+			},
+			NO_EXTRA,
+		);
+		expect(invalid.isError).toBe(true);
+		expect(store.loadOne("refinement")?.pages[0]).toEqual(saved.pages[0]);
+		expect(documents.resolve("refinement")?.pages[0]).toEqual(saved.pages[0]);
+		store.close();
+	});
 	it("appends a page and sets it active", async () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d"));

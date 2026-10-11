@@ -10,7 +10,7 @@ of scope.
 
 This specification defines the boundary between a Maket document and the Maket
 runtime when a page template is bound to persistent JSON state. A page persists
-exactly one template format: hand-authored HTML or JSON Forms.
+hand-authored HTML, JSON Forms, or an HTML composition embedding one current JSON Forms template.
 
 For hand-authored HTML, the central rule is:
 
@@ -87,6 +87,43 @@ controls and the same RFC 6902 state patch path, validation, revision history,
 viewer, bundle, print, and PDF behavior as HTML pages. String choices come from
 `enum` or `oneOf`; the UI schema chooses layouts, groups, labels, controls, and
 supported rules. Updating the document state re-renders the form.
+
+### Embedding the current form in HTML
+
+The page may retain both `html` and `jsonForms`. HTML MUST contain exactly one
+`<!--maket-json-form-->` comment inside a static block container, outside all
+Mustache sections. The slot MUST NOT occur inside attributes, raw-text content,
+a native form, SVG, or a template element. The current form replaces that slot
+only in the transient rendered output; persisted HTML keeps the slot.
+
+```html
+<main data-id="refinement">
+  <h1 data-id="subject">{{ state.subject }}</h1>
+  <ol data-id="answers">{{#state.answers}}
+    <li data-id="answer">{{ question }}: {{ answer }}</li>
+  {{/state.answers}}</ol>
+  <section data-id="current-question"><!--maket-json-form--></section>
+</main>
+```
+
+`maket_page action=set_form` replaces the current UI schema while preserving
+HTML containing this slot. `maket_html set` preserves the form when the new
+HTML retains the slot; removing the slot switches the page to HTML only.
+HTML patches and direct text edits MUST retain a valid slot while a form is
+attached. Standalone JSON Forms pages keep their existing full-page behavior.
+
+Both regions use the document schema, data, validation, revision handling and
+active-binding authorization. History remains ordinary document-state data;
+changing the form neither archives nor clears answers automatically. A workflow
+archives the completed response and resets the next fields explicitly through
+state operations before installing its next form. If field types or choices
+change, use `change_schema` with compatible data; invalid transitions leave the
+current template and state intact.
+
+In design mode, edit the authored HTML shell; generated controls are not source.
+Live and passive output use the same composed markup, with automatic embedded
+height, no full-page padding or internal scroll, and the document charte tokens.
+Portable bundles retain both source formats and the current state snapshot.
 
 ### JSON Forms styling
 

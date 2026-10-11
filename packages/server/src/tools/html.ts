@@ -18,6 +18,10 @@
  * `documentRenderer` + `collectionCursors` (the rendered page to measure).
  */
 
+import {
+	hasJsonFormSlot,
+	validateDocumentStatePageTemplate,
+} from "@maket/shared";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import { parseHTML } from "linkedom";
@@ -762,16 +766,22 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	}
 
 	const nextHtml = stripActiveHtml(normalizeImageSrc(args.html));
+	const nextForm = hasJsonFormSlot(nextHtml) ? page.jsonForms : undefined;
 	const pageLinkError = templatedPageLinkError(nextHtml);
 	if (pageLinkError) return text(pageLinkError, true);
+	try {
+		validateDocumentStatePageTemplate({ html: nextHtml, jsonForms: nextForm });
+	} catch (error) {
+		return text(error instanceof Error ? error.message : String(error), true);
+	}
 	const stateTemplateError = stateTemplateValidationError(doc, store, {
 		...page,
 		html: nextHtml,
-		jsonForms: undefined,
+		jsonForms: nextForm,
 	});
 	if (stateTemplateError) return text(stateTemplateError, true);
 	page.html = nextHtml;
-	page.jsonForms = undefined;
+	page.jsonForms = nextForm;
 	documents.persist(doc.name);
 
 	const count = (page.html.match(/data-id=/g) || []).length;
@@ -811,7 +821,7 @@ async function runPatch(
 ): Promise<CallToolResult> {
 	const { doc, page, pageIdx, documents, store, layout, rendering } = context;
 	if (!args.ops) return text("ops is required for action=patch", true);
-	if (page.jsonForms) {
+	if (page.jsonForms && !page.html) {
 		return text(
 			"This page uses JSON Forms. Use maket_page action=set_form to replace its form definition, or maket_html action=set to switch it back to HTML.",
 			true,
@@ -834,6 +844,11 @@ async function runPatch(
 	const nextHtml = stripActiveHtml(normalizeImageSrc(root.innerHTML));
 	const pageLinkError = templatedPageLinkError(nextHtml);
 	if (pageLinkError) return text(pageLinkError, true);
+	try {
+		validateDocumentStatePageTemplate({ ...page, html: nextHtml });
+	} catch (error) {
+		return text(error instanceof Error ? error.message : String(error), true);
+	}
 	const stateTemplateError = stateTemplateValidationError(doc, store, {
 		...page,
 		html: nextHtml,

@@ -118,7 +118,9 @@ AI     — maket_pdf doc="Product labels"
 
 Document state is for a single evolving artifact: a checklist, status board, form, or report whose current values belong to that document. `maket_state` initializes a JSON Schema and data snapshot, validates every update, requires the current revision for mutations, and records each accepted change as a complete immutable revision. Updates re-render the existing pages; they do not create mail-merge variants.
 
-Each page uses one of two template formats. A hand-authored HTML template uses the supported Mustache subset for display and explicit `data-maket-bind` attributes for editing. A JSON Forms template is set with `maket_page action=set_form`; its optional UI schema controls layout while the document-state JSON Schema supplies fields and choices. Maket renders both formats with native controls through the same state owner. The same current values render passively in snapshots, print, and PDF output.
+A page can use HTML, JSON Forms, or HTML embedding its current JSON Forms template at `<!--maket-json-form-->`. A hand-authored HTML template uses the supported Mustache subset for display and explicit `data-maket-bind` attributes for editing. A JSON Forms template is set with `maket_page action=set_form`; its optional UI schema controls layout while the document-state JSON Schema supplies fields and choices. Maket renders both formats with native controls through the same state owner. The same current values render passively in snapshots, print, and PDF output.
+
+For sequential questions, keep the subject and answer-history Mustache list in HTML, place exactly one `<!--maket-json-form-->` inside a static block container outside Mustache sections, and call `maket_page action=set_form` for each question. Changing the form preserves the HTML and document state. The embedded form adapts to its container.
 
 JSON Forms styling is renderer-owned: attach a charte to apply its text, background, surface, border, accent, muted, and font tokens. The UI schema controls structure and presentation options, not arbitrary CSS.
 

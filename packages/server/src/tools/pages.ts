@@ -10,7 +10,9 @@
 
 import crypto from "node:crypto";
 import {
+	hasJsonFormSlot,
 	type JsonFormsTemplate,
+	validateDocumentStatePageTemplate,
 	validateJsonFormsTemplate,
 } from "@maket/shared";
 import { asFunction } from "awilix";
@@ -76,13 +78,13 @@ const MaketPageSchema = z.object({
 const DESCRIPTION = [
 	"When to use: manage page structure within a document — add, remove, rename, reorder, list. For page content, use maket_html instead.",
 	"",
-	"Manage pages within a document. A page owns exactly one template format: traditional HTML or JSON Forms.",
-	"  add      — append a new page with initial html or json_forms; sets it active.",
+	"Manage pages within a document. HTML can embed the current JSON Forms template at <!--maket-json-form-->.",
+	"  add      — append a page with html, json_forms, or both with one form slot; sets it active.",
 	"  remove  — delete a page by 1-based index or name; refused if it's the last page.",
 	"  rename  — rename a page by index or current name.",
 	"  reorder — move a page from one 1-based position to another; activePage adjusts.",
 	"  list     — list pages with their template format; the active page is marked ●.",
-	"  set_form — replace one page's HTML with a JSON Forms template.",
+	"  set_form — replace the current form, preserving HTML with a form slot; without a slot, switch to a full-page form.",
 	"  get_form — read one page's JSON Forms template.",
 	"",
 	"Note: charte compliance (token-literal colours, font-family, box-shadow) is enforced by maket_html set/patch, not by maket_page add. If the new page must match a charte, follow maket_page add with maket_html set to validate.",
@@ -152,11 +154,8 @@ type Args = z.infer<typeof MaketPageSchema>;
 // persistence, and the post-commit bus notification.
 function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 	if (!args.name) return text("name is required for action=add", true);
-	if ((args.html == null) === (args.json_forms == null)) {
-		return text(
-			"action=add requires exactly one template: html or json_forms",
-			true,
-		);
+	if (args.html == null && args.json_forms == null) {
+		return text("action=add requires html or json_forms", true);
 	}
 	if (args.json_forms) {
 		try {
@@ -184,6 +183,11 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 				}
 			: undefined,
 	};
+	try {
+		validateDocumentStatePageTemplate(page);
+	} catch (error) {
+		return text(error instanceof Error ? error.message : String(error), true);
+	}
 	d.pages.push(page);
 	d.activePage = d.pages.length - 1;
 	try {
@@ -237,8 +241,9 @@ function replacePageWithJsonForms(
 	const previousActivePage = document.activePage;
 	try {
 		validateJsonFormsTemplate(template);
-		page.html = undefined;
+		page.html = hasJsonFormSlot(page.html) ? page.html : undefined;
 		page.jsonForms = template;
+		validateDocumentStatePageTemplate(page);
 		document.activePage = pageIndex;
 		documents.persist(document.name);
 	} catch (error) {
@@ -353,7 +358,11 @@ function runList(d: Document) {
 	const lines = d.pages.map((p, i) => {
 		const active = i === d.activePage ? " ●" : "";
 		const count = pageElementCount(p);
-		const format = p.jsonForms ? "JSON Forms" : "HTML";
+		const format = p.jsonForms
+			? p.html
+				? "HTML + JSON Forms"
+				: "JSON Forms"
+			: "HTML";
 		return `  ${i + 1}. ${p.name || "Untitled"} (${format}, ${count} elements)${active}`;
 	});
 	return text(`${d.pages.length} pages:\n${lines.join("\n")}`);

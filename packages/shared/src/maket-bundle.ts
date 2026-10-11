@@ -14,7 +14,10 @@ import {
 	type DocumentStateSchema,
 	validateDocumentState,
 } from "./document-state.js";
-import { renderDocumentStatePage } from "./document-state-page.js";
+import {
+	renderDocumentStatePage,
+	validateDocumentStatePageTemplate,
+} from "./document-state-page.js";
 import type {
 	StructuredWorkspaceDefinition,
 	StructuredWorkspacePageProvenance,
@@ -167,9 +170,12 @@ function validateBundleDocument(value: unknown, index: number): void {
 			);
 		}
 		if (page.html !== undefined && page.jsonForms !== undefined) {
-			throw new Error(
-				`Invalid .maket file: documents[${index}].pages[${pageIndex}] declares both html and jsonForms`,
-			);
+			if (value.dataModel !== "state")
+				throw new Error("Embedded JSON Forms requires document state.");
+			validateDocumentStatePageTemplate({
+				html: page.html as string,
+				jsonForms: page.jsonForms,
+			});
 		}
 		if (page.elements !== undefined && !Array.isArray(page.elements)) {
 			throw new Error(

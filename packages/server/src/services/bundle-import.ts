@@ -174,7 +174,8 @@ function importDocuments(
 			pinnedAt: normalizedPinnedAt(snapshot.pinnedAt),
 		});
 		all.set(finalName, document);
-		deps.documents.persist(finalName);
+		if (bundledState) deps.store.saveDoc(document);
+		else deps.documents.persist(finalName);
 		if (bundledState) {
 			deps.documentStates.initialize(
 				finalName,

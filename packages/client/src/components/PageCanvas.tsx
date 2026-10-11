@@ -1,5 +1,6 @@
 import {
 	type Collection,
+	hasJsonFormSlot,
 	markCollectionPlaceholders,
 	parseDeclaredStateValue,
 	readJsonPointer,
@@ -311,7 +312,8 @@ export const PageCanvas = memo(function PageCanvas({
 	const canInteract =
 		activePolicy.authoring &&
 		!structuredCollection &&
-		!page?.jsonForms &&
+		(!page?.jsonForms ||
+			hasJsonFormSlot(stateView?.templates[page.id] ?? page.html)) &&
 		(!stateBacked || stateMode === "design");
 	const templateControlled = page?.provenance?.kind === "template";
 	const canEditTemplate =

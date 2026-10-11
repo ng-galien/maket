@@ -339,7 +339,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"Template contract",
-			"A page uses exactly one persistent template format: hand-authored HTML or JSON Forms. Both render from the document-state schema and data and update through the same revisioned state.",
+			"A page uses HTML, JSON Forms, or an HTML template with one <!--maket-json-form--> slot embedding its current form. All render from the same document-state schema and data and update through the same revisioned state.",
 			[
 				"- HTML templates use Mustache for display and `data-maket-bind` for native editable controls.",
 				"- Supported: escaped values, positive and inverted sections, loops/current context, and comments.",
@@ -352,7 +352,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"JSON Forms",
 			"Use JSON Forms when the form definition should be declarative rather than authored as HTML. Maket renders it with native controls; no React renderer is required.",
 			"```text\nmaket_page action=set_form doc=<doc> page=<n> json_forms=<json>\n```",
-			"`uischema` is optional; without it, Maket generates a vertical form from the document-state JSON Schema. String choices come from `enum` or `oneOf`. State changes re-render the form.",
+			"Use <!--maket-json-form--> in a static HTML block container to embed the current form. set_form replaces the form while preserving that HTML template and its state-backed history. The slot must occur exactly once, outside Mustache sections. `uischema` is optional; without it, Maket generates a vertical form from the document-state JSON Schema. String choices come from `enum` or `oneOf`. State changes re-render the form.",
 		),
 		section(
 			"JSON Forms styling",

@@ -22,6 +22,21 @@ const schema = {
 };
 
 describe("JSON Forms page rendering", () => {
+	it("injects at the actual comment even when an attribute contains the marker text", () => {
+		const rendered = renderDocumentStatePage(
+			{
+				html: '<div title="<!--maket-json-form-->">Title</div><section><!--maket-json-form--></section>',
+				jsonForms: {},
+			},
+			{ title: "Audit", status: "todo" },
+			{ schema },
+		);
+		expect(rendered.html).toContain(
+			'<div title="<!--maket-json-form-->">Title</div>',
+		);
+		expect(rendered.html).toContain("<section><style>");
+		expect(rendered.html).toContain("maket-json-forms--embedded");
+	});
 	it("generates native bound controls from the document state schema", () => {
 		const rendered = renderDocumentStatePage(
 			{ jsonForms: {} },
@@ -108,7 +123,7 @@ describe("JSON Forms page rendering", () => {
 				{},
 				{ schema },
 			),
-		).toThrow(/either HTML or JSON Forms/);
+		).toThrow(/exactly one .*slot/);
 		expect(() =>
 			renderDocumentStatePage(
 				{
@@ -163,5 +178,26 @@ describe("JSON Forms rule conditions", () => {
 				{ schema },
 			),
 		).toThrow(/rule condition schema is invalid/);
+	});
+});
+
+describe("Embedded JSON Forms source boundaries", () => {
+	const form = { uischema: { type: "Control", scope: "#/properties/title" } };
+	it.each([
+		"<div><!--maket-json-form--><!--maket-json-form--></div>",
+		'<div title="<!--maket-json-form-->"></div>',
+		"<style><!--maket-json-form--></style>",
+		"<textarea><!--maket-json-form--></textarea>",
+		"<form><!--maket-json-form--></form>",
+		"{{#state.items}}<div><!--maket-json-form--></div>{{/state.items}}",
+		"{{^state.items}}<div><!--maket-json-form--></div>{{/state.items}}",
+	])("refuses a slot outside its single static block contract: %s", (html) => {
+		expect(() =>
+			renderDocumentStatePage(
+				{ html, jsonForms: form },
+				{ title: "Audit", items: [] },
+				{ schema },
+			),
+		).toThrow();
 	});
 });

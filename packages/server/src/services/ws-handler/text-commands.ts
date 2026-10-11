@@ -2,7 +2,11 @@
  * Text edit, onboarding, layout and workspace display handlers.
  */
 
-import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
+import {
+	validateDocumentStatePageTemplate,
+	type WorkspaceCommand,
+	type WorkspaceStateSignal,
+} from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type WebSocket from "ws";
 import {
@@ -124,10 +128,10 @@ export function handleTextEdit(
 	el.innerHTML = (msg.html as string).replace(/<style[\s\S]*?<\/style>/gi, "");
 	const nextHtml = stripActiveHtml(dom.body.innerHTML);
 	try {
+		validateDocumentStatePageTemplate({ ...page, html: nextHtml });
 		validateStateTemplateUpdate(d, ctx.store, {
 			...page,
 			html: nextHtml,
-			jsonForms: undefined,
 		});
 	} catch (error) {
 		log(
