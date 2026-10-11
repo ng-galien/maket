@@ -18,6 +18,7 @@ import {
 export type NetworkGuardMode = "offline" | "localhost-only";
 
 export interface RenderPage {
+	emulateMediaType?(type: "print" | "screen"): Promise<void>;
 	setNetworkGuard?(mode: NetworkGuardMode): Promise<void>;
 	setViewport(viewport: {
 		width: number;

@@ -110,6 +110,7 @@ export type RenderSurface =
 
 export interface RenderSurfaceHtmlOptions {
 	canvas: {
+		format?: string;
 		w: number;
 		h: number;
 		bg?: string;
@@ -138,15 +139,17 @@ export function buildRenderSurfaceHtml({
 	const safeCharteCss = stripStyleClose(charteCss);
 	const safeBg = escapeCssValue(canvas.bg || "#ffffff");
 	const print = surface.kind === "print";
-	const pageRule = print
-		? `@page { size: ${canvas.w}mm ${canvas.h}mm; margin: 0; }`
-		: "";
+	const auto = canvas.format === "AUTO";
+	const pageRule =
+		print && !auto
+			? `@page { size: ${canvas.w}mm ${canvas.h}mm; margin: 0; }`
+			: "";
 	const reset = print
 		? "* { box-sizing: border-box; margin: 0; padding: 0; print-color-adjust: exact; -webkit-print-color-adjust: exact; }"
 		: "* { box-sizing: border-box; margin: 0; padding: 0; }";
 	const bodyStyle = print
 		? "margin:0;padding:0"
-		: `margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:${safeBg}`;
+		: `margin:0;padding:0;width:100%;height:${auto ? "auto" : "100%"};overflow:${auto ? "visible" : "hidden"};background:${safeBg}`;
 	const scaleStyle =
 		surface.kind === "thumbnail"
 			? `transform:scale(${surface.scale});transform-origin:top left;`
@@ -157,9 +160,9 @@ export function buildRenderSurfaceHtml({
 				print && index > 0 ? "break-before:page;page-break-before:always;" : "";
 			const style = [
 				"box-sizing:border-box",
-				"display:block",
+				auto ? "display:flow-root" : "display:block",
 				`width:${canvas.w}mm`,
-				`height:${canvas.h}mm`,
+				auto ? "height:auto;min-height:1mm" : `height:${canvas.h}mm`,
 				`background:${safeBg}`,
 				"position:relative",
 				"overflow:hidden",
@@ -173,7 +176,7 @@ export function buildRenderSurfaceHtml({
 					? scopeAuthoredStyles(html, index + 1)
 					: html;
 			const anchor = print ? ` id="${printPageAnchorId(index + 1)}"` : "";
-			return `<${RENDER_PAGE_TAG}${anchor} data-maket-render-page="${index + 1}" style="${style}">${pageHtml}</${RENDER_PAGE_TAG}>`;
+			return `<${RENDER_PAGE_TAG}${anchor} data-maket-render-page="${index + 1}"${auto ? ' data-maket-auto-height="true"' : ""} style="${style}">${pageHtml}</${RENDER_PAGE_TAG}>`;
 		})
 		.join("\n");
 
@@ -185,6 +188,7 @@ export function buildRenderSurfaceHtml({
   ${safeCharteCss}
   ${pageRule}
   ${reset}
+  ${auto ? `${RENDER_PAGE_TAG} > .maket-json-forms { height: auto; }` : ""}
 </style>
 </head>
 <body style="${bodyStyle}">${frames}</body>

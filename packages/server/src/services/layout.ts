@@ -17,6 +17,7 @@
  * now reports only canvas-authoritative numbers.
  */
 
+import { fitBoundTextareaHeight } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import type { Browser } from "puppeteer";
 import { parseStyle } from "../lib/charte-check.js";
@@ -170,7 +171,7 @@ async function runHeadlessLayoutCheck(ctx: {
 <style>
 ${safeCharteCss}
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; background: ${safeBg}; }
+body { margin: 0; padding: 0; width: ${w}mm; height: ${doc.canvas.format === "AUTO" ? "auto" : `${h}mm`}; overflow: ${doc.canvas.format === "AUTO" ? "visible" : "hidden"}; background: ${safeBg}; }
 </style>
 </head>
 <body>${html}</body>
@@ -178,10 +179,16 @@ body { margin: 0; padding: 0; width: ${w}mm; height: ${h}mm; overflow: hidden; b
 				await installNetworkGuard(page, "localhost-only");
 				await page.setViewport({
 					width: Math.ceil(w * PX_PER_MM),
-					height: Math.ceil(h * PX_PER_MM),
+					height: doc.canvas.format === "AUTO" ? 900 : Math.ceil(h * PX_PER_MM),
 				});
 				await page.setContent(fullHtml, { waitUntil: "load" });
 				await waitForPageStable(page);
+				if (doc.canvas.format === "AUTO") {
+					const height = await page.evaluate<number>(
+						`(() => { globalThis.__name ??= (target) => target; document.querySelectorAll("textarea[data-maket-bind][data-maket-path]").forEach(${fitBoundTextareaHeight.toString()}); return Math.max(1, document.body.scrollHeight); })()`,
+					);
+					await page.setViewport({ width: Math.ceil(w * PX_PER_MM), height });
+				}
 				const m = doc.canvas.margins;
 				const marginsPx = m
 					? {
@@ -349,7 +356,7 @@ function parseMm(value: string | undefined): number | null {
 // Layout `serverLayoutCheck`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function serverLayoutCheck(
 	html: string,
-	canvas: { w: number; h: number },
+	canvas: { w: number; h: number; format?: string },
 ): LayoutResult {
 	const { document: dom } = parseHTML(`<html><body>${html}</body></html>`);
 	const issues: string[] = [];
@@ -386,7 +393,7 @@ export function serverLayoutCheck(
 				`[${id}] width ${w}mm > canvas ${canvas.w}mm (+${Math.round(w - canvas.w)}mm)`,
 			);
 		}
-		if (h && h > canvas.h) {
+		if (canvas.format !== "AUTO" && h && h > canvas.h) {
 			flag(
 				id,
 				`[${id}] height ${h}mm > canvas ${canvas.h}mm (+${Math.round(h - canvas.h)}mm)`,
@@ -445,7 +452,12 @@ export function serverLayoutCheck(
 					`[${id}] left(${left}mm) + width(${w}mm) = ${left + w}mm > canvas ${canvas.w}mm`,
 				);
 			}
-			if (top != null && h != null && top + h > canvas.h) {
+			if (
+				canvas.format !== "AUTO" &&
+				top != null &&
+				h != null &&
+				top + h > canvas.h
+			) {
 				flag(
 					id,
 					`[${id}] top(${top}mm) + height(${h}mm) = ${top + h}mm > canvas ${canvas.h}mm`,
@@ -473,7 +485,7 @@ export function serverLayoutCheck(
 // Layout `formatLayoutReport`: multi-step HTML/browser measurement pipeline, not a Document method.
 export function formatLayoutReport(
 	resp: LayoutReport | null,
-	canvas: { w: number; h: number },
+	canvas: { w: number; h: number; format?: string },
 ): LayoutResult {
 	if (!resp) {
 		return {
@@ -597,12 +609,12 @@ export function formatLayoutReport(
 
 function formatMeasurementDetails(
 	resp: LayoutReport,
-	canvas: { w: number; h: number },
+	canvas: { w: number; h: number; format?: string },
 ): string {
 	const lines = [
 		"",
 		"### Measurements",
-		`- Physical canvas: ${canvas.w}×${canvas.h}mm (${measurementPx(resp.containerWidth)}×${measurementPx(resp.containerHeight)}px)`,
+		`- Physical canvas: ${canvas.w}×${canvas.format === "AUTO" ? "auto" : canvas.h}mm (${measurementPx(resp.containerWidth)}×${measurementPx(resp.containerHeight)}px)`,
 		`- Content extent: ${measurementPx(resp.contentWidth)}×${measurementPx(resp.contentHeight)}px`,
 		`- Measured addressable blocks: ${resp.elements?.length ?? 0}`,
 		...(resp.root ? [formatMeasurementRoot(resp.root)] : []),

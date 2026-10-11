@@ -41,6 +41,18 @@ function fixture(networkIdleMs = 0) {
 }
 
 describe("Electron browser pool", () => {
+  it("exposes print and screen media emulation through the render adapter", async () => {
+    const { pool, debug } = fixture();
+    const page = await (await pool.get()).newPage();
+
+    expect(page.emulateMediaType).toBeDefined();
+    await page.emulateMediaType?.("print");
+    expect(debug.sendCommand).toHaveBeenCalledWith("Emulation.setEmulatedMedia", { media: "print" });
+    await page.emulateMediaType?.("screen");
+    expect(debug.sendCommand).toHaveBeenCalledWith("Emulation.setEmulatedMedia", { media: "screen" });
+    await pool.dispose();
+  });
+
   it("gives the window a renderer before attaching the debugger", async () => {
     const { pool, window, debug } = fixture();
     const browser = await pool.get();

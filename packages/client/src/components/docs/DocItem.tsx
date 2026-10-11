@@ -26,6 +26,7 @@ import type {
 import { DRAG_MIME } from "./types";
 
 function docAspectRatio(doc: DocSummary): number {
+	if (doc.format === "AUTO") return 1;
 	const { w, h } = computeCanvasDims(
 		doc.format,
 		doc.orientation ?? DEFAULT_ORIENTATION,
@@ -245,7 +246,7 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 				src={thumbSrc}
 				alt={doc.name}
 				loading="lazy"
-				className="absolute inset-0 h-full w-full object-cover"
+				className={`absolute inset-0 h-full w-full ${doc.format === "AUTO" ? "object-contain" : "object-cover"}`}
 				style={{ background: "#fff" }}
 				draggable={false}
 			/>

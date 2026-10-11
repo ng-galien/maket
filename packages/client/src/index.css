@@ -635,3 +635,6 @@ button[data-library-pin]:focus-visible {
 [data-linked-document] [data-reading-workspace] {
 	scroll-padding-top: calc(4rem + env(safe-area-inset-top));
 }
+
+.page-canvas[data-auto-height="true"] .maket-json-forms { height: auto; }
+.page-canvas[data-auto-height="true"] .page-authored-content { height: auto; display: flow-root; }

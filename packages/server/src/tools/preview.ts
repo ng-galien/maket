@@ -14,6 +14,7 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { measureAutoPageHeights } from "../lib/auto-page-height.js";
 import { cursorRenderOptions } from "../lib/collection-render.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
@@ -168,7 +169,7 @@ async function runSnapshot(
 	const { w, h } = rendered.canvas;
 	const inlinedHtml = await inlineImages(html, {
 		assetsDir: config.ASSETS_DIR,
-		pageMm: { w, h },
+		pageMm: { w, h: rendered.canvas.format === "AUTO" ? undefined : h },
 		dpi: 96,
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
@@ -187,10 +188,14 @@ async function runSnapshot(
 		await installNetworkGuard(p, "offline");
 		await p.setViewport({
 			width: Math.ceil(w * scale),
-			height: Math.ceil(h * scale),
+			height: rendered.canvas.format === "AUTO" ? 900 : Math.ceil(h * scale),
 		});
 		await p.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(p);
+		if (rendered.canvas.format === "AUTO") {
+			const [height] = await measureAutoPageHeights(p);
+			await p.setViewport({ width: Math.ceil(w * scale), height: height ?? 1 });
+		}
 		const png = (await p.screenshot({
 			type: "png",
 			fullPage: false,

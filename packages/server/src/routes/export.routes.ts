@@ -6,6 +6,7 @@
 
 import type { Request, Response } from "express";
 import { Router as createRouter, type Router } from "express";
+import { AUTO_PAGE_SIZE_SCRIPT } from "../lib/auto-page-height.js";
 import { BodyTooLargeError, readBoundedBody } from "../lib/bounded-body.js";
 import {
 	type CollectionRenderMode,
@@ -19,7 +20,7 @@ import { decodeBundle } from "../lib/maket-format.js";
 // bound is looser than v1's. `decodeBundle` is the next layer of defence.
 const MAX_BUNDLE_BYTES = 256 * 1024 * 1024;
 const PRINT_AUTOSTART_SCRIPT =
-	"window.onafterprint=()=>window.close();window.addEventListener('load',()=>setTimeout(()=>window.print(),400));";
+	"window.onafterprint=()=>window.close();window.addEventListener('load',async()=>{await window.maketAutoPagesReady;setTimeout(()=>window.print(),400)});";
 
 import type { BundleExportService } from "../services/bundle-export.js";
 import type { BundleImportService } from "../services/bundle-import.js";
@@ -56,6 +57,9 @@ export function createExportRouter(deps: ExportRouterDeps): Router {
 
 	router.use(requireBrowserContextLoopback);
 
+	router.get("/auto-page-size.js", (_req, res) => {
+		res.type("application/javascript").send(AUTO_PAGE_SIZE_SCRIPT);
+	});
 	router.get("/print-autostart.js", (_req, res) => {
 		res.type("application/javascript").send(PRINT_AUTOSTART_SCRIPT);
 	});
@@ -110,12 +114,17 @@ async function handlePrint(
 			return;
 		}
 		const charteCssStr = documents.charteCss(rendered);
-		const printHtml = buildPrintHtml({
+		let printHtml = buildPrintHtml({
 			source: d,
 			rendered,
 			pageHtmls: rawHtmls,
 			charteCss: charteCssStr,
 		});
+		if (rendered.canvas.format === "AUTO")
+			printHtml = printHtml.replace(
+				"</body>",
+				'<script src="/auto-page-size.js"></script></body>',
+			);
 		const html =
 			req.query.auto_print === "false"
 				? printHtml

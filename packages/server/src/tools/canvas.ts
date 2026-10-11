@@ -34,6 +34,7 @@ const FormatSchema = z.enum([
 	"DESKTOP",
 	"TABLET",
 	"MOBILE",
+	"AUTO",
 ]);
 
 const MarginsSchema = z.object({
@@ -48,6 +49,13 @@ const MaketCanvasSchema = z.object({
 	format: FormatSchema.optional().describe(
 		"Paper (A2–A8, mm) or screen (DESKTOP/TABLET/MOBILE, mm-equivalent). Unspecified keeps the current value.",
 	),
+	width: z
+		.number()
+		.positive()
+		.optional()
+		.describe(
+			"Width in millimetres for AUTO format; required on creation. Height follows each page content.",
+		),
 	orientation: z
 		.enum(["portrait", "landscape"])
 		.optional()
@@ -69,6 +77,7 @@ const DESCRIPTION = [
 	"Coordinates are in mm.",
 	"  Paper sizes — A2=420×594, A3=297×420, A4=210×297, A5=148×210, A6=105×148, A7=74×105, A8=52×74.",
 	"  Screen sizes — DESKTOP=288×205 (1440×1024), TABLET=167×239 (834×1194), MOBILE=79×170 (393×852).",
+	"  AUTO — width in mm is required; each page height follows its content. Orientation is ignored. Use normal HTML flow rather than a fixed-height wrapper.",
 	"Unspecified fields keep their current value.",
 ].join("\n");
 
@@ -87,7 +96,11 @@ function runCanvasSetup(
 	if (locked) return locked;
 	const fmt = args.format || d.canvas.format;
 	const orient = args.orientation || d.canvas.orientation || "portrait";
-	const { w, h } = computeCanvasDims(fmt, orient);
+	if (fmt === "AUTO" && args.width === undefined && d.canvas.format !== "AUTO")
+		return text("AUTO format requires width in millimetres.", true);
+	if (fmt !== "AUTO" && args.width !== undefined)
+		return text("width is only supported with AUTO format.", true);
+	const { w, h } = computeCanvasDims(fmt, orient, args.width ?? d.canvas.w);
 	d.canvas = {
 		format: fmt,
 		orientation: orient,
@@ -103,7 +116,7 @@ function runCanvasSetup(
 		? `  margins:{t:${m.top} r:${m.right} b:${m.bottom} l:${m.left}}mm`
 		: "";
 	return text(
-		`Canvas: ${fmt} ${orient} (${w}x${h}mm) bg=${d.canvas.bg}${mDesc}`,
+		`Canvas: ${fmt} ${orient} (${w}x${fmt === "AUTO" ? "auto" : h}mm) bg=${d.canvas.bg}${mDesc}`,
 	);
 }
 

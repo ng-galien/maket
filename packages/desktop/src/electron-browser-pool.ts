@@ -71,6 +71,11 @@ class ElectronRenderPage implements RenderPage {
     return this.debuggerReady;
   }
 
+  async emulateMediaType(type: "print" | "screen"): Promise<void> {
+    await this.ensureDebugger();
+    await this.window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { media: type });
+  }
+
   async setNetworkGuard(mode: NetworkGuardMode): Promise<void> {
     await this.ensureDebugger();
     this.window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
@@ -183,6 +188,7 @@ class ElectronRenderBrowser implements RenderBrowser {
     const page = new ElectronRenderPage(this.options);
     this.pages.add(page);
     return {
+      emulateMediaType: (type) => page.emulateMediaType(type),
       setNetworkGuard: (mode) => page.setNetworkGuard(mode),
       setViewport: (viewport) => page.setViewport(viewport),
       setContent: (html) => page.setContent(html),

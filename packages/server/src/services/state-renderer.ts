@@ -61,7 +61,7 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 		if (!page.html && !page.jsonForms)
 			return { pages: [{ ...page, html: undefined }], dependencies: [] };
 		const { data, schema } = state.current;
-		if (!page.html || !deps.pageFlow) {
+		if (!page.html || !deps.pageFlow || doc.canvas.format === "AUTO") {
 			const rendered = renderDocumentStatePage(page, data, { schema });
 			return {
 				pages: [{ ...page, html: rendered.html }],

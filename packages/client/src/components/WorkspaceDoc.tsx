@@ -413,11 +413,23 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 								style={{
 									left: -PAGE_SELECTION_INSET / safeZoomK,
 									top: -PAGE_SELECTION_INSET / safeZoomK,
-									width: documentScreenWidth + 2 * PAGE_SELECTION_INSET,
-									height: docHeightPx * safeZoomK + 2 * PAGE_SELECTION_INSET,
-									borderWidth: PAGE_SELECTION_BORDER,
+									width:
+										doc.canvas.format === "AUTO"
+											? `calc(100% + ${(2 * PAGE_SELECTION_INSET) / safeZoomK}px)`
+											: documentScreenWidth + 2 * PAGE_SELECTION_INSET,
+									height:
+										doc.canvas.format === "AUTO"
+											? `calc(100% + ${(2 * PAGE_SELECTION_INSET) / safeZoomK}px)`
+											: docHeightPx * safeZoomK + 2 * PAGE_SELECTION_INSET,
+									borderWidth:
+										doc.canvas.format === "AUTO"
+											? PAGE_SELECTION_BORDER / safeZoomK
+											: PAGE_SELECTION_BORDER,
 									borderRadius: 7,
-									transform: `scale(${labelScale})`,
+									transform:
+										doc.canvas.format === "AUTO"
+											? undefined
+											: `scale(${labelScale})`,
 									transformOrigin: "top left",
 								}}
 							/>
@@ -493,7 +505,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						<div className="font-semibold text-sm">{doc.name}</div>
 						<div className="text-2xs text-text-3 mt-0.5">
 							{doc.canvas.format} {doc.canvas.orientation} · {doc.canvas.w}×
-							{doc.canvas.h}mm ·{" "}
+							{doc.canvas.format === "AUTO" ? "auto" : doc.canvas.h}mm ·{" "}
 							{t(
 								doc.pages.length > 1
 									? "doc_page_count_many"

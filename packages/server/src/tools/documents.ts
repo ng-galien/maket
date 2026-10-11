@@ -71,6 +71,7 @@ const FormatSchema = z.enum([
 	"DESKTOP",
 	"TABLET",
 	"MOBILE",
+	"AUTO",
 ]);
 
 const MaketDocSchema = z.object({
@@ -90,8 +91,15 @@ const MaketDocSchema = z.object({
 			"The new name. Only used by duplicate (clone's name) and rename (new name).",
 		),
 	format: FormatSchema.optional().describe(
-		"For new: paper/screen format. Default A3. Paper sizes are mm; DESKTOP/TABLET/MOBILE are screen aspect ratios scaled to mm.",
+		"For new: paper/screen format, or AUTO with width in mm and automatic page height. Default A3. Paper sizes are mm; DESKTOP/TABLET/MOBILE are screen aspect ratios scaled to mm.",
 	),
+	width: z
+		.number()
+		.positive()
+		.optional()
+		.describe(
+			"Width in millimetres for AUTO format; required on creation. Height follows each page content.",
+		),
 	orientation: z
 		.enum(["portrait", "landscape"])
 		.optional()
@@ -266,7 +274,11 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 		return text(`Document "${args.doc}" already exists`, true);
 	const fmt = args.format || "A3";
 	const orient = args.orientation || "portrait";
-	const { w, h } = computeCanvasDims(fmt, orient);
+	if (fmt === "AUTO" && args.width === undefined)
+		return text("AUTO format requires width in millimetres.", true);
+	if (fmt !== "AUTO" && args.width !== undefined)
+		return text("width is only supported with AUTO format.", true);
+	const { w, h } = computeCanvasDims(fmt, orient, args.width);
 	const newDoc = createDocument({
 		name: args.doc,
 		category: args.category || "general",
@@ -298,7 +310,7 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 			]
 		: [`maket_html set doc=${args.doc} page=1`];
 	return text(
-		`New doc "${args.doc}" [${newDoc.category}] (${fmt} ${orient} ${w}x${h}mm)${charteMsg}`,
+		`New doc "${args.doc}" [${newDoc.category}] (${fmt} ${orient} ${w}x${fmt === "AUTO" ? "auto" : h}mm)${charteMsg}`,
 		{ next },
 	);
 }

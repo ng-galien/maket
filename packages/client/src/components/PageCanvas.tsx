@@ -1,5 +1,6 @@
 import {
 	type Collection,
+	fitBoundTextareaHeight,
 	hasJsonFormSlot,
 	markCollectionPlaceholders,
 	parseDeclaredStateValue,
@@ -1216,11 +1217,15 @@ export const PageCanvas = memo(function PageCanvas({
 				ref={pageRef}
 				className={`page-canvas${activePolicy.showPreviewOutline && (preview?.mode === "rendered" || liveState) ? " data-preview" : ""}${liveState ? " state-live" : ""}${activePolicy.surface === "reader" ? " reader-page" : ""}`}
 				data-page={pageIndex}
+				data-auto-height={canvas.format === "AUTO" ? "true" : undefined}
 				data-document-mode={doc.dataModel}
 				aria-busy={liveState ? stateDocumentPending : undefined}
 				style={{
 					width: `${canvas.w}mm`,
-					height: `${canvas.h}mm`,
+					height: canvas.format === "AUTO" ? "auto" : `${canvas.h}mm`,
+					minHeight: canvas.format === "AUTO" ? "1mm" : undefined,
+					display: canvas.format === "AUTO" ? "flow-root" : undefined,
+					contentVisibility: canvas.format === "AUTO" ? "visible" : undefined,
 					background: "var(--charte-color-bg, #ffffff)",
 					containIntrinsicSize: `${canvas.w}mm ${canvas.h}mm`,
 					position: "relative",
@@ -1413,21 +1418,7 @@ function isStringInput(value: unknown): value is HTMLInputElement {
 	);
 }
 
-/**
- * Grow or shrink a bound textarea to its content. The textarea's own CSS
- * `min-height` (or its `rows`) and `max-height` bound the height; beyond the
- * maximum the textarea scrolls.
- */
-export function fitBoundTextareaHeight(textarea: HTMLTextAreaElement): void {
-	textarea.style.height = "auto";
-	const style = getComputedStyle(textarea);
-	const borders =
-		style.boxSizing === "border-box"
-			? (Number.parseFloat(style.borderTopWidth) || 0) +
-				(Number.parseFloat(style.borderBottomWidth) || 0)
-			: 0;
-	textarea.style.height = `${textarea.scrollHeight + borders}px`;
-}
+export { fitBoundTextareaHeight } from "@maket/shared";
 
 function isTextControl(value: unknown): value is StateTextControl {
 	return value instanceof HTMLTextAreaElement || isStringInput(value);

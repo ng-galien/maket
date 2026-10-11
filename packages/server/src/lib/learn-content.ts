@@ -90,6 +90,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			[
 				"1. Call `maket_workspace action=state doc=<doc>` before a large edit.",
 				"2. Focus or create the document, then set canvas and metadata.",
+				"For a continuous document, use `maket_doc action=new format=AUTO width=<mm>` or `maket_canvas format=AUTO width=<mm>`. Width stays fixed; each page height follows normal-flow HTML. Do not impose a fixed-height wrapper. AUTO state lists stay on the same continuous page; snapshots, thumbnails, print and PDF follow content height.",
 				"3. Attach and read the charte when the work is branded.",
 				"4. Write one complete page before scattering partial fragments.",
 				"5. Call `maket_html action=check` after HTML writes.",

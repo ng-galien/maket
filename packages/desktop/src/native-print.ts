@@ -33,11 +33,12 @@ export async function printWithNativeDialog(
   try {
     await printWindow.loadURL(desktopPrintUrl(baseUrl, documentName));
     const { width, height } = await printWindow.webContents.executeJavaScript(`(async () => {
+      await window.maketAutoPagesReady;
       await document.fonts.ready;
       await Promise.all(Array.from(document.images, image => image.decode().catch(() => {})));
       const page = document.querySelector("maket-render-page");
       if (!page) throw new Error("The document has no printable page");
-      return { width: parseFloat(page.style.width), height: parseFloat(page.style.height) };
+      return { width: parseFloat(page.style.width), height: page.dataset.maketAutoHeight === "true" ? Math.max(page.offsetHeight, page.scrollHeight) * 25.4 / 96 : parseFloat(page.style.height) };
     })()`);
     if (![width, height].every((value) => Number.isFinite(value) && value > 0)) {
       throw new Error("The document has an invalid print size");

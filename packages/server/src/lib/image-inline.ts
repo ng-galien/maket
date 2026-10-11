@@ -18,7 +18,7 @@ export interface InlineImagesOptions {
 	assetsDir: string;
 	/** Target page dimensions in millimetres. Images wider/taller than the
 	 * corresponding pixel budget are downscaled. */
-	pageMm: { w: number; h: number };
+	pageMm: { w: number; h?: number };
 	/** Device pixels per inch. 96 = screen, 150 = print, 300 = HD. */
 	dpi: number;
 	/** Override for `mime-type-by-extension` — used by the assets service
@@ -35,7 +35,10 @@ export async function inlineImages(
 	opts: InlineImagesOptions,
 ): Promise<string> {
 	const maxW = Math.ceil((opts.pageMm.w * opts.dpi) / 25.4);
-	const maxH = Math.ceil((opts.pageMm.h * opts.dpi) / 25.4);
+	const maxH =
+		opts.pageMm.h === undefined
+			? Number.POSITIVE_INFINITY
+			: Math.ceil((opts.pageMm.h * opts.dpi) / 25.4);
 	const srcRegex = /\/assets\/([^"')\s]+\.(?:jpg|jpeg|png|webp|svg|gif))/gi;
 	const matches = [...html.matchAll(srcRegex)];
 	if (!matches.length) return html;
@@ -80,7 +83,10 @@ async function dataUriForAsset(
 		}
 		const image = await Jimp.read(absPath);
 		if (image.width > maxW || image.height > maxH) {
-			image.scaleToFit({ w: maxW, h: maxH });
+			image.scaleToFit({
+				w: maxW,
+				h: Number.isFinite(maxH) ? maxH : image.height,
+			});
 		}
 		const isPng = ext === ".png";
 		const buf = isPng

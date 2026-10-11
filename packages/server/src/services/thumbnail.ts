@@ -13,6 +13,7 @@
  * (puppeteer access). `opts` exists for test overrides only.
  */
 
+import { measureAutoPageHeights } from "../lib/auto-page-height.js";
 import { inlineImages } from "../lib/image-inline.js";
 import { installNetworkGuard } from "../lib/page-network-guard.js";
 import { waitForPageStable } from "../lib/page-stable-wait.js";
@@ -89,6 +90,11 @@ async function defaultSnapshot(
 		await page.setViewport(viewport);
 		await page.setContent(html, { waitUntil: "load" });
 		await waitForPageStable(page);
+		if (html.includes('data-maket-auto-height="true"')) {
+			const [height] = await measureAutoPageHeights(page);
+			viewport = { ...viewport, height: height ?? 1 };
+			await page.setViewport(viewport);
+		}
 		const png = await page.screenshot({
 			type: "png",
 			clip: { x: 0, y: 0, width: viewport.width, height: viewport.height },
@@ -147,7 +153,11 @@ async function renderThumbnailDocument(ctx: {
 	const charteCss = documents.charteCss(renderedDoc);
 	const inlined = await inlineImages(pageObj.html ?? "", {
 		assetsDir: config.ASSETS_DIR,
-		pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
+		pageMm: {
+			w: renderedDoc.canvas.w,
+			h:
+				renderedDoc.canvas.format === "AUTO" ? undefined : renderedDoc.canvas.h,
+		},
 		dpi: 96,
 		mimeFromExt: (p) => assets.mimeFromExt(p),
 	});
@@ -168,7 +178,7 @@ async function renderThumbnailDocument(ctx: {
 		scaledHtml,
 		{
 			width: widthPx,
-			height: pxH,
+			height: renderedDoc.canvas.format === "AUTO" ? 900 : pxH,
 			deviceScaleFactor: DEVICE_SCALE_FACTOR,
 		},
 		browserPool,

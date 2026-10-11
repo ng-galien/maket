@@ -15,6 +15,7 @@
  * overrides (puppeteer launcher) live on `opts`.
  */
 
+import { measureAutoPageHeights } from "../lib/auto-page-height.js";
 import {
 	type CollectionRenderMode,
 	cursorRenderOptions,
@@ -142,7 +143,13 @@ async function renderPdfDocument(
 		sourcePages.map((p) =>
 			inlineImages(p.html, {
 				assetsDir: config.ASSETS_DIR,
-				pageMm: { w: renderedDoc.canvas.w, h: renderedDoc.canvas.h },
+				pageMm: {
+					w: renderedDoc.canvas.w,
+					h:
+						renderedDoc.canvas.format === "AUTO"
+							? undefined
+							: renderedDoc.canvas.h,
+				},
 				dpi,
 				mimeFromExt: (path) => assets.mimeFromExt(path),
 			}),
@@ -152,7 +159,8 @@ async function renderPdfDocument(
 	const { w, h } = renderedDoc.canvas;
 	const viewport = {
 		width: Math.ceil(w * PX_PER_MM),
-		height: Math.ceil(h * PX_PER_MM),
+		height:
+			renderedDoc.canvas.format === "AUTO" ? 900 : Math.ceil(h * PX_PER_MM),
 	};
 	const fullHtml = buildPrintHtml({
 		source: doc,
@@ -165,13 +173,18 @@ async function renderPdfDocument(
 	const page = await b.newPage();
 	try {
 		await installNetworkGuard(page, "offline");
+		if (renderedDoc.canvas.format === "AUTO")
+			await page.emulateMediaType?.("print");
 		await page.setViewport(viewport);
 		await page.setContent(fullHtml, { waitUntil: "load" });
 		await waitForPageStable(page);
+		if (renderedDoc.canvas.format === "AUTO")
+			await measureAutoPageHeights(page, true);
 		const printed = await measureRenderFrames(page);
 		const pdfBuffer = await page.pdf({
 			width: `${w}mm`,
 			height: `${h}mm`,
+			preferCSSPageSize: renderedDoc.canvas.format === "AUTO",
 			printBackground: true,
 			margin: { top: "0", right: "0", bottom: "0", left: "0" },
 		});
@@ -231,6 +244,7 @@ async function measurePreviewFrames(
 				{ waitUntil: "load" },
 			);
 			await waitForPageStable(page);
+			if (input.canvas.format === "AUTO") await measureAutoPageHeights(page);
 			const [frame] = await measureRenderFrames(page);
 			frames.push(frame ?? []);
 		}

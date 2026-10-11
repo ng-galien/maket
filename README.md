@@ -61,7 +61,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 - **Living documents** — Attach a JSON Schema and state snapshot to one document, render `{{ state.* }}` values, edit supported fields through bound checkbox, text, select, and button controls, and retain immutable revisions for history and restore.
 - **PDF export** — Print-ready output via headless Chromium.
 - **Gmail drafts** — Compose an email document and hand it off to Gmail as a draft; you review and send yourself.
-- **Paper & screen formats** — A2–A8, plus DESKTOP/TABLET/MOBILE aspect ratios for digital mockups.
+- **Paper & screen formats** — A2–A8, DESKTOP/TABLET/MOBILE aspect ratios, and AUTO pages with a defined width and content-driven height.
 - **Agent skills included** — Three skills (`maket`, `maket-charte`, `maket-review`) that teach the AI assistant how to design, brand, and review documents.
 
 ## What it looks like

@@ -536,3 +536,11 @@ An implementation conforms to this contract when automated tests prove that:
 
 Future control types can extend either renderer without changing the ownership
 rule: Maket remains the single rendering and state-synchronization owner.
+
+## Continuous pages with automatic height
+
+Create a document with `maket_doc action=new doc=<name> format=AUTO width=180`, or switch an existing document with `maket_canvas doc=<name> format=AUTO width=180`. Width is a positive number in millimetres. Orientation does not swap it. Subsequent canvas updates retain the width unless supplied; switching back to a paper or screen format restores its fixed dimensions.
+
+Each page grows and shrinks with its normal-flow HTML content, including the answer history and embedded current form. State list overflow does not generate continuation pages in AUTO mode. Separate authored pages remain separate, each with its own measured height. Use flow layouts and padding; an authored fixed-height or clipped wrapper still imposes its own constraints. Absolute-positioned-only compositions need an explicit flow container height.
+
+Canvas and Reader render the continuous page. Snapshots and thumbnails measure it after fonts and images settle. Print and PDF measure each page independently and use named physical page sizes. Export/import preserves `format: "AUTO"` and width; runtime measurements are not written back to the document. The numeric persisted `h: 1` is the minimum blank-page fallback, not a content measurement.
