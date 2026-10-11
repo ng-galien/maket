@@ -39,6 +39,7 @@ beforeEach(() => {
 	useStore.setState({
 		connected: false,
 		docs: new Map(),
+		docList: [],
 		workspaceDocNames: [],
 		focusedDocName: null,
 		focusedPageIndex: 0,
@@ -70,6 +71,24 @@ afterEach(() => {
 });
 
 describe("WorkspaceHeader", () => {
+	it("does not offer pin commands in a read-only document menu", async () => {
+		const doc = makeDoc("read-only-menu");
+		useStore.setState({
+			readOnly: true,
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+		});
+		render(<WorkspaceHeader />);
+		await userEvent
+			.setup()
+			.click(screen.getByRole("button", { name: "Document" }));
+		expect(screen.getByRole("option", { name: doc.name })).toBeVisible();
+		expect(
+			screen.queryByRole("button", { name: `Pin ${doc.name}` }),
+		).toBeNull();
+	});
+
 	it("integrates the shared header into the macOS title bar", () => {
 		window.maketDesktop = {
 			version: 1,

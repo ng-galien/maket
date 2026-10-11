@@ -754,8 +754,7 @@ export function ReaderDocumentPicker({
 	docName,
 	position,
 	onDocumentChange,
-	onCloseDocument,
-	bulkClose,
+	documentActions,
 	className = "",
 	title,
 	variant = "reader",
@@ -764,9 +763,12 @@ export function ReaderDocumentPicker({
 	docName: string;
 	position: "top" | "bottom";
 	onDocumentChange: (name: string) => void;
-	onCloseDocument?: (name: string) => void;
-	/** Close every other document, or every document. */
-	bulkClose?: { others: () => void; all: () => void };
+	documentActions?: {
+		close: (name: string) => void;
+		pin?: (name: string, pinned: boolean) => void;
+		closeOthers: () => void;
+		closeAll: () => void;
+	};
 	className?: string;
 	title?: string;
 	variant?: "reader" | "header";
@@ -783,6 +785,11 @@ export function ReaderDocumentPicker({
 			ref={model.rootRef}
 			className={`relative ${className}`}
 			onBlur={model.closeOnBlur}
+			onKeyDown={(event) => {
+				if (event.code === "Space") event.stopPropagation();
+				if (event.key === "Escape" && !event.defaultPrevented)
+					model.onOptionKeyDown(event, model.activeIndex);
+			}}
 		>
 			<button
 				ref={model.triggerRef}
@@ -815,9 +822,10 @@ export function ReaderDocumentPicker({
 					position={position}
 					label={t("reader_document")}
 					variant={variant}
-					onCloseDocument={onCloseDocument}
-					onCloseOthers={bulkClose?.others}
-					onCloseAll={bulkClose?.all}
+					onCloseDocument={documentActions?.close}
+					onPinDocument={documentActions?.pin}
+					onCloseOthers={documentActions?.closeOthers}
+					onCloseAll={documentActions?.closeAll}
 				/>
 			)}
 		</div>
@@ -829,6 +837,8 @@ export interface DocumentPickerItem {
 	category: string;
 	/** Pinned items lead the list under their own group label. */
 	pinned?: boolean;
+	/** Managed Workspace documents cannot use the free-document pin command. */
+	canPin?: boolean;
 }
 
 interface ReaderDocumentPickerModel {
@@ -986,6 +996,7 @@ interface ReaderDocumentListProps {
 	label: string;
 	variant: "reader" | "header";
 	onCloseDocument?: (name: string) => void;
+	onPinDocument?: (name: string, pinned: boolean) => void;
 	onCloseOthers?: () => void;
 	onCloseAll?: () => void;
 }
@@ -999,6 +1010,7 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 		label,
 		variant,
 		onCloseDocument,
+		onPinDocument,
 		onCloseOthers,
 		onCloseAll,
 	} = props;
@@ -1056,7 +1068,7 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 				aria-label={label}
 				className="max-h-72 overflow-y-auto py-1"
 			>
-				{documentGroups(documents, t).map((group) => {
+				{documentGroups(documents, t, variant === "reader").map((group) => {
 					const options = group.items.map(({ document, index }) => (
 						<ReaderDocumentOption
 							key={document.name}
@@ -1065,6 +1077,7 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 							index={index}
 							selected={document.name === docName}
 							onCloseDocument={onCloseDocument}
+							onPinDocument={onPinDocument}
 						/>
 					));
 					if (!group.label) return options;
@@ -1121,12 +1134,14 @@ function DocumentListCommand({
 function documentGroups(
 	documents: DocumentPickerItem[],
 	t: ReturnType<typeof useT>,
+	groupPinned = true,
 ): Array<{
 	key: string;
 	label?: string;
 	items: Array<{ document: DocumentPickerItem; index: number }>;
 }> {
 	const indexed = documents.map((document, index) => ({ document, index }));
+	if (!groupPinned) return [{ key: "documents", items: indexed }];
 	const pinned = indexed.filter(({ document }) => document.pinned);
 	if (pinned.length === 0) return [{ key: "documents", items: indexed }];
 	const others = indexed.filter(({ document }) => !document.pinned);
@@ -1150,15 +1165,18 @@ function ReaderDocumentOption({
 	index,
 	selected,
 	onCloseDocument,
+	onPinDocument,
 }: {
 	model: ReaderDocumentPickerModel;
 	document: DocumentPickerItem;
 	index: number;
 	selected: boolean;
 	onCloseDocument?: (name: string) => void;
+	onPinDocument?: (name: string, pinned: boolean) => void;
 }) {
 	const t = useT();
 	const { name, category } = document;
+	const pinAction = document.canPin ? onPinDocument : undefined;
 	const categoryId = `${model.listboxId}-category-${index}`;
 	return (
 		<div key={name} className="group/document relative">
@@ -1173,8 +1191,11 @@ function ReaderDocumentOption({
 				aria-describedby={categoryId}
 				tabIndex={index === model.activeIndex ? 0 : -1}
 				onClick={() => model.choose(name)}
-				onKeyDown={(event) => model.onOptionKeyDown(event, index)}
-				className={`relative flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors ${onCloseDocument ? "pr-10" : ""} ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
+				onKeyDown={(event) => {
+					if (event.key === "Tab" && (pinAction || onCloseDocument)) return;
+					model.onOptionKeyDown(event, index);
+				}}
+				className={`relative flex min-h-12 w-full items-center gap-3 rounded-md px-2.5 py-1.5 text-left outline-none transition-colors ${pinAction && onCloseDocument ? "pr-18" : pinAction || onCloseDocument ? "pr-10" : ""} ${selected ? "bg-accent-soft text-text-1" : "text-text-2 hover:bg-input focus-visible:bg-input focus-visible:text-text-1"}`}
 			>
 				{selected && (
 					<span className="absolute inset-y-2 left-0 w-0.5 rounded-r bg-accent" />
@@ -1190,10 +1211,30 @@ function ReaderDocumentOption({
 						{documentCategoryLabel(category)}
 					</span>
 				</span>
-				{selected && !onCloseDocument && (
+				{selected && !onCloseDocument && !pinAction && (
 					<Check size={16} className="shrink-0 text-accent" />
 				)}
 			</button>
+			{pinAction && (
+				<button
+					type="button"
+					data-open-document-pin={name}
+					onClick={() => pinAction(name, !document.pinned)}
+					aria-label={t("pin_document", { name })}
+					aria-pressed={Boolean(document.pinned)}
+					title={t(document.pinned ? "unpin_document" : "pin_document", {
+						name,
+					})}
+					className={`absolute ${onCloseDocument ? "right-9" : "right-1.5"} top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-sm transition-colors hover:bg-black/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 ${document.pinned ? "text-accent" : "text-text-3 hover:text-text-1"}`}
+				>
+					<Pin
+						size={14}
+						strokeWidth={1.75}
+						className={document.pinned ? "fill-current" : ""}
+						aria-hidden
+					/>
+				</button>
+			)}
 			{onCloseDocument && (
 				<button
 					type="button"

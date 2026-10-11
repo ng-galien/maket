@@ -30,6 +30,7 @@
 	"doc_locked": "Document verrouillé",
 	"doc_pinned": "Document épinglé",
 	"pin_document": "Épingler {name}",
+	"unpin_document": "Désépingler {name}",
 	"pinned_documents": "Épinglés",
 	"doc_charte": "Charte : {name}",
 	"state_document_badge": "État",

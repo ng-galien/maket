@@ -30,6 +30,7 @@
 	"doc_locked": "Locked document",
 	"doc_pinned": "Pinned document",
 	"pin_document": "Pin {name}",
+	"unpin_document": "Unpin {name}",
 	"pinned_documents": "Pinned",
 	"doc_charte": "Brand guide: {name}",
 	"state_document_badge": "State",

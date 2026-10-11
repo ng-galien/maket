@@ -89,6 +89,21 @@ test.describe("Structured Workspace", () => {
 		await expect(
 			detail.getByText("Detail opened from collection"),
 		).toBeVisible();
+		const picker = page
+			.locator("[data-workspace-header]")
+			.getByRole("button", { name: "Document", exact: true });
+		await picker.click();
+		const menu = page.locator("[data-reader-menu]");
+		for (const name of [itemDocument, collectionDocument]) {
+			await expect(
+				menu.getByRole("option", { name, exact: true }),
+			).toBeVisible();
+			await expect(
+				menu.locator(`[data-open-document-pin="${name}"]`),
+			).toHaveCount(0);
+		}
+		await picker.press("Escape");
+		await expect(menu).toHaveCount(0);
 		for (const name of [itemDocument, collectionDocument, detailTemplate]) {
 			const link = await mcp.callJson<{ documentId: string; path: string }>(
 				"maket_doc",

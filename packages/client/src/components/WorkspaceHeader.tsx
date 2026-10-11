@@ -5,7 +5,7 @@ import { browserPath } from "../lib/browserBasePath";
 import { displayWorkspaceCategorySegment } from "../lib/workspaceCategoryDisplay";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
-import { sendLockDoc } from "../store/ws";
+import { sendLockDoc, sendPinDoc } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 import { CollectionDockButton } from "./CollectionDataControls";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
@@ -25,6 +25,8 @@ export function WorkspaceHeader({
 	const connected = useStore((state) => state.connected);
 	const focusedDoc = useFocusedDoc();
 	const docs = useStore((state) => state.docs);
+	const docList = useStore((state) => state.docList);
+	const readOnly = useStore((state) => state.readOnly);
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
 	const closeWorkspaceDocuments = useStore(
@@ -37,7 +39,18 @@ export function WorkspaceHeader({
 	const openDocumentNames = workspaceDocNames.filter((name) => docs.has(name));
 	const openDocuments = openDocumentNames.flatMap((name) => {
 		const doc = docs.get(name);
-		return doc ? [{ name: doc.name, category: doc.category }] : [];
+		return doc
+			? [
+					{
+						name: doc.name,
+						category: doc.category,
+						canPin: !doc.meta?.structuredWorkspace,
+						pinned: Boolean(
+							docList.find((entry) => entry.name === name)?.pinnedAt,
+						),
+					},
+				]
+			: [];
 	});
 	const headerClassName = `flex h-14 min-w-0 shrink-0 items-center gap-2.5 border-b border-border bg-panel pr-3 ${
 		macDesktop ? "pl-[86px]" : "pl-3"
@@ -112,15 +125,16 @@ export function WorkspaceHeader({
 							docName={focusedDoc.name}
 							position="top"
 							onDocumentChange={setFocusedDoc}
-							onCloseDocument={(name) => closeWorkspaceDocuments([name])}
-							bulkClose={{
-								others: () =>
+							documentActions={{
+								close: (name) => closeWorkspaceDocuments([name]),
+								pin: readOnly ? undefined : sendPinDoc,
+								closeOthers: () =>
 									closeWorkspaceDocuments(
 										openDocumentNames.filter(
 											(name) => name !== focusedDoc.name,
 										),
 									),
-								all: () => closeWorkspaceDocuments(openDocumentNames),
+								closeAll: () => closeWorkspaceDocuments(openDocumentNames),
 							}}
 							variant="header"
 							className="min-w-0 max-w-[min(32vw,28rem)] shrink"
