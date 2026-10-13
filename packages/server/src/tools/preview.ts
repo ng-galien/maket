@@ -27,9 +27,15 @@ import {
 	type InlineCapture,
 	loadSurface,
 } from "../lib/inline-capture.js";
+import {
+	MAKET_PAGE_VIEW_URI,
+	type MaketPageForView,
+	pageForView,
+} from "../lib/maket-page-view.js";
 import { documentReadingPath, readingLine } from "../lib/reading-link.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
+import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import type { BrowserPool, RenderPage } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
@@ -78,7 +84,7 @@ const DESCRIPTION = [
 	"When to use: view documents outside the agent. `open` flips the live preview URL into the user's browser; `snapshot` rasterises a single page to PNG at its true mm size.",
 	"",
 	"  open     — launch the live preview URL (localhost) in the default browser. No params.",
-	"  snapshot — render a page via headless Chromium. Returns the full-size PNG as a file path on disk, the page's reading path in Maket, and the image inline (at most 1600 px on its longest side and 1 MB of base64, downscaled when larger; beyond a 2:1 ratio, the top or left part of the page).",
+	"  snapshot — render a page via headless Chromium. Returns the full-size PNG as a file path on disk, the page's reading path in Maket, and the image inline (at most 1600 px on its longest side and 1 MB of base64, downscaled when larger; beyond a 2:1 ratio, the top or left part of the page). On hosts that render MCP Apps, the page itself shows read-only in the conversation (view ui://maket/page, fed by structuredContent.maketPage).",
 ].join("\n");
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
@@ -95,6 +101,9 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 			name: "maket_preview",
 			description: DESCRIPTION,
 			schema: MaketPreviewSchema,
+			_meta: {
+				ui: { resourceUri: MAKET_PAGE_VIEW_URI, visibility: ["model"] },
+			},
 		},
 		handler: async (rawArgs) => {
 			const args = MaketPreviewSchema.parse(rawArgs);
@@ -176,19 +185,21 @@ async function runSnapshot(
 		);
 
 	const { w, h } = rendered.canvas;
-	const inlinedHtml = await inlineImages(html, {
-		assetsDir: config.ASSETS_DIR,
-		pageMm: { w, h: rendered.canvas.format === "AUTO" ? undefined : h },
-		dpi: 96,
-		mimeFromExt: (p) => assets.mimeFromExt(p),
-	});
-
-	const fullHtml = buildRenderSurfaceHtml({
-		canvas: rendered.canvas,
-		pageHtmls: [inlinedHtml],
-		charteCss: documents.charteCss(rendered),
-		surface: { kind: "snapshot" },
-	});
+	const inlined = (dpi: number) =>
+		inlineImages(html, {
+			assetsDir: config.ASSETS_DIR,
+			pageMm: { w, h: rendered.canvas.format === "AUTO" ? undefined : h },
+			dpi,
+			mimeFromExt: (p) => assets.mimeFromExt(p),
+		});
+	const surfaceOf = (pageHtml: string) =>
+		buildRenderSurfaceHtml({
+			canvas: rendered.canvas,
+			pageHtmls: [pageHtml],
+			charteCss: documents.charteCss(rendered),
+			surface: { kind: "snapshot" },
+		});
+	const fullHtml = surfaceOf(await inlined(96));
 
 	const browser = await browserPool.get();
 	const p = await browser.newPage();
@@ -210,11 +221,20 @@ async function runSnapshot(
 		const inline = await inlineSnapshot(p, frame, Buffer.from(png)).catch(
 			() => null,
 		);
+		const readingPath = documentReadingPath(d, config.BASE_PATH);
 		return snapshotAnswer(png.length, inline, {
 			frame,
 			outPath,
 			label: `"${d.name}" page ${args.page}`,
-			readingPath: documentReadingPath(d, config.BASE_PATH),
+			readingPath,
+			view: await pageForView({
+				document: d.name,
+				page: args.page,
+				width: viewport.width,
+				height: viewport.height,
+				readingPath,
+				surface: async (dpi) => surfaceOf(stripActiveHtml(await inlined(dpi))),
+			}),
 		});
 	} finally {
 		await p.close();
@@ -249,6 +269,8 @@ function snapshotAnswer(
 		outPath: string;
 		label: string;
 		readingPath: string;
+		/** The page for the MCP Apps view ui://maket/page. */
+		view: MaketPageForView;
 	},
 ): CallToolResult {
 	const full = `the full-size PNG is the saved file ${target.outPath}`;
@@ -274,6 +296,7 @@ function snapshotAnswer(
 					]
 				: []),
 		],
+		structuredContent: { maketPage: target.view },
 	};
 }
 

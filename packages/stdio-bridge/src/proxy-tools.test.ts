@@ -1,9 +1,11 @@
-import type { Client, Tool } from "@modelcontextprotocol/client";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { Client, type Tool } from "@modelcontextprotocol/client";
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+	listAllResources,
 	listAllTools,
 	MCP_DISCOVERY_TIMEOUT_MS,
+	registerProxyResources,
 	registerProxyTools,
 } from "./proxy-tools.ts";
 
@@ -67,5 +69,89 @@ describe("stdio proxy tools", () => {
 		await expect(callback?.({}, { mcpReq: { signal } })).rejects.toThrow(
 			"Maket App is not open",
 		);
+	});
+});
+
+describe("stdio proxy resources", () => {
+	async function connected(server: McpServer, name: string): Promise<Client> {
+		const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
+		const client = new Client({ name, version: "1" });
+		await server.connect(serverSide);
+		await client.connect(clientSide);
+		return client;
+	}
+
+	it("relays resources/list and resources/read of an MCP Apps view and keeps the tool _meta.ui", async () => {
+		const ui = {
+			csp: {
+				resourceDomains: ["https://fonts.gstatic.com"],
+				connectDomains: [],
+			},
+			prefersBorder: true,
+		};
+		const upstream = new McpServer(
+			{ name: "maket", version: "1" },
+			{ capabilities: { tools: {}, resources: {} } },
+		);
+		upstream.registerResource(
+			"maket_page",
+			"ui://maket/page",
+			{
+				mimeType: "text/html;profile=mcp-app",
+				description: "view",
+				_meta: { ui },
+			},
+			async (uri) => ({
+				contents: [
+					{
+						uri: uri.href,
+						mimeType: "text/html;profile=mcp-app",
+						text: "<!DOCTYPE html><html><body>view</body></html>",
+						_meta: { ui },
+					},
+				],
+			}),
+		);
+		upstream.registerTool(
+			"maket_preview",
+			{
+				description: "preview",
+				_meta: { ui: { resourceUri: "ui://maket/page" } },
+			},
+			async () => ({ content: [{ type: "text", text: "ok" }] }),
+		);
+		const app = await connected(upstream, "bridge-upstream");
+
+		const bridge = new McpServer(
+			{ name: "maket", version: "1" },
+			{ capabilities: { tools: {}, resources: {} } },
+		);
+		registerProxyTools(bridge, await listAllTools(app), () => app);
+		registerProxyResources(bridge, await listAllResources(app), () => app);
+		const host = await connected(bridge, "host");
+
+		expect((await host.listTools()).tools[0]?._meta).toEqual({
+			ui: { resourceUri: "ui://maket/page" },
+		});
+		expect((await host.listResources()).resources).toEqual([
+			expect.objectContaining({
+				uri: "ui://maket/page",
+				name: "maket_page",
+				mimeType: "text/html;profile=mcp-app",
+				_meta: { ui },
+			}),
+		]);
+		expect(
+			(await host.readResource({ uri: "ui://maket/page" })).contents,
+		).toEqual([
+			{
+				uri: "ui://maket/page",
+				mimeType: "text/html;profile=mcp-app",
+				text: "<!DOCTYPE html><html><body>view</body></html>",
+				_meta: { ui },
+			},
+		]);
+		await host.close();
+		await app.close();
 	});
 });

@@ -1,14 +1,21 @@
 import {
 	Client,
+	type Resource,
 	StreamableHTTPClientTransport,
 	type Tool,
 } from "@modelcontextprotocol/client";
-import { McpServer, type RegisteredTool } from "@modelcontextprotocol/server";
+import {
+	McpServer,
+	type RegisteredResource,
+	type RegisteredTool,
+} from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { readVersion } from "./commands/_version.ts";
 import { probeServer } from "./probe.ts";
 import {
+	listAllResources,
 	listAllTools,
+	registerProxyResources,
 	registerProxyTools,
 	waitForStdioClose,
 } from "./proxy-tools.ts";
@@ -16,18 +23,25 @@ import {
 type DownstreamServer = {
 	server: McpServer;
 	proxiedTools: RegisteredTool[];
+	proxiedResources: RegisteredResource[];
 };
 
 type ConnectOnlyState = {
 	client?: Client;
 	tools: Tool[];
+	resources: Resource[];
 	servers: Set<DownstreamServer>;
 };
 
 function createWaitingServer(state: ConnectOnlyState): McpServer {
 	const server = new McpServer(
 		{ name: "maket", version: readVersion() },
-		{ capabilities: { tools: { listChanged: true } } },
+		{
+			capabilities: {
+				tools: { listChanged: true },
+				resources: { listChanged: true },
+			},
+		},
 	);
 	server.registerTool(
 		"maket_app_status",
@@ -48,12 +62,21 @@ function createWaitingServer(state: ConnectOnlyState): McpServer {
 		}),
 	);
 
-	const downstream: DownstreamServer = { server, proxiedTools: [] };
+	const downstream: DownstreamServer = {
+		server,
+		proxiedTools: [],
+		proxiedResources: [],
+	};
 	state.servers.add(downstream);
 	forgetOnClose(state, downstream);
 	downstream.proxiedTools = registerProxyTools(
 		server,
 		state.tools,
+		() => state.client,
+	);
+	downstream.proxiedResources = registerProxyResources(
+		server,
+		state.resources,
 		() => state.client,
 	);
 	return server;
@@ -75,13 +98,21 @@ function forgetOnClose(
 function refreshDownstreamServers(state: ConnectOnlyState): void {
 	for (const downstream of state.servers) {
 		for (const tool of downstream.proxiedTools) tool.remove();
+		for (const resource of downstream.proxiedResources) resource.remove();
 		downstream.proxiedTools = registerProxyTools(
 			downstream.server,
 			state.tools,
 			() => state.client,
 		);
-		if (downstream.server.isConnected())
+		downstream.proxiedResources = registerProxyResources(
+			downstream.server,
+			state.resources,
+			() => state.client,
+		);
+		if (downstream.server.isConnected()) {
 			downstream.server.sendToolListChanged();
+			downstream.server.sendResourceListChanged();
+		}
 	}
 }
 
@@ -113,6 +144,7 @@ async function monitorMaketApp(
 			await state.client.close().catch(() => {});
 			state.client = undefined;
 			state.tools = [];
+			state.resources = [];
 			refreshDownstreamServers(state);
 			waitingLogged = false;
 		}
@@ -150,6 +182,7 @@ async function connectMaketApp(
 			{ signal, timeout: 3_000 },
 		);
 		state.tools = await listAllTools(candidate);
+		state.resources = await listAllResources(candidate).catch(() => []);
 		state.client = candidate;
 		if (refreshServers) refreshDownstreamServers(state);
 		log(`Maket App connected; exposing ${state.tools.length} tools over stdio`);
@@ -165,7 +198,11 @@ export async function runConnectOnlyBridge(
 	host: string,
 	log: (message: string) => void,
 ): Promise<void> {
-	const state: ConnectOnlyState = { tools: [], servers: new Set() };
+	const state: ConnectOnlyState = {
+		tools: [],
+		resources: [],
+		servers: new Set(),
+	};
 	const stop = new AbortController();
 	await connectMaketApp(state, port, host, log, stop.signal, false);
 	const monitor = monitorMaketApp(state, port, host, log, stop.signal);

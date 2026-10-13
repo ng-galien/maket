@@ -1,8 +1,9 @@
-import type { Client, Tool } from "@modelcontextprotocol/client";
+import type { Client, Resource, Tool } from "@modelcontextprotocol/client";
 import {
 	fromJsonSchema,
 	type JsonSchemaType,
 	type McpServer,
+	type RegisteredResource,
 	type RegisteredTool,
 } from "@modelcontextprotocol/server";
 
@@ -19,6 +20,40 @@ export async function listAllTools(client: Client): Promise<Tool[]> {
 		cursor = page.nextCursor;
 	} while (cursor !== undefined);
 	return tools;
+}
+
+/** Every resource the Maket App lists, page by page (the MCP Apps views). */
+export async function listAllResources(client: Client): Promise<Resource[]> {
+	const resources: Resource[] = [];
+	let cursor: string | undefined;
+	do {
+		const page = await client.listResources(cursor ? { cursor } : undefined, {
+			timeout: MCP_DISCOVERY_TIMEOUT_MS,
+		});
+		resources.push(...page.resources);
+		cursor = page.nextCursor;
+	} while (cursor !== undefined);
+	return resources;
+}
+
+/** Relay each resource of the Maket App: listed with its metadata (`_meta.ui`
+ * of an MCP Apps view included), read from the app. */
+export function registerProxyResources(
+	server: McpServer,
+	resources: Resource[],
+	getClient: () => Client | undefined,
+): RegisteredResource[] {
+	return resources.map(({ uri, name, ...metadata }) =>
+		server.registerResource(name, uri, metadata, async (requested, ctx) => {
+			const client = getClient();
+			if (!client)
+				throw new Error("Maket App is not open. Open the app and try again.");
+			return client.readResource(
+				{ uri: requested.href },
+				{ signal: ctx.mcpReq.signal },
+			);
+		}),
+	);
 }
 
 export function registerProxyTools(

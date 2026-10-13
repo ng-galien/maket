@@ -8,20 +8,23 @@ import {
 } from "@modelcontextprotocol/server";
 import type { AwilixContainer } from "awilix";
 import { resolveActivity } from "../core/activity-contract.js";
-import { mountTools } from "../core/container.js";
+import { mountAppViews, mountTools } from "../core/container.js";
 import type { Config } from "../services/config.js";
+import type { McpAppViews } from "../services/mcp-app-views.js";
 import type { WsRegistry } from "../services/ws-registry.js";
 
 export interface McpHttpHandlerDeps {
 	config: Config;
 	container: AwilixContainer;
 	wsRegistry: WsRegistry;
+	mcpAppViews: McpAppViews;
 }
 
 export function createMcpHttpHandler({
 	config,
 	container,
 	wsRegistry,
+	mcpAppViews,
 }: McpHttpHandlerDeps): McpHttpHandler {
 	function broadcastActivity(
 		name: string,
@@ -58,9 +61,10 @@ export function createMcpHttpHandler({
 	return createMcpHandler(() => {
 		const server = new McpServer(
 			{ name: "maket", version: config.VERSION },
-			{ capabilities: { tools: {} } },
+			{ capabilities: { tools: {}, resources: {} } },
 		);
 		mountTools(server, container, broadcastActivity);
+		mountAppViews(server, mcpAppViews);
 		return server;
 	});
 }

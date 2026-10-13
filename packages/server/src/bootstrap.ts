@@ -38,6 +38,7 @@ import {
 import { createItemSources } from "./services/item-sources/item-sources.js";
 import { createItemWindows } from "./services/item-windows.js";
 import { createLayoutService } from "./services/layout.js";
+import { createMcpAppViews } from "./services/mcp-app-views.js";
 import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
 import { createPageFlow } from "./services/page-flow.js";
 import { createPdfService } from "./services/pdf.js";
@@ -151,6 +152,8 @@ export function createAppContainer(
 		layout: asFunction(createLayoutService).singleton(),
 
 		mermaidDiagrams: asFunction(createMermaidDiagrams).singleton(),
+
+		mcpAppViews: asFunction(createMcpAppViews).singleton(),
 
 		browserPool: inputs.browserPool
 			? asValue(inputs.browserPool)

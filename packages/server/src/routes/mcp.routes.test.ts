@@ -9,6 +9,7 @@ import express from "express";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
+import { createMcpAppViews } from "../services/mcp-app-views.js";
 import { createMcpRouter } from "./mcp.routes.js";
 import { createMcpHttpHandler } from "./mcp-handler.js";
 
@@ -37,9 +38,17 @@ describe("mcp routes", () => {
 			],
 			[
 				"maket_collection",
-				createTool("maket_collection", async () => ({
-					content: [{ type: "text", text: "ok" }],
-				})),
+				{
+					...createTool("maket_collection", async () => ({
+						content: [{ type: "text", text: "ok" }],
+					})),
+					metadata: {
+						...createTool("maket_collection", async () => ({
+							content: [],
+						})).metadata,
+						_meta: { ui: { resourceUri: "ui://maket/page" } },
+					},
+				},
 			],
 		]);
 		const container = createContainer().register({
@@ -49,6 +58,7 @@ describe("mcp routes", () => {
 			config: { VERSION: "9.9.9" } as never,
 			container,
 			wsRegistry: wsRegistry as never,
+			mcpAppViews: createMcpAppViews(),
 		});
 		closeHandler = () => mcpHttpHandler.close();
 
@@ -108,6 +118,49 @@ describe("mcp routes", () => {
 			"maket_collection",
 			"maket_html",
 		]);
+	});
+
+	it("serves the MCP Apps view ui://maket/page over HTTP and keeps the tool _meta.ui", async () => {
+		const client = await connectClient();
+		const listed = await client.listTools();
+		expect(
+			listed.tools.find((tool) => tool.name === "maket_collection")?._meta,
+		).toEqual({ ui: { resourceUri: "ui://maket/page" } });
+		expect(
+			listed.tools.find((tool) => tool.name === "maket_html")?._meta,
+		).toBeUndefined();
+		const resources = await client.listResources();
+		const ui = {
+			csp: {
+				resourceDomains: [
+					"https://fonts.googleapis.com",
+					"https://fonts.gstatic.com",
+					"https://fonts.bunny.net",
+				],
+				connectDomains: [],
+			},
+			prefersBorder: true,
+		};
+		expect(resources.resources).toEqual([
+			expect.objectContaining({
+				uri: "ui://maket/page",
+				name: "maket_page",
+				mimeType: "text/html;profile=mcp-app",
+				_meta: { ui },
+			}),
+		]);
+		const read = await client.readResource({ uri: "ui://maket/page" });
+		expect(read.contents).toEqual([
+			expect.objectContaining({
+				uri: "ui://maket/page",
+				mimeType: "text/html;profile=mcp-app",
+				_meta: { ui },
+			}),
+		]);
+		const html = (read.contents[0] as { text: string }).text;
+		expect(html.startsWith("<!DOCTYPE html>")).toBe(true);
+		expect(html).toContain("ui/initialize");
+		expect(html).not.toMatch(/<script[^>]+src=/);
 	});
 
 	it("rejects non-JSON MCP posts at the SDK boundary", async () => {

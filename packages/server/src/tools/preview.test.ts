@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderCollectionDocument } from "../lib/collection-render.js";
+import { pageForView } from "../lib/maket-page-view.js";
 import type { AssetsService } from "../services/assets.js";
 import type { BrowserPool } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
@@ -375,6 +376,116 @@ describe("maket_preview — action=snapshot", () => {
 			);
 			cleanup();
 		}
+	});
+
+	it("links the MCP Apps view and carries the page for it, without its active HTML, or only the reading path when too large", async () => {
+		const {
+			store,
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+			cleanup,
+		} = fixture();
+		const canvas = {
+			format: "A4" as const,
+			orientation: "portrait" as const,
+			w: 210,
+			h: 297,
+			bg: "#fff",
+		};
+		store.saveDoc(
+			createDocument({
+				name: "small",
+				canvas,
+				pages: [
+					{
+						name: "P1",
+						elements: [],
+						html: `<p data-id="x" onclick="alert(1)">Small page</p><script>steal()</script>`,
+					},
+				],
+			}),
+		);
+		store.saveDoc(
+			createDocument({
+				name: "huge",
+				canvas,
+				pages: [
+					{
+						name: "P1",
+						elements: [],
+						html: `<p data-id="x">${"word ".repeat(30_000)}</p>`,
+					},
+				],
+			}),
+		);
+		documents.loadAll();
+		const tool = createMaketPreviewTool({
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+		});
+		expect(tool.metadata._meta).toEqual({
+			ui: { resourceUri: "ui://maket/page", visibility: ["model"] },
+		});
+		const small = await tool.handler(
+			{ action: "snapshot", doc: "small", page: 1 },
+			NO_EXTRA,
+		);
+		const smallPage = (small.structuredContent as any).maketPage;
+		expect(smallPage).toMatchObject({
+			document: "small",
+			page: 1,
+			width: 794,
+			height: 1123,
+			reduced: false,
+			note: "",
+			readingPath: `/documents/${documents.resolve("small")?.id}/read`,
+		});
+		expect(smallPage.html).toContain("Small page");
+		expect(smallPage.html).not.toContain("onclick");
+		expect(smallPage.html).not.toContain("steal()");
+		expect(small.content.map((item) => item.type)).toEqual(["text", "image"]);
+		const huge = await tool.handler(
+			{ action: "snapshot", doc: "huge", page: 1 },
+			NO_EXTRA,
+		);
+		const hugePage = (huge.structuredContent as any).maketPage;
+		expect(hugePage).toMatchObject({ html: null, reduced: false });
+		expect(hugePage.note).toBe(
+			`too large to show here; read it in Maket: /documents/${documents.resolve("huge")?.id}/read`,
+		);
+		expect((huge.content[0] as any).text).toMatch(
+			/^Snapshot of "huge" page 1 saved:/,
+		);
+		cleanup();
+	});
+
+	it("reduces the page for the view by downscaling its images when that brings it under 120 000 characters", async () => {
+		const asked: number[] = [];
+		const page = await pageForView({
+			document: "d",
+			page: 2,
+			width: 794,
+			height: 1123,
+			readingPath: "/documents/x/read",
+			surface: async (dpi) => {
+				asked.push(dpi);
+				return dpi === 96 ? "x".repeat(130_000) : "<html>reduced</html>";
+			},
+		});
+		expect(asked).toEqual([96, 24]);
+		expect(page).toMatchObject({
+			html: "<html>reduced</html>",
+			reduced: true,
+			note: "reduced: images downscaled to fit the view",
+		});
 	});
 
 	it("renders the collection row selected by the shared cursor", async () => {
