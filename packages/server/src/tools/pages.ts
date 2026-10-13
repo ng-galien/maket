@@ -184,7 +184,7 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 			: undefined,
 	};
 	try {
-		validateDocumentStatePageTemplate(page);
+		if (d.dataModel === "state") validateDocumentStatePageTemplate(page);
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}

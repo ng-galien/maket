@@ -140,15 +140,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 	return {
 		initialize(docName, schema, data) {
 			const doc = requiredDocument(deps.documents, docName);
-			if (doc.dataModel !== "static") {
-				throw new Error(
-					`Document "${doc.name}" uses the ${doc.dataModel} data model.`,
-				);
-			}
-			assertValidStateTemplates(doc);
-			assertValidState(schema, data);
-			assertStateMermaidSources(schema, data);
-			assertRenderableStateTemplates(doc, schema, data);
+			assertInitializableState(doc, schema, data);
 			const current = deps.store.initializeDocumentState(doc.id, schema, data);
 			doc.dataModel = "state";
 			emitStateChanged(deps.bus, doc.name, current.revision, [""], true, true);
@@ -431,6 +423,22 @@ function requiredState(deps: DocumentStatesDeps, docName: string) {
 			{ name: doc.name },
 		);
 	return { doc, definition, current };
+}
+
+function assertInitializableState(
+	doc: Document,
+	schema: DocumentStateSchema,
+	data: DocumentStateData,
+): void {
+	if (doc.dataModel !== "static") {
+		throw new Error(
+			`Document "${doc.name}" uses the ${doc.dataModel} data model.`,
+		);
+	}
+	assertValidStateTemplates(doc);
+	assertValidState(schema, data);
+	assertStateMermaidSources(schema, data);
+	assertRenderableStateTemplates(doc, schema, data);
 }
 
 function assertValidState(

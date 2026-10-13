@@ -289,6 +289,31 @@ describe("ReadingWorkspace", () => {
 		expect(container.querySelector(".doc-label")).toBeNull();
 	});
 
+	it("keeps the Reader surface and its page when the open document is renamed", () => {
+		const doc = makeDoc("draft", 2);
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+			focusedPageIndex: 1,
+			workspaceView: "reading",
+		});
+		const { container } = render(<ReadingWorkspace />);
+		const surface = container.querySelector("[data-reading-workspace]");
+		expect(screen.getByRole("status")).toHaveTextContent("2/2");
+
+		act(() => {
+			useStore
+				.getState()
+				.replaceRenamedDoc("draft", { ...doc, name: "final" }, [], "");
+		});
+
+		expect(container.querySelector("[data-doc='final']")).not.toBeNull();
+		expect(container.querySelector("[data-reading-workspace]")).toBe(surface);
+		expect(useStore.getState().focusedPageIndex).toBe(1);
+		expect(screen.getByRole("status")).toHaveTextContent("2/2");
+	});
+
 	it.each([1, 3])(
 		"shows page titles only for a multi-page Reader document (%i pages)",
 		(count) => {

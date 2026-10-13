@@ -262,20 +262,35 @@ test("AUTO sizes long saved textarea responses and print-specific content", asyn
 		"../../desktop/src/native-print"
 	);
 	let nativeHeight = 0;
-	await printWithNativeDialog(baseURL ?? "", doc, () => ({
-		loadURL: async (url) => {
-			await page.goto(url);
-		},
-		isDestroyed: () => false,
-		destroy: () => {},
-		webContents: {
-			executeJavaScript: (code) => page.evaluate(code),
-			print: (options, callback) => {
-				nativeHeight = options.pageSize.height;
-				callback(false, "Print job canceled");
+	const outcome = await printWithNativeDialog(baseURL ?? "", doc, {
+		platform: "darwin",
+		createWindow: () => ({
+			loadURL: async (url) => {
+				await page.goto(url);
 			},
-		},
-	}));
+			isDestroyed: () => false,
+			isVisible: () => true,
+			show: () => {},
+			once: () => undefined,
+			getParentWindow: () => ({}),
+			destroy: () => {},
+			webContents: {
+				executeJavaScript: (code) => page.evaluate(code),
+				print: (options, callback) => {
+					nativeHeight = options.pageSize.height;
+					callback(false, "Print job canceled");
+				},
+				printToPDF: async () => new Uint8Array(),
+			},
+		}),
+		unusableDialogReason: () => null,
+		markDialogPending: () => {},
+		clearDialogPending: () => {},
+		openPdf: async () => "",
+		defer: (task) => task(),
+		log: () => {},
+	});
+	expect(outcome).toEqual({ status: "canceled" });
 	expect(nativeHeight).toBeGreaterThan(100000);
 	await page.emulateMedia({ media: "print" });
 	await page.evaluate(() => window.dispatchEvent(new Event("beforeprint")));

@@ -285,11 +285,24 @@ interface ShellSlice {
 	setAccentColor: (value: string) => void;
 }
 
+interface MessageSlice {
+	/** Pending messages from the user to the agent. */
+	pending: PendingMessage[];
+	/** The open message field's anchor; null when no field is open. */
+	messageAnchor: MessageAnchor | null;
+	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
+	editPending: (id: string, text: string) => Promise<AnnotationCreateOutcome>;
+	removePending: (id: string) => boolean;
+	openMessageField: (anchor: MessageAnchor) => void;
+	closeMessageField: () => void;
+}
+
 interface AppState
 	extends AssetSlice,
 		CollectionSlice,
 		DocumentStateSlice,
 		DocumentIdentitySlice,
+		MessageSlice,
 		StructuredWorkspaceSlice,
 		ShellSlice {
 	// Connection
@@ -313,17 +326,12 @@ interface AppState
 	readOnly: boolean;
 	selectedIds: string[];
 	editingElementId: string | null;
-	/** The open message field's anchor; null when no field is open. */
-	messageAnchor: MessageAnchor | null;
 	/** Transient annotation tool; never part of the document or saved workspace. */
 	annotationDocName: string | null;
 	locked: boolean;
 	zoom: number;
 	autoFocusFit: boolean;
 	documentLabelPosition: DocumentLabelPosition;
-
-	// Pending messages (user → agent)
-	pending: PendingMessage[];
 
 	// Actions
 	setConnected: (v: boolean) => void;
@@ -358,11 +366,6 @@ interface AppState
 	setAutoFocusFit: (autoFocusFit: boolean) => void;
 	setDocumentLabelPosition: (position: DocumentLabelPosition) => void;
 	applySettings: (settings: Settings) => void;
-	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
-	editPending: (id: string, text: string) => Promise<AnnotationCreateOutcome>;
-	removePending: (id: string) => boolean;
-	openMessageField: (anchor: MessageAnchor) => void;
-	closeMessageField: () => void;
 
 	// Deprecated — backward compat
 	setServerState: (

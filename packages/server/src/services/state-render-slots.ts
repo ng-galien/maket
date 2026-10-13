@@ -28,8 +28,7 @@ export function createStateRenderSlots(
 	deps: StateRenderSlotsDeps,
 	opts: StateRenderSlotsOptions = {},
 ): StateRenderSlots {
-	const cacheSize = opts.cacheSize ?? DEFAULT_CACHE_SIZE;
-	const cache = new Map<string, string>();
+	const cache = createRecentCache(opts.cacheSize ?? DEFAULT_CACHE_SIZE);
 
 	function drawn(source: string, charte: Charte | null): string {
 		const key = JSON.stringify([
@@ -38,18 +37,9 @@ export function createStateRenderSlots(
 			source,
 		]);
 		const cached = cache.get(key);
-		if (cached !== undefined) {
-			cache.delete(key);
-			cache.set(key, cached);
-			return cached;
-		}
+		if (cached !== undefined) return cached;
 		const html = drawOrExplain(source, charte);
 		cache.set(key, html);
-		while (cache.size > cacheSize) {
-			const oldest = cache.keys().next().value;
-			if (oldest === undefined) break;
-			cache.delete(oldest);
-		}
 		return html;
 	}
 
@@ -57,6 +47,33 @@ export function createStateRenderSlots(
 		forDocument(doc) {
 			const charte = deps.documents.charte(doc);
 			return (slot) => drawn(slot.source, charte);
+		},
+	};
+}
+
+interface RecentCache {
+	get(key: string): string | undefined;
+	set(key: string, value: string): void;
+}
+
+/** A cache that keeps the most recently read or written entries. */
+function createRecentCache(size: number): RecentCache {
+	const entries = new Map<string, string>();
+	return {
+		get(key) {
+			const value = entries.get(key);
+			if (value === undefined) return undefined;
+			entries.delete(key);
+			entries.set(key, value);
+			return value;
+		},
+		set(key, value) {
+			entries.set(key, value);
+			while (entries.size > size) {
+				const oldest = entries.keys().next().value;
+				if (oldest === undefined) break;
+				entries.delete(oldest);
+			}
 		},
 	};
 }

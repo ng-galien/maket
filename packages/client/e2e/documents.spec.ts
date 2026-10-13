@@ -221,15 +221,24 @@ test.describe("Document library", () => {
 			const messagesButton = page.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await messagesButton.click();
+			const annotate = page.getByRole("button", {
+				name: /^(Annotate|Annoter)$/,
+			});
+			await annotate.click();
+			const reviewPage = oldDocument.locator(".page-canvas").nth(1);
+			const reviewBox = await reviewPage.boundingBox();
+			if (!reviewBox) throw new Error("Missing review page");
+			await reviewPage.click({
+				position: { x: reviewBox.width / 2, y: reviewBox.height - 8 },
+			});
 			await page
-				.getByPlaceholder(/Note sur le document|Note about the document/i)
+				.getByPlaceholder(/Message pour l.agent|Message for the agent/i)
 				.fill(noteText);
 			await page.keyboard.press("Enter");
 			await expect(
 				oldDocument.locator("[data-annotation-page-marker]"),
 			).toBeVisible();
-			await messagesButton.click();
+			await annotate.click();
 
 			const secondPage = await context.newPage();
 			await openWorkspace(secondPage);

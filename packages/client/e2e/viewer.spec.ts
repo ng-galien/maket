@@ -238,8 +238,8 @@ test.describe("Maket Viewer", () => {
 			brochure.getByText("Since 1987, slow oak smoke."),
 		).toBeVisible();
 		await expect(brochure.getByText("Visit us in Bergen.")).toBeVisible();
-		// Page names are navigation metadata, not chrome under the page.
-		await expect(brochure.getByText("Cover")).toHaveCount(0);
+		// A multi-page Reader document titles each page with its name.
+		await expect(brochure.getByText("Cover", { exact: true })).toBeVisible();
 	});
 
 	test("mobile: Reader fits without horizontal overflow and navigation stays usable", async ({

@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import {
+	closeLibrary,
 	createDocument,
 	expect,
 	openLibraryView,
@@ -35,16 +36,14 @@ async function checkReaderRoundTrip(
 		layout === "split" ? "single" : "split",
 	);
 	await expect(pane.locator(`[data-doc="${docName}"]`)).toBeVisible();
-	await expect(pane.locator("[data-page-view='1']")).toHaveAttribute(
-		"data-active-page",
-		"true",
-	);
+	await expect(
+		pane.getByRole("heading", { name: /^Delivery notes for / }),
+	).toBeInViewport();
 	await toggle.click();
 	await expect(navigation).toHaveAttribute("data-layout", layout);
-	await expect(pane.locator("[data-page-view='1']")).toHaveAttribute(
-		"data-active-page",
-		"true",
-	);
+	await expect(
+		pane.getByRole("heading", { name: /^Delivery notes for / }),
+	).toBeInViewport();
 }
 
 test.describe("Structured Workspace", () => {
@@ -140,6 +139,9 @@ test.describe("Structured Workspace", () => {
 			.filter({ hasText: workspaceName });
 		await expect(workspace).toBeVisible();
 		await workspace.locator("button").first().click();
+		await library
+			.getByRole("button", { name: "Open collection index Backlog" })
+			.click();
 
 		const collectionDocument = `${workspaceName} — Backlog`;
 		await expect(
@@ -321,6 +323,7 @@ test.describe("Structured Workspace", () => {
 			itemPane.locator(`[data-doc="${itemDocument}"]`),
 		).toBeVisible();
 		await mcp.call("maket_doc", { action: "pin", doc: itemDocument });
+		await closeLibrary(page);
 
 		await indexPane
 			.getByRole("button", { name: "Open Review the release", exact: true })

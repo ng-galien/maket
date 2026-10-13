@@ -57,13 +57,13 @@ interface LibraryOption {
 	badge?: number;
 }
 
-/** One persistent library pane replaces the four competing overlay panels. */
-// This shell adapter intentionally composes the existing domain panels and store selectors.
-// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // At the default 28/72 split, 900px leaves about252px for the index and648px
 // for the detail. A64mm index and168mm detail retain readable type at that fit.
 const COLLECTION_WORKSPACE_MIN_WIDTH = 900;
 
+/** One persistent library pane replaces the four competing overlay panels. */
+// This shell adapter intentionally composes the existing domain panels and store selectors.
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function LibraryPanel({
 	collectionNavigation = false,
 	onOverlayChange,

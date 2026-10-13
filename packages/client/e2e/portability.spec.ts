@@ -117,12 +117,18 @@ test.describe("Portable workspace bundles", () => {
 		const messagesButton = page.getByRole("button", {
 			name: /^(exchanges|échanges)$/i,
 		});
-		await messagesButton.click();
+		const annotate = page.getByRole("button", {
+			name: /^(Annotate|Annoter)$/,
+		});
+		await annotate.click();
+		await document.getByRole("group", { name: /^Page 1\b/ }).focus();
+		await page.keyboard.press("Enter");
 		await page
-			.getByPlaceholder(/Note sur le document|Note about the document/i)
+			.getByPlaceholder(/Message pour l.agent|Message for the agent/i)
 			.fill(noteText);
 		await page.keyboard.press("Enter");
 		await expect(libraryBadge(messagesButton)).toHaveText("1");
+		await annotate.click();
 
 		await mcp.call("maket_doc", {
 			action: "export",

@@ -268,72 +268,121 @@ function validateCollectionRepresentations(
 	return findings;
 }
 
+function groupingFinding(
+	collectionId: string,
+	field: string,
+	message: string,
+	fix: string,
+): StructuredWorkspaceFinding {
+	return definitionError(
+		collectionId,
+		`representation_schema.collections.${collectionId}.${field}`,
+		message,
+		fix,
+		"index",
+	);
+}
+
 function validateCollectionGrouping(
 	collectionId: string,
 	collection: StructuredWorkspaceCollectionRepresentation,
 ): StructuredWorkspaceFinding[] {
-	const base = `representation_schema.collections.${collectionId}`;
-	const findings: StructuredWorkspaceFinding[] = [];
-	const push = (field: string, message: string, fix: string) =>
-		findings.push(
-			definitionError(collectionId, `${base}.${field}`, message, fix, "index"),
-		);
-	if (collection.groupBy !== undefined) {
-		try {
-			if (parseJsonPointer(collection.groupBy).length === 0) {
-				push(
-					"groupBy",
-					`Collection "${collectionId}" groupBy must point inside the item data, for example "/status".`,
-					'Set groupBy to a property pointer such as "/status", or remove it.',
-				);
-			}
-		} catch {
-			push(
+	return [
+		...validateCollectionGroupBy(collectionId, collection),
+		...validateCollectionSort(collectionId, collection),
+		...validateCollectionGroupOrder(collectionId, collection),
+		...validateCollectionPageSize(collectionId, collection),
+	];
+}
+
+function validateCollectionGroupBy(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): StructuredWorkspaceFinding[] {
+	if (collection.groupBy === undefined) return [];
+	try {
+		if (parseJsonPointer(collection.groupBy).length > 0) return [];
+		return [
+			groupingFinding(
+				collectionId,
+				"groupBy",
+				`Collection "${collectionId}" groupBy must point inside the item data, for example "/status".`,
+				'Set groupBy to a property pointer such as "/status", or remove it.',
+			),
+		];
+	} catch {
+		return [
+			groupingFinding(
+				collectionId,
 				"groupBy",
 				`Collection "${collectionId}" groupBy must be a JSON Pointer into the item data, for example "/status".`,
 				`Write groupBy with a leading slash, for example "/${collection.groupBy.replace(/^\/*/, "")}".`,
-			);
-		}
+			),
+		];
 	}
-	findings.push(...validateCollectionSort(collectionId, collection));
-	if (collection.groupOrder !== undefined) {
-		if (collection.groupBy === undefined) {
-			push(
+}
+
+function validateCollectionGroupOrder(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): StructuredWorkspaceFinding[] {
+	if (collection.groupOrder === undefined) return [];
+	const findings: StructuredWorkspaceFinding[] = [];
+	if (collection.groupBy === undefined) {
+		findings.push(
+			groupingFinding(
+				collectionId,
 				"groupOrder",
 				`Collection "${collectionId}" groupOrder requires groupBy.`,
 				"Add groupBy or remove groupOrder.",
-			);
-		}
-		if (
-			!Array.isArray(collection.groupOrder) ||
-			!collection.groupOrder.every(isGroupValue)
-		) {
-			push(
+			),
+		);
+	}
+	if (
+		!Array.isArray(collection.groupOrder) ||
+		!collection.groupOrder.every(isGroupValue)
+	) {
+		findings.push(
+			groupingFinding(
+				collectionId,
 				"groupOrder",
 				`Collection "${collectionId}" groupOrder must list string, number, boolean, or null values.`,
 				'List plain values, for example ["live","paused"].',
-			);
-		}
+			),
+		);
 	}
-	if (collection.pageSize !== undefined) {
-		if (collection.groupBy === undefined) {
-			push(
+	return findings;
+}
+
+function validateCollectionPageSize(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): StructuredWorkspaceFinding[] {
+	if (collection.pageSize === undefined) return [];
+	const findings: StructuredWorkspaceFinding[] = [];
+	if (collection.groupBy === undefined) {
+		findings.push(
+			groupingFinding(
+				collectionId,
 				"pageSize",
 				`Collection "${collectionId}" pageSize requires groupBy.`,
 				"Add groupBy or remove pageSize.",
-			);
-		}
-		if (
-			!Number.isInteger(collection.pageSize) ||
-			collection.pageSize < 1 ||
-			collection.pageSize > structuredWorkspaceMaxPageSize
-		) {
-			push(
+			),
+		);
+	}
+	if (
+		!Number.isInteger(collection.pageSize) ||
+		collection.pageSize < 1 ||
+		collection.pageSize > structuredWorkspaceMaxPageSize
+	) {
+		findings.push(
+			groupingFinding(
+				collectionId,
 				"pageSize",
 				`Collection "${collectionId}" pageSize must be an integer from 1 to ${structuredWorkspaceMaxPageSize}.`,
 				`Set pageSize to an integer from 1 to ${structuredWorkspaceMaxPageSize}, or remove it for the default ${structuredWorkspaceDefaultPageSize}.`,
-			);
-		}
+			),
+		);
 	}
 	return findings;
 }
@@ -597,36 +646,41 @@ export function structuredWorkspaceTemplateFields(
 	const resolved = resolveLocalReference(bindingSchema, bindingSchema);
 	const properties = resolved?.properties;
 	if (!isRecord(properties)) return [];
-	return Object.entries(properties).flatMap(
-		([name, raw]): StructuredWorkspaceTemplateField[] => {
-			if (!FIELD_NAME.test(name) || !isRecord(raw)) return [];
-			const property = resolveLocalReference(bindingSchema, raw);
-			if (!property) return [];
-			const label =
-				typeof property.title === "string" && property.title.trim()
-					? property.title
-					: humanizeFieldName(name);
-			if (isTerminalSchema(property)) {
-				return [
-					{
-						name,
-						label,
-						kind: "value" as const,
-						editable:
-							property.readOnly !== true && property.const === undefined,
-					},
-				];
-			}
-			if (
-				property.type === "array" &&
-				isRecord(property.items) &&
-				isTerminalSchema(property.items)
-			) {
-				return [{ name, label, kind: "list" as const, editable: false }];
-			}
-			return [];
-		},
+	return Object.entries(properties).flatMap(([name, raw]) =>
+		templateField(bindingSchema, name, raw),
 	);
+}
+
+function templateField(
+	bindingSchema: StructuredWorkspaceDataSchema,
+	name: string,
+	raw: unknown,
+): StructuredWorkspaceTemplateField[] {
+	if (!FIELD_NAME.test(name) || !isRecord(raw)) return [];
+	const property = resolveLocalReference(bindingSchema, raw);
+	if (!property) return [];
+	const label =
+		typeof property.title === "string" && property.title.trim()
+			? property.title
+			: humanizeFieldName(name);
+	if (isTerminalSchema(property)) {
+		return [
+			{
+				name,
+				label,
+				kind: "value" as const,
+				editable: property.readOnly !== true && property.const === undefined,
+			},
+		];
+	}
+	if (
+		property.type === "array" &&
+		isRecord(property.items) &&
+		isTerminalSchema(property.items)
+	) {
+		return [{ name, label, kind: "list" as const, editable: false }];
+	}
+	return [];
 }
 
 /** A property of a binding schema the generated templates leave out. */

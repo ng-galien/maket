@@ -25,18 +25,16 @@ test.describe("Workspace shell", () => {
 		).toBeVisible();
 	});
 
-	test("offers document selection instead of a disabled note composer", async ({
+	test("points to Annotate instead of a panel note composer", async ({
 		page,
 	}) => {
 		await openWorkspace(page);
 		await page.getByRole("button", { name: /^(exchanges|échanges)$/i }).click();
 		await expect(
-			page.getByRole("button", {
-				name: /choose a document|choisir un document/i,
-			}),
+			page.getByText(/Turn on Annotate|Active Annoter/i),
 		).toBeVisible();
 		await expect(
-			page.getByPlaceholder(/Note sur le document|Note about the document/i),
+			page.getByPlaceholder(/Message for the agent|Message pour l’agent/i),
 		).toHaveCount(0);
 	});
 });

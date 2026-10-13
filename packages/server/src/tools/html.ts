@@ -770,7 +770,11 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 	const pageLinkError = templatedPageLinkError(nextHtml);
 	if (pageLinkError) return text(pageLinkError, true);
 	try {
-		validateDocumentStatePageTemplate({ html: nextHtml, jsonForms: nextForm });
+		if (doc.dataModel === "state")
+			validateDocumentStatePageTemplate({
+				html: nextHtml,
+				jsonForms: nextForm,
+			});
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}
@@ -845,7 +849,8 @@ async function runPatch(
 	const pageLinkError = templatedPageLinkError(nextHtml);
 	if (pageLinkError) return text(pageLinkError, true);
 	try {
-		validateDocumentStatePageTemplate({ ...page, html: nextHtml });
+		if (doc.dataModel === "state")
+			validateDocumentStatePageTemplate({ ...page, html: nextHtml });
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}

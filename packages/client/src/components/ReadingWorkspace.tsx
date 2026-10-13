@@ -82,7 +82,7 @@ export function ReadingWorkspace() {
 	return (
 		<div className="relative h-full w-full">
 			<ReaderSurface
-				key={model.doc.name}
+				key={model.doc.id || model.doc.name}
 				doc={model.doc}
 				dataSource="connected"
 				barPosition="top"
@@ -345,14 +345,9 @@ export function ReaderSurface({
 			</div>
 			{zoomControls && !canvasNavigation && (
 				<ReaderZoomControls
-					scale={board.scale}
-					minimum={board.minimum}
-					maximum={board.maximum}
+					zoom={board}
 					variant={embedded ? "minimal" : "bar"}
 					position={barPosition === "bottom" ? "top" : "bottom"}
-					onZoomIn={board.zoomIn}
-					onZoomOut={board.zoomOut}
-					onReset={board.reset}
 				/>
 			)}
 		</div>
@@ -540,10 +535,17 @@ function useReaderBoard({
 		if (rememberZoom) storeReaderZoom(documentId, null);
 	}, [documentId, rememberZoom]);
 
+	const renderedScaleRef = useRef(scale);
 	useLayoutEffect(() => {
 		const root = rootRef.current;
 		const anchor = anchorRef.current;
+		const previous = renderedScaleRef.current;
 		anchorRef.current = null;
+		renderedScaleRef.current = scale;
+		if (root && !anchor && previous !== scale) {
+			root.scrollTop *= scale / previous;
+			return;
+		}
 		if (!root || !anchor || anchor.from === scale) return;
 		if (anchor.clientX !== undefined && anchor.clientY !== undefined) {
 			const bounds = root
@@ -758,25 +760,19 @@ function useReaderDragPan({
 }
 
 function ReaderZoomControls({
-	scale,
-	minimum,
-	maximum,
+	zoom,
 	variant,
 	position,
-	onZoomIn,
-	onZoomOut,
-	onReset,
 }: {
-	scale: number;
-	minimum: number;
-	maximum: number;
+	zoom: Pick<
+		ReaderBoard,
+		"scale" | "minimum" | "maximum" | "zoomIn" | "zoomOut" | "reset"
+	>;
 	variant: "bar" | "minimal";
 	position: "top" | "bottom";
-	onZoomIn: () => void;
-	onZoomOut: () => void;
-	onReset: () => void;
 }) {
 	const t = useT();
+	const { scale, minimum, maximum } = zoom;
 	const percentage = Math.round(scale * 100);
 	const placement =
 		position === "top"
@@ -797,7 +793,7 @@ function ReaderZoomControls({
 			<ReaderButton
 				label={t("zoom_out")}
 				disabled={scale <= minimum}
-				onClick={onZoomOut}
+				onClick={zoom.zoomOut}
 				className={`flex ${buttonSize}`}
 			>
 				<Minus size={variant === "minimal" ? 14 : 16} />
@@ -806,7 +802,7 @@ function ReaderZoomControls({
 				type="button"
 				title={t("fit")}
 				aria-label={`${t("fit")} — ${percentage}%`}
-				onClick={onReset}
+				onClick={zoom.reset}
 				className={`${variant === "minimal" ? "h-8 min-w-11 px-1" : "h-9 min-w-14 px-2"} rounded-md text-xs font-semibold tabular-nums text-text-2 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
 			>
 				{percentage}%
@@ -814,7 +810,7 @@ function ReaderZoomControls({
 			<ReaderButton
 				label={t("zoom_in")}
 				disabled={scale >= maximum}
-				onClick={onZoomIn}
+				onClick={zoom.zoomIn}
 				className={`flex ${buttonSize}`}
 			>
 				<Plus size={variant === "minimal" ? 14 : 16} />

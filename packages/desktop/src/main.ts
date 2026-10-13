@@ -100,9 +100,7 @@ function logStartup(message: string): void {
     const logsPath = app.getPath("logs");
     mkdirSync(logsPath, { recursive: true });
     appendFileSync(join(logsPath, "desktop.log"), `${new Date().toISOString()} ${line}`);
-  } catch {
-    // stderr already carries the line
-  }
+  } catch {}
 }
 
 async function logRendererDiagnostics(window: BrowserWindow, stage: "load" | "hydrated" | "settled"): Promise<void> {

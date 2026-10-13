@@ -127,10 +127,14 @@ class ElectronRenderPage implements RenderPage {
   // `setContent` does on the headless path.
   async setContent(html: string): Promise<void> {
     await this.ensureDebugger();
-    const debug = this.window.webContents.debugger;
     await this.step("load blank page", this.window.loadURL("about:blank"));
     this.inFlightRequests.clear();
     this.networkRevision += 1;
+    await this.replaceDocument(html);
+  }
+
+  private async replaceDocument(html: string): Promise<void> {
+    const debug = this.window.webContents.debugger;
     const { frameTree } = (await this.step("read frame tree", debug.sendCommand("Page.getFrameTree"))) as {
       frameTree: { frame: { id: string } };
     };

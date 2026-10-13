@@ -1090,12 +1090,17 @@ function compactCardWrapper(
 	const wrapper = svgSlot
 		? document.createElementNS(SVG_NAMESPACE, "g")
 		: document.createElement("article");
-	wrapper.setAttribute("data-id", `${prefix}-card`);
-	wrapper.setAttribute("data-maket-action", "open-document");
-	wrapper.setAttribute("data-maket-document", documentName);
-	wrapper.setAttribute("role", "button");
-	wrapper.setAttribute("tabindex", "0");
-	wrapper.setAttribute("style", "cursor:pointer");
+	const attributes = {
+		"data-id": `${prefix}-card`,
+		"data-maket-action": "open-document",
+		"data-maket-document": documentName,
+		role: "button",
+		tabindex: "0",
+		style: "cursor:pointer",
+	};
+	for (const [name, value] of Object.entries(attributes)) {
+		wrapper.setAttribute(name, value);
+	}
 	wrapper.innerHTML = compactRoot.outerHTML;
 	return wrapper;
 }
@@ -2578,30 +2583,24 @@ interface MaterializedRepresentation {
 	preferredNames: ReadonlyMap<string, string>;
 }
 
-/**
- * The representation schema with a template document behind every
- * reference. A reference given by name or id stays as given; a template given
- * inline, or absent and absent from the current definition (or named there
- * by a reference that no longer resolves), becomes a new document in the
- * Workspace category, generated from the binding schema when no HTML is
- * given. `preferredNames` holds the name each new document asked for.
- */
-function materializeRepresentation(
-	deps: StructuredWorkspacesDeps,
-	request: MaterializeRequest,
-): MaterializedRepresentation {
-	const { workspaceName, dataSchema, input, current } = request;
-	const created: Document[] = [];
-	const preferredNames = new Map<string, string>();
+function templateReferences(deps: StructuredWorkspacesDeps) {
 	const resolve = (id: string | undefined) =>
 		id === undefined
 			? null
 			: (deps.documents.resolveById(id) ??
 				deps.documents.all().get(id) ??
 				null);
-	const live = (id: string | undefined) => (resolve(id) ? id : undefined);
-	const generatedTemplate = (id: string | undefined) =>
-		resolve(id)?.meta.structuredWorkspaceGenerated === true;
+	return {
+		live: (id: string | undefined) => (resolve(id) ? id : undefined),
+		generatedTemplate: (id: string | undefined) =>
+			resolve(id)?.meta.structuredWorkspaceGenerated === true,
+	};
+}
+
+/** Writes template documents in the workspace category and records them. */
+function templateWriter(deps: StructuredWorkspacesDeps, workspaceName: string) {
+	const created: Document[] = [];
+	const preferredNames = new Map<string, string>();
 	const write = (
 		name: string,
 		html: string,
@@ -2625,6 +2624,100 @@ function materializeRepresentation(
 		preferredNames.set(document.id, name);
 		return document.id;
 	};
+	return { write, created, preferredNames };
+}
+
+interface BindingMaterialization {
+	dataSchema: StructuredWorkspaceDataSchema;
+	collection: StructuredWorkspaceCollectionInput;
+	name: string;
+	/** Prefix of the names of the template documents written for the binding. */
+	label: string;
+	before:
+		| StructuredWorkspaceCollectionRepresentation["bindings"][string]
+		| undefined;
+	references: ReturnType<typeof templateReferences>;
+	write: ReturnType<typeof templateWriter>["write"];
+}
+
+/** One binding with its detail template and, when it has one, its card. */
+function materializeBinding(
+	binding: StructuredWorkspaceBindingInput,
+	context: BindingMaterialization,
+): StructuredWorkspaceCollectionRepresentation["bindings"][string] {
+	const { dataSchema, collection, name, label, before, references, write } =
+		context;
+	const schemaPath = binding.schemaPath ?? before?.schemaPath ?? "";
+	const generated = generateStructuredWorkspaceTemplates(
+		name,
+		bindingSchemaOrEmpty(dataSchema, schemaPath),
+	);
+	const detailHtml =
+		binding.detailTemplateHtml ?? collection.detailTemplateHtml;
+	const detailForm = binding.detailForm ?? collection.detailForm;
+	const inlineDetail = detailHtml !== undefined || detailForm !== undefined;
+	const rebound = before !== undefined && schemaPath !== before.schemaPath;
+	const kept = (id: string | undefined) =>
+		rebound && references.generatedTemplate(id)
+			? undefined
+			: references.live(id);
+	let detailId =
+		binding.detailTemplateDocumentId ??
+		(inlineDetail ? undefined : kept(before?.detailTemplateDocumentId));
+	if (detailId === undefined) {
+		const form =
+			detailForm ??
+			(detailHtml === undefined ? generated.detailForm : undefined);
+		const html = detailHtml ?? generated.detailHtml;
+		detailId = write(`${label} — detail template`, html, form);
+	}
+	const compactHtml =
+		binding.compactTemplateHtml ?? collection.compactTemplateHtml;
+	let compactId =
+		binding.compactTemplateDocumentId ??
+		(compactHtml === undefined
+			? kept(before?.compactTemplateDocumentId)
+			: undefined);
+	if (
+		compactId === undefined &&
+		(compactHtml !== undefined ||
+			(binding.detailTemplateDocumentId === undefined &&
+				(!before ||
+					(before.compactTemplateDocumentId !== undefined &&
+						!kept(before.compactTemplateDocumentId)))))
+	) {
+		compactId = write(
+			`${label} — card template`,
+			compactHtml ?? generated.compactHtml,
+		);
+	}
+	return {
+		schemaPath,
+		detailTemplateDocumentId: detailId,
+		...(compactId === undefined
+			? {}
+			: { compactTemplateDocumentId: compactId }),
+	};
+}
+
+/**
+ * The representation schema with a template document behind every
+ * reference. A reference given by name or id stays as given; a template given
+ * inline, or absent and absent from the current definition (or named there
+ * by a reference that no longer resolves), becomes a new document in the
+ * Workspace category, generated from the binding schema when no HTML is
+ * given. `preferredNames` holds the name each new document asked for.
+ */
+function materializeRepresentation(
+	deps: StructuredWorkspacesDeps,
+	request: MaterializeRequest,
+): MaterializedRepresentation {
+	const { workspaceName, dataSchema, input, current } = request;
+	const references = templateReferences(deps);
+	const { write, created, preferredNames } = templateWriter(
+		deps,
+		workspaceName,
+	);
 	const collectionsInput: Record<string, StructuredWorkspaceCollectionInput> =
 		input?.collections ?? { items: { name: "Items" } };
 	const collections: StructuredWorkspaceRepresentationSchema["collections"] =
@@ -2645,59 +2738,15 @@ function materializeRepresentation(
 			const bindings: StructuredWorkspaceCollectionRepresentation["bindings"] =
 				{};
 			for (const [bindingId, binding] of Object.entries(bindingsInput)) {
-				const before = previous?.bindings[bindingId];
-				const schemaPath = binding.schemaPath ?? before?.schemaPath ?? "";
-				const suffix = bindingIds.length > 1 ? ` (${bindingId})` : "";
-				const generated = generateStructuredWorkspaceTemplates(
+				bindings[bindingId] = materializeBinding(binding, {
+					dataSchema,
+					collection,
 					name,
-					bindingSchemaOrEmpty(dataSchema, schemaPath),
-				);
-				const detailHtml =
-					binding.detailTemplateHtml ?? collection.detailTemplateHtml;
-				const detailForm = binding.detailForm ?? collection.detailForm;
-				const inlineDetail =
-					detailHtml !== undefined || detailForm !== undefined;
-				const rebound =
-					before !== undefined && schemaPath !== before.schemaPath;
-				const kept = (id: string | undefined) =>
-					rebound && generatedTemplate(id) ? undefined : live(id);
-				let detailId =
-					binding.detailTemplateDocumentId ??
-					(inlineDetail ? undefined : kept(before?.detailTemplateDocumentId));
-				if (detailId === undefined) {
-					const form =
-						detailForm ??
-						(detailHtml === undefined ? generated.detailForm : undefined);
-					const html = detailHtml ?? generated.detailHtml;
-					detailId = write(`${label}${suffix} — detail template`, html, form);
-				}
-				const compactHtml =
-					binding.compactTemplateHtml ?? collection.compactTemplateHtml;
-				let compactId =
-					binding.compactTemplateDocumentId ??
-					(compactHtml === undefined
-						? kept(before?.compactTemplateDocumentId)
-						: undefined);
-				if (
-					compactId === undefined &&
-					(compactHtml !== undefined ||
-						(binding.detailTemplateDocumentId === undefined &&
-							(!before ||
-								(before.compactTemplateDocumentId !== undefined &&
-									!kept(before.compactTemplateDocumentId)))))
-				) {
-					compactId = write(
-						`${label}${suffix} — card template`,
-						compactHtml ?? generated.compactHtml,
-					);
-				}
-				bindings[bindingId] = {
-					schemaPath,
-					detailTemplateDocumentId: detailId,
-					...(compactId === undefined
-						? {}
-						: { compactTemplateDocumentId: compactId }),
-				};
+					label: `${label}${bindingIds.length > 1 ? ` (${bindingId})` : ""}`,
+					before: previous?.bindings[bindingId],
+					references,
+					write,
+				});
 			}
 			const {
 				name: _name,
@@ -2712,7 +2761,7 @@ function materializeRepresentation(
 			const collectionTemplateId =
 				collectionTemplateDocumentId ??
 				(indexTemplateHtml === undefined
-					? live(previous?.collectionTemplateDocumentId)
+					? references.live(previous?.collectionTemplateDocumentId)
 					: undefined) ??
 				(indexTemplateHtml === undefined
 					? write(
@@ -3321,9 +3370,7 @@ function itemFindings(
 			schemas.push(
 				structuredWorkspaceBindingSchema(workspace.dataSchema, binding),
 			);
-		} catch {
-			// The definition findings report the binding.
-		}
+		} catch {}
 		const seen = new Set<string>();
 		for (const schema of schemas) {
 			for (const issue of structuredWorkspaceItemDataIssues(

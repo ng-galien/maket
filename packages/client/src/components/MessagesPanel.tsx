@@ -76,15 +76,19 @@ function revealMessageTarget(msg: PendingMessage) {
 	);
 }
 
+function showMessageLibrary(msg: PendingMessage) {
+	useStore
+		.getState()
+		.setLibraryView(msg.type === "classify-images" ? "photos" : "docs");
+}
+
 function openMessageTarget(
 	msg: PendingMessage,
 	onOpened: () => void,
 	onError: () => void,
 ) {
 	if (!msg.docName) {
-		useStore
-			.getState()
-			.setLibraryView(msg.type === "classify-images" ? "photos" : "docs");
+		showMessageLibrary(msg);
 		onOpened();
 		return;
 	}

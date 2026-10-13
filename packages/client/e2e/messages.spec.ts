@@ -382,8 +382,9 @@ test.describe("Document annotations", () => {
 			await expect(
 				page.locator(`[data-doc="${docName}"] [data-annotation-page-marker]`),
 			).toBeVisible();
-			await expect(page.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
-			const documentMessage = page
+			const exchanges = page.locator("#panel-exchange");
+			await expect(exchanges.getByText(DOCUMENT_NOTE_TEXT)).toBeVisible();
+			const documentMessage = exchanges
 				.getByText(DOCUMENT_NOTE_TEXT)
 				.locator("xpath=ancestor::article[1]");
 			await expect(
