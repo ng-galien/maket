@@ -8,7 +8,10 @@ import {
 	parseJsonPointer,
 	readJsonPointer,
 } from "./json-patch.js";
-import { compiledJsonSchema } from "./json-schema-validators.js";
+import {
+	compiledJsonSchema,
+	mermaidStateFormat,
+} from "./json-schema-validators.js";
 
 export interface JsonFormsTemplate {
 	/** Standard JSON Forms UI schema. Omit it to generate a vertical form. */
@@ -195,7 +198,10 @@ function renderControl(
 			required,
 			readOnly,
 		);
-		if (options.multi === true) {
+		if (
+			options.multi === true ||
+			propertySchema.format === mermaidStateFormat
+		) {
 			return `<label class="maket-json-forms__control" data-id="${escapeAttribute(id)}"><span>${escapeHtml(label)}${required ? " *" : ""}</span><textarea data-maket-bind="${escapeAttribute(scope)}" data-maket-path="${escapeAttribute(pointer)}" data-maket-type="string"${attrs}>${escapeHtml(typeof value === "string" ? value : "")}</textarea>${description}</label>`;
 		}
 		const inputType = stringInputType(propertySchema.format);

@@ -40,6 +40,7 @@ import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
 import { createPageFlow } from "./services/page-flow.js";
 import { createPdfService } from "./services/pdf.js";
 import { createSettings } from "./services/settings.js";
+import { createStateRenderSlots } from "./services/state-render-slots.js";
 import { createStateRenderer } from "./services/state-renderer.js";
 import { createSQLiteStore, type Store } from "./services/store.js";
 import { createStructuredWorkspaces } from "./services/structured-workspaces.js";
@@ -115,6 +116,8 @@ export function createAppContainer(
 		structuredWorkspaces: asFunction(createStructuredWorkspaces).singleton(),
 
 		pageFlow: asFunction(createPageFlow).singleton(),
+
+		stateRenderSlots: asFunction(createStateRenderSlots).singleton(),
 
 		stateRenderer: asFunction(createStateRenderer).singleton(),
 

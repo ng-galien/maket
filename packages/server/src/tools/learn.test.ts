@@ -194,6 +194,23 @@ describe("maket_learn", () => {
 			"Portable .maket bundles carry the current schema and data snapshot",
 		);
 	});
+
+	it("teaches render slots in the state topic and points Workspace items to them", () => {
+		const state = learnText("state", "agent");
+		expect(state).toContain("## Render slots: diagrams from state");
+		expect(state).toContain(
+			'<figure data-maket-render="mermaid" data-maket-from="flow"></figure>',
+		);
+		expect(state).toContain('{"type":"string","format":"maket-mermaid"}');
+		expect(state).toContain(
+			"the compact cards of a Workspace collection index do not draw slots",
+		);
+		expect(state).toContain("a thumbnail already cached keeps its old colours");
+		expect(state).not.toContain("at the next render");
+		expect(learnText("structured-workspaces", "agent")).toContain(
+			"An item may hold a diagram",
+		);
+	});
 });
 
 describe("maket_learn structured-workspaces method", () => {

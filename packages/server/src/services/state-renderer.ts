@@ -13,6 +13,7 @@ import {
 	type PageFlow,
 	remapPageLinkNumbers,
 } from "./page-flow.js";
+import type { StateRenderSlots } from "./state-render-slots.js";
 
 export interface StatePagesRender {
 	pages: StatePageProjection[];
@@ -30,6 +31,7 @@ export interface StateRenderer {
 export interface StateRendererDeps {
 	documentStates: Pick<DocumentStates, "get">;
 	pageFlow?: Pick<PageFlow, "pages">;
+	stateRenderSlots?: Pick<StateRenderSlots, "forDocument">;
 }
 
 interface RenderedSourcePage {
@@ -61,8 +63,12 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 		if (!page.html && !page.jsonForms)
 			return { pages: [{ ...page, html: undefined }], dependencies: [] };
 		const { data, schema } = state.current;
+		const renderSlot = deps.stateRenderSlots?.forDocument(doc);
 		if (!page.html || !deps.pageFlow || doc.canvas.format === "AUTO") {
-			const rendered = renderDocumentStatePage(page, data, { schema });
+			const rendered = renderDocumentStatePage(page, data, {
+				schema,
+				renderSlot,
+			});
 			return {
 				pages: [{ ...page, html: rendered.html }],
 				dependencies: rendered.dependencies,
@@ -71,6 +77,7 @@ export function createStateRenderer(deps: StateRendererDeps): StateRenderer {
 		const renderMarked = (ranges?: FlowRanges) => {
 			const rendered = renderDocumentStatePage(page, data, {
 				schema,
+				renderSlot,
 				flow: { mark: true, ranges },
 			});
 			return {

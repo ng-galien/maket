@@ -296,6 +296,72 @@ Documents SHOULD prefer native form controls over ARIA simulations.
 - Keyboard behavior MUST remain the browser's native behavior.
 - Document CSS SHOULD preserve a visible `:focus-visible` state.
 
+## Render slots
+
+A render slot is an empty element that Maket fills with content drawn from a
+state value. Version 0.2 supports one kind, Mermaid:
+
+```html
+<div data-maket-render="mermaid" data-maket-from="state.flow"></div>
+{{#state.steps}}
+<figure data-maket-render="mermaid" data-maket-from="flow"></figure>
+{{/state.steps}}
+```
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "flow": { "type": "string", "format": "maket-mermaid" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": { "flow": { "type": "string", "format": "maket-mermaid" } }
+      }
+    }
+  }
+}
+```
+
+- `data-maket-from` is absolute (`state.flow`, read from the root) or
+  relative inside a section. A relative path reads the current section
+  element only, never an outer value of the same name: each list element
+  draws its own diagram, and an element without the field draws nothing.
+- Template validation refuses a slot whose path the schema does not declare,
+  a path that is not `{"type":"string","format":"maket-mermaid"}`, a slot with
+  content between its tags, a void or self-closing element, a slot that also
+  carries `data-maket-bind`, and `data-maket-from` without
+  `data-maket-render`. Each message names the element and the path. It also
+  refuses a slot inside an element whose content the HTML parser reads as
+  text (`script`, `style`, `textarea`, `title`, `noembed`, `noframes`,
+  `noscript`, `xmp`, `plaintext`, `iframe`), naming that element.
+- The format `maket-mermaid` is registered on every state schema: a string of
+  at most 20 000 characters. Every state write refuses a non-empty source that
+  fails the Mermaid source policy (no `classDef`, `class`, `style`,
+  `linkStyle`, `%%{init}`) or a trial render, naming the JSON Pointer and the
+  Mermaid error; nothing is written. An empty string draws nothing.
+- At render time, during the same hydration walk as bindings, the server
+  draws the source with the document's charte (beautiful-mermaid, cached by
+  source and charte), strips active content from the SVG, and writes it back
+  with every attribute value and text node escaped, so no label can close
+  the element holding the slot. Live view, thumbnail, print and PDF all
+  receive it through the document renderer. When a charte is updated, the
+  live view receives the redrawn diagrams at once, and every later PDF or
+  print draws with the new charte.
+- Limits: the compact cards of a Workspace collection index do not draw
+  slots; a slot there stays empty. A thumbnail already cached keeps its old
+  colours after a charte change until that thumbnail is invalidated by a
+  change of its document.
+- The template keeps the slot empty; Mustache placeholders keep their escaped
+  text behaviour and the attribute rules are unchanged.
+- A `.maket` export freezes the drawn HTML of each slot in
+  `documentStates[].renderedSlots`, keyed by the JSON Pointer of its source;
+  the static reader places it in the slot, and an import ignores it and draws
+  from the state.
+- A JSON Forms control edits a `maket-mermaid` string in a textarea, like a
+  string with `options.multi`.
+
 ## Hydrated DOM contract
 
 Hydration MUST NOT mutate the persistent source template.

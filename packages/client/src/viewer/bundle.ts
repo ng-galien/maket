@@ -32,6 +32,9 @@ export interface ViewerWorkspace {
 	chartes: ViewerCharte[];
 	collections: Collection[];
 	documentStates: Record<string, DocumentStateClientView>;
+	/** Per document name, the HTML frozen into each render slot at export,
+	 * keyed by the JSON Pointer of its source. */
+	renderedSlots?: Record<string, Record<string, string>>;
 	/** Flat asset filename → object URL */
 	assetUrls: Map<string, string>;
 }
@@ -121,6 +124,19 @@ function finalizeManifest(
 					),
 				};
 				return [document?.name ?? snapshot.documentId, view];
+			}),
+		),
+		renderedSlots: Object.fromEntries(
+			data.documentStates.flatMap((snapshot) => {
+				const document =
+					documents[
+						(data.documents as Record<string, unknown>[]).findIndex(
+							(doc) => doc.id === snapshot.documentId,
+						)
+					];
+				return document && snapshot.renderedSlots
+					? [[document.name, snapshot.renderedSlots]]
+					: [];
 			}),
 		),
 		assetUrls,

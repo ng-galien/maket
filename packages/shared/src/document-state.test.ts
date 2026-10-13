@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	documentStateFormatValues,
 	documentStateTemplateReferenceIssues,
 	parseDeclaredStateValue,
 	renderDocumentStateText,
@@ -995,5 +996,278 @@ describe("document-state template references", () => {
 				bookSchema,
 			),
 		).toThrow(/not declared/);
+	});
+});
+
+describe("render slots", () => {
+	const slotSchema = {
+		type: "object",
+		properties: {
+			title: { type: "string" },
+			diagram: { type: "string", format: "maket-mermaid" },
+			plain: { type: "string" },
+			options: {
+				type: "array",
+				items: {
+					type: "object",
+					properties: {
+						label: { type: "string" },
+						diagram: { type: "string", format: "maket-mermaid" },
+					},
+				},
+			},
+		},
+	};
+	const slotData = {
+		title: "<b>Plan</b>",
+		diagram: "flowchart TD\n  A --> B",
+		plain: "x",
+		options: [
+			{ label: "A", diagram: "flowchart LR\n  A --> B" },
+			{ label: "B", diagram: "flowchart LR\n  C --> D" },
+		],
+	};
+	const draw = (slot: { kind: string; source: string; pointer: string }) =>
+		`<svg data-kind="${slot.kind}" data-at="${slot.pointer}"></svg>`;
+
+	it("registers the maket-mermaid format on state schemas", () => {
+		expect(validateDocumentState(slotSchema, slotData)).toEqual([]);
+		expect(
+			validateDocumentState(slotSchema, { diagram: "x".repeat(20_001) }),
+		).toEqual([expect.stringContaining('must match format "maket-mermaid"')]);
+	});
+
+	it("accepts a slot on a maket-mermaid path, absolute or relative in a section", () => {
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<div data-maket-render="mermaid" data-maket-from="state.diagram"></div>{{#state.options}}<figure data-maket-render="mermaid" data-maket-from="diagram"> </figure>{{/state.options}}',
+				slotSchema,
+			),
+		).not.toThrow();
+	});
+
+	it("refuses a slot whose path is absent or not a maket-mermaid string, naming the element and the path", () => {
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<div data-maket-render="mermaid" data-maket-from="state.missing"></div>',
+				slotSchema,
+			),
+		).toThrow(
+			'Render slot <div data-maket-render="mermaid"> reads "state.missing", which the state schema does not declare.',
+		);
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<div data-maket-render="mermaid" data-maket-from="state.plain"></div>',
+				slotSchema,
+			),
+		).toThrow(
+			/Render slot <div data-maket-render="mermaid"> reads "state.plain", which the state schema must declare as \{"type":"string","format":"maket-mermaid"\}/,
+		);
+	});
+
+	it("refuses a non-empty slot, a bound slot, an unknown kind and a source without a kind", () => {
+		const refused = (template: string, message: RegExp) =>
+			expect(() =>
+				validateDocumentStateTemplateBindings(template, slotSchema),
+			).toThrow(message);
+		refused(
+			'<div data-maket-render="mermaid" data-maket-from="state.diagram">x</div>',
+			/must be an empty element closed by <\/div>/,
+		);
+		refused(
+			'<div data-maket-render="mermaid" data-maket-from="state.diagram">{{state.title}}</div>',
+			/must be an empty element/,
+		);
+		refused(
+			'<img data-maket-render="mermaid" data-maket-from="state.diagram">',
+			/must be an empty element/,
+		);
+		refused(
+			'<div data-maket-bind="state.diagram" data-maket-render="mermaid" data-maket-from="state.diagram"></div>',
+			/cannot also carry data-maket-bind/,
+		);
+		refused(
+			'<div data-maket-render="chart" data-maket-from="state.diagram"></div>',
+			/unsupported kind; data-maket-render accepts mermaid/,
+		);
+		refused(
+			'<div data-maket-from="state.diagram"></div>',
+			/needs data-maket-render="mermaid"/,
+		);
+		refused(
+			'<style><div data-maket-render="mermaid" data-maket-from="state.diagram"></div></style>',
+			/A render slot cannot be placed inside a <style> element/,
+		);
+	});
+
+	it("refuses a slot inside any element whose content the parser reads as text, naming it", () => {
+		for (const parent of [
+			"textarea",
+			"title",
+			"noembed",
+			"noframes",
+			"noscript",
+			"xmp",
+			"plaintext",
+			"iframe",
+			"script",
+		]) {
+			const template = `<${parent} class="x"><div data-maket-render="mermaid" data-maket-from="state.diagram"></div>${parent === "plaintext" ? "" : `</${parent}>`}`;
+			const message = `A render slot cannot be placed inside a <${parent}> element: the HTML parser reads its content as text. Move the slot out of the <${parent}>.`;
+			expect(() =>
+				validateDocumentStateTemplateBindings(template, slotSchema),
+			).toThrow(message);
+			expect(() => validateDocumentStateTemplate(template)).toThrow(message);
+			expect(() => renderDocumentStateText(template, slotData)).toThrow(
+				message,
+			);
+		}
+	});
+
+	it("refuses a slot hidden by a quoted > inside a text element, whatever the case, attributes or nesting", () => {
+		const parents = [
+			"textarea",
+			"title",
+			"noembed",
+			"noframes",
+			"noscript",
+			"xmp",
+			"plaintext",
+			"iframe",
+		];
+		const slots = [
+			'<div title=">" data-maket-render="mermaid" data-maket-from="state.diagram"></div>',
+			'<div title=\'a>b\' data-maket-render="mermaid" data-maket-from="state.diagram"></div>',
+		];
+		const shapes = [
+			(parent: string, slot: string) => `<${parent}>${slot}</${parent}>`,
+			(parent: string, slot: string) =>
+				`<${parent.toUpperCase()}>${slot}</${parent.toUpperCase()}>`,
+			(parent: string, slot: string) =>
+				`<${parent} class="x" data-note='>'>${slot}</${parent}>`,
+			(parent: string, slot: string) =>
+				`<section><div><${parent}><p>${slot}</p></${parent}></div></section>`,
+		];
+		let refused = 0;
+		for (const parent of parents) {
+			for (const slot of slots) {
+				for (const shape of shapes) {
+					const template = shape(parent, slot);
+					const message = `A render slot cannot be placed inside a <${parent}> element`;
+					expect(
+						() => validateDocumentStateTemplateBindings(template, slotSchema),
+						template,
+					).toThrow(message);
+					expect(
+						() => validateDocumentStateTemplate(template),
+						template,
+					).toThrow(message);
+					expect(
+						() => renderDocumentStateText(template, slotData),
+						template,
+					).toThrow(message);
+					refused += 1;
+				}
+			}
+		}
+		expect(refused).toBe(64);
+		expect(() =>
+			validateDocumentStateTemplate(
+				'<textarea data-maket-render="mermaid" data-maket-from="state.diagram"></textarea>',
+			),
+		).toThrow("A render slot cannot be a <textarea> element");
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<textarea title=">">x</textarea><div title=">" data-maket-render="mermaid" data-maket-from="state.diagram"></div>',
+				slotSchema,
+			),
+		).not.toThrow();
+	});
+
+	it("reads a relative slot path from the current section element only", () => {
+		const outerSchema = {
+			type: "object",
+			properties: {
+				flow: { type: "string" },
+				steps: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: {
+							flow: { type: "string", format: "maket-mermaid" },
+						},
+					},
+				},
+			},
+		};
+		const template =
+			'{{#state.steps}}<figure data-maket-render="mermaid" data-maket-from="flow"></figure>{{/state.steps}}';
+		const rendered = renderDocumentStateText(
+			template,
+			{
+				flow: "OUTER plain string",
+				steps: [{ flow: "flowchart LR\n  A --> B" }, {}],
+			},
+			{ schema: outerSchema, renderSlot: draw },
+		);
+		expect(rendered.html).toBe(
+			'<figure data-maket-render="mermaid" data-maket-from="flow"><svg data-kind="mermaid" data-at="/steps/0/flow"></svg></figure><figure data-maket-render="mermaid" data-maket-from="flow"></figure>',
+		);
+		expect(rendered.dependencies.sort()).toEqual([
+			"/steps",
+			"/steps/0/flow",
+			"/steps/1/flow",
+		]);
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'{{#state.options}}<figure data-maket-render="mermaid" data-maket-from="title"></figure>{{/state.options}}',
+				slotSchema,
+			),
+		).toThrow(
+			'Render slot <figure data-maket-render="mermaid"> reads "title", which the schema of the current section does not declare; a relative slot path reads the current section element only.',
+		);
+	});
+
+	it("renders one slot per element of a list with relative paths and records the dependencies", () => {
+		const rendered = renderDocumentStateText(
+			'<h1>{{state.title}}</h1><div data-maket-render="mermaid" data-maket-from="state.diagram"></div>{{#state.options}}<p>{{label}}</p><figure data-maket-render="mermaid" data-maket-from="diagram"></figure>{{/state.options}}',
+			slotData,
+			{ schema: slotSchema, renderSlot: draw },
+		);
+		expect(rendered.html).toBe(
+			'<h1>&lt;b&gt;Plan&lt;&#x2F;b&gt;</h1><div data-maket-render="mermaid" data-maket-from="state.diagram"><svg data-kind="mermaid" data-at="/diagram"></svg></div><p>A</p><figure data-maket-render="mermaid" data-maket-from="diagram"><svg data-kind="mermaid" data-at="/options/0/diagram"></svg></figure><p>B</p><figure data-maket-render="mermaid" data-maket-from="diagram"><svg data-kind="mermaid" data-at="/options/1/diagram"></svg></figure>',
+		);
+		expect(rendered.dependencies).toEqual(
+			expect.arrayContaining([
+				"/diagram",
+				"/options/0/diagram",
+				"/options/1/diagram",
+			]),
+		);
+	});
+
+	it("leaves a slot empty without a renderer or with an empty source", () => {
+		const template =
+			'<div data-maket-render="mermaid" data-maket-from="state.diagram"></div>';
+		expect(
+			renderDocumentStateText(template, slotData, { schema: slotSchema }).html,
+		).toBe(template);
+		expect(
+			renderDocumentStateText(
+				template,
+				{ diagram: "  " },
+				{ schema: slotSchema, renderSlot: draw },
+			).html,
+		).toBe(template);
+	});
+
+	it("lists every string the schema declares with a format", () => {
+		expect(
+			documentStateFormatValues(slotSchema, slotData, "maket-mermaid"),
+		).toEqual([
+			{ pointer: "/diagram", value: slotData.diagram },
+			{ pointer: "/options/0/diagram", value: "flowchart LR\n  A --> B" },
+			{ pointer: "/options/1/diagram", value: "flowchart LR\n  C --> D" },
+		]);
 	});
 });

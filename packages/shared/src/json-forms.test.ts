@@ -22,6 +22,23 @@ const schema = {
 };
 
 describe("JSON Forms page rendering", () => {
+	it("edits a maket-mermaid string in a textarea", () => {
+		const rendered = renderDocumentStatePage(
+			{ jsonForms: {} },
+			{ diagram: "flowchart TD\n  A --> B" },
+			{
+				schema: {
+					type: "object",
+					properties: {
+						diagram: { type: "string", format: "maket-mermaid" },
+					},
+				},
+			},
+		);
+		expect(rendered.html).toContain(
+			'<textarea data-maket-bind="#/properties/diagram" data-maket-path="/diagram" data-maket-type="string">flowchart TD\n  A --&gt; B</textarea>',
+		);
+	});
 	it("injects at the actual comment even when an attribute contains the marker text", () => {
 		const rendered = renderDocumentStatePage(
 			{

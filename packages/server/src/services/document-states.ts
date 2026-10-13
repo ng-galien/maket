@@ -12,6 +12,7 @@ import {
 	validateDocumentStatePageTemplate,
 } from "@maket/shared";
 import { MessageError } from "../lib/message-error.js";
+import { assertStateMermaidSources } from "../lib/state-mermaid.js";
 import type { Document, Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { Documents } from "./documents.js";
@@ -146,6 +147,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			}
 			assertValidStateTemplates(doc);
 			assertValidState(schema, data);
+			assertStateMermaidSources(schema, data);
 			assertRenderableStateTemplates(doc, schema, data);
 			const current = deps.store.initializeDocumentState(doc.id, schema, data);
 			doc.dataModel = "state";
@@ -174,6 +176,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 		update(docName, expectedRevision, data) {
 			const { doc, current } = requiredState(deps, docName);
 			assertValidState(current.schema, data);
+			assertStateMermaidSources(current.schema, data, current.data);
 			assertRenderableStateTemplates(doc, current.schema, data);
 			const revision = deps.store.appendDocumentStateRevision(
 				doc.id,
@@ -246,6 +249,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			const { doc, current } = requiredState(deps, docName);
 			const nextData = data ?? current.data;
 			assertValidState(schema, nextData);
+			assertStateMermaidSources(schema, nextData);
 			assertRenderableStateTemplates(doc, schema, nextData);
 			const revision = deps.store.replaceDocumentStateSchema(
 				doc.id,
@@ -260,6 +264,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			const { doc, current } = requiredState(deps, docName);
 			const nextData = data ?? current.data;
 			assertValidState(schema, nextData);
+			assertStateMermaidSources(schema, nextData);
 			assertRenderableStateTemplates(doc, schema, nextData);
 		},
 		history(docName) {
@@ -281,6 +286,7 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 				);
 			}
 			assertValidState(source.schema, source.data);
+			assertStateMermaidSources(source.schema, source.data);
 			assertRenderableStateTemplates(doc, source.schema, source.data);
 			const restored = deps.store.replaceDocumentStateSchema(
 				doc.id,
@@ -326,6 +332,7 @@ function patchState(
 	const data = applyJsonPatch(current.data, operations);
 	assertStateObject(data);
 	assertValidState(current.schema, data);
+	assertStateMermaidSources(current.schema, data, current.data);
 	assertRenderableStateTemplates(doc, current.schema, data);
 	const revision = deps.store.appendDocumentStateRevision(
 		doc.id,

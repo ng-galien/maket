@@ -68,6 +68,7 @@ function hydrateDocuments(
 	const chartesCss = new Map<string, string>();
 	for (const doc of workspace.documents) {
 		const stateView = workspace.documentStates[doc.name];
+		const frozenSlots = workspace.renderedSlots?.[doc.name] ?? {};
 		const pages = doc.pages.map((page) => ({
 			...page,
 			html:
@@ -76,6 +77,7 @@ function hydrateDocuments(
 							rewriteAssetRefs(
 								renderDocumentStatePage(page, stateView.data, {
 									schema: stateView.schema,
+									renderSlot: (slot) => frozenSlots[slot.pointer] ?? "",
 								}).html,
 								workspace.assetUrls,
 							),

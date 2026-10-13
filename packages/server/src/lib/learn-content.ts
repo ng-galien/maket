@@ -960,6 +960,18 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			].join("\n"),
 		),
 		section(
+			"Render slots: diagrams from state",
+			[
+				'- An empty element with `data-maket-render="mermaid"` and `data-maket-from="<state path>"` is a render slot: Maket draws the Mermaid source held at that path as inline SVG inside it, with the document\'s charte, in the live view, thumbnails, print, PDF and the portable reader.',
+				'- The path is absolute (`state.flow`) or relative inside a section; a relative path reads the current list element only, so each element draws its own diagram and an element without the field draws nothing. The schema declares it `{"type":"string","format":"maket-mermaid"}`; a slot on any other path refuses the template. The element stays empty in the template, carries no `data-maket-bind`, and cannot sit inside `textarea`, `title`, `noscript`, `noembed`, `noframes`, `xmp`, `plaintext`, `iframe`, `script` or `style`.',
+				"- `init`, `update`, `patch`, `change_schema`, `restore`, `add_item` and `update_item` refuse a source Mermaid cannot draw or one with `classDef`, `class`, `style`, `linkStyle` or `%%{init}`, naming the path and the Mermaid error, and write nothing. An empty string draws nothing.",
+				"- When a charte is updated, the live view receives the redrawn diagrams at once and every later PDF or print uses the new charte; nothing to refresh. A JSON Forms control edits a `maket-mermaid` string in a textarea.",
+				"- Limits: the compact cards of a Workspace collection index do not draw slots (a slot there stays empty); a thumbnail already cached keeps its old colours after a charte change until a change of its document invalidates it.",
+			].join("\n"),
+			'```html\n{{#state.steps}}<h2>{{ name }}</h2><figure data-maket-render="mermaid" data-maket-from="flow"></figure>{{/state.steps}}\n```',
+			'```json\n{"schema":{"type":"object","properties":{"steps":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"flow":{"type":"string","format":"maket-mermaid"}}}}}},"data":{"steps":[{"name":"Release","flow":"flowchart LR\\n  Draft --> Review --> Signed"}]}}\n```',
+		),
+		section(
 			"Schema constraints",
 			"Referenced paths use direct `type`, `properties`, and `items`. Do not use `$ref`, `allOf`, `anyOf`, `oneOf`, `not`, or conditionals on those paths. Structural arrays and objects are displayable but not human-editable as one value.",
 		),
@@ -1058,6 +1070,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- `add_item` validates the item, creates one real state-backed document, and records revision 1.",
 				"- Template-controlled pages update through `sync_template` and cannot be edited directly.",
 				"- Pages added to the instance remain editable and are preserved during template synchronization.",
+				'- An item may hold a diagram: declare its property `{"type":"string","format":"maket-mermaid"}` and place a render slot `<div data-maket-render="mermaid" data-maket-from="state.<property>"></div>` in the detail template (read `state`, section Render slots).',
 			].join("\n"),
 		),
 		section(
@@ -1085,7 +1098,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"Human annotations",
-			"The connected writable Reader and the detail document toolbar expose an explicit Annotate toggle. Annotation selects a target without editing HTML or state. Static and linked read-only readers cannot annotate. Read the current document's queue with `maket_workspace action=list_messages doc=<exact-name>`; omit doc only when an all-document review is intended. Each saved note includes id, type=note, docName, zero-based pageIndex, elementId, text and ts. Read the target with maket_html get before interpreting the note. Keep the human wording intact, apply only authorized corrections, then acknowledge handled ids with maket_workspace action=ack_messages. A note is feedback, not an adopted decision.",
+			"The connected writable Reader and the detail document toolbar expose an explicit Annotate toggle. Annotation selects a target without editing HTML or state. Static and linked read-only readers cannot annotate. Read the current document's queue with `maket_workspace action=list_messages doc=<exact-name>`; omit doc only when an all-document review is intended. Each saved note includes id, type=note, docName, zero-based pageIndex, elementId (absent when the note is anchored to the whole page), text and ts; a note the person changed after sending also carries edited=true and editedAt, and its text is the current wording. Acknowledged notes cannot be edited. Read the target with maket_html get before interpreting the note. Keep the human wording intact, apply only authorized corrections, then acknowledge handled ids with maket_workspace action=ack_messages. A note is feedback, not an adopted decision.",
 		),
 		section(
 			"Guardrails",

@@ -8,6 +8,7 @@ import type { Config } from "./config.js";
 import { createDocumentRenderer } from "./document-renderer.js";
 import { createDocuments } from "./documents.js";
 import { buildPrintHtml, createPdfService } from "./pdf.js";
+import { createStateRenderSlots } from "./state-render-slots.js";
 import { createStateRenderer } from "./state-renderer.js";
 import { createSQLiteStore } from "./store.js";
 
@@ -217,6 +218,87 @@ describe("PdfService.render", () => {
 		expect(setContent).toHaveBeenCalledWith(
 			expect.any(String),
 			expect.objectContaining({ waitUntil: "load" }),
+		);
+		store.close();
+		rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("receives the diagram of a render slot through documentRenderer.render", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "maket-pdf-slot-"));
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const assets = createAssetsService({ assetsDir: tmp });
+		const setContent = vi.fn(async (_html: string, _options?: unknown) => {});
+		const page = {
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent,
+			waitForNetworkIdle: vi.fn(async () => {}),
+			evaluate: vi.fn(async () => {}),
+			pdf: vi.fn(async () => new Uint8Array([1, 2, 3])),
+			close: vi.fn(async () => {}),
+		};
+		const doc = makeDoc({
+			dataModel: "state",
+			pages: [
+				{
+					id: "page-p",
+					name: "P",
+					elements: [],
+					html: '<div class="flow" data-maket-render="mermaid" data-maket-from="state.flow"></div>',
+				},
+			],
+		});
+		const schema = {
+			type: "object",
+			properties: { flow: { type: "string", format: "maket-mermaid" } },
+		};
+		const stateRenderer = createStateRenderer({
+			documentStates: {
+				get: () => ({
+					definition: {
+						documentId: doc.id,
+						schema,
+						createdAt: "",
+						retention: null,
+					},
+					current: {
+						documentId: doc.id,
+						revision: 1,
+						schema,
+						data: { flow: "flowchart LR\n  Draft --> Signed" },
+						createdAt: "",
+					},
+				}),
+			},
+			stateRenderSlots: createStateRenderSlots({ documents }),
+		});
+		const documentRenderer = createDocumentRenderer({
+			collectionRenderer: { render: (value) => value },
+			stateRenderer,
+			structuredWorkspaces: {
+				renderCollection: () => {
+					throw new Error("Unexpected Structured Workspace projection.");
+				},
+			},
+		});
+		const service = createPdfService({
+			documents,
+			config: { ASSETS_DIR: tmp } as unknown as Config,
+			assets,
+			documentRenderer,
+			browserPool: {
+				get: async () => ({ newPage: async () => page }) as never,
+				dispose: async () => {},
+			},
+		});
+
+		await service.render(doc);
+
+		const pdfHtml = setContent.mock.calls[0]?.[0] ?? "";
+		expect(pdfHtml).toMatch(
+			/<div class="flow" data-maket-render="mermaid" data-maket-from="state.flow"><svg[^>]*>[\s\S]*Draft[\s\S]*Signed[\s\S]*<\/svg><\/div>/,
 		);
 		store.close();
 		rmSync(tmp, { recursive: true, force: true });

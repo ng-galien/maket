@@ -13,7 +13,7 @@ describe("server Mermaid refresh propagation", () => {
 			bus,
 			collections: { loadAll: () => [] } as never,
 			collectionCursors: { snapshot: () => [] } as never,
-			documents: { resolve: () => null } as never,
+			documents: { resolve: () => null, all: () => new Map() } as never,
 			documentRenderer: {} as never,
 			mermaidDiagrams: {
 				refreshCharte,
@@ -33,6 +33,60 @@ describe("server Mermaid refresh propagation", () => {
 			name: "brand",
 			css: ":root {}",
 		});
+	});
+
+	it("sends again a state document whose render slot follows the updated charte", () => {
+		const bus = createBus();
+		const broadcast = vi.fn();
+		const slotDoc = {
+			name: "flow",
+			dataModel: "state",
+			meta: { charte: "brand" },
+			pages: [
+				{
+					html: '<div data-maket-render="mermaid" data-maket-from="state.flow"></div>',
+				},
+			],
+		};
+		const otherDoc = {
+			name: "other",
+			dataModel: "state",
+			meta: { charte: "brand" },
+			pages: [{ html: "<p>{{state.title}}</p>" }],
+		};
+		const render = vi.fn((doc: unknown) => doc);
+		registerServerEvents({
+			bus,
+			collections: { loadAll: () => [] } as never,
+			collectionCursors: { snapshot: () => [] } as never,
+			documents: {
+				all: () =>
+					new Map([
+						["flow", slotDoc],
+						["other", otherDoc],
+					]),
+				resolve: (name: string) => (name === "flow" ? slotDoc : otherDoc),
+				lightView: (doc: unknown) => doc,
+				list: () => [],
+				charteCss: () => "",
+			} as never,
+			documentRenderer: { render, stateView: () => null } as never,
+			mermaidDiagrams: {
+				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
+				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
+			},
+			structuredWorkspaces: { listViews: () => [] } as never,
+			wsRegistry: { broadcast } as never,
+			pending: { all: () => [] } as never,
+		});
+
+		bus.emit("charte:updated", { name: "brand", css: ":root {}" });
+
+		expect(render).toHaveBeenCalledTimes(1);
+		expect(render).toHaveBeenCalledWith(slotDoc);
+		expect(broadcast).toHaveBeenCalledWith(
+			expect.objectContaining({ type: "state", doc: slotDoc }),
+		);
 	});
 
 	it("refreshes a document diagram before broadcasting changed metadata", () => {

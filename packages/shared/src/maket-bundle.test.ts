@@ -191,6 +191,42 @@ describe("manifest parse + validate", () => {
 		]);
 	});
 
+	it("keeps the HTML frozen into render slots and refuses a malformed map", () => {
+		const stateDoc = {
+			id: "doc-state",
+			name: "flow",
+			dataModel: "state",
+			canvas: { w: 10, h: 10 },
+			pages: [
+				{
+					id: "page-1",
+					html: '<div data-maket-render="mermaid" data-maket-from="state.flow"></div>',
+				},
+			],
+		};
+		const snapshot = {
+			documentId: "doc-state",
+			schema: {
+				type: "object",
+				properties: { flow: { type: "string", format: "maket-mermaid" } },
+			},
+			data: { flow: "flowchart LR\n  A --> B" },
+		};
+		const manifest = (renderedSlots: unknown) => ({
+			kind: MAKET_BUNDLE_KIND,
+			version: 2,
+			documents: [stateDoc],
+			documentStates: [{ ...snapshot, renderedSlots }],
+		});
+		expect(
+			validateBundleManifest(manifest({ "/flow": "<svg></svg>" }))
+				.documentStates[0]?.renderedSlots,
+		).toEqual({ "/flow": "<svg></svg>" });
+		expect(() => validateBundleManifest(manifest({ "/flow": 1 }))).toThrow(
+			/documentStates\[0\] is malformed/,
+		);
+	});
+
 	it("rejects missing, orphaned, and invalid document-state snapshots", () => {
 		const stateDoc = {
 			id: "doc-state",

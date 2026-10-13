@@ -35,6 +35,7 @@ import {
 import { parseHTML } from "linkedom";
 import { MessageError } from "../lib/message-error.js";
 import { scopeCssToElement } from "../lib/scoped-css.js";
+import { assertStateMermaidSources } from "../lib/state-mermaid.js";
 import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
@@ -1453,6 +1454,7 @@ function addItem(
 		binding,
 	);
 	assertValidItemData(bindingSchema, input.data);
+	assertStateMermaidSources(bindingSchema, input.data);
 	if (deps.documents.resolveOrLoad(input.documentName)) {
 		throw new Error(`Document "${input.documentName}" already exists.`);
 	}

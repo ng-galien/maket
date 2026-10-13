@@ -2,6 +2,20 @@ import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
 
 const MAX_CACHED_VALIDATORS = 256;
 
+/** String format of a state value holding Mermaid source that a render slot
+ * draws as an SVG diagram. */
+export const mermaidStateFormat = "maket-mermaid";
+
+/** Longest Mermaid source a `maket-mermaid` string may hold. */
+export const MAX_MERMAID_SOURCE_LENGTH = 20_000;
+
+/** The string formats Maket registers on every JSON Schema it compiles. */
+export const jsonSchemaFormats: Readonly<
+	Record<string, (value: string) => boolean>
+> = {
+	[mermaidStateFormat]: (value) => value.length <= MAX_MERMAID_SOURCE_LENGTH,
+};
+
 type CompiledSchema =
 	| { ok: true; validate: ValidateFunction }
 	| { ok: false; errors: ErrorObject[] };
@@ -22,6 +36,9 @@ export function compiledJsonSchema(schema: object): CompiledSchema {
 
 function compile(schema: object): CompiledSchema {
 	const ajv = new Ajv({ allErrors: true, strict: false });
+	for (const [name, validate] of Object.entries(jsonSchemaFormats)) {
+		ajv.addFormat(name, { type: "string", validate });
+	}
 	return ajv.validateSchema(schema)
 		? { ok: true, validate: ajv.compile(schema) }
 		: { ok: false, errors: [...(ajv.errors ?? [])] };

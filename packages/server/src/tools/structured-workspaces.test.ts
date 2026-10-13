@@ -1167,3 +1167,89 @@ describe("maket_structured_workspace documented method", () => {
 		}
 	});
 });
+
+describe("maket_structured_workspace Mermaid sources", () => {
+	it("refuses add_item and update_item when a maket-mermaid value cannot be drawn, writing nothing", async () => {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const documentStates = createDocumentStates({ store, bus, documents });
+		const structuredWorkspaces = createStructuredWorkspaces({
+			store,
+			bus,
+			documents,
+			documentStates,
+		});
+		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		try {
+			const created = await tool.handler(
+				{
+					action: "create",
+					workspace: "Flows",
+					data_schema: {
+						type: "object",
+						properties: {
+							title: { type: "string" },
+							flow: { type: "string", format: "maket-mermaid" },
+						},
+						required: ["title"],
+					},
+				},
+				{} as never,
+			);
+			expect(created.isError).toBeUndefined();
+			const definition = structuredWorkspaces.get("Flows");
+			const [collectionId, collection] = Object.entries(
+				definition?.representationSchema.collections ?? {},
+			)[0] ?? ["", undefined];
+			const bindingId = Object.keys(collection?.bindings ?? {})[0] ?? "";
+			const add = (documentName: string, flow: string) =>
+				tool.handler(
+					{
+						action: "add_item",
+						workspace: "Flows",
+						item: documentName,
+						collection: collectionId,
+						binding: bindingId,
+						document_name: documentName,
+						data: { title: documentName, flow },
+					},
+					{} as never,
+				);
+
+			const refused = await add("Broken", "not a diagram");
+			expect(refused.isError).toBe(true);
+			expect(textOf(refused)).toMatch(
+				/^State value \/flow \(format maket-mermaid\) is not a Mermaid diagram Maket can draw: Invalid mermaid header.* Fix: /,
+			);
+			expect(documents.resolveOrLoad("Broken")).toBeNull();
+			expect(structuredWorkspaces.get("Flows")?.items).toEqual([]);
+
+			const added = await add("Release", "flowchart LR\n  Draft --> Signed");
+			expect(added.isError).toBeUndefined();
+			const update = await tool.handler(
+				{
+					action: "update_item",
+					workspace: "Flows",
+					item: "Release",
+					expected_revision: 1,
+					data: {
+						title: "Release",
+						flow: "flowchart LR\n  classDef hot fill:#f00",
+					},
+				},
+				{} as never,
+			);
+			expect(update.isError).toBe(true);
+			expect(textOf(update)).toContain(
+				"State value /flow (format maket-mermaid) is not a Mermaid diagram Maket can draw: Mermaid styling directives are not supported.",
+			);
+			expect(documentStates.get("Release")?.current).toMatchObject({
+				revision: 1,
+				data: { title: "Release", flow: "flowchart LR\n  Draft --> Signed" },
+			});
+		} finally {
+			store.close();
+		}
+	});
+});

@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
-import type {
-	BundleAnnotationSnapshot,
-	BundleDocumentStateSnapshot,
-	BundleStructuredWorkspaceSnapshot,
-	Collection,
-	StructuredWorkspaceDefinition,
+import {
+	type BundleAnnotationSnapshot,
+	type BundleDocumentStateSnapshot,
+	type BundleStructuredWorkspaceSnapshot,
+	type Collection,
+	type DocumentStateRevision,
+	renderDocumentStatePage,
+	type StructuredWorkspaceDefinition,
 } from "@maket/shared";
 import {
 	collectAssetFilenames,
@@ -24,6 +26,7 @@ import {
 	type SettlingDocumentRenderer,
 } from "./document-renderer.js";
 import type { Documents } from "./documents.js";
+import type { StateRenderSlots } from "./state-render-slots.js";
 import type { Store } from "./store.js";
 import type { StructuredWorkspaces } from "./structured-workspaces.js";
 
@@ -65,6 +68,7 @@ export interface BundleExportServiceDeps {
 	store: Store;
 	config: Config;
 	structuredWorkspaces?: Pick<StructuredWorkspaces, "list">;
+	stateRenderSlots?: Pick<StateRenderSlots, "forDocument">;
 }
 
 export function createBundleExportService(
@@ -128,6 +132,7 @@ async function buildBundle(
 	const documentStates = currentDocumentStateSnapshots(
 		portableDocuments,
 		deps.store,
+		deps.stateRenderSlots,
 	);
 	const annotations = portableAnnotations(documents, deps.store);
 	const { assets, missing: missingAssets } =
@@ -307,6 +312,7 @@ function loadReferencedChartes(docs: Document[], store: Store): Charte[] {
 function currentDocumentStateSnapshots(
 	docs: Document[],
 	store: Store,
+	slots?: Pick<StateRenderSlots, "forDocument">,
 ): BundleDocumentStateSnapshot[] {
 	return docs.flatMap((doc) => {
 		if (doc.dataModel !== "state") return [];
@@ -315,15 +321,40 @@ function currentDocumentStateSnapshots(
 			throw new Error(`Document "${doc.name}" has no current state snapshot.`);
 		}
 		const retention = store.loadDocumentState(doc.id)?.retention ?? null;
+		const renderedSlots = slots ? frozenRenderSlots(doc, current, slots) : {};
 		return [
 			{
 				documentId: doc.id,
 				schema: current.schema,
 				data: current.data,
 				...(retention !== null ? { retention } : {}),
+				...(Object.keys(renderedSlots).length > 0 ? { renderedSlots } : {}),
 			},
 		];
 	});
+}
+
+/** The HTML every render slot of the document shows now, keyed by the
+ * pointer of its source, so the static reader shows it without drawing. */
+function frozenRenderSlots(
+	doc: Document,
+	current: DocumentStateRevision,
+	slots: Pick<StateRenderSlots, "forDocument">,
+): Record<string, string> {
+	const draw = slots.forDocument(doc);
+	const frozen: Record<string, string> = {};
+	for (const page of doc.pages) {
+		if (!page.html) continue;
+		renderDocumentStatePage(page, current.data, {
+			schema: current.schema,
+			renderSlot: (slot) => {
+				const html = draw(slot);
+				frozen[slot.pointer] = html;
+				return html;
+			},
+		});
+	}
+	return frozen;
 }
 
 function collectionDocumentReferences(

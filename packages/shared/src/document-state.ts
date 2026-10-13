@@ -3,6 +3,7 @@ import {
 	assertStateAttributePlacement,
 	finalizeStateAttributeValues,
 	markStateAttributeValue,
+	neutralizeStateAttributeMarkers,
 } from "./document-state-attributes.js";
 import {
 	appendJsonPointer,
@@ -10,7 +11,15 @@ import {
 	parseJsonPointer,
 	readJsonPointer,
 } from "./json-patch.js";
-import { compiledJsonSchema } from "./json-schema-validators.js";
+import {
+	compiledJsonSchema,
+	mermaidStateFormat,
+} from "./json-schema-validators.js";
+
+export {
+	MAX_MERMAID_SOURCE_LENGTH,
+	mermaidStateFormat,
+} from "./json-schema-validators.js";
 
 export type DocumentStateSchema = Record<string, unknown> & {
 	type?: unknown;
@@ -64,9 +73,24 @@ export interface DocumentStateFlowOptions {
 	ranges?: Record<string, DocumentStateFlowRange>;
 }
 
+/** One render slot met during hydration: the kind of content, the source
+ * read from the state, and the absolute pointer of that source. */
+export interface DocumentStateRenderSlot {
+	kind: DocumentStateRenderKind;
+	source: string;
+	pointer: string;
+}
+
+/** The HTML placed inside a render slot. Without a renderer, slots stay
+ * empty. */
+export type DocumentStateSlotRenderer = (
+	slot: DocumentStateRenderSlot,
+) => string;
+
 export interface DocumentStateRenderOptions {
 	schema?: DocumentStateSchema;
 	flow?: DocumentStateFlowOptions;
+	renderSlot?: DocumentStateSlotRenderer;
 }
 
 interface FlowContext {
@@ -86,6 +110,32 @@ export const stateOptionsAttribute = "data-maket-options";
 const stateOptionsPathAttribute = "data-maket-options-path";
 /** On a bound `<button type="button">`: the value a click writes. */
 export const stateActionValueAttribute = "data-maket-value";
+/** On an empty element: the kind of content Maket renders inside it. */
+export const stateRenderAttribute = "data-maket-render";
+/** On a render slot: the state path its source is read from. */
+export const stateRenderFromAttribute = "data-maket-from";
+
+/** Each render-slot kind and the string format its source path declares. */
+export const stateRenderKinds = { mermaid: mermaidStateFormat } as const;
+
+export type DocumentStateRenderKind = keyof typeof stateRenderKinds;
+
+const voidElements = new Set([
+	"area",
+	"base",
+	"br",
+	"col",
+	"embed",
+	"hr",
+	"img",
+	"input",
+	"link",
+	"meta",
+	"param",
+	"source",
+	"track",
+	"wbr",
+]);
 
 /**
  * The value a bound action button declares, typed as its binding: the text
@@ -149,6 +199,7 @@ export function renderDocumentStateText(
 ): DocumentStateRenderResult {
 	const tokens = Mustache.parse(template) as MustacheToken[];
 	validateTemplateTokens(tokens, false, template);
+	assertNoRenderSlotInTextElement(template);
 	if (options.schema) {
 		validateTemplateBindings(tokens, [{ schema: options.schema, pointer: "" }]);
 	}
@@ -183,6 +234,7 @@ export function validateDocumentStateTemplate(template: string): void {
 		false,
 		template,
 	);
+	assertNoRenderSlotInTextElement(template);
 }
 
 export function documentStateValueType(
@@ -249,7 +301,7 @@ function renderTokens(
 	for (const token of tokens) {
 		const [kind, name] = token;
 		if (kind === "text") {
-			output += hydrateBindings(name, frames, dependencies, options.schema);
+			output += hydrateBindings(name, frames, dependencies, options);
 			continue;
 		}
 		if (kind === "!") continue;
@@ -322,6 +374,7 @@ export function validateDocumentStateTemplateBindings(
 ): void {
 	const tokens = Mustache.parse(template) as MustacheToken[];
 	validateTemplateTokens(tokens, false, template);
+	assertNoRenderSlotInTextElement(template);
 	validateTemplateBindings(tokens, [{ schema, pointer: "" }]);
 }
 
@@ -420,11 +473,7 @@ function validateBindingMarkup(html: string, frames: SchemaFrame[]): void {
 			?.toLowerCase();
 		const closing = /^<\s*\//.test(tag);
 		if (blockedElement) {
-			if (readHtmlAttribute(tag, stateBindingAttribute) !== null) {
-				throw new Error(
-					`Document state bindings cannot be placed inside ${blockedElement} elements.`,
-				);
-			}
+			assertNoBindingInside(tag, blockedElement);
 			if (closing && tagName === blockedElement) blockedElement = null;
 			cursor = end + 1;
 			continue;
@@ -447,6 +496,11 @@ function validateBindingTagAgainstSchema(
 	frames: SchemaFrame[],
 ): void {
 	assertNoRuntimeBindingAttributes(tag);
+	const slot = renderSlotAt(tag, tagName, html, tagEnd);
+	if (slot) {
+		assertRenderSlotSchema(slot, frames);
+		return;
+	}
 	const expression = readHtmlAttribute(tag, stateBindingAttribute);
 	if (expression === null) return;
 	if (!expression.trim()) {
@@ -767,6 +821,247 @@ function flowRangeBounds(
 	return [start, Math.max(start, end)];
 }
 
+interface RenderSlotMarkup {
+	kind: DocumentStateRenderKind;
+	from: string;
+	element: string;
+}
+
+function assertNoBindingInside(tag: string, blockedElement: string): void {
+	if (
+		readHtmlAttribute(tag, stateBindingAttribute) !== null ||
+		readHtmlAttribute(tag, stateRenderAttribute) !== null
+	) {
+		throw new Error(
+			`Document state bindings cannot be placed inside ${blockedElement} elements.`,
+		);
+	}
+}
+
+/**
+ * The render slot an opening tag declares, or null when it declares none.
+ * A slot names a supported kind and a state path, carries no
+ * `data-maket-bind`, and is an empty element closed right after its tag.
+ */
+function renderSlotAt(
+	tag: string,
+	tagName: string,
+	html: string,
+	tagEnd: number,
+): RenderSlotMarkup | null {
+	const kind = readHtmlAttribute(tag, stateRenderAttribute);
+	const from = readHtmlAttribute(tag, stateRenderFromAttribute);
+	if (kind === null && from === null) return null;
+	const element = `<${tagName} ${stateRenderAttribute}="${kind ?? ""}">`;
+	if (kind === null) {
+		throw new Error(
+			`<${tagName} ${stateRenderFromAttribute}="${from}"> needs ${stateRenderAttribute}="mermaid": ${stateRenderFromAttribute} only names the source of a render slot.`,
+		);
+	}
+	if (!Object.hasOwn(stateRenderKinds, kind)) {
+		throw new Error(
+			`Render slot ${element} uses an unsupported kind; ${stateRenderAttribute} accepts ${Object.keys(stateRenderKinds).join(", ")}.`,
+		);
+	}
+	if (from === null || !from.trim()) {
+		throw new Error(
+			`Render slot ${element} needs ${stateRenderFromAttribute}="<state path>" naming its source.`,
+		);
+	}
+	if (readHtmlAttribute(tag, stateBindingAttribute) !== null) {
+		throw new Error(
+			`Render slot ${element} reading "${from}" cannot also carry ${stateBindingAttribute}.`,
+		);
+	}
+	const closing = new RegExp(`^\\s*<\\s*/\\s*${tagName}\\s*>`, "i");
+	if (
+		voidElements.has(tagName) ||
+		/\/\s*>$/.test(tag) ||
+		!closing.test(html.slice(tagEnd + 1))
+	) {
+		throw new Error(
+			`Render slot ${element} reading "${from}" must be an empty element closed by </${tagName}>; Maket writes its content.`,
+		);
+	}
+	return { kind: kind as DocumentStateRenderKind, from, element };
+}
+
+/**
+ * Elements whose content the HTML parser reads as text (raw text, escapable
+ * raw text, and the legacy elements parsed the same way). Markup drawn inside
+ * them would be shown as text or could close them.
+ */
+const textContentElements = [
+	"script",
+	"style",
+	"textarea",
+	"title",
+	"noembed",
+	"noframes",
+	"noscript",
+	"xmp",
+	"plaintext",
+	"iframe",
+];
+
+/**
+ * Refuse a render slot placed in the content of an element the HTML parser
+ * reads as text, naming that element. Tags are read with the quote-aware
+ * scanner of the hydration walk, so a quoted `>` never hides a slot.
+ */
+function assertNoRenderSlotInTextElement(template: string): void {
+	let cursor = 0;
+	let textParent: string | null = null;
+	while (cursor < template.length) {
+		const start = template.indexOf("<", cursor);
+		if (start < 0) return;
+		const end = findHtmlTagEnd(template, start);
+		if (end < 0) return;
+		const tag = template.slice(start, end + 1);
+		const match = /^<\s*(\/?)\s*([A-Za-z][\w:-]*)/.exec(tag);
+		const name = match?.[2]?.toLowerCase();
+		const closing = Boolean(match?.[1]);
+		if (textParent) {
+			if (closing && name === textParent) textParent = null;
+			else if (readHtmlAttribute(tag, stateRenderAttribute) !== null) {
+				throw new Error(
+					`A render slot cannot be placed inside a <${textParent}> element: the HTML parser reads its content as text. Move the slot out of the <${textParent}>.`,
+				);
+			}
+		} else if (!closing && name && textContentElements.includes(name)) {
+			if (readHtmlAttribute(tag, stateRenderAttribute) !== null) {
+				throw new Error(
+					`A render slot cannot be a <${name}> element: the HTML parser reads its content as text. Use an element such as <div> or <figure>.`,
+				);
+			}
+			textParent = name;
+		}
+		cursor = end + 1;
+	}
+}
+
+/** A slot path is absolute (`state.…`, read from the root) or relative,
+ * read from the current section frame only. */
+function resolveSlotSchema(
+	name: string,
+	frames: SchemaFrame[],
+): ResolvedSchema {
+	const current = frames.at(-1);
+	if (isStateReference(name) || !current) {
+		return resolveSchemaReference(name, frames);
+	}
+	assertDirectTemplateSchema(current.schema, name);
+	if (name === ".") return { found: true, ...current };
+	return traverseSchemaReference(current, name.split("."), name);
+}
+
+function resolveSlotValue(name: string, frames: RenderFrame[]): ResolvedValue {
+	const current = frames.at(-1);
+	if (isStateReference(name) || !current) {
+		return resolveTemplateReference(name, frames);
+	}
+	if (name === ".") return { found: true, ...current };
+	return traverseReference(current, name.split("."));
+}
+
+function slotDependencyPointer(name: string, frames: RenderFrame[]): string {
+	const root = frames[0] ?? { pointer: "" };
+	if (isStateReference(name)) {
+		return appendReferenceSegments(
+			root.pointer,
+			name.slice("state.".length).split("."),
+		);
+	}
+	const current = frames.at(-1) ?? root;
+	return name === "."
+		? current.pointer
+		: appendReferenceSegments(current.pointer, name.split("."));
+}
+
+function assertRenderSlotSchema(
+	slot: RenderSlotMarkup,
+	frames: SchemaFrame[],
+): void {
+	assertStateReference(slot.from, frames.length > 1, false);
+	const resolved = resolveSlotSchema(slot.from, frames);
+	if (!resolved.found) {
+		throw new Error(
+			isStateReference(slot.from)
+				? `Render slot ${slot.element} reads "${slot.from}", which the state schema does not declare.`
+				: `Render slot ${slot.element} reads "${slot.from}", which the schema of the current section does not declare; a relative slot path reads the current section element only.`,
+		);
+	}
+	assertDirectTemplateSchema(resolved.schema, slot.from);
+	const format = stateRenderKinds[slot.kind];
+	if (
+		schemaType(resolved.schema) !== "string" ||
+		!isRecord(resolved.schema) ||
+		resolved.schema.format !== format
+	) {
+		throw new Error(
+			`Render slot ${slot.element} reads "${slot.from}", which the state schema must declare as {"type":"string","format":"${format}"}.`,
+		);
+	}
+}
+
+/** The content of one render slot: the renderer's HTML for a non-empty
+ * source, nothing otherwise. The source path joins the dependencies. */
+function renderStateSlot(
+	slot: RenderSlotMarkup,
+	frames: RenderFrame[],
+	dependencies: Set<string>,
+	options: DocumentStateRenderOptions,
+): string {
+	assertStateReference(slot.from, frames.length > 1, false);
+	dependencies.add(slotDependencyPointer(slot.from, frames));
+	const resolved = resolveSlotValue(slot.from, frames);
+	if (!resolved.found || resolved.value === null) return "";
+	if (typeof resolved.value !== "string") {
+		throw new Error(
+			`Render slot ${slot.element} reads "${slot.from}", which must hold a string.`,
+		);
+	}
+	if (!resolved.value.trim() || !options.renderSlot) return "";
+	return neutralizeStateAttributeMarkers(
+		options.renderSlot({
+			kind: slot.kind,
+			source: resolved.value,
+			pointer: resolved.pointer,
+		}),
+	);
+}
+
+/** Every string of `data` whose schema declares `format`, with its pointer.
+ * Follows `properties` and `items` only. */
+export function documentStateFormatValues(
+	schema: DocumentStateSchema,
+	data: DocumentStateData,
+	format: string,
+): Array<{ pointer: string; value: string }> {
+	const found: Array<{ pointer: string; value: string }> = [];
+	const visit = (node: unknown, value: unknown, pointer: string): void => {
+		if (!isRecord(node)) return;
+		if (typeof value === "string") {
+			if (node.format === format) found.push({ pointer, value });
+			return;
+		}
+		if (Array.isArray(value)) {
+			value.forEach((entry, index) => {
+				visit(node.items, entry, appendJsonPointer(pointer, index));
+			});
+			return;
+		}
+		if (!isRecord(value) || !isRecord(node.properties)) return;
+		for (const [key, child] of Object.entries(node.properties)) {
+			if (Object.hasOwn(value, key)) {
+				visit(child, value[key], appendJsonPointer(pointer, key));
+			}
+		}
+	};
+	visit(schema, data, "");
+	return found;
+}
+
 function renderValue(token: MustacheToken, resolved: ResolvedValue): string {
 	if (!resolved.found) return "";
 	if (!isTerminalJsonValue(resolved.value)) {
@@ -781,7 +1076,7 @@ function hydrateBindings(
 	html: string,
 	frames: RenderFrame[],
 	dependencies: Set<string>,
-	schema?: DocumentStateSchema,
+	options: DocumentStateRenderOptions,
 ): string {
 	let output = "";
 	let cursor = 0;
@@ -798,18 +1093,18 @@ function hydrateBindings(
 			?.toLowerCase();
 		const closing = /^<\s*\//.test(tag);
 		if (blockedElement) {
-			if (readHtmlAttribute(tag, stateBindingAttribute) !== null) {
-				throw new Error(
-					`Document state bindings cannot be placed inside ${blockedElement} elements.`,
-				);
-			}
+			assertNoBindingInside(tag, blockedElement);
 			if (closing && tagName === blockedElement) blockedElement = null;
 			output += tag;
 		} else {
 			if (!closing && (tagName === "script" || tagName === "style")) {
 				blockedElement = tagName;
 			}
-			output += hydrateBindingTag(tag, frames, dependencies, schema);
+			const slot =
+				!closing && tagName ? renderSlotAt(tag, tagName, html, end) : null;
+			output += slot
+				? tag + renderStateSlot(slot, frames, dependencies, options)
+				: hydrateBindingTag(tag, frames, dependencies, options.schema);
 		}
 		cursor = end + 1;
 	}

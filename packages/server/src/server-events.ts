@@ -1,4 +1,8 @@
-import { readJsonPointer, type StatePageProjection } from "@maket/shared";
+import {
+	readJsonPointer,
+	type StatePageProjection,
+	stateRenderAttribute,
+} from "@maket/shared";
 import type { Annotations } from "./services/annotations.js";
 import type { Bus } from "./services/bus.js";
 import type { CollectionCursors } from "./services/collection-cursor.js";
@@ -8,6 +12,7 @@ import type { Documents } from "./services/documents.js";
 import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
 import type { WsRegistry } from "./services/ws-registry.js";
+import type { Document } from "./types.js";
 
 export interface ServerEventDeps {
 	bus: Bus;
@@ -194,6 +199,11 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 			bus.emit("element:updated", { docName, id: "html" });
 		}
 		wsRegistry.broadcast({ type: "charte_updated", name, css });
+		for (const doc of documents.all().values()) {
+			if (doc.meta.charte === name && hasStateRenderSlot(doc)) {
+				broadcastDoc(broadcasters, doc.name);
+			}
+		}
 	});
 	bus.on("charte:removed", ({ name }) => {
 		const refreshed = mermaidDiagrams.refreshCharte(name);
@@ -273,6 +283,15 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 	);
 	bus.on("settings:changed", (settings) =>
 		wsRegistry.broadcast({ type: "settings", settings }),
+	);
+}
+
+/** A state document whose pages draw a render slot, whose content follows
+ * the charte. */
+function hasStateRenderSlot(doc: Document): boolean {
+	return (
+		doc.dataModel === "state" &&
+		doc.pages.some((page) => page.html?.includes(stateRenderAttribute))
 	);
 }
 

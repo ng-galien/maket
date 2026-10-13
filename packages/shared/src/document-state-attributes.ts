@@ -220,8 +220,13 @@ export function assertStateAttributePlacement(
 
 /** Mark a rendered value placed inside an attribute for render-time checks. */
 export function markStateAttributeValue(escaped: string): string {
-	const neutral = escaped.replaceAll(valueStart, "�").replaceAll(valueEnd, "�");
-	return `${valueStart}${neutral}${valueEnd}`;
+	return `${valueStart}${neutralizeStateAttributeMarkers(escaped)}${valueEnd}`;
+}
+
+/** Replace the render-marker characters in text Maket inserts itself, so
+ * the attribute checks never read them as a state value. */
+export function neutralizeStateAttributeMarkers(text: string): string {
+	return text.replaceAll(valueStart, "\uFFFD").replaceAll(valueEnd, "\uFFFD");
 }
 
 /**

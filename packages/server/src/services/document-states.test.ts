@@ -4,6 +4,7 @@ import { createBus } from "./bus.js";
 import { createCollections } from "./collections.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import { createStateRenderSlots } from "./state-render-slots.js";
 import { createStateRenderer } from "./state-renderer.js";
 import { createSQLiteStore } from "./store.js";
 
@@ -554,6 +555,98 @@ describe("DocumentStates projection entries", () => {
 		expect(renderer.render(doc).pages[0]?.html).toContain(
 			'<option value="reviewer" selected>reviewer</option>',
 		);
+		store.close();
+	});
+});
+
+describe("DocumentStates render slots", () => {
+	const flowSchema = {
+		type: "object",
+		properties: {
+			flow: { type: "string", format: "maket-mermaid" },
+			steps: {
+				type: "array",
+				items: {
+					type: "object",
+					properties: {
+						name: { type: "string" },
+						flow: { type: "string", format: "maket-mermaid" },
+					},
+				},
+			},
+		},
+	};
+
+	function slotFixture() {
+		const context = fixture();
+		const page = context.doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html =
+			'<div data-maket-render="mermaid" data-maket-from="state.flow"></div>{{#state.steps}}<h2>{{name}}</h2><figure data-maket-render="mermaid" data-maket-from="flow"></figure>{{/state.steps}}';
+		context.documents.persist(context.doc.name);
+		return context;
+	}
+
+	it("draws the slot of the document and one diagram per list element", () => {
+		const { store, documents, doc, states } = slotFixture();
+		states.initialize("audit", flowSchema, {
+			flow: "flowchart LR\n  Draft --> Review",
+			steps: [
+				{ name: "One", flow: "flowchart LR\n  A1 --> B1" },
+				{ name: "Two", flow: "flowchart LR\n  A2 --> B2" },
+			],
+		});
+		const renderer = createStateRenderer({
+			documentStates: states,
+			stateRenderSlots: createStateRenderSlots({ documents }),
+		});
+		const html = renderer.render(doc).pages[0]?.html ?? "";
+		expect(html.match(/<svg/g)).toHaveLength(3);
+		expect(html).toMatch(
+			/<div data-maket-render="mermaid" data-maket-from="state.flow"><svg[\s\S]*Review[\s\S]*<\/svg><\/div>/,
+		);
+		expect(html).toMatch(/<figure[^>]*><svg[\s\S]*A2[\s\S]*<\/svg><\/figure>/);
+
+		states.patch("audit", 1, [
+			{
+				op: "replace",
+				path: "/flow",
+				value: "flowchart LR\n  Draft --> Signed",
+			},
+		]);
+		const changed = renderer.render(doc).pages[0]?.html ?? "";
+		expect(changed).toContain("Signed");
+		expect(changed).not.toContain("Review");
+		store.close();
+	});
+
+	it("refuses a source Mermaid cannot draw at init, update and patch, naming the path, and writes nothing", () => {
+		const { store, states } = slotFixture();
+		expect(() =>
+			states.initialize("audit", flowSchema, { flow: "not a diagram" }),
+		).toThrow(
+			/^State value \/flow \(format maket-mermaid\) is not a Mermaid diagram Maket can draw: Invalid mermaid header: "not a diagram"\..* Fix: write a Mermaid source/,
+		);
+		expect(states.get("audit")).toBeNull();
+
+		states.initialize("audit", flowSchema, { flow: "flowchart LR\n  A --> B" });
+		expect(() =>
+			states.update("audit", 1, {
+				flow: "flowchart LR\n  A --> B",
+				steps: [{ name: "x", flow: "flowchart LR\n  style A fill:#f00" }],
+			}),
+		).toThrow(
+			/State value \/steps\/0\/flow \(format maket-mermaid\) is not a Mermaid diagram Maket can draw: Mermaid styling directives are not supported\./,
+		);
+		expect(() =>
+			states.patch("audit", 1, [
+				{ op: "replace", path: "/flow", value: "sequence nope" },
+			]),
+		).toThrow(/State value \/flow .*Fix:/);
+		expect(states.get("audit")?.current.revision).toBe(1);
+		expect(states.get("audit")?.current.data).toEqual({
+			flow: "flowchart LR\n  A --> B",
+		});
 		store.close();
 	});
 });

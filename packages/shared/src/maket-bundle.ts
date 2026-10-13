@@ -92,6 +92,10 @@ export interface BundleDocumentStateSnapshot {
 	data: DocumentStateData;
 	/** Previous revisions kept besides the current one; absent keeps them all. */
 	retention?: number;
+	/** The HTML each render slot showed at export, keyed by the JSON Pointer
+	 * of its source: the static reader places it, an import ignores it and
+	 * renders from the state. */
+	renderedSlots?: Record<string, string>;
 }
 
 /** Portable user annotation. Runtime ids and document names are deliberately
@@ -254,7 +258,13 @@ function validateBundleDocumentState(
 		!isPlainRecord(value.schema) ||
 		!isPlainRecord(value.data) ||
 		(value.retention !== undefined &&
-			(!Number.isInteger(value.retention) || (value.retention as number) < 0))
+			(!Number.isInteger(value.retention) ||
+				(value.retention as number) < 0)) ||
+		(value.renderedSlots !== undefined &&
+			(!isPlainRecord(value.renderedSlots) ||
+				!Object.values(value.renderedSlots).every(
+					(html) => typeof html === "string",
+				)))
 	) {
 		throw new Error(
 			`Invalid .maket file: documentStates[${index}] is malformed`,
@@ -302,6 +312,9 @@ function validateBundleDocumentState(
 		data,
 		...(value.retention !== undefined
 			? { retention: value.retention as number }
+			: {}),
+		...(value.renderedSlots !== undefined
+			? { renderedSlots: value.renderedSlots as Record<string, string> }
 			: {}),
 	};
 }
