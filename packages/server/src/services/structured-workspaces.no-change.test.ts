@@ -91,18 +91,18 @@ function scenario() {
 	const tool = createMaketStructuredWorkspaceTool({
 		structuredWorkspaces: workspaces,
 	});
-	return { store, workspaces, tool };
+	return { store, documents, workspaces, tool };
 }
 
 type Scenario = ReturnType<typeof scenario>;
 
-function fill(
+async function fill(
 	workspaces: Scenario["workspaces"],
 	workspace: string,
 	collectionId: string,
-): void {
+): Promise<void> {
 	for (let index = 1; index <= 20; index += 1) {
-		workspaces.addItem({
+		await workspaces.addItem({
 			workspace,
 			itemId: `${collectionId}-${index}`,
 			collectionId,
@@ -113,13 +113,17 @@ function fill(
 	}
 }
 
-function buildUngrouped(workspaces: Scenario["workspaces"]): string {
+async function buildUngrouped(
+	workspaces: Scenario["workspaces"],
+): Promise<string> {
 	const workspace = workspaces.create({ name: "Ungrouped", dataSchema });
-	fill(workspaces, workspace.name, "items");
+	await fill(workspaces, workspace.name, "items");
 	return workspace.id;
 }
 
-function buildGroupedSorted(workspaces: Scenario["workspaces"]): string {
+async function buildGroupedSorted(
+	workspaces: Scenario["workspaces"],
+): Promise<string> {
 	const workspace = workspaces.create({
 		name: "Grouped",
 		dataSchema,
@@ -136,11 +140,13 @@ function buildGroupedSorted(workspaces: Scenario["workspaces"]): string {
 			},
 		},
 	});
-	fill(workspaces, workspace.name, "items");
+	await fill(workspaces, workspace.name, "items");
 	return workspace.id;
 }
 
-function buildPagedA4(workspaces: Scenario["workspaces"]): string {
+async function buildPagedA4(
+	workspaces: Scenario["workspaces"],
+): Promise<string> {
 	const workspace = workspaces.create({
 		name: "Paged",
 		dataSchema,
@@ -161,7 +167,7 @@ function buildPagedA4(workspaces: Scenario["workspaces"]): string {
 			},
 		},
 	});
-	fill(workspaces, workspace.name, "board");
+	await fill(workspaces, workspace.name, "board");
 	return workspace.id;
 }
 
@@ -242,7 +248,7 @@ describe("Structured Workspaces composition stays byte-identical", () => {
 	])(
 		"$name: index HTML, listViews and MCP view equal the HEAD capture",
 		async ({ name, build, collectionId }) => {
-			const workspaceId = build(current.workspaces);
+			const workspaceId = await build(current.workspaces);
 			const output = await captured(current, { workspaceId, collectionId });
 			expect(output.cachedIndex).toBe(output.index);
 			await expect(output.index).toMatchFileSnapshot(
@@ -258,17 +264,37 @@ describe("Structured Workspaces composition stays byte-identical", () => {
 	);
 });
 
+describe("Structured Workspaces read cost", () => {
+	it("lists ten items with at most the increment (a) HEAD resolveById count and one item row read per item", async () => {
+		const current = scenario();
+		const workspace = current.workspaces.create({ name: "Cost", dataSchema });
+		for (let index = 1; index <= 10; index += 1)
+			await current.workspaces.addItem({
+				workspace: workspace.name,
+				itemId: `cost-${index}`,
+				collectionId: "items",
+				bindingId: "item",
+				documentName: `Cost ${index}`,
+				data: itemData(index),
+			});
+		const resolveById = vi.spyOn(current.documents, "resolveById");
+		const itemRows = vi.spyOn(current.store, "loadStructuredWorkspaceItem");
+		current.workspaces.listViews();
+		const counts = {
+			resolveById: resolveById.mock.calls.length,
+			itemRows: itemRows.mock.calls.length,
+		};
+		current.store.close();
+		expect(counts.resolveById).toBeLessThanOrEqual(48);
+		expect(counts).toEqual({ resolveById: 8, itemRows: 10 });
+	});
+});
+
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

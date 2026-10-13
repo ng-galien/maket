@@ -28,17 +28,16 @@ export function handleStatePatch(
 		});
 		return;
 	}
-	try {
-		const revision = ctx.documentStateMutations.patchTerminal(
-			msg.docName,
-			msg.expectedRevision,
-			msg.operation,
-		);
-		sendResult(ws, msg.requestId, true, revision.revision);
-	} catch (error) {
+	const refused = (error: unknown) => {
 		ctx.broadcastState(doc);
 		sendResult(ws, msg.requestId, false, undefined, localizedOf(error));
-	}
+	};
+	ctx.documentStateMutations
+		.patchTerminal(msg.docName, msg.expectedRevision, msg.operation)
+		.then(
+			(revision) => sendResult(ws, msg.requestId, true, revision.revision),
+			refused,
+		);
 }
 
 function sendResult(

@@ -47,7 +47,10 @@ export interface StructuredWorkspaceItemReference {
 	position: number;
 	collectionId: string;
 	bindingId: string;
+	/** The document that renders the item; it exists once the item has been
+	 * opened or exported. */
 	documentId: string;
+	documentName: string;
 }
 
 export interface StructuredWorkspaceDefinition {
@@ -64,7 +67,6 @@ export interface StructuredWorkspaceDefinition {
 
 export interface StructuredWorkspaceItemView
 	extends StructuredWorkspaceItemReference {
-	documentName: string;
 	pinnedAt?: string;
 	data: Record<string, unknown>;
 	dataRevision: number;

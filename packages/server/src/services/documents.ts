@@ -24,6 +24,10 @@ export interface Documents {
 	resolve(name: string): Document | null;
 	/** Lookup, falling back to the store on a miss and caching the hit. */
 	resolveOrLoad(name: string): Document | null;
+	/** Whether a new or renamed document may not take `name`: a document
+	 * bears it, or a Structured Workspace item reserves it for the document
+	 * that will render it, opened or not. */
+	nameTaken(name: string): boolean;
 	/** Lookup by stable id, loading and caching the document on a miss. */
 	resolveById(id: string): Document | null;
 	/** Persist the cached instance to the store. No-op if the doc is not cached. */
@@ -45,7 +49,8 @@ export interface Documents {
 		source: string,
 		destination: string,
 	): { moved: Document[]; lockedDocName?: string; ownedDocName?: string };
-	/** Summaries of every cached document. */
+	/** Summaries of every cached document; Structured Workspace documents,
+	 * item documents included, only when asked (the linked reader). */
 	list(options?: { includeWorkspaceDocuments?: boolean }): DocSummary[];
 	/** Raw access to the backing map. */
 	all(): Map<string, Document>;
@@ -235,6 +240,12 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 				cache.set(loaded.name, loaded);
 			}
 			return loaded ?? null;
+		},
+		nameTaken(name) {
+			return (
+				cache.has(name) ||
+				store.loadStructuredWorkspaceItemByDocumentName(name) !== null
+			);
 		},
 		resolveById(id) {
 			const cached = [...cache.values()].find((doc) => doc.id === id);

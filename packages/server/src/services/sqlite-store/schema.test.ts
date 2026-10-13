@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -175,12 +175,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(21);
+		const db = historicalDatabaseWithoutIds(22);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v21 is newer than supported v20/,
+			/schema v22 is newer than supported v21/,
 		);
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -208,7 +208,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -234,7 +234,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(
 			db
 				.prepare(
@@ -266,7 +266,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(
 			db
 				.prepare(
@@ -299,7 +299,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(
 			db.prepare("SELECT text, edited_at AS editedAt FROM annotations").get(),
 		).toEqual({ text: "Keep", editedAt: null });
@@ -371,10 +371,220 @@ describe("SQLite schema migrations", () => {
 				{ role: "detail", collectionId: "backlog", bindingId: "task" },
 			],
 		});
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
+		db.close();
+	});
+
+	it("moves each item's current document state into its row, once, for every workspace, with a unique indexed name per workspace", () => {
+		const db = v20DatabaseWithTwoWorkspaces();
+
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(21);
+		const items = () =>
+			rows(
+				db,
+				"SELECT workspace_id, id, position, collection_id, binding_id, document_id, document_name, json(data) AS data, revision FROM structured_workspace_items ORDER BY workspace_id, position",
+			);
+		const migrated = items();
+		expect(migrated).toEqual([
+			{
+				workspace_id: "ws-a",
+				id: "a-1",
+				position: 0,
+				collection_id: "items",
+				binding_id: "item",
+				document_id: "doc-a-1",
+				document_name: "A one",
+				data: '{"title":"A one edited","status":"done"}',
+				revision: 3,
+			},
+			{
+				workspace_id: "ws-a",
+				id: "a-2",
+				position: 1,
+				collection_id: "items",
+				binding_id: "item",
+				document_id: "doc-a-2",
+				document_name: "A two",
+				data: '{"title":"A two","status":"todo"}',
+				revision: 1,
+			},
+			{
+				workspace_id: "ws-b",
+				id: "b-1",
+				position: 0,
+				collection_id: "board",
+				binding_id: "card",
+				document_id: "doc-b-1",
+				document_name: "B one",
+				data: '{"title":"B one","status":"doing"}',
+				revision: 2,
+			},
+			{
+				workspace_id: "ws-b",
+				id: "b-2",
+				position: 1,
+				collection_id: "board",
+				binding_id: "card",
+				document_id: "doc-b-2",
+				document_name: "B two",
+				data: null,
+				revision: 1,
+			},
+		]);
+		expect(
+			rows(db, "SELECT count(*) AS count FROM document_state_revisions"),
+		).toEqual([{ count: 5 }]);
+
+		initializeSQLiteSchema(db);
+		expect(items()).toEqual(migrated);
+		expect(
+			rows(
+				db,
+				"SELECT name FROM pragma_index_list('structured_workspace_items') WHERE name = 'structured_workspace_items_document_name_idx'",
+			),
+		).toHaveLength(1);
+		const insertNamed = db.prepare(
+			"INSERT INTO structured_workspace_items (workspace_id, id, position, collection_id, binding_id, document_id, document_name, data, revision) VALUES (?, ?, ?, 'items', 'item', ?, ?, '{}', 1)",
+		);
+		expect(() => insertNamed.run("ws-a", "a-3", 2, "doc-a-3", "A one")).toThrow(
+			/UNIQUE constraint failed/,
+		);
+		insertNamed.run("ws-b", "b-3", 2, "doc-b-3", "A one");
+
+		db.prepare("DELETE FROM documents WHERE id = ?").run("doc-a-2");
+		expect(
+			rows(
+				db,
+				"SELECT id FROM structured_workspace_items WHERE workspace_id = 'ws-a' ORDER BY position",
+			),
+		).toEqual([{ id: "a-1" }, { id: "a-2" }]);
+		expect(integrityCheck(db)).toEqual(["ok"]);
 		db.close();
 	});
 });
+
+/** A v20 database: two workspaces whose item data lives in their item
+ * documents' state revisions, one item document without state. */
+function v20DatabaseWithTwoWorkspaces(): DatabaseSync {
+	const db = new DatabaseSync(":memory:");
+	db.exec("PRAGMA foreign_keys = ON;");
+	initializeSQLiteSchema(db);
+	db.exec(`
+		DROP TABLE structured_workspace_items;
+		CREATE TABLE structured_workspace_items (
+			workspace_id TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+			id           TEXT NOT NULL,
+			position     INTEGER NOT NULL,
+			collection_id TEXT NOT NULL,
+			binding_id   TEXT NOT NULL,
+			document_id  TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+			created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (workspace_id, id),
+			UNIQUE (workspace_id, collection_id, position)
+		);
+	`);
+	const canvas =
+		'{"format":"A4","orientation":"portrait","w":210,"h":297,"bg":"#fff"}';
+	const insertDocument = db.prepare(`
+		INSERT INTO documents (name, id, category, data_model, canvas, meta, active_page, next_id)
+		VALUES (?, ?, 'Structured Workspaces/x', ?, ?, ?, 0, 1)
+	`);
+	const insertState = db.prepare(
+		"INSERT INTO document_states (document_id, schema) VALUES (?, '{}')",
+	);
+	const insertRevision = db.prepare(
+		"INSERT INTO document_state_revisions (document_id, revision, schema, data) VALUES (?, ?, '{}', ?)",
+	);
+	const insertWorkspace = db.prepare(`
+		INSERT INTO structured_workspaces (id, name, data_schema, representation_schema, revision)
+		VALUES (?, ?, '{}', '{"version":1,"collections":{}}', 1)
+	`);
+	const insertItem = db.prepare(`
+		INSERT INTO structured_workspace_items (workspace_id, id, position, collection_id, binding_id, document_id)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`);
+	insertWorkspace.run("ws-a", "A");
+	insertWorkspace.run("ws-b", "B");
+	const items: Array<
+		[string, string, number, string, string, string, string, string[]]
+	> = [
+		[
+			"ws-a",
+			"a-1",
+			0,
+			"items",
+			"item",
+			"doc-a-1",
+			"A one",
+			[
+				'{"title":"A one","status":"todo"}',
+				'{"title":"A one","status":"doing"}',
+				'{"title":"A one edited","status":"done"}',
+			],
+		],
+		[
+			"ws-a",
+			"a-2",
+			1,
+			"items",
+			"item",
+			"doc-a-2",
+			"A two",
+			['{"title":"A two","status":"todo"}'],
+		],
+		[
+			"ws-b",
+			"b-1",
+			0,
+			"board",
+			"card",
+			"doc-b-1",
+			"B one",
+			[
+				'{"title":"B one","status":"todo"}',
+				'{"title":"B one","status":"doing"}',
+			],
+		],
+		["ws-b", "b-2", 1, "board", "card", "doc-b-2", "B two", []],
+	];
+	for (const [
+		workspace,
+		id,
+		position,
+		collection,
+		binding,
+		documentId,
+		name,
+		revisions,
+	] of items) {
+		insertDocument.run(
+			name,
+			documentId,
+			revisions.length > 0 ? "state" : "static",
+			canvas,
+			JSON.stringify({
+				structuredWorkspace: {
+					role: "item",
+					workspaceId: workspace,
+					collectionId: collection,
+					itemId: id,
+					bindingId: binding,
+				},
+			}),
+		);
+		if (revisions.length > 0) insertState.run(documentId);
+		for (const [index, data] of revisions.entries())
+			insertRevision.run(documentId, index + 1, data);
+		insertItem.run(workspace, id, position, collection, binding, documentId);
+	}
+	db.prepare(
+		"DELETE FROM document_state_revisions WHERE document_id = 'doc-a-1' AND revision = 1",
+	).run();
+	db.exec("PRAGMA user_version = 20;");
+	return db;
+}
 
 function historicalDatabaseWithoutIds(version: number): DatabaseSync {
 	const db = new DatabaseSync(":memory:");

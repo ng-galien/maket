@@ -1,7 +1,9 @@
+import { DatabaseSync } from "node:sqlite";
 import { parseHTML } from "linkedom";
 import { describe, expect, it, vi } from "vitest";
 import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
+import { createDocumentStateMutations } from "./document-state-mutations.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createItemSources } from "./item-sources/item-sources.js";
@@ -40,8 +42,8 @@ const dataSchema = {
 	oneOf: [{ $ref: "#/$defs/task" }, { $ref: "#/$defs/decision" }],
 };
 
-function fixture() {
-	const store = createSQLiteStore(":memory:");
+function fixture(path = ":memory:") {
+	const store = createSQLiteStore(path);
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const template = createDocument({
@@ -114,8 +116,10 @@ function fixture() {
 	};
 }
 
-function addTask(workspaces: ReturnType<typeof createStructuredWorkspaces>) {
-	return workspaces.addItem({
+async function addTask(
+	workspaces: ReturnType<typeof createStructuredWorkspaces>,
+) {
+	return await workspaces.addItem({
 		workspace: "Delivery",
 		itemId: "task-1",
 		collectionId: "backlog",
@@ -125,8 +129,101 @@ function addTask(workspaces: ReturnType<typeof createStructuredWorkspaces>) {
 	});
 }
 
+describe("StructuredWorkspaces item names and missing data", () => {
+	it("reports in check a document that holds the name reserved for an item", async () => {
+		const { store, documents, workspaces } = fixture();
+		await addTask(workspaces);
+		expect(workspaces.check("Delivery").findings).not.toContainEqual(
+			expect.objectContaining({ path: 'item "task-1"', severity: "error" }),
+		);
+		const intruder = createDocument({
+			name: "Ship the release",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+		});
+		documents.all().set(intruder.name, intruder);
+		documents.persist(intruder.name);
+
+		expect(workspaces.check("Delivery")).toMatchObject({
+			verdict: "not ready",
+		});
+		expect(workspaces.check("Delivery").findings).toContainEqual({
+			severity: "error",
+			object: "item",
+			collection: "backlog",
+			path: 'item "task-1"',
+			message:
+				'Document "Ship the release" holds the name reserved for the document of item "task-1", so the item can be neither opened nor exported.',
+			fix: 'Rename the document "Ship the release"; the name stays reserved for the item.',
+			next: "maket_doc action=rename doc=Ship the release name=<new name>",
+		});
+		store.close();
+	});
+
+	it("keeps listing, rendering and checking a workspace whose item row has no data, and repairs it by update_item", async () => {
+		const path = `file:missing-data-${Date.now()}?mode=memory&cache=shared`;
+		const raw = new DatabaseSync(path);
+		const { store, workspaces, workspace } = fixture(path);
+		await addTask(workspaces);
+		await workspaces.addItem({
+			workspace: "Delivery",
+			itemId: "task-2",
+			collectionId: "backlog",
+			bindingId: "task",
+			documentName: "Write the notes",
+			data: { kind: "task", title: "Notes", done: false },
+		});
+		raw.exec(
+			"UPDATE structured_workspace_items SET data = NULL WHERE id = 'task-1'",
+		);
+
+		const view = workspaces
+			.listViews()
+			.find((candidate) => candidate.id === workspace.id);
+		expect(view?.integrity.status).toBe("ready");
+		expect(view?.items.map((item) => item.id)).toEqual(["task-2"]);
+		const listed = createItemSources({
+			bus: createBus(),
+			documents: createDocuments({ store }),
+			store,
+		})
+			.sourceFor(workspace.id)
+			.list({ collectionId: "backlog", limit: 10 });
+		expect(listed.items[0]).toMatchObject({
+			id: "task-1",
+			fields: {},
+			issues: [{ path: "", rule: "missing", message: "Item data is missing" }],
+		});
+		expect(
+			workspaces.renderCollection(workspace.id, "backlog").pages,
+		).toHaveLength(1);
+		expect(workspaces.check("Delivery").findings).toContainEqual(
+			expect.objectContaining({
+				path: 'item "task-1"',
+				message: 'Item "task-1" has no data in its source.',
+			}),
+		);
+
+		await workspaces.updateItem("Delivery", "task-1", 1, {
+			kind: "task",
+			title: "Ship again",
+			done: false,
+		});
+		expect(
+			workspaces.get("Delivery")?.items.map((item) => item.data.title),
+		).toEqual(["Ship again", "Notes"]);
+		store.close();
+		raw.close();
+	});
+});
+
 describe("StructuredWorkspaces", () => {
-	it("persists normalized template references and instantiates a real state document", () => {
+	it("persists normalized template references and instantiates a real state document", async () => {
 		const {
 			store,
 			documents,
@@ -161,14 +258,26 @@ describe("StructuredWorkspaces", () => {
 			documentStates.get(collectionDocument?.documentName ?? "")?.current,
 		).toMatchObject({ revision: 1, data: { items: [] } });
 
-		const item = addTask(workspaces);
-		const document = documents.resolve(item.documentName);
+		const item = await addTask(workspaces);
+		expect(documents.resolve(item.documentName)).toBeNull();
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toMatchObject({
+			documentName: "Ship the release",
+			documentId: item.documentId,
+			revision: 1,
+			data: { kind: "task", title: "Ship", done: false },
+		});
+		const document = workspaces.openItem(workspace.id, item.documentName);
+		expect(document).toBe(documents.resolve(item.documentName));
 		expect(document).toMatchObject({
+			id: item.documentId,
 			name: "Ship the release",
 			category: "Structured Workspaces/Delivery",
 			dataModel: "state",
 			meta: {
 				structuredWorkspace: {
+					role: "item",
 					workspaceId: workspace.id,
 					collectionId: "backlog",
 					itemId: "task-1",
@@ -198,9 +307,9 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("validates an item against both the workspace union and its concrete binding", () => {
+	it("validates an item against both the workspace union and its concrete binding", async () => {
 		const { store, workspaces } = fixture();
-		expect(() =>
+		await expect(
 			workspaces.addItem({
 				workspace: "Delivery",
 				collectionId: "backlog",
@@ -208,12 +317,12 @@ describe("StructuredWorkspaces", () => {
 				documentName: "Wrong binding",
 				data: { kind: "decision", title: "Choose", outcome: "Go" },
 			}),
-		).toThrow(/Invalid item data/);
+		).rejects.toThrow(/Invalid item data/);
 		expect(workspaces.get("Delivery")?.items).toEqual([]);
 		store.close();
 	});
 
-	it("composes a collection page from item data and its compact template", () => {
+	it("composes a collection page from item data and its compact template", async () => {
 		const { store, documents, workspaces, template, workspace } = fixture();
 		const board = createDocument({
 			name: "Delivery board",
@@ -261,7 +370,7 @@ describe("StructuredWorkspaces", () => {
 				},
 			},
 		});
-		const item = addTask(workspaces);
+		const item = await addTask(workspaces);
 
 		const rendered = workspaces.renderCollection(workspace.id, "backlog");
 		expect(rendered.name).toBe("Delivery — Backlog");
@@ -283,7 +392,7 @@ describe("StructuredWorkspaces", () => {
 
 	it.each(["HTML", "SVG"] as const)(
 		"composes a clickable SVG compact card in an %s collection slot, including cached renders",
-		(destination) => {
+		async (destination) => {
 			const { store, documents, workspaces, template, workspace } = fixture();
 			const board = createDocument({
 				name: "SVG collection",
@@ -334,7 +443,7 @@ describe("StructuredWorkspaces", () => {
 					},
 				},
 			});
-			const item = addTask(workspaces);
+			const item = await addTask(workspaces);
 			for (let pass = 0; pass < 2; pass += 1) {
 				const rendered = workspaces.renderCollection(workspace.id, "backlog");
 				const dom = parseHTML(
@@ -421,9 +530,9 @@ describe("StructuredWorkspaces", () => {
 		},
 	);
 
-	it("updates item data with optimistic revisions", () => {
-		const { store, documentStates, workspaces } = fixture();
-		addTask(workspaces);
+	it("updates item data with optimistic revisions", async () => {
+		const { store, documentStates, workspaces, workspace } = fixture();
+		await addTask(workspaces);
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
 		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
@@ -432,14 +541,20 @@ describe("StructuredWorkspaces", () => {
 				data: { items: [{ kind: "task", title: "Ship", done: false }] },
 			},
 		);
-		expect(
+		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
 				kind: "task",
 				title: "Ship now",
 				done: true,
 			}),
-		).toMatchObject({
+		).resolves.toMatchObject({
 			dataRevision: 2,
+			data: { kind: "task", title: "Ship now", done: true },
+		});
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toMatchObject({
+			revision: 2,
 			data: { kind: "task", title: "Ship now", done: true },
 		});
 		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
@@ -448,19 +563,32 @@ describe("StructuredWorkspaces", () => {
 				data: { items: [{ kind: "task", title: "Ship now", done: true }] },
 			},
 		);
-		expect(() =>
+		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
 				kind: "task",
 				title: "Stale",
 				done: false,
 			}),
-		).toThrow(/expected 1, current 2/);
+		).rejects.toThrow(
+			"Document state revision conflict: expected 1, current 2.",
+		);
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toMatchObject({ revision: 2, data: { title: "Ship now" } });
 		store.close();
 	});
 
-	it("cascades generic live-document updates into the collection state", () => {
-		const { store, bus, documentStates, workspaces, workspace } = fixture();
-		const item = addTask(workspaces);
+	it("cascades generic live-document updates into the collection state", async () => {
+		const { store, bus, documents, documentStates, workspaces, workspace } =
+			fixture();
+		const mutations = createDocumentStateMutations({
+			documentStates,
+			documents,
+			store,
+			structuredWorkspaces: workspaces,
+		});
+		const item = await addTask(workspaces);
+		workspaces.openItem(workspace.id, item.documentName);
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
 		const changed = vi.fn();
@@ -468,10 +596,15 @@ describe("StructuredWorkspaces", () => {
 		bus.on("structured-workspace:changed", changed);
 		bus.on("structured-workspace:item-changed", itemChanged);
 
-		documentStates.update(item.documentName, 1, {
-			kind: "task",
-			title: "Ship from live controls",
-			done: true,
+		await expect(
+			mutations.update(item.documentName, 1, {
+				kind: "task",
+				title: "Ship from live controls",
+				done: true,
+			}),
+		).resolves.toMatchObject({
+			revision: 2,
+			data: { title: "Ship from live controls" },
 		});
 
 		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
@@ -493,12 +626,32 @@ describe("StructuredWorkspaces", () => {
 			dataRevision: 2,
 			data: { title: "Ship from live controls" },
 		});
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toMatchObject({
+			revision: 2,
+			data: { title: "Ship from live controls" },
+		});
+		expect(documentStates.history(item.documentName)).toEqual([
+			expect.objectContaining({
+				revision: 2,
+				data: { kind: "task", title: "Ship from live controls", done: true },
+			}),
+		]);
 		store.close();
 	});
 
-	it("rebuilds a drifted collection projection and announces the whole Workspace", () => {
-		const { store, bus, documentStates, workspaces, workspace } = fixture();
-		const item = addTask(workspaces);
+	it("rebuilds a drifted collection projection and announces the whole Workspace", async () => {
+		const { store, bus, documents, documentStates, workspaces, workspace } =
+			fixture();
+		const mutations = createDocumentStateMutations({
+			documentStates,
+			documents,
+			store,
+			structuredWorkspaces: workspaces,
+		});
+		const item = await addTask(workspaces);
+		workspaces.openItem(workspace.id, item.documentName);
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0];
 		if (!collectionDocument) throw new Error("Collection projection missing.");
@@ -513,7 +666,7 @@ describe("StructuredWorkspaces", () => {
 		bus.on("structured-workspace:changed", changed);
 		bus.on("structured-workspace:item-changed", itemChanged);
 
-		documentStates.update(item.documentName, 1, {
+		await mutations.update(item.documentName, 1, {
 			kind: "task",
 			title: "Ship after drift",
 			done: false,
@@ -529,10 +682,17 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("updates schemas and template bindings with workspace revision control", () => {
-		const { store, documents, documentStates, workspaces, collectionTemplate } =
-			fixture();
-		const item = addTask(workspaces);
+	it("updates schemas and template bindings with workspace revision control", async () => {
+		const {
+			store,
+			documents,
+			documentStates,
+			workspaces,
+			collectionTemplate,
+			workspace,
+		} = fixture();
+		const item = await addTask(workspaces);
+		workspaces.openItem(workspace.id, item.documentName);
 		const alternate = createDocument({
 			name: "Alternate task template",
 			canvas: {
@@ -595,9 +755,14 @@ describe("StructuredWorkspaces", () => {
 		});
 		expect(schemaUpdated.revision).toBe(3);
 		expect(documentStates.get(item.documentName)?.current).toMatchObject({
-			revision: 2,
+			revision: 1,
 			schema: expandedTaskSchema,
+			data: { kind: "task", title: "Ship", done: false },
 		});
+		expect(documentStates.history(item.documentName)).toHaveLength(1);
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1")?.revision,
+		).toBe(1);
 		expect(() =>
 			workspaces.updateDefinition({
 				workspace: "Delivery",
@@ -608,9 +773,9 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("rejects removing a binding that is still used by an item", () => {
+	it("rejects removing a binding that is still used by an item", async () => {
 		const { store, workspaces } = fixture();
-		addTask(workspaces);
+		await addTask(workspaces);
 		expect(() =>
 			workspaces.updateDefinition({
 				workspace: "Delivery",
@@ -636,7 +801,7 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("synchronizes template pages and preserves instance-owned pages", () => {
+	it("synchronizes template pages and preserves instance-owned pages", async () => {
 		const {
 			store,
 			bus,
@@ -648,8 +813,8 @@ describe("StructuredWorkspaces", () => {
 		} = fixture();
 		const loaded = vi.fn();
 		bus.on("document:loaded", loaded);
-		const item = addTask(workspaces);
-		const document = documents.resolve(item.documentName);
+		const item = await addTask(workspaces);
+		const document = workspaces.openItem(workspace.id, item.documentName);
 		if (!document) throw new Error("Instantiated document missing.");
 		const collectionDocumentName =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
@@ -727,10 +892,10 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("rejects an incompatible template update without changing the instance", () => {
-		const { store, documents, workspaces, template } = fixture();
-		const item = addTask(workspaces);
-		const document = documents.resolve(item.documentName);
+	it("rejects an incompatible template update without changing the instance", async () => {
+		const { store, documents, workspaces, template, workspace } = fixture();
+		const item = await addTask(workspaces);
+		const document = workspaces.openItem(workspace.id, item.documentName);
 		if (!document || !template.pages[0]) throw new Error("Fixture incomplete.");
 		const previous = structuredClone(document.pages);
 		template.pages[0].html =
@@ -743,13 +908,27 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("deletes the item and its instantiated document together", () => {
-		const { store, documents, documentStates, workspaces } = fixture();
-		const item = addTask(workspaces);
+	it("deletes the item and its instantiated document together", async () => {
+		const { store, bus, documents, documentStates, workspaces, workspace } =
+			fixture();
+		const item = await addTask(workspaces);
+		const document = workspaces.openItem(workspace.id, item.documentName);
+		expect(document?.id).toBe(item.documentId);
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
-		expect(workspaces.deleteItem("Delivery", "task-1")).toBe(true);
+		const deletedDocuments = vi.fn();
+		bus.on("document:deleted", deletedDocuments);
+		await expect(workspaces.deleteItem("Delivery", "task-1")).resolves.toBe(
+			true,
+		);
 		expect(documents.resolve(item.documentName)).toBeNull();
+		expect(store.loadOne(item.documentName)).toBeNull();
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toBeNull();
+		expect(deletedDocuments).toHaveBeenCalledWith({
+			docName: item.documentName,
+		});
 		expect(workspaces.get("Delivery")?.items).toEqual([]);
 		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
 			{
@@ -757,10 +936,20 @@ describe("StructuredWorkspaces", () => {
 				data: { items: [] },
 			},
 		);
+
+		const unopened = await addTask(workspaces);
+		await expect(workspaces.deleteItem("Delivery", "task-1")).resolves.toBe(
+			true,
+		);
+		expect(documents.resolve(unopened.documentName)).toBeNull();
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toBeNull();
+		expect(deletedDocuments).toHaveBeenCalledTimes(1);
 		store.close();
 	});
 
-	it("keeps incomplete Workspaces visible while withholding projections", () => {
+	it("keeps incomplete Workspaces visible while withholding projections", async () => {
 		const { store, documents, documentStates, bus } = fixture();
 		const workspaces = structuredWorkspacesWithSources({
 			store,
@@ -801,7 +990,7 @@ describe("StructuredWorkspaces", () => {
 		expect(workspaces.list().map((workspace) => workspace.id)).toContain(
 			incomplete.id,
 		);
-		expect(() =>
+		await expect(
 			workspaces.addItem({
 				workspace: incomplete.id,
 				collectionId: "missing",
@@ -809,15 +998,15 @@ describe("StructuredWorkspaces", () => {
 				documentName: "Blocked projection",
 				data: {},
 			}),
-		).toThrow(/is incomplete/);
+		).rejects.toThrow(/is incomplete/);
 		store.close();
 	});
 
-	it("renames by stable identity without regenerating documents", () => {
+	it("renames by stable identity without regenerating documents", async () => {
 		const { store, documents, documentStates, workspaces, workspace } =
 			fixture();
-		const item = addTask(workspaces);
-		const itemDocument = documents.resolve(item.documentName);
+		const item = await addTask(workspaces);
+		const itemDocument = workspaces.openItem(workspace.id, item.documentName);
 		const collection = workspaces.get(workspace.id)?.collectionDocuments[0];
 		if (!itemDocument || !collection) throw new Error("Fixture incomplete.");
 		const collectionDocument = documents.resolve(collection.documentName);
@@ -862,10 +1051,14 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("deletes the aggregate cascade without touching global resources", () => {
+	it("deletes the aggregate cascade without touching global resources", async () => {
 		const { store, documents, workspaces, workspace, template } = fixture();
-		const item = addTask(workspaces);
-		const itemDocumentId = documents.resolve(item.documentName)?.id;
+		const item = await addTask(workspaces);
+		const itemDocumentId = workspaces.openItem(
+			workspace.id,
+			item.documentName,
+		)?.id;
+		expect(itemDocumentId).toBe(item.documentId);
 		const collection = workspaces.get(workspace.id)?.collectionDocuments[0];
 		if (!collection) throw new Error("Collection document missing.");
 		const free = createDocument({ name: "Free", canvas: template.canvas });
@@ -916,6 +1109,9 @@ describe("StructuredWorkspaces", () => {
 		expect(
 			itemDocumentId ? store.loadDocumentState(itemDocumentId) : null,
 		).toBeNull();
+		expect(
+			store.loadStructuredWorkspaceItem(workspace.id, "task-1"),
+		).toBeNull();
 		expect(store.loadAnnotations()).toEqual([
 			expect.objectContaining({ id: "free-note", docName: free.name }),
 		]);
@@ -927,7 +1123,7 @@ describe("StructuredWorkspaces", () => {
 		store.close();
 	});
 
-	it("rejects rename collisions without partially moving the aggregate", () => {
+	it("renames around a taken collection document name with a deterministic suffix, leaving the other document untouched", async () => {
 		const { store, documents, workspaces, workspace, template } = fixture();
 		const collision = createDocument({
 			name: "Operations — Backlog",
@@ -936,16 +1132,13 @@ describe("StructuredWorkspaces", () => {
 		documents.all().set(collision.name, collision);
 		documents.persist(collision.name);
 
-		expect(() => workspaces.rename(workspace.id, "Operations", 1)).toThrow(
-			'Document "Operations — Backlog" already exists.',
+		const renamed = workspaces.rename(workspace.id, "Operations", 1);
+		expect(renamed).toMatchObject({ name: "Operations", revision: 2 });
+		expect(renamed.collectionDocuments[0]?.documentName).toBe(
+			"Operations — Backlog 2",
 		);
-		expect(workspaces.get(workspace.id)).toMatchObject({
-			name: "Delivery",
-			revision: 1,
-		});
-		expect(
-			workspaces.get(workspace.id)?.collectionDocuments[0]?.documentName,
-		).toBe("Delivery — Backlog");
+		expect(documents.resolve("Operations — Backlog")?.id).toBe(collision.id);
+		expect(documents.resolve("Delivery — Backlog")).toBeNull();
 		store.close();
 	});
 });
@@ -1052,12 +1245,12 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		return slot < 3 ? "live" : slot < 6 ? "paused" : "dormant";
 	}
 
-	function addProjects(
+	async function addProjects(
 		workspaces: ReturnType<typeof createStructuredWorkspaces>,
 		count: number,
 	) {
 		for (let index = 0; index < count; index += 1) {
-			workspaces.addItem({
+			await workspaces.addItem({
 				workspace: "Portfolio",
 				itemId: `project-${index}`,
 				collectionId: "projects",
@@ -1084,13 +1277,13 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		};
 	}
 
-	it("lays out 80 items group by group and flows them onto further pages", () => {
+	it("lays out 80 items group by group and flows them onto further pages", async () => {
 		const { store, workspaces, workspace } = groupedFixture({
 			groupBy: "/status",
 			groupOrder: ["dormant", "live"],
 			pageSize: 24,
 		});
-		addProjects(workspaces, 80);
+		await addProjects(workspaces, 80);
 
 		const rendered = workspaces.renderCollection(workspace.id, "projects");
 		const pages = rendered.pages.map((page) => pageSummary(page.html));
@@ -1121,19 +1314,19 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 
-	it("re-renders the flowed pages when items change", () => {
+	it("re-renders the flowed pages when items change", async () => {
 		const { store, workspaces, workspace } = groupedFixture({
 			groupBy: "/status",
 			pageSize: 10,
 		});
-		addProjects(workspaces, 10);
+		await addProjects(workspaces, 10);
 		expect(
 			workspaces
 				.renderCollection(workspace.id, "projects")
 				.pages.map((page) => pageSummary(page.html).headers),
 		).toEqual([["live:5", "paused:3", "dormant:2"]]);
 
-		workspaces.addItem({
+		await workspaces.addItem({
 			workspace: "Portfolio",
 			itemId: "project-extra",
 			collectionId: "projects",
@@ -1149,9 +1342,9 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 
-	it("keeps one page without groupBy", () => {
+	it("keeps one page without groupBy", async () => {
 		const { store, workspaces, workspace } = groupedFixture({});
-		addProjects(workspaces, 30);
+		await addProjects(workspaces, 30);
 		const rendered = workspaces.renderCollection(workspace.id, "projects");
 		expect(rendered.pages).toHaveLength(1);
 		expect(pageSummary(rendered.pages[0]?.html)).toMatchObject({
@@ -1163,13 +1356,13 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 
 	it.each([undefined, "/status"])(
 		"keeps all AUTO cards on one continuous page with groupBy=%s",
-		(groupBy) => {
+		async (groupBy) => {
 			const pages = vi.fn(() => [{ "0": [0, 1] as [number, number] }]);
 			const { store, workspaces, workspace } = groupedFixture(
 				groupBy ? { groupBy, pageSize: 2 } : {},
 				{ auto: true, pageFlow: { pages } },
 			);
-			addProjects(workspaces, 13);
+			await addProjects(workspaces, 13);
 			const rendered = workspaces.renderCollection(workspace.id, "projects");
 			expect(rendered.canvas).toMatchObject({ format: "AUTO", w: 80, h: 1 });
 			expect(rendered.pages).toHaveLength(1);
@@ -1182,7 +1375,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		},
 	);
 
-	it("still applies physical page flow to fixed-height collection pages", () => {
+	it("still applies physical page flow to fixed-height collection pages", async () => {
 		const pages = vi.fn(() => [
 			{ "0": [0, 1] as [number, number] },
 			{ "0": [1, null] as [number, null] },
@@ -1191,7 +1384,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			{},
 			{ pageFlow: { pages } },
 		);
-		addProjects(workspaces, 3);
+		await addProjects(workspaces, 3);
 		const rendered = workspaces.renderCollection(workspace.id, "projects");
 		expect(pages).toHaveBeenCalledTimes(1);
 		expect(
@@ -1200,12 +1393,12 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 
-	function addPlacedProjects(
+	async function addPlacedProjects(
 		workspaces: ReturnType<typeof createStructuredWorkspaces>,
 		projects: Array<[string, string, number | undefined]>,
 	) {
 		for (const [name, status, place] of projects) {
-			workspaces.addItem({
+			await workspaces.addItem({
 				workspace: "Portfolio",
 				itemId: name,
 				collectionId: "projects",
@@ -1229,13 +1422,13 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			.pages.map((page) => pageSummary(page.html));
 	}
 
-	it("sorts the cards of each group by sortBy, re-evaluated on item and definition changes", () => {
+	it("sorts the cards of each group by sortBy, re-evaluated on item and definition changes", async () => {
 		const { store, workspaces, workspace } = groupedFixture({
 			groupBy: "/status",
 			groupOrder: ["live", "paused"],
 			sortBy: "/place",
 		});
-		addPlacedProjects(workspaces, [
+		await addPlacedProjects(workspaces, [
 			["P-a", "paused", 2],
 			["L-a", "live", 3],
 			["L-b", "live", undefined],
@@ -1254,7 +1447,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			.get(workspace.id)
 			?.items.find((candidate) => candidate.id === "L-a");
 		if (!item) throw new Error("Item L-a missing.");
-		workspaces.updateItem("Portfolio", "L-a", item.dataRevision, {
+		await workspaces.updateItem("Portfolio", "L-a", item.dataRevision, {
 			title: "L-a",
 			status: "live",
 			place: 0,
@@ -1294,9 +1487,9 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 
-	it("sorts the whole slot by sortBy without groupBy and keeps insertion order without sortBy", () => {
+	it("sorts the whole slot by sortBy without groupBy and keeps insertion order without sortBy", async () => {
 		const sorted = groupedFixture({ sortBy: "/place" });
-		addPlacedProjects(sorted.workspaces, [
+		await addPlacedProjects(sorted.workspaces, [
 			["A", "live", 3],
 			["B", "paused", 1],
 			["C", "dormant", 2],
@@ -1307,7 +1500,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		sorted.store.close();
 
 		const unsorted = groupedFixture({ groupBy: "/status" });
-		addPlacedProjects(unsorted.workspaces, [
+		await addPlacedProjects(unsorted.workspaces, [
 			["A", "live", 3],
 			["B", "live", 1],
 			["C", "live", 2],
@@ -1318,7 +1511,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		unsorted.store.close();
 	});
 
-	it("reports an invalid sort as an incomplete definition", () => {
+	it("reports an invalid sort as an incomplete definition", async () => {
 		const { store, workspaces } = groupedFixture({
 			sortBy: "place",
 			sortDirection: "upward" as "ascending",
@@ -1333,7 +1526,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		store.close();
 	});
 
-	it("reports invalid grouping as an incomplete definition", () => {
+	it("reports invalid grouping as an incomplete definition", async () => {
 		const { store, workspaces } = groupedFixture({
 			groupBy: "status",
 			pageSize: 0,
@@ -1350,7 +1543,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 });
 
 describe("StructuredWorkspaces compact template styles", () => {
-	it("keeps the compact template style sheet once per page, scoped to its cards", () => {
+	it("keeps the compact template style sheet once per page, scoped to its cards", async () => {
 		const store = createSQLiteStore(":memory:");
 		const bus = createBus();
 		const documents = createDocuments({ store });
@@ -1425,7 +1618,7 @@ describe("StructuredWorkspaces compact template styles", () => {
 			},
 		});
 		for (const title of ["Maket", "Topic graph", "Corpus"]) {
-			workspaces.addItem({
+			await workspaces.addItem({
 				workspace: "Topics",
 				collectionId: "topics",
 				bindingId: "topic",
@@ -1492,7 +1685,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		return { store, bus, documents, documentStates, workspaces };
 	}
 
-	it("creates a ready Workspace from a data schema alone, its templates in the Workspace category", () => {
+	it("creates a ready Workspace from a data schema alone, its templates in the Workspace category", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1520,7 +1713,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("refuses an incomplete create with one finding per error and persists nothing", () => {
+	it("refuses an incomplete create with one finding per error and persists nothing", async () => {
 		const { store, documents, workspaces } = bare();
 		let refusal: unknown;
 		try {
@@ -1565,7 +1758,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("persists an incomplete definition only with allowIncomplete", () => {
+	it("persists an incomplete definition only with allowIncomplete", async () => {
 		const { store, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1582,7 +1775,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("keeps the previous definition when an update has errors", () => {
+	it("keeps the previous definition when an update has errors", async () => {
 		const { store, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1607,7 +1800,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("regenerates templates whose references no longer resolve, so check's fix reaches ready", () => {
+	it("regenerates templates whose references no longer resolve, so check's fix reaches ready", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1649,7 +1842,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("deletes the generated templates a new definition replaces, without numbered leftovers", () => {
+	it("deletes the generated templates a new definition replaces, without numbered leftovers", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1711,7 +1904,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		return { template, collection };
 	}
 
-	it("generates the index from the schema alone as a narrow content-height page and keeps the other templates A4", () => {
+	it("generates the index from the schema alone as a narrow content-height page and keeps the other templates A4", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1736,7 +1929,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("keeps an inline index HTML on its A4 page", () => {
+	it("keeps an inline index HTML on its A4 page", async () => {
 		const { store, documents, workspaces } = bare();
 		workspaces.create({
 			name: "Books",
@@ -1757,7 +1950,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("gives a generated A4 index the narrow page through check's fix, sync_template", () => {
+	it("gives a generated A4 index the narrow page through check's fix, sync_template", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1798,7 +1991,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("gives a generated A4 index the narrow page at the next update_definition", () => {
+	it("gives a generated A4 index the narrow page at the next update_definition", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1819,7 +2012,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("leaves an index the agent wrote inline or edited on its page", () => {
+	it("leaves an index the agent wrote inline or edited on its page", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1854,7 +2047,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 				candidate.message.includes("unreadable in the list pane"),
 			);
 
-	it("leaves a narrow generated index whose title or canvas alone the agent changed", () => {
+	it("leaves a narrow generated index whose title or canvas alone the agent changed", async () => {
 		for (const change of ["title", "canvas"] as const) {
 			const { store, documents, workspaces } = bare();
 			const workspace = workspaces.create({
@@ -1884,7 +2077,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		}
 	});
 
-	it("never treats an inline index HTML as generated, even equal to the former generated markup", () => {
+	it("never treats an inline index HTML as generated, even equal to the former generated markup", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1928,7 +2121,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("tells to unlock a locked generated A4 index, and the warning clears once synchronized", () => {
+	it("tells to unlock a locked generated A4 index, and the warning clears once synchronized", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
@@ -1955,7 +2148,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("shows Unicode property names and reports every property the generated templates leave out", () => {
+	it("shows Unicode property names and reports every property the generated templates leave out", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Livres",
@@ -1993,7 +2186,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("points a oneOf binding at a concrete branch", () => {
+	it("points a oneOf binding at a concrete branch", async () => {
 		const { store, documents, workspaces } = bare();
 		const generated = workspaces.create({ name: "Delivery", dataSchema });
 		expect(workspaces.check(generated.id).findings).toEqual(
@@ -2073,7 +2266,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("suggests an existing branch for a oneOf root without definitions, and following it reaches ready", () => {
+	it("suggests an existing branch for a oneOf root without definitions, and following it reaches ready", async () => {
 		const { store, documents, workspaces } = bare();
 		const alternatives = {
 			oneOf: [
@@ -2144,7 +2337,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("returns released named templates to the category they had, or to Templates", () => {
+	it("returns released named templates to the category they had, or to Templates", async () => {
 		const { store, documents, workspaces } = bare();
 		const canvas = {
 			format: "A4",
@@ -2232,26 +2425,35 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
-	it("checks item data, item documents and template synchronization", () => {
+	it("checks item data, item documents and template synchronization", async () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
 		});
-		const first = workspaces.addItem({
+		const first = await workspaces.addItem({
 			workspace: workspace.id,
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Dune",
 			data: { title: "Dune", status: "open" },
 		});
-		const second = workspaces.addItem({
+		const second = await workspaces.addItem({
 			workspace: workspace.id,
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Emma",
 			data: { title: "Emma", status: "done" },
 		});
+		expect(workspaces.check(workspace.id)).toEqual({
+			workspace: "Books",
+			verdict: "ready",
+			findings: [],
+		});
+		for (const item of [first, second])
+			expect(workspaces.openItem(workspace.id, item.documentName)?.id).toBe(
+				item.documentId,
+			);
 		expect(workspaces.check(workspace.id)).toEqual({
 			workspace: "Books",
 			verdict: "ready",
@@ -2275,9 +2477,10 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const detail = documents.resolve("Books — Items — detail template");
 		if (!detail?.pages[0]) throw new Error("Detail missing.");
 		detail.pages[0].html = `${detail.pages[0].html}<p data-id="note">Note</p>`;
-		const resolveById = documents.resolveById.bind(documents);
-		vi.spyOn(documents, "resolveById").mockImplementation((id) =>
-			id === first.documentId ? null : resolveById(id),
+		const loadItem = store.loadStructuredWorkspaceItem.bind(store);
+		vi.spyOn(store, "loadStructuredWorkspaceItem").mockImplementation(
+			(workspaceId, itemId) =>
+				itemId === first.id ? null : loadItem(workspaceId, itemId),
 		);
 		const check = workspaces.check(workspace.id);
 		expect(check.verdict).toBe("not ready");
@@ -2287,8 +2490,11 @@ describe("StructuredWorkspaces definition control and check", () => {
 					severity: "error",
 					object: "item",
 					path: `item "${first.id}"`,
-					message: `Item "${first.id}" has no document.`,
-					next: expect.stringContaining("action=delete_item"),
+					message: `Item "${first.id}" has no data in its source.`,
+					fix: "Write the item data with update_item; it keeps the item id and position.",
+					next: expect.stringContaining(
+						`action=update_item workspace=${workspace.id} item=${first.id}`,
+					),
 				}),
 				expect.objectContaining({
 					severity: "error",
@@ -2315,12 +2521,7 @@ function structuredWorkspacesWithSources(
 ): StructuredWorkspaces {
 	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
 	return workspaces;
 }

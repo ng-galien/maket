@@ -70,10 +70,14 @@ export interface WorkspaceMethodPath {
 export interface WorkspaceFailure {
 	title: string;
 	/** Calls that lead to it, run in order on a fresh Maket. A step named
-	 * `edit-template` or `move-template` stands for a manual change. */
+	 * `edit-template` or `move-template` stands for a manual change,
+	 * `open-item` for the user opening an item in Maket. */
 	steps: Array<
 		| Pick<WorkspaceMethodStep, "tool" | "args">
-		| { manual: "edit-template" | "move-template"; document: string }
+		| {
+				manual: "edit-template" | "move-template" | "open-item";
+				document: string;
+		  }
 	>;
 	seen: string;
 	why: string;
@@ -505,6 +509,7 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		steps: [
 			createReading(),
 			addDune,
+			{ manual: "open-item", document: "Dune" },
 			{
 				manual: "edit-template",
 				document: "Reading list — Items — detail template",
@@ -512,7 +517,7 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 			checkReading,
 		],
 		seen: 'Template-controlled pages of collection "items" differ from their templates.',
-		why: "A template document was edited after items were instantiated.",
+		why: "A template document was edited after an item was opened, which instantiated its document.",
 		fix: "Call sync_template with the workspace and collection given as `next`.",
 	},
 	{

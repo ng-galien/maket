@@ -28,6 +28,7 @@ import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { Store } from "../services/store.js";
+import { isStructuredWorkspaceItem } from "../services/structured-workspace-policy.js";
 import {
 	computeCanvasDims,
 	createDocument,
@@ -270,7 +271,7 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 // MCP tool action `runNew`: edge adapter over services/store/bus, not domain ownership.
 function runNew(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=new", true);
-	if (documents.all().has(args.doc))
+	if (documents.nameTaken(args.doc))
 		return text(`Document "${args.doc}" already exists`, true);
 	const fmt = args.format || "A3";
 	const orient = args.orientation || "portrait";
@@ -394,7 +395,13 @@ function runLookup(args: Args, documents: Documents, store: Store) {
 	const timestamps = store.listTimestamps();
 	const doc = documents.resolveOrLoad(args.doc);
 	if (!doc) {
-		const near = nearDocumentNames(args.doc, [...timestamps.keys()]);
+		const near = nearDocumentNames(
+			args.doc,
+			[...timestamps.keys()].filter((name) => {
+				const candidate = documents.resolve(name);
+				return !candidate || !isStructuredWorkspaceItem(candidate);
+			}),
+		);
 		return text(
 			near.length
 				? `Document "${args.doc}" not found. Near matches: ${near.map((name) => `"${name}"`).join(", ")}.`
@@ -589,7 +596,7 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 			true,
 		);
 	}
-	if (documents.all().has(args.name))
+	if (documents.nameTaken(args.name))
 		return text(`Document "${args.name}" already exists`, true);
 	const cloneData = structuredClone({
 		name: args.name,
@@ -668,7 +675,7 @@ function runRename(args: Args, documents: Documents, bus: Bus) {
 	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
-	if (documents.all().has(args.name))
+	if (documents.nameTaken(args.name))
 		return text(`Document "${args.name}" already exists`, true);
 	const oldName = d.name;
 	documents.rename(oldName, args.name);

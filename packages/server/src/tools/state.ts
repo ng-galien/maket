@@ -127,7 +127,7 @@ export function createMaketStateTool({
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP edge validates input, applies the cross-cutting lock, then delegates.
-function handleStateTool(
+async function handleStateTool(
 	rawArgs: unknown,
 	documentStates: DocumentStates,
 	documentStateMutations: DocumentStateMutations,
@@ -150,7 +150,11 @@ function handleStateTool(
 				if (locked) return locked;
 			}
 		}
-		return runStateAction(parsed.data, documentStates, documentStateMutations);
+		return await runStateAction(
+			parsed.data,
+			documentStates,
+			documentStateMutations,
+		);
 	} catch (error) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}
@@ -169,7 +173,7 @@ function isMutation(action: Args["action"]): boolean {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP dispatcher translates action contracts into the dedicated domain service.
-function runStateAction(
+async function runStateAction(
 	args: Args,
 	states: DocumentStates,
 	mutations: DocumentStateMutations,
@@ -203,7 +207,7 @@ function runStateAction(
 			);
 		}
 		case "update": {
-			const revision = mutations.update(
+			const revision = await mutations.update(
 				args.doc,
 				requiredExpectedRevision(args),
 				requiredData(args),
@@ -213,7 +217,7 @@ function runStateAction(
 			);
 		}
 		case "patch": {
-			const revision = mutations.patch(
+			const revision = await mutations.patch(
 				args.doc,
 				requiredExpectedRevision(args),
 				requiredPatch(args),

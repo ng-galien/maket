@@ -67,7 +67,10 @@ export interface BundleExportServiceDeps {
 	collections: Pick<Collections, "referencedBy">;
 	store: Store;
 	config: Config;
-	structuredWorkspaces?: Pick<StructuredWorkspaces, "list">;
+	structuredWorkspaces?: Pick<
+		StructuredWorkspaces,
+		"list" | "materializeItemDocuments" | "releaseItemDocuments"
+	>;
 	stateRenderSlots?: Pick<StateRenderSlots, "forDocument">;
 }
 
@@ -75,8 +78,23 @@ export function createBundleExportService(
 	deps: BundleExportServiceDeps,
 ): BundleExportService {
 	return {
-		build: (options) => buildBundle(deps, options),
+		build: (options) => buildWithItemDocuments(deps, options),
 	};
+}
+
+/** A bundle built with the item documents it needs: the missing ones are
+ * created for it and removed once it is written. */
+async function buildWithItemDocuments(
+	deps: BundleExportServiceDeps,
+	options: BundleExportOptions = {},
+): Promise<BundleExportResult> {
+	const created =
+		deps.structuredWorkspaces?.materializeItemDocuments(options.names) ?? [];
+	try {
+		return await buildBundle(deps, options);
+	} finally {
+		deps.structuredWorkspaces?.releaseItemDocuments(created);
+	}
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]

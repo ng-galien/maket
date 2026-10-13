@@ -126,7 +126,7 @@ describe("createAppContainer", () => {
 			name: "Registry",
 			dataSchema: { type: "object", properties: { title: { type: "string" } } },
 		});
-		workspaces.addItem({
+		await workspaces.addItem({
 			workspace: workspace.id,
 			itemId: "one",
 			collectionId: "items",

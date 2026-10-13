@@ -16,3 +16,12 @@ export function documentDuplicationBlockMessage(
 	}
 	return `Document "${document.name}" is state-backed or owned by a Structured Workspace and cannot be duplicated.`;
 }
+
+/** Whether a document renders one Structured Workspace item; such documents
+ * stay out of the library and of document search. */
+export function isStructuredWorkspaceItem(document: Document): boolean {
+	const owner = document.meta.structuredWorkspace;
+	if (!owner || owner.role === "collection" || owner.role === "template")
+		return false;
+	return Boolean(owner.itemId);
+}

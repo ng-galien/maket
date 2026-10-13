@@ -73,22 +73,23 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const documentStates = createDocumentStates({ store, documents, bus });
-	const documentStateMutations = createDocumentStateMutations({
-		store,
-		documents,
-		documentStates,
-	});
-	const pending = createAnnotations({ bus, store });
-	const wsRegistry = createWsRegistry();
-	const documentRenderer = opts.documentRenderer ?? rendererStub();
-	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
-	const assets = createAssetsService({ assetsDir });
 	const structuredWorkspaces = structuredWorkspacesWithSources({
 		bus,
 		documents,
 		documentStates,
 		store,
 	});
+	const documentStateMutations = createDocumentStateMutations({
+		store,
+		documents,
+		documentStates,
+		structuredWorkspaces,
+	});
+	const pending = createAnnotations({ bus, store });
+	const wsRegistry = createWsRegistry();
+	const documentRenderer = opts.documentRenderer ?? rendererStub();
+	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
+	const assets = createAssetsService({ assetsDir });
 	const handler = createWsHandler({
 		assets,
 		bus,
@@ -123,6 +124,11 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 
 const STUB_WS: any = { readyState: 1, send() {} };
 
+/** Let an asynchronous `state_patch` answer settle. */
+function settled(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("ws-handler — viewer and optional form boundaries", () => {
 	it("refuses viewer mutation commands while allowing document loading", () => {
 		const f = fixture();
@@ -148,7 +154,7 @@ describe("ws-handler — viewer and optional form boundaries", () => {
 			f.dispose();
 		}
 	});
-	it("adds an absent optional field through the bound live form endpoint", () => {
+	it("adds an absent optional field through the bound live form endpoint", async () => {
 		const f = fixture();
 		const ws = { send: vi.fn() } as any;
 		try {
@@ -173,6 +179,7 @@ describe("ws-handler — viewer and optional form boundaries", () => {
 				},
 				ws,
 			);
+			await settled();
 			expect(f.documentStates.get(document.name)?.current.data).toEqual({
 				title: "New title",
 			});
@@ -189,6 +196,7 @@ describe("ws-handler — viewer and optional form boundaries", () => {
 				},
 				ws,
 			);
+			await settled();
 			expect(f.documentStates.get(document.name)?.current.data).toEqual({
 				title: "New title",
 			});
@@ -400,7 +408,7 @@ describe("ws-handler — annotation edit and removal", () => {
 });
 
 describe("ws-handler — living document state", () => {
-	it("rejects collection projection writes and aggregate-invalid item writes without revisions", () => {
+	it("rejects collection projection writes and aggregate-invalid item writes without revisions", async () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const collection = makeDoc("Delivery — Backlog");
 		collection.meta.structuredWorkspace = {
@@ -454,6 +462,8 @@ describe("ws-handler — living document state", () => {
 			collectionId: "backlog",
 			bindingId: "task",
 			documentId: item.id,
+			documentName: item.name,
+			data: { kind: "task", title: "Ship" },
 		});
 		documentStates.initialize(
 			collection.name,
@@ -501,6 +511,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(documentStates.get(collection.name)?.current.revision).toBe(
 			collectionRevision,
@@ -529,7 +540,7 @@ describe("ws-handler — living document state", () => {
 		dispose();
 	});
 
-	it("replaces one terminal value and acknowledges the resulting revision", () => {
+	it("replaces one terminal value and acknowledges the resulting revision", async () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const doc = makeDoc("checklist");
 		const page = doc.pages[0];
@@ -558,6 +569,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(documentStates.get("checklist")?.current).toMatchObject({
 			revision: 2,
@@ -572,7 +584,7 @@ describe("ws-handler — living document state", () => {
 		dispose();
 	});
 
-	it("replaces text and select string values through the same terminal endpoint", () => {
+	it("replaces text and select string values through the same terminal endpoint", async () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const doc = makeDoc("form-controls");
 		const page = doc.pages[0];
@@ -605,6 +617,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 		handler(
 			{
 				type: "state_patch",
@@ -615,6 +628,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(documentStates.get("form-controls")?.current).toMatchObject({
 			revision: 3,
@@ -633,7 +647,7 @@ describe("ws-handler — living document state", () => {
 		dispose();
 	});
 
-	it("rejects terminal paths that are not exposed by an active binding", () => {
+	it("rejects terminal paths that are not exposed by an active binding", async () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const doc = makeDoc("conditional-form");
 		const page = doc.pages[0];
@@ -670,6 +684,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(documentStates.get("conditional-form")?.current).toMatchObject({
 			revision: 1,
@@ -687,7 +702,7 @@ describe("ws-handler — living document state", () => {
 		dispose();
 	});
 
-	it("rejects a stale terminal patch without changing authoritative state", () => {
+	it("rejects a stale terminal patch without changing authoritative state", async () => {
 		const { store, bus, documents, documentStates, handler, dispose } =
 			fixture();
 		const doc = makeDoc("checklist");
@@ -719,6 +734,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(documentStates.get("checklist")?.current).toMatchObject({
 			revision: 1,
@@ -737,7 +753,7 @@ describe("ws-handler — living document state", () => {
 		dispose();
 	});
 
-	it("keeps state validation details out of the localized browser signal", () => {
+	it("keeps state validation details out of the localized browser signal", async () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();
 		const doc = makeDoc("typed-form");
 		const page = doc.pages[0];
@@ -766,6 +782,7 @@ describe("ws-handler — living document state", () => {
 			},
 			ws,
 		);
+		await settled();
 
 		expect(JSON.parse(ws.send.mock.calls[0][0])).toEqual({
 			type: "state_patch_result",
@@ -1731,6 +1748,190 @@ describe("ws-handler — text editing", () => {
 	);
 });
 
+describe("ws-handler — item document form", () => {
+	async function openedItem() {
+		const current = fixture();
+		const workspace = current.structuredWorkspaces.create({
+			name: "Form",
+			dataSchema: {
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+			},
+			representationSchema: {
+				version: 1,
+				collections: {
+					items: {
+						name: "Items",
+						detailTemplateHtml:
+							'<input data-id="title" type="text" data-maket-bind="state.title">',
+					},
+				},
+			},
+		});
+		await current.structuredWorkspaces.addItem({
+			workspace: workspace.id,
+			itemId: "one",
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Form one",
+			data: { title: "First" },
+		});
+		expect(current.documents.resolve("Form one")).toBeNull();
+		const events: string[] = [];
+		for (const event of [
+			"document:created",
+			"document:saved",
+			"document-state:changed",
+			"structured-workspace:item-changed",
+		] as const)
+			current.bus.on(event, () => events.push(event));
+		const ws = { readyState: 1, send: vi.fn() } as any;
+		current.handler(
+			{
+				type: "load_document",
+				name: "Form one",
+				structuredWorkspace: { workspaceId: workspace.id },
+			} as never,
+			ws,
+		);
+		const document = current.documents.resolve("Form one");
+		if (!document)
+			throw new Error("The open path did not create the item document.");
+		const row = () =>
+			current.store.loadStructuredWorkspaceItem(workspace.id, "one");
+		const patch = (expectedRevision: number, title: string) => {
+			ws.send.mockClear();
+			current.handler(
+				{
+					type: "state_patch",
+					requestId: `request-${expectedRevision}-${title}`,
+					docName: "Form one",
+					expectedRevision,
+					operation: { op: "replace", path: "/title", value: title },
+				},
+				ws,
+			);
+		};
+		const answer = () =>
+			ws.send.mock.calls
+				.map(([message]: [string]) => JSON.parse(message))
+				.find(
+					(message: { type: string }) => message.type === "state_patch_result",
+				);
+		return { ...current, workspace, document, events, row, patch, answer };
+	}
+
+	it("creates the item document on first open with its deterministic id and the row as its state", async () => {
+		const { document, documentStates, events, row, dispose } =
+			await openedItem();
+		expect(document.id).toBe(row()?.documentId);
+		expect(document.meta.structuredWorkspace).toMatchObject({
+			role: "item",
+			itemId: "one",
+		});
+		expect(documentStates.get("Form one")?.current).toMatchObject({
+			revision: 1,
+			data: { title: "First" },
+		});
+		expect(events).toContain("document:created");
+		dispose();
+	});
+
+	it("writes a form patch through the item source and refreshes the mirror from the row", async () => {
+		const { documentStates, events, row, patch, answer, dispose } =
+			await openedItem();
+		events.length = 0;
+		patch(1, "Second");
+		await settled();
+		expect(answer()).toMatchObject({ ok: true, revision: 2 });
+		expect(row()).toMatchObject({ revision: 2, data: { title: "Second" } });
+		expect(documentStates.get("Form one")?.current).toMatchObject({
+			revision: 2,
+			data: { title: "Second" },
+		});
+		expect(documentStates.history("Form one").map((r) => r.revision)).toEqual([
+			2,
+		]);
+		expect(events).toContain("structured-workspace:item-changed");
+		expect(events).toContain("document-state:changed");
+		dispose();
+	});
+
+	it("refuses a stale patch with the revision conflict and the current data for the form to reload", async () => {
+		const { documentStates, events, row, patch, answer, dispose } =
+			await openedItem();
+		patch(1, "Second");
+		await settled();
+		events.length = 0;
+		patch(1, "Late");
+		await settled();
+		expect(answer()).toMatchObject({
+			ok: false,
+			message: {
+				key: "msg_state_revision_conflict",
+				params: { expected: 1, current: 2 },
+			},
+		});
+		expect(events).toContain("document:saved");
+		expect(row()).toMatchObject({ revision: 2, data: { title: "Second" } });
+		expect(documentStates.get("Form one")?.current.data).toEqual({
+			title: "Second",
+		});
+		dispose();
+	});
+
+	it("refuses a WS rename or duplicate to the name of an item never opened", async () => {
+		const current = await openedItem();
+		await current.structuredWorkspaces.addItem({
+			workspace: current.workspace.id,
+			itemId: "two",
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Form two",
+			data: { title: "Second" },
+		});
+		current.store.saveDoc(makeDoc("Scratch"));
+		current.documents.loadAll();
+		const toasts: Array<{ key: string; params?: unknown }> = [];
+		current.bus.on("toast", (toast) => toasts.push(toast));
+		current.handler(
+			{ type: "rename_document", name: "Scratch", newName: "Form two" },
+			STUB_WS,
+		);
+		current.handler(
+			{ type: "duplicate_document", name: "Scratch", newName: "Form two" },
+			STUB_WS,
+		);
+		expect(toasts).toEqual([
+			expect.objectContaining({
+				key: "toast_document_name_taken",
+				params: { name: "Form two" },
+			}),
+			expect.objectContaining({
+				key: "toast_document_name_taken",
+				params: { name: "Form two" },
+			}),
+		]);
+		expect(current.documents.resolve("Form two")).toBeNull();
+		expect(current.documents.resolve("Scratch")).not.toBeNull();
+		current.dispose();
+	});
+
+	it("answers the lock refusal first on a locked item document", async () => {
+		const { document, row, patch, answer, dispose } = await openedItem();
+		document.meta.locked = true;
+		patch(1, "Forbidden");
+		await settled();
+		expect(answer()).toMatchObject({
+			ok: false,
+			message: { key: "msg_document_locked", params: { name: "Form one" } },
+		});
+		expect(row()).toMatchObject({ revision: 1, data: { title: "First" } });
+		dispose();
+	});
+});
+
 describe("ws-handler — collection cursor", () => {
 	function cursorFixture() {
 		const base = fixture();
@@ -1833,14 +2034,8 @@ describe("ws-handler — collection cursor", () => {
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

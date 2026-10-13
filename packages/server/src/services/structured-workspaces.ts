@@ -48,7 +48,10 @@ import type {
 	ItemSource,
 	ItemSummary,
 } from "./item-sources/item-source.js";
-import { isItemSourceError } from "./item-sources/item-source-error.js";
+import {
+	isItemSourceError,
+	itemSourceError,
+} from "./item-sources/item-source-error.js";
 import type { ItemSources } from "./item-sources/item-sources.js";
 import {
 	type FlowRanges,
@@ -161,14 +164,39 @@ export interface StructuredWorkspaces {
 		expectedRevision: number,
 	): StructuredWorkspaceView;
 	delete(workspace: string): string[];
-	addItem(input: AddStructuredWorkspaceItemInput): StructuredWorkspaceItemView;
+	/** Add an item through the workspace's source; its document is created
+	 * only when the item is opened or exported. */
+	addItem(
+		input: AddStructuredWorkspaceItemInput,
+	): Promise<StructuredWorkspaceItemView>;
+	/** Write an item's data through its source at `expectedRevision`; the
+	 * MCP tool and the detail form share this write. */
 	updateItem(
 		workspaceName: string,
 		itemId: string,
 		expectedRevision: number,
 		data: Record<string, unknown>,
-	): StructuredWorkspaceItemView;
-	deleteItem(workspaceName: string, itemId: string): boolean;
+	): Promise<StructuredWorkspaceItemView>;
+	deleteItem(workspaceName: string, itemId: string): Promise<boolean>;
+	/** The item a document renders, or null when it renders none. */
+	itemOfDocument(
+		documentName: string,
+	): { workspaceId: string; itemId: string } | null;
+	/**
+	 * The document of the item bearing `documentName` in a workspace, created
+	 * on first open with its deterministic id, its state mirror refreshed from
+	 * the source. Null when no item of a ready workspace bears that name.
+	 */
+	openItem(workspaceId: string, documentName: string): Document | null;
+	/** Create, without announcing them, the missing documents of the named
+	 * items, or of every item of the ready workspaces, and refresh their
+	 * mirrors; an item whose name another document holds is left out (check
+	 * reports it). Answers the names of the documents this export holds. */
+	materializeItemDocuments(documentNames?: readonly string[]): string[];
+	/** Remove, without announcing it, item documents created by
+	 * materializeItemDocuments once their export is written, unless the user
+	 * opened, pinned, locked, annotated or changed them meanwhile. */
+	releaseItemDocuments(documentNames: readonly string[]): void;
 	syncTemplates(
 		workspaceName: string,
 		collectionId?: string,
@@ -195,13 +223,84 @@ export interface StructuredWorkspacesDeps {
 	pageFlow?: Pick<PageFlow, "pages">;
 }
 
+/** The engine's dependencies and the definition issues it has already
+ * computed, by definition content, so an unchanged definition is validated
+ * once rather than on every read. */
+interface EngineDeps extends StructuredWorkspacesDeps {
+	definitionIssues(workspace: StructuredWorkspaceDefinition): string[];
+}
+
+const MAX_CACHED_DEFINITIONS = 100;
+
+/** Item documents created for exports in flight, by document id, with the
+ * number of exports holding each. A user open (StructuredWorkspaces.openItem)
+ * or any change to the document removes its entry, so the export keeps it. */
+function exportHeldDocuments(
+	injected: Pick<StructuredWorkspacesDeps, "bus" | "documents">,
+): Map<string, number> {
+	const held = new Map<string, number>();
+	const touched = ({ docName }: { docName: string }) => {
+		const id = injected.documents.resolve(docName)?.id;
+		if (id) held.delete(id);
+	};
+	for (const event of [
+		"document:saved",
+		"document:focused",
+		"document:pinned",
+		"document:renamed",
+		"document-state:changed",
+		"meta:updated",
+		"canvas:changed",
+		"element:updated",
+	] as const)
+		injected.bus.on(event, touched);
+	injected.bus.on("annotations:changed", () => held.clear());
+	return held;
+}
+
 export function createStructuredWorkspaces(
-	deps: StructuredWorkspacesDeps,
+	injected: StructuredWorkspacesDeps,
 ): StructuredWorkspaces {
 	const compactCards: CompactCardCache = new Map();
-	deps.bus.on("document-state:changed", ({ docName }) => {
-		reconcileItemDocumentState(deps, docName);
-	});
+	const definitions = new Map<string, string[]>();
+	const exportOnly = exportHeldDocuments(injected);
+	const deps: EngineDeps = {
+		get bus() {
+			return injected.bus;
+		},
+		get documents() {
+			return injected.documents;
+		},
+		get documentStates() {
+			return injected.documentStates;
+		},
+		get store() {
+			return injected.store;
+		},
+		get itemSources() {
+			return injected.itemSources;
+		},
+		get pageFlow() {
+			return injected.pageFlow;
+		},
+		definitionIssues(workspace) {
+			const key = JSON.stringify([
+				workspace.dataSchema,
+				workspace.representationSchema,
+			]);
+			let issues = definitions.get(key);
+			if (!issues) {
+				issues = validateStructuredWorkspaceDefinition(
+					workspace.dataSchema,
+					workspace.representationSchema,
+				);
+				definitions.set(key, issues);
+				if (definitions.size > MAX_CACHED_DEFINITIONS)
+					definitions.delete(definitions.keys().next().value ?? "");
+			}
+			return [...issues];
+		},
+	};
 	return {
 		list() {
 			return deps.store.loadAllStructuredWorkspaces();
@@ -247,8 +346,8 @@ export function createStructuredWorkspaces(
 			publishWorkspaceDeletion(deps, workspace.id, deleted);
 			return deleted.map((document) => document.name);
 		},
-		addItem(input) {
-			const item = addItem(deps, input);
+		async addItem(input) {
+			const item = await addItem(deps, input);
 			const workspace = requiredWorkspace(deps.store, input.workspace);
 			deps.bus.emit("structured-workspace:changed", {
 				workspaceId: workspace.id,
@@ -258,13 +357,27 @@ export function createStructuredWorkspaces(
 		updateItem(workspaceName, itemId, expectedRevision, data) {
 			return updateItem(deps, workspaceName, itemId, expectedRevision, data);
 		},
-		deleteItem(workspaceName, itemId) {
+		async deleteItem(workspaceName, itemId) {
 			const workspace = requiredWorkspace(deps.store, workspaceName);
-			const deleted = deleteItem(deps, workspaceName, itemId);
+			const deleted = await deleteItem(deps, workspaceName, itemId);
 			deps.bus.emit("structured-workspace:changed", {
 				workspaceId: workspace.id,
 			});
 			return deleted;
+		},
+		itemOfDocument(documentName) {
+			return itemOfDocument(deps, documentName);
+		},
+		openItem(workspaceId, documentName) {
+			const document = openItem(deps, workspaceId, documentName);
+			if (document) exportOnly.delete(document.id);
+			return document;
+		},
+		materializeItemDocuments(documentNames) {
+			return materializeItemDocuments(deps, documentNames, exportOnly);
+		},
+		releaseItemDocuments(documentNames) {
+			releaseItemDocuments(deps, documentNames, exportOnly);
 		},
 		syncTemplates(workspaceName, collectionId, bindingId) {
 			const workspace = requiredWorkspace(deps.store, workspaceName);
@@ -281,10 +394,9 @@ export function createStructuredWorkspaces(
 			});
 		},
 		getItem(workspaceId, itemId) {
-			const item = deps.store
-				.loadAllStructuredWorkspaces()
-				.find((candidate) => candidate.id === workspaceId)
-				?.items.find((candidate) => candidate.id === itemId);
+			const item = loadedWorkspace(deps.store, workspaceId)?.items.find(
+				(candidate) => candidate.id === itemId,
+			);
 			if (!item) return null;
 			try {
 				return presentItem(deps, deps.itemSources.sourceFor(workspaceId), item);
@@ -299,7 +411,7 @@ export function createStructuredWorkspaces(
 }
 
 function restorePortableWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	snapshot: BundleStructuredWorkspaceSnapshot,
 	documentsBySourceId: ReadonlyMap<string, Document>,
 ): StructuredWorkspaceView {
@@ -376,11 +488,19 @@ function restorePortableWorkspace(
 			resolveId,
 		);
 		deps.documents.persist(document.name);
+		const imported = deps.documentStates.get(document.name)?.current;
+		if (!imported)
+			throw new Error(
+				`Portable workspace item "${item.id}" has no imported state-backed document.`,
+			);
 		deps.store.addStructuredWorkspaceItem(workspace.id, {
 			id: item.id,
 			collectionId: item.collectionId,
 			bindingId: item.bindingId,
 			documentId: document.id,
+			documentName: document.name,
+			data: imported.data,
+			revision: imported.revision,
 		});
 	}
 	for (const entry of snapshot.collectionDocuments) {
@@ -399,7 +519,7 @@ function restorePortableWorkspace(
 		if (document.name !== preferredName)
 			deps.documents.rename(
 				document.name,
-				availableCollectionDocumentName(deps.documents, preferredName),
+				allocatedDocumentName(deps.documents, preferredName),
 			);
 		document.category = `Structured Workspaces/${name}`;
 		document.meta.structuredWorkspace = {
@@ -427,7 +547,7 @@ function restorePortableWorkspace(
 // Aggregate rename owns the domain plan and cache/event reconciliation around
 // the repository's single atomic persistence transaction.
 function renameWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspaceReference: string,
 	newName: string,
 	expectedRevision: number,
@@ -448,7 +568,16 @@ function renameWorkspace(
 			const collection =
 				workspace.representationSchema.collections[owner.collectionId];
 			return collection
-				? [{ id: document.id, newName: `${trimmed} — ${collection.name}` }]
+				? [
+						{
+							id: document.id,
+							newName: allocatedDocumentName(
+								deps.documents,
+								`${trimmed} — ${collection.name}`,
+								document,
+							),
+						},
+					]
 				: [];
 		},
 	);
@@ -485,14 +614,12 @@ function renameWorkspace(
 }
 
 function renderCollection(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	compactCards: CompactCardCache,
 	target: { workspaceId: string; collectionId: string },
 ): Document {
 	const { workspaceId, collectionId } = target;
-	const workspace = deps.store
-		.loadAllStructuredWorkspaces()
-		.find((candidate) => candidate.id === workspaceId);
+	const workspace = loadedWorkspace(deps.store, workspaceId);
 	if (!workspace) {
 		throw new Error(`Structured Workspace "${workspaceId}" not found.`);
 	}
@@ -569,7 +696,7 @@ interface CollectionItem {
 /** The items of a collection in position order, read through the
  * workspace's item source. */
 function collectionItems(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
 ): CollectionItem[] {
@@ -579,25 +706,19 @@ function collectionItems(
 		limit: Number.POSITIVE_INFINITY,
 	});
 	return page.items.map((summary) =>
-		collectionItem(deps.documents, summary, rows.get(summary.id)),
+		collectionItem(summary, rows.get(summary.id)),
 	);
 }
 
 function collectionItem(
-	documents: Documents,
 	summary: ItemSummary,
 	row: StructuredWorkspaceDefinition["items"][number] | undefined,
 ): CollectionItem {
 	if (!row) throw new Error(`Item "${summary.id}" is not in its workspace.`);
-	const document = requiredDocument(
-		documents,
-		row.documentId,
-		"instantiated document",
-	);
 	return {
 		id: summary.id,
 		bindingId: summary.bindingId,
-		documentName: document.name,
+		documentName: row.documentName,
 		revision: summary.revision,
 		data: summary.fields,
 	};
@@ -688,7 +809,7 @@ function cachedCompactCard(
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Collection page composition: assembles DOM slots, card groups and the page flow planner, each owning its part.
 function renderCollectionPage(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	source: CollectionPageSource,
 	owner: { doc: Document; pageId: string },
 	html: string,
@@ -825,7 +946,7 @@ function slotNodes(
 }
 
 function collectionCardEntries(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	source: CollectionPageSource,
 	document: ReturnType<typeof parseHTML>["document"],
 	slot: HTMLElement,
@@ -1123,7 +1244,7 @@ function assertCompactNamespace(compactRoot: Element, svgSlot: boolean): void {
 /** Check the same namespace contract before a definition can be ready, even
  * when an empty collection has no compact card to render yet. */
 function validateCollectionCardSlots(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	collection: StructuredWorkspaceCollectionRepresentation,
 	html: string,
 ): void {
@@ -1178,7 +1299,7 @@ function safeToken(value: string): string {
 }
 
 function updateDefinition(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	input: UpdateStructuredWorkspaceInput,
 ): StructuredWorkspaceView {
 	if (!input.dataSchema && !input.representationSchema) {
@@ -1223,7 +1344,7 @@ function updateDefinition(
 }
 
 function replaceDefinition(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	input: UpdateStructuredWorkspaceInput,
 	next: {
@@ -1285,7 +1406,8 @@ function replaceDefinition(
 		(document) => !representationSchema.collections[document.collectionId],
 	);
 
-	const plans = workspace.items.map((item) => {
+	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
+	const plans = workspace.items.flatMap((item) => {
 		const collection = representationSchema.collections[item.collectionId];
 		if (!collection) {
 			throw new Error(
@@ -1298,20 +1420,16 @@ function replaceDefinition(
 				`Representation binding "${item.collectionId}.${item.bindingId}" is required by item "${item.id}".`,
 			);
 		}
-		const document = requiredDocument(
-			deps.documents,
-			item.documentId,
-			"instantiated document",
-		);
-		const state = deps.documentStates.get(document.name);
-		if (!state)
-			throw new Error(`Document "${document.name}" has no item data.`);
-		assertValidItemData(dataSchema, state.current.data);
+		const record = reads.record(item.id);
+		if (!record) return [];
+		assertValidItemData(dataSchema, record.data);
 		const concreteSchema = structuredWorkspaceBindingSchema(
 			dataSchema,
 			binding,
 		);
-		assertValidItemData(concreteSchema, state.current.data);
+		assertValidItemData(concreteSchema, record.data);
+		const document = itemDocument(deps.documents, item);
+		if (!document) return [];
 		const template = requiredDocument(
 			deps.documents,
 			binding.detailTemplateDocumentId,
@@ -1324,12 +1442,12 @@ function replaceDefinition(
 			deps.documentStates.validateSchema(
 				document.name,
 				concreteSchema,
-				state.current.data,
+				record.data,
 			);
 		} finally {
 			document.pages = previousPages;
 		}
-		return { document, state, concreteSchema, pages };
+		return [{ document, record, concreteSchema, pages }];
 	});
 
 	const updated = deps.store.updateStructuredWorkspace(
@@ -1357,17 +1475,12 @@ function replaceDefinition(
 	}
 	for (const plan of plans) {
 		plan.document.pages = plan.pages;
-		if (
-			JSON.stringify(plan.state.current.schema) !==
-			JSON.stringify(plan.concreteSchema)
-		) {
-			deps.documentStates.changeSchema(
-				plan.document.name,
-				plan.state.current.revision,
-				plan.concreteSchema,
-				plan.state.current.data,
-			);
-		}
+		deps.documentStates.mirror(
+			plan.document.name,
+			Number(plan.record.revision),
+			plan.concreteSchema,
+			plan.record.data,
+		);
 		deps.documents.persist(plan.document.name);
 		deps.bus.emit("document:loaded", { docName: plan.document.name });
 	}
@@ -1375,7 +1488,7 @@ function replaceDefinition(
 }
 
 function createWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	input: CreateStructuredWorkspaceInput,
 ): StructuredWorkspaceDefinition {
 	if (deps.store.loadStructuredWorkspace(input.name)) {
@@ -1437,10 +1550,10 @@ function createWorkspace(
 	return workspace;
 }
 
-function addItem(
-	deps: StructuredWorkspacesDeps,
+async function addItem(
+	deps: EngineDeps,
 	input: AddStructuredWorkspaceItemInput,
-): StructuredWorkspaceItemView {
+): Promise<StructuredWorkspaceItemView> {
 	const workspace = requiredReadyWorkspace(deps, input.workspace);
 	assertCollectionUnlocked(deps, workspace, input.collectionId);
 	const collection = requiredCollection(workspace, input.collectionId);
@@ -1457,10 +1570,13 @@ function addItem(
 	);
 	assertValidItemData(bindingSchema, input.data);
 	assertStateMermaidSources(bindingSchema, input.data);
-	if (deps.documents.resolveOrLoad(input.documentName)) {
+	if (
+		deps.documents.nameTaken(input.documentName) ||
+		deps.documents.resolveOrLoad(input.documentName)
+	) {
 		throw new Error(`Document "${input.documentName}" already exists.`);
 	}
-	const template = requiredDocument(
+	requiredDocument(
 		deps.documents,
 		binding.detailTemplateDocumentId,
 		"detail template",
@@ -1469,118 +1585,91 @@ function addItem(
 	if (workspace.items.some((item) => item.id === itemId)) {
 		throw new Error(`Item "${itemId}" already exists in "${workspace.name}".`);
 	}
-	const document = instantiateDocument(
-		workspace,
-		itemId,
-		input.collectionId,
-		input.bindingId,
-		input.documentName,
-		template,
-	);
-	deps.documents.all().set(document.name, document);
-	try {
-		deps.documents.persist(document.name);
-		const state = deps.documentStates.initialize(
-			document.name,
-			bindingSchema,
-			input.data,
-		);
-		deps.documents.persist(document.name);
-		const item = deps.store.addStructuredWorkspaceItem(workspace.id, {
-			id: itemId,
-			collectionId: input.collectionId,
-			bindingId: input.bindingId,
-			documentId: document.id,
-		});
-		refreshCollectionDocumentState(
-			deps,
-			requiredWorkspace(deps.store, input.workspace),
-			input.collectionId,
-		);
-		deps.bus.emit("document:created", { docName: document.name });
-		return {
-			...item,
-			documentName: document.name,
-			data: state.current.data,
-			dataRevision: state.current.revision,
-		};
-	} catch (error) {
-		deps.documents.delete(document.name, { allowStructuredWorkspace: true });
-		throw error;
-	}
+	const source = deps.itemSources.sourceFor(workspace.id);
+	await sourceWrite(
+		source,
+		"create",
+	)({
+		id: itemId,
+		collectionId: input.collectionId,
+		bindingId: input.bindingId,
+		data: input.data,
+		document: {
+			id: itemDocumentId(workspace.id, itemId),
+			name: input.documentName,
+		},
+	});
+	const updated = requiredWorkspace(deps.store, workspace.id);
+	refreshCollectionDocumentState(deps, updated, input.collectionId);
+	const view = presentItem(deps, source, requiredItem(updated, itemId));
+	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
+	return view;
 }
 
-function updateItem(
-	deps: StructuredWorkspacesDeps,
+async function updateItem(
+	deps: EngineDeps,
 	workspaceName: string,
 	itemId: string,
 	expectedRevision: number,
 	data: Record<string, unknown>,
-): StructuredWorkspaceItemView {
+): Promise<StructuredWorkspaceItemView> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
 	const item = requiredItem(workspace, itemId);
 	assertValidItemData(workspace.dataSchema, data);
-	const binding =
-		workspace.representationSchema.collections[item.collectionId]?.bindings[
-			item.bindingId
-		];
-	if (binding)
-		assertValidItemData(
-			structuredWorkspaceBindingSchema(workspace.dataSchema, binding),
-			data,
-		);
-	const document = requiredDocument(
-		deps.documents,
-		item.documentId,
-		"instantiated document",
-	);
-	assertDocumentUnlocked(document);
+	const schema = itemSchema(workspace, item);
+	if (schema !== workspace.dataSchema) assertValidItemData(schema, data);
+	const document = itemDocument(deps.documents, item);
+	if (document) assertDocumentUnlocked(document);
 	assertCollectionUnlocked(deps, workspace, item.collectionId);
-	const revision = deps.documentStates.update(
-		document.name,
-		expectedRevision,
-		data,
-	);
-	return {
-		...item,
-		documentName: document.name,
-		data: revision.data,
-		dataRevision: revision.revision,
-	};
+	const source = deps.itemSources.sourceFor(workspace.id);
+	assertStateMermaidSources(schema, data, sourcedRecord(source, item.id)?.data);
+	try {
+		await sourceWrite(source, "put")(item.id, data, String(expectedRevision));
+	} catch (error) {
+		if (!isItemSourceError(error) || error.code !== "stale_revision")
+			throw error;
+		refreshItemMirror(deps, workspace, item);
+		throw staleItemRevision(expectedRevision, error.currentRevision);
+	}
+	publishItemChange(deps, workspace, item);
+	const view = presentItem(deps, source, item);
+	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
+	return view;
 }
 
-function reconcileItemDocumentState(
-	deps: StructuredWorkspacesDeps,
-	docName: string,
-): void {
-	const document = deps.documents.resolveOrLoad(docName);
-	const ownership = document?.meta.structuredWorkspace;
-	if (
-		!document ||
-		!ownership ||
-		ownership.role === "collection" ||
-		ownership.role === "template"
-	)
-		return;
-	const workspace = deps.store
-		.loadAllStructuredWorkspaces()
-		.find((candidate) => candidate.id === ownership.workspaceId);
-	if (!workspace) return;
-	const item = workspace.items.find(
-		(candidate) =>
-			candidate.id === ownership.itemId && candidate.documentId === document.id,
+/** The refusal of a write at a revision the item no longer has, worded as
+ * the document state conflict the detail form already handles. */
+function staleItemRevision(
+	expected: number,
+	current: string | undefined,
+): MessageError {
+	return Object.assign(
+		new MessageError(
+			`Document state revision conflict: expected ${expected}, current ${current}.`,
+			"msg_state_revision_conflict",
+			{ expected, current: Number(current) },
+		),
+		{ code: "stale_revision", currentRevision: current },
 	);
-	if (!item) return;
-	if (alignCollectionEntry(deps, workspace, item) === "rebuilt") {
+}
+
+/** After a write: the collection projection entry, the item-changed signal,
+ * then the mirror of the item's document when it exists. */
+function publishItemChange(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceDefinition["items"][number],
+): void {
+	if (alignCollectionEntry(deps, workspace, item) === "rebuilt")
 		deps.bus.emit("structured-workspace:changed", {
 			workspaceId: workspace.id,
 		});
-		return;
-	}
-	deps.bus.emit("structured-workspace:item-changed", {
-		workspaceId: workspace.id,
-		itemId: item.id,
-	});
+	else
+		deps.bus.emit("structured-workspace:item-changed", {
+			workspaceId: workspace.id,
+			itemId: item.id,
+		});
+	refreshItemMirror(deps, workspace, item);
 }
 
 /**
@@ -1589,7 +1678,7 @@ function reconcileItemDocumentState(
  * may create or replace the projection document.
  */
 function alignCollectionEntry(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	item: StructuredWorkspaceDefinition["items"][number],
 ): "entry" | "rebuilt" {
@@ -1604,11 +1693,14 @@ function alignCollectionEntry(
 		deps.itemSources.sourceFor(workspace.id),
 		item.id,
 	);
-	const entries = workspace.items
-		.filter((candidate) => candidate.collectionId === item.collectionId)
-		.sort((left, right) => left.position - right.position);
-	const index = entries.findIndex((candidate) => candidate.id === item.id);
 	const projected = collectionState?.current.data.items;
+	const entries = projectedEntries(
+		deps,
+		workspace,
+		item.collectionId,
+		Array.isArray(projected) ? projected.length : -1,
+	);
+	const index = entries.findIndex((candidate) => candidate.id === item.id);
 	if (
 		!collectionDocument ||
 		!collectionState ||
@@ -1633,34 +1725,46 @@ function alignCollectionEntry(
 	return "entry";
 }
 
-function deleteItem(
-	deps: StructuredWorkspacesDeps,
+/** The items a collection projection holds, in position order: every item,
+ * or, when the projection is shorter, only the items whose source has data. */
+function projectedEntries(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	collectionId: string,
+	projectedLength: number,
+): StructuredWorkspaceDefinition["items"] {
+	const entries = workspace.items
+		.filter((candidate) => candidate.collectionId === collectionId)
+		.sort((left, right) => left.position - right.position);
+	if (entries.length === projectedLength) return entries;
+	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
+	return entries.filter((entry) => reads.record(entry.id) !== null);
+}
+
+async function deleteItem(
+	deps: EngineDeps,
 	workspaceName: string,
 	itemId: string,
-): boolean {
+): Promise<boolean> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
 	const item = requiredItem(workspace, itemId);
-	const document = requiredDocument(
-		deps.documents,
-		item.documentId,
-		"instantiated document",
-	);
-	assertDocumentUnlocked(document);
+	const document = itemDocument(deps.documents, item);
+	if (document) assertDocumentUnlocked(document);
 	assertCollectionUnlocked(deps, workspace, item.collectionId);
-	const deleted = deps.store.deleteStructuredWorkspaceItem(
-		workspace.id,
-		item.id,
-	);
-	if (!deleted) return false;
-	deps.documents.delete(document.name, { allowStructuredWorkspace: true });
+	await sourceWrite(
+		deps.itemSources.sourceFor(workspace.id),
+		"delete",
+	)(item.id);
+	if (document)
+		deps.documents.delete(document.name, { allowStructuredWorkspace: true });
 	const updatedWorkspace = requiredWorkspace(deps.store, workspaceName);
 	refreshCollectionDocumentState(deps, updatedWorkspace, item.collectionId);
-	deps.bus.emit("document:deleted", { docName: document.name });
-	return deleted;
+	if (document) deps.bus.emit("document:deleted", { docName: document.name });
+	return true;
 }
 
 function syncTemplates(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspaceName: string,
 	collectionId?: string,
 	bindingId?: string,
@@ -1716,15 +1820,12 @@ function syncTemplates(
 				`Unknown binding "${item.collectionId}.${item.bindingId}".`,
 			);
 		}
+		const document = itemDocument(deps.documents, item);
+		if (!document) continue;
 		const template = requiredDocument(
 			deps.documents,
 			binding.detailTemplateDocumentId,
 			"detail template",
-		);
-		const document = requiredDocument(
-			deps.documents,
-			item.documentId,
-			"instantiated document",
 		);
 		const previousPages = document.pages;
 		document.pages = synchronizedPages(workspace.id, template, document.pages);
@@ -1754,18 +1855,19 @@ function syncTemplates(
 }
 
 function workspaceView(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceView {
 	reconcileTemplateOwnership(deps, workspace);
-	const integrity = workspaceIntegrity(deps, workspace);
 	const source = deps.itemSources.sourceFor(workspace.id);
+	const reads = itemReads(source);
+	const integrity = workspaceIntegrity(deps, workspace, reads);
 	return {
 		...workspace,
 		integrity,
 		items: workspace.items.flatMap((item) => {
 			try {
-				const view = presentItem(deps, source, item);
+				const view = presentItem(deps, reads, item);
 				return view ? [view] : [];
 			} catch {
 				return [];
@@ -1773,35 +1875,50 @@ function workspaceView(
 		}),
 		collectionDocuments:
 			integrity.status === "ready"
-				? ensureCollectionDocuments(deps, workspace)
+				? ensureCollectionDocuments(deps, workspace, reads)
 				: [],
 		templateDocuments: templateDocumentViews(deps, workspace),
 	};
 }
 
 function ensureCollectionDocuments(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
+	reads?: ItemReads,
 ): StructuredWorkspaceCollectionDocumentView[] {
 	return Object.entries(workspace.representationSchema.collections).map(
 		([collectionId, collection]) =>
-			ensureCollectionDocument(deps, workspace, collectionId, collection),
+			ensureCollectionDocument(
+				deps,
+				workspace,
+				{ collectionId, collection },
+				reads,
+			),
 	);
 }
 
 function ensureCollectionDocument(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-	collection: StructuredWorkspaceRepresentationSchema["collections"][string],
+	target: {
+		collectionId: string;
+		collection: StructuredWorkspaceRepresentationSchema["collections"][string];
+	},
+	reads?: ItemReads,
 ): StructuredWorkspaceCollectionDocumentView {
+	const { collectionId, collection } = target;
 	const existing = findCollectionDocument(
 		deps.documents,
 		workspace.id,
 		collectionId,
 	);
 	if (existing) {
-		ensureCollectionDocumentState(deps, workspace, collectionId, existing);
+		ensureCollectionDocumentState(
+			deps,
+			workspace,
+			{ collectionId, document: existing },
+			reads,
+		);
 		return collectionDocumentView(collectionId, existing);
 	}
 	const template = requiredDocument(
@@ -1818,7 +1935,12 @@ function ensureCollectionDocument(
 	);
 	deps.documents.all().set(document.name, document);
 	deps.documents.persist(document.name);
-	ensureCollectionDocumentState(deps, workspace, collectionId, document);
+	ensureCollectionDocumentState(
+		deps,
+		workspace,
+		{ collectionId, document },
+		reads,
+	);
 	deps.bus.emit("document:created", { docName: document.name });
 	return collectionDocumentView(collectionId, document);
 }
@@ -1841,7 +1963,7 @@ function findCollectionDocument(
 }
 
 function requiredCollectionDocument(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
 ): Document {
@@ -1877,7 +1999,7 @@ function instantiateCollectionDocument(
 	collectionName: string,
 	template: Document,
 ): Document {
-	const name = availableCollectionDocumentName(
+	const name = allocatedDocumentName(
 		documents,
 		`${workspace.name} — ${collectionName}`,
 	);
@@ -1902,13 +2024,17 @@ function instantiateCollectionDocument(
 }
 
 function ensureCollectionDocumentState(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-	document: Document,
+	target: { collectionId: string; document: Document },
+	reads?: ItemReads,
 ): void {
+	const { collectionId, document } = target;
 	const schema = collectionDocumentStateSchema(workspace);
-	const data = collectionDocumentStateData(deps, workspace, collectionId);
+	const data = collectionDocumentStateData(deps, workspace, collectionId, {
+		clone: true,
+		reads,
+	});
 	const state = deps.documentStates.get(document.name);
 	if (!state) {
 		document.dataModel = "static";
@@ -1936,12 +2062,23 @@ function ensureCollectionDocumentState(
 }
 
 function refreshCollectionDocumentState(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
 ): void {
-	const document = requiredCollectionDocument(deps, workspace, collectionId);
-	ensureCollectionDocumentState(deps, workspace, collectionId, document);
+	const existing = findCollectionDocument(
+		deps.documents,
+		workspace.id,
+		collectionId,
+	);
+	if (!existing) {
+		requiredCollectionDocument(deps, workspace, collectionId);
+		return;
+	}
+	ensureCollectionDocumentState(deps, workspace, {
+		collectionId,
+		document: existing,
+	});
 }
 
 function collectionDocumentStateSchema(
@@ -1970,30 +2107,46 @@ function collectionDocumentStateSchema(
 }
 
 function collectionDocumentStateData(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
-	options: { clone: boolean } = { clone: true },
+	options: { clone: boolean; reads?: ItemReads } = { clone: true },
 ): Record<string, unknown> {
-	const source = deps.itemSources.sourceFor(workspace.id);
+	const reads =
+		options.reads ?? itemReads(deps.itemSources.sourceFor(workspace.id));
 	return {
 		items: workspace.items
 			.filter((item) => item.collectionId === collectionId)
 			.sort((left, right) => left.position - right.position)
-			.map((item) => {
-				const data = requiredItemRecord(source, item.id).data;
-				return options.clone ? structuredClone(data) : data;
+			.flatMap((item) => {
+				const record = reads.record(item.id);
+				if (!record) return [];
+				return [options.clone ? structuredClone(record.data) : record.data];
 			}),
 	};
 }
 
-function availableCollectionDocumentName(
+/** Whether a document the engine names may take `name`: its own current
+ * name, or a name no document bears and no item reserves in any workspace. */
+function documentNameFree(
+	documents: Documents,
+	name: string,
+	owner?: Document,
+): boolean {
+	if (owner?.name === name) return true;
+	return !documents.nameTaken(name) && documents.resolveOrLoad(name) === null;
+}
+
+/** The single allocation of every document name the engine fabricates or
+ * adopts: `base` when free, else `base 2`, `base 3`… in that order. */
+function allocatedDocumentName(
 	documents: Documents,
 	base: string,
+	owner?: Document,
 ): string {
-	if (!documents.resolveOrLoad(base)) return base;
+	if (documentNameFree(documents, base, owner)) return base;
 	let suffix = 2;
-	while (documents.resolveOrLoad(`${base} ${suffix}`)) suffix += 1;
+	while (!documentNameFree(documents, `${base} ${suffix}`, owner)) suffix += 1;
 	return `${base} ${suffix}`;
 }
 
@@ -2001,27 +2154,40 @@ function availableCollectionDocumentName(
  * holds, the document that renders it. Null when the source has no such item. */
 function presentItem(
 	deps: Pick<StructuredWorkspacesDeps, "documents">,
-	source: ItemSource,
+	source: ItemSource | ItemReads,
 	item: StructuredWorkspaceDefinition["items"][number],
 ): StructuredWorkspaceItemView | null {
-	const record = source.get(item.id);
+	const record =
+		"record" in source ? source.record(item.id) : source.get(item.id);
 	if (!record) return null;
-	const document = requiredDocument(
-		deps.documents,
-		item.documentId,
-		"instantiated document",
-	);
+	const pinnedAt = itemDocument(deps.documents, item)?.pinnedAt;
 	return {
 		...item,
-		documentName: document.name,
-		...(document.pinnedAt ? { pinnedAt: document.pinnedAt } : {}),
+		...(pinnedAt ? { pinnedAt } : {}),
 		data: record.data,
 		dataRevision: Number(record.revision),
 	};
 }
 
+/** Item records read once per caller: a view, an integrity check and a
+ * projection share one source read per item. */
+interface ItemReads {
+	record(itemId: string): ItemRecord | null;
+}
+
+function itemReads(source: ItemSource): ItemReads {
+	const records = new Map<string, ItemRecord | null>();
+	return {
+		record(itemId) {
+			if (!records.has(itemId))
+				records.set(itemId, sourcedRecord(source, itemId));
+			return records.get(itemId) ?? null;
+		},
+	};
+}
+
 /** One item's record from its source; null when the source has no such item
- * or cannot serve it (missing document or state). */
+ * or cannot serve it. */
 function sourcedRecord(source: ItemSource, itemId: string): ItemRecord | null {
 	try {
 		return source.get(itemId);
@@ -2031,22 +2197,222 @@ function sourcedRecord(source: ItemSource, itemId: string): ItemRecord | null {
 	}
 }
 
-function requiredItemRecord(source: ItemSource, itemId: string) {
-	const record = source.get(itemId);
-	if (!record) throw new Error(`Item "${itemId}" has no data in its source.`);
-	return record;
+/** A write method of a source, refused as read_only when it lacks it. */
+function sourceWrite<K extends "create" | "put" | "delete">(
+	source: ItemSource,
+	method: K,
+): NonNullable<ItemSource[K]> {
+	const write = source[method];
+	if (!write)
+		throw itemSourceError(
+			"read_only",
+			`The item source does not allow ${method}.`,
+		);
+	return write.bind(source) as NonNullable<ItemSource[K]>;
+}
+
+/** The id of the document that renders an item, the same on every Maket
+ * for the same workspace and item. */
+function itemDocumentId(workspaceId: string, itemId: string): string {
+	const hex = crypto
+		.createHash("sha1")
+		.update(
+			`maket-structured-workspace-item\u0000${workspaceId}\u0000${itemId}`,
+		)
+		.digest("hex");
+	const variant = ((Number.parseInt(hex.slice(16, 18), 16) & 0x3f) | 0x80)
+		.toString(16)
+		.padStart(2, "0");
+	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
+}
+
+/** The existing document of an item, or null before it is opened. */
+function itemDocument(
+	documents: Documents,
+	item: StructuredWorkspaceDefinition["items"][number],
+): Document | null {
+	const document = documents.resolve(item.documentName);
+	return document?.id === item.documentId ? document : null;
+}
+
+function itemSchema(
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceDefinition["items"][number],
+): StructuredWorkspaceDataSchema {
+	const binding =
+		workspace.representationSchema.collections[item.collectionId]?.bindings[
+			item.bindingId
+		];
+	return binding
+		? structuredWorkspaceBindingSchema(workspace.dataSchema, binding)
+		: workspace.dataSchema;
+}
+
+/** Copy the item's source record into its document's state, when the
+ * document exists; the state then holds the source revision alone. */
+function refreshItemMirror(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceDefinition["items"][number],
+	announce = true,
+): void {
+	const document = itemDocument(deps.documents, item);
+	if (!document) return;
+	const record = sourcedRecord(
+		deps.itemSources.sourceFor(workspace.id),
+		item.id,
+	);
+	if (!record) return;
+	deps.documentStates.mirror(
+		document.name,
+		Number(record.revision),
+		itemSchema(workspace, item),
+		record.data,
+		{ announce },
+	);
+}
+
+function itemOfDocument(
+	deps: EngineDeps,
+	documentName: string,
+): { workspaceId: string; itemId: string } | null {
+	const document = deps.documents.resolveOrLoad(documentName);
+	const owner = document?.meta.structuredWorkspace;
+	if (
+		!document ||
+		!owner ||
+		owner.role === "collection" ||
+		owner.role === "template"
+	)
+		return null;
+	const row = deps.store.loadStructuredWorkspaceItem(
+		owner.workspaceId,
+		owner.itemId,
+	);
+	return row?.documentId === document.id
+		? { workspaceId: owner.workspaceId, itemId: row.id }
+		: null;
+}
+
+function openItem(
+	deps: EngineDeps,
+	workspaceId: string,
+	documentName: string,
+): Document | null {
+	const found =
+		deps.store.loadStructuredWorkspaceItemByDocumentName(documentName);
+	if (!found || found.workspaceId !== workspaceId) return null;
+	const workspace = loadedWorkspace(deps.store, workspaceId);
+	if (!workspace || workspaceIntegrity(deps, workspace).status !== "ready")
+		return null;
+	return openedItemDocument(
+		deps,
+		workspace,
+		requiredItem(workspace, found.item.id),
+	).document;
+}
+
+function materializeItemDocuments(
+	deps: EngineDeps,
+	documentNames: readonly string[] | undefined,
+	exportOnly: Map<string, number>,
+): string[] {
+	const wanted = documentNames ? new Set(documentNames) : null;
+	const held: string[] = [];
+	for (const workspace of deps.store.loadAllStructuredWorkspaces()) {
+		const items = workspace.items.filter(
+			(item) => !wanted || wanted.has(item.documentName),
+		);
+		if (items.length === 0) continue;
+		if (workspaceIntegrity(deps, workspace).status !== "ready") continue;
+		for (const item of items) {
+			const holder = deps.documents.resolveOrLoad(item.documentName);
+			if (holder && holder.id !== item.documentId) continue;
+			const opened = openedItemDocument(deps, workspace, item, false);
+			const holding = exportOnly.get(opened.document.id);
+			if (!opened.created && holding === undefined) continue;
+			exportOnly.set(opened.document.id, (holding ?? 0) + 1);
+			held.push(opened.document.name);
+		}
+	}
+	return held;
+}
+
+/** Remove the item documents an export created, unless the last export
+ * holding them is still in flight or the user opened, pinned, locked,
+ * annotated or changed them meanwhile. */
+function releaseItemDocuments(
+	deps: EngineDeps,
+	documentNames: readonly string[],
+	exportOnly: Map<string, number>,
+): void {
+	for (const name of documentNames) {
+		const document = deps.documents.resolve(name);
+		const holding = document ? exportOnly.get(document.id) : undefined;
+		if (!document || holding === undefined) continue;
+		if (holding > 1) {
+			exportOnly.set(document.id, holding - 1);
+			continue;
+		}
+		exportOnly.delete(document.id);
+		if (document.pinnedAt || document.meta.locked === true) continue;
+		deps.documents.delete(name, { allowStructuredWorkspace: true });
+	}
+}
+
+/** The item's document, instantiated from its detail template when missing,
+ * with its state mirror refreshed from the source. */
+function openedItemDocument(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceDefinition["items"][number],
+	announce = true,
+): { document: Document; created: boolean } {
+	const existing = deps.documents.resolveOrLoad(item.documentName);
+	if (existing && existing.id !== item.documentId)
+		throw new Error(
+			`Document "${item.documentName}" is not the document of item "${item.id}".`,
+		);
+	if (existing) {
+		refreshItemMirror(deps, workspace, item, announce);
+		return { document: existing, created: false };
+	}
+	const binding = requiredCollection(workspace, item.collectionId).bindings[
+		item.bindingId
+	];
+	if (!binding)
+		throw new Error(
+			`Representation binding "${item.collectionId}.${item.bindingId}" is not defined in "${workspace.name}".`,
+		);
+	const document = instantiateDocument(
+		workspace,
+		item,
+		requiredDocument(
+			deps.documents,
+			binding.detailTemplateDocumentId,
+			"detail template",
+		),
+	);
+	deps.documents.all().set(document.name, document);
+	try {
+		deps.documents.persist(document.name);
+		refreshItemMirror(deps, workspace, item, announce);
+	} catch (error) {
+		deps.documents.delete(document.name, { allowStructuredWorkspace: true });
+		throw error;
+	}
+	if (announce) deps.bus.emit("document:created", { docName: document.name });
+	return { document, created: true };
 }
 
 function instantiateDocument(
 	workspace: StructuredWorkspaceDefinition,
-	itemId: string,
-	collectionId: string,
-	bindingId: string,
-	documentName: string,
+	item: StructuredWorkspaceDefinition["items"][number],
 	template: Document,
 ): Document {
 	return createDocument({
-		name: documentName,
+		id: item.documentId,
+		name: item.documentName,
 		category: `Structured Workspaces/${workspace.name}`,
 		canvas: structuredClone(template.canvas),
 		meta: {
@@ -2055,9 +2421,9 @@ function instantiateDocument(
 			structuredWorkspace: {
 				role: "item",
 				workspaceId: workspace.id,
-				collectionId,
-				itemId,
-				bindingId,
+				collectionId: item.collectionId,
+				itemId: item.id,
+				bindingId: item.bindingId,
 			},
 		},
 		pages: template.pages.map((page) =>
@@ -2133,7 +2499,7 @@ function templateRoles(
 }
 
 function reconcileTemplateOwnership(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): void {
 	const desired = templateRoles(workspace);
@@ -2180,7 +2546,7 @@ function reconcileTemplateOwnership(
 }
 
 function templateDocumentViews(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceTemplateDocumentView[] {
 	return [...templateRoles(workspace)].flatMap(([documentId, roles]) => {
@@ -2190,13 +2556,11 @@ function templateDocumentViews(
 }
 
 function workspaceIntegrity(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
+	reads: ItemReads = itemReads(deps.itemSources.sourceFor(workspace.id)),
 ): StructuredWorkspaceView["integrity"] {
-	const issues = validateStructuredWorkspaceDefinition(
-		workspace.dataSchema,
-		workspace.representationSchema,
-	);
+	const issues = deps.definitionIssues(workspace);
 	for (const documentId of templateRoles(workspace).keys()) {
 		const document = deps.documents.resolveById(documentId);
 		if (!document) {
@@ -2213,18 +2577,13 @@ function workspaceIntegrity(
 			);
 		}
 	}
-	const source = deps.itemSources.sourceFor(workspace.id);
 	for (const item of workspace.items) {
-		const document = deps.documents.resolveById(item.documentId);
-		if (!document) {
-			issues.push(`Item "${item.id}" has no document.`);
-			continue;
-		}
-		if (document.meta.structuredWorkspace?.workspaceId !== workspace.id) {
+		const document = itemDocument(deps.documents, item);
+		if (
+			document &&
+			document.meta.structuredWorkspace?.workspaceId !== workspace.id
+		) {
 			issues.push(`Item document "${document.name}" has invalid ownership.`);
-		}
-		if (!sourcedRecord(source, item.id)) {
-			issues.push(`Item document "${document.name}" has no state.`);
 		}
 	}
 	if (issues.length === 0) {
@@ -2245,9 +2604,7 @@ function workspaceIntegrity(
 					deps,
 					workspace,
 					collectionId,
-					{
-						clone: false,
-					},
+					{ clone: false, reads },
 				);
 				for (const page of [
 					...template.pages,
@@ -2348,8 +2705,17 @@ function requiredWorkspace(
 	return workspace;
 }
 
+/** The workspace with this id, never one merely named like it. */
+function loadedWorkspace(
+	store: StructuredWorkspaceRepository,
+	workspaceId: string,
+): StructuredWorkspaceDefinition | null {
+	const workspace = store.loadStructuredWorkspace(workspaceId);
+	return workspace?.id === workspaceId ? workspace : null;
+}
+
 function requiredReadyWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	reference: string,
 ): StructuredWorkspaceDefinition {
 	const workspace = requiredWorkspace(deps.store, reference);
@@ -2447,7 +2813,7 @@ function assertDocumentUnlocked(document: Document): void {
 }
 
 function assertWorkspaceUnlocked(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): void {
 	for (const document of deps.documents.all().values()) {
@@ -2460,7 +2826,7 @@ function assertWorkspaceUnlocked(
 }
 
 function assertCollectionUnlocked(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	collectionId: string,
 ): void {
@@ -2473,7 +2839,7 @@ function assertCollectionUnlocked(
 }
 
 function publishWorkspaceDeletion(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspaceId: string,
 	deleted: Array<{ name: string }>,
 ): void {
@@ -2538,7 +2904,7 @@ function outdatedGeneratedIndex(template: Document): boolean {
  * not already AUTO, the narrow content-height canvas; their collection
  * documents follow. Locked templates stay as they are. */
 function reformatGeneratedIndexes(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	onlyCollectionId?: string,
 ): void {
@@ -2599,7 +2965,7 @@ interface MaterializedRepresentation {
 	preferredNames: ReadonlyMap<string, string>;
 }
 
-function templateReferences(deps: StructuredWorkspacesDeps) {
+function templateReferences(deps: EngineDeps) {
 	const resolve = (id: string | undefined) =>
 		id === undefined
 			? null
@@ -2614,7 +2980,7 @@ function templateReferences(deps: StructuredWorkspacesDeps) {
 }
 
 /** Writes template documents in the workspace category and records them. */
-function templateWriter(deps: StructuredWorkspacesDeps, workspaceName: string) {
+function templateWriter(deps: EngineDeps, workspaceName: string) {
 	const created: Document[] = [];
 	const preferredNames = new Map<string, string>();
 	const write = (
@@ -2625,7 +2991,7 @@ function templateWriter(deps: StructuredWorkspacesDeps, workspaceName: string) {
 		meta: Document["meta"] = { structuredWorkspaceGenerated: true },
 	) => {
 		const document = createDocument({
-			name: availableCollectionDocumentName(deps.documents, name),
+			name: allocatedDocumentName(deps.documents, name),
 			category: `Structured Workspaces/${workspaceName}`,
 			canvas: structuredClone(canvas),
 			meta,
@@ -2725,7 +3091,7 @@ function materializeBinding(
  * given. `preferredNames` holds the name each new document asked for.
  */
 function materializeRepresentation(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	request: MaterializeRequest,
 ): MaterializedRepresentation {
 	const { workspaceName, dataSchema, input, current } = request;
@@ -2828,17 +3194,14 @@ function bindingSchemaOrEmpty(
 	}
 }
 
-function discardDocuments(
-	deps: StructuredWorkspacesDeps,
-	documents: Document[],
-): void {
+function discardDocuments(deps: EngineDeps, documents: Document[]): void {
 	for (const document of documents) deps.documents.delete(document.name);
 }
 
 /** Delete the templates Maket wrote for this Workspace that its definition
  * no longer references. */
 function retireReplacedTemplates(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): void {
 	const referenced = templateRoles(workspace);
@@ -2860,7 +3223,7 @@ function retireReplacedTemplates(
 /** Give each template written for the call the name it asked for once the
  * template it replaces is gone. */
 function adoptPreferredNames(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	materialized: MaterializedRepresentation,
 ): void {
 	for (const document of materialized.created) {
@@ -2868,7 +3231,7 @@ function adoptPreferredNames(
 		if (
 			!preferred ||
 			preferred === document.name ||
-			deps.documents.resolveOrLoad(preferred)
+			!documentNameFree(deps.documents, preferred, document)
 		)
 			continue;
 		const oldName = document.name;
@@ -2878,7 +3241,7 @@ function adoptPreferredNames(
 }
 
 function announceCreatedTemplates(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	documents: Document[],
 ): void {
 	for (const document of documents)
@@ -2886,7 +3249,7 @@ function announceCreatedTemplates(
 }
 
 function definitionErrors(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	next: string,
 ): StructuredWorkspaceFinding[] {
@@ -2896,7 +3259,7 @@ function definitionErrors(
 }
 
 function checkWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceCheck {
 	const findings = diagnoseWorkspace(deps, workspace, {
@@ -2915,7 +3278,7 @@ function checkWorkspace(
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Workspace diagnosis: reads the definition, its template documents and its items, each owning its own rule.
 function diagnoseWorkspace(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 	options: { items: boolean; next: string },
 ): StructuredWorkspaceFinding[] {
@@ -3084,7 +3447,7 @@ interface FindingReference {
 
 /** The template document a reference names, or null with a finding. */
 function templateDocument(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	reference: FindingReference,
 	findings: StructuredWorkspaceFinding[],
 	target: { path: string; id: string },
@@ -3289,10 +3652,7 @@ function hiddenPropertyFindings(
 
 /** Names of documents within a small edit distance of a reference, closest
  * first, so a typo gets a suggestion. */
-function closeDocumentNames(
-	deps: StructuredWorkspacesDeps,
-	reference: string,
-): string[] {
+function closeDocumentNames(deps: EngineDeps, reference: string): string[] {
 	const wanted = reference.toLowerCase();
 	const limit = Math.max(2, Math.floor(wanted.length / 4));
 	return [...deps.documents.all().values()]
@@ -3330,7 +3690,7 @@ function errorMessage(error: unknown): string {
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Item diagnosis: reads each item's document, state and template provenance.
 function itemFindings(
-	deps: StructuredWorkspacesDeps,
+	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceFinding[] {
 	const findings: StructuredWorkspaceFinding[] = [];
@@ -3346,34 +3706,32 @@ function itemFindings(
 			fix: "Add the first item; its data must satisfy the data schema.",
 			next: `maket_structured_workspace action=add_item workspace=${ref} collection=${firstCollectionId ?? "<collection>"} binding=${Object.keys(firstCollection?.bindings ?? {})[0] ?? "<binding>"} document_name=<name> data=<json>`,
 		});
-	const source = deps.itemSources.sourceFor(workspace.id);
+	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
 	const unsynced = new Set<string>();
 	for (const item of workspace.items) {
 		const path = `item "${item.id}"`;
-		const document = deps.documents.resolveById(item.documentId);
-		const remove = `maket_structured_workspace action=delete_item workspace=${ref} item=${item.id}`;
-		if (!document) {
+		const document = itemDocument(deps.documents, item);
+		const holder = document ? null : deps.documents.resolve(item.documentName);
+		if (holder)
 			findings.push({
 				severity: "error",
 				object: "item",
 				collection: item.collectionId,
 				path,
-				message: `Item "${item.id}" has no document.`,
-				fix: "Delete the item and add it again.",
-				next: remove,
+				message: `Document "${holder.name}" holds the name reserved for the document of item "${item.id}", so the item can be neither opened nor exported.`,
+				fix: `Rename the document "${holder.name}"; the name stays reserved for the item.`,
+				next: `maket_doc action=rename doc=${holder.name} name=<new name>`,
 			});
-			continue;
-		}
-		const state = sourcedRecord(source, item.id);
+		const state = reads.record(item.id);
 		if (!state) {
 			findings.push({
 				severity: "error",
 				object: "item",
 				collection: item.collectionId,
 				path,
-				message: `Item document "${document.name}" has no state.`,
-				fix: "Delete the item and add it again.",
-				next: remove,
+				message: `Item "${item.id}" has no data in its source.`,
+				fix: "Write the item data with update_item; it keeps the item id and position.",
+				next: `maket_structured_workspace action=update_item workspace=${ref} item=${item.id} expected_revision=${deps.store.loadStructuredWorkspaceItem(workspace.id, item.id)?.revision ?? 1} data=<item data>`,
 			});
 			continue;
 		}
@@ -3410,7 +3768,7 @@ function itemFindings(
 		const template = deps.documents.resolveById(
 			binding.detailTemplateDocumentId,
 		);
-		if (template && !pagesInSync(template, document.pages))
+		if (document && template && !pagesInSync(template, document.pages))
 			unsynced.add(item.collectionId);
 	}
 	for (const [collectionId, collection] of Object.entries(

@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 20;
+const SCHEMA_VERSION = 21;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -109,11 +109,17 @@ const SCHEMA_SQL = `
 		position     INTEGER NOT NULL,
 		collection_id TEXT NOT NULL,
 		binding_id   TEXT NOT NULL,
-		document_id  TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+		document_id  TEXT NOT NULL UNIQUE,
+		document_name TEXT NOT NULL,
+		data         TEXT CHECK (data IS NULL OR json_valid(data)),
+		revision     INTEGER NOT NULL CHECK (revision > 0),
 		created_at   TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY (workspace_id, id),
-		UNIQUE (workspace_id, collection_id, position)
+		UNIQUE (workspace_id, collection_id, position),
+		UNIQUE (workspace_id, document_name)
 	);
+  CREATE INDEX structured_workspace_items_document_name_idx
+    ON structured_workspace_items(document_name);
   CREATE TABLE annotations (
     id          TEXT PRIMARY KEY,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -148,6 +154,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 18, up: migrateToV18 },
 	{ version: 19, up: migrateToV19 },
 	{ version: 20, up: migrateToV20 },
+	{ version: 21, up: migrateToV21 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -204,6 +211,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV18(db);
 	migrateToV19(db);
 	migrateToV20(db);
+	migrateToV21(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -489,6 +497,59 @@ function migrateToV20(db: DatabaseSync): void {
 	addColumnIfMissing(db, "annotations", "edited_at", "INTEGER");
 }
 
+/** Item data moves from each item document's current state into its row;
+ * the row keeps the document id and name and no longer depends on the
+ * document existing. A row whose document has no state keeps null data,
+ * which the item source reports as missing. */
+function migrateToV21(db: DatabaseSync): void {
+	migrateToV20(db);
+	if (!hasColumn(db, "structured_workspace_items", "data"))
+		rebuildItemsWithData(db);
+	db.exec(`
+		CREATE INDEX IF NOT EXISTS structured_workspace_items_document_name_idx
+			ON structured_workspace_items(document_name);
+	`);
+}
+
+function rebuildItemsWithData(db: DatabaseSync): void {
+	db.exec(`
+		CREATE TABLE structured_workspace_items_v21 (
+			workspace_id  TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+			id            TEXT NOT NULL,
+			position      INTEGER NOT NULL,
+			collection_id TEXT NOT NULL,
+			binding_id    TEXT NOT NULL,
+			document_id   TEXT NOT NULL UNIQUE,
+			document_name TEXT NOT NULL,
+			data          TEXT CHECK (data IS NULL OR json_valid(data)),
+			revision      INTEGER NOT NULL CHECK (revision > 0),
+			created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+			PRIMARY KEY (workspace_id, id),
+			UNIQUE (workspace_id, collection_id, position),
+			UNIQUE (workspace_id, document_name)
+		);
+		INSERT INTO structured_workspace_items_v21
+			(workspace_id, id, position, collection_id, binding_id, document_id,
+			 document_name, data, revision, created_at)
+		SELECT item.workspace_id, item.id, item.position, item.collection_id,
+			item.binding_id, item.document_id,
+			COALESCE(document.name, item.id),
+			current.data,
+			COALESCE(current.revision, 1),
+			item.created_at
+		FROM structured_workspace_items AS item
+		LEFT JOIN documents AS document ON document.id = item.document_id
+		LEFT JOIN document_state_revisions AS current
+			ON current.document_id = item.document_id
+			AND current.revision = (
+				SELECT max(latest.revision) FROM document_state_revisions AS latest
+				WHERE latest.document_id = item.document_id
+			);
+		DROP TABLE structured_workspace_items;
+		ALTER TABLE structured_workspace_items_v21 RENAME TO structured_workspace_items;
+	`);
+}
+
 function migrateToV16(db: DatabaseSync): void {
 	migrateToV15(db);
 	addColumnIfMissing(db, "pages", "json_forms", "TEXT");
@@ -609,10 +670,12 @@ function assertStructuredWorkspaceSchema(db: DatabaseSync): void {
 	if (!hasColumn(db, "pages", "json_forms")) {
 		throw new Error("SQLite migration failed: pages.json_forms is missing");
 	}
-	if (!hasColumn(db, "structured_workspace_items", "collection_id")) {
-		throw new Error(
-			"SQLite migration failed: structured_workspace_items.collection_id is missing",
-		);
+	for (const column of ["collection_id", "document_name", "data", "revision"]) {
+		if (!hasColumn(db, "structured_workspace_items", column)) {
+			throw new Error(
+				`SQLite migration failed: structured_workspace_items.${column} is missing`,
+			);
+		}
 	}
 }
 

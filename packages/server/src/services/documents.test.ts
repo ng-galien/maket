@@ -213,6 +213,38 @@ describe("documents service", () => {
 		store.close();
 	});
 
+	it("keeps item documents out of the library listing and resolves them by id and name", () => {
+		const store = createSQLiteStore(":memory:");
+		const item = makeDoc("Item one", "Structured Workspaces/W");
+		item.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "w",
+			collectionId: "items",
+			itemId: "one",
+			bindingId: "item",
+		};
+		const index = makeDoc("W — Items", "Structured Workspaces/W");
+		index.meta.structuredWorkspace = {
+			role: "collection",
+			workspaceId: "w",
+			collectionId: "items",
+		};
+		store.saveDocs([item, index, makeDoc("Plain")]);
+		const docs = createDocuments({ store });
+		docs.loadAll();
+
+		expect(docs.list().map((summary) => summary.name)).toEqual(["Plain"]);
+		expect(
+			docs
+				.list({ includeWorkspaceDocuments: true })
+				.map((summary) => summary.name)
+				.sort(),
+		).toEqual(["Item one", "Plain", "W — Items"]);
+		expect(docs.resolveById(item.id)?.name).toBe("Item one");
+		expect(docs.resolveOrLoad("Item one")?.id).toBe(item.id);
+		store.close();
+	});
+
 	it("restores cached categories when an atomic category move fails", () => {
 		const store = createSQLiteStore(":memory:");
 		store.saveDocs([

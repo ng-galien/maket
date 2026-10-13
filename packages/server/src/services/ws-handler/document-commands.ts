@@ -8,7 +8,7 @@ import {
 	type WorkspaceStateSignal,
 } from "@maket/shared";
 import type WebSocket from "ws";
-import { createDocument } from "../../types.js";
+import { createDocument, type Document } from "../../types.js";
 import { documentDuplicationBlockMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 
@@ -17,7 +17,8 @@ export function handleLoadDocument(
 	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
 	ws: WebSocket,
 ): void {
-	let requested = ctx.documents.resolve(msg.name);
+	let requested = openedItemDocument(ctx, msg);
+	if (!requested) requested = ctx.documents.resolve(msg.name);
 	if (!requested) {
 		const loaded = ctx.store.loadOne(msg.name);
 		if (loaded) {
@@ -75,6 +76,28 @@ export function handleLoadDocument(
 		focus: true,
 	};
 	ws.send(JSON.stringify(state));
+}
+
+/** An item document opened from its Workspace: created on first open, its
+ * state mirror refreshed from the item source before rendering. */
+function openedItemDocument(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
+): Document | null {
+	const workspaceId = msg.structuredWorkspace?.workspaceId;
+	if (!workspaceId) return null;
+	try {
+		return ctx.structuredWorkspaces.openItem(workspaceId, msg.name);
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
+			level: "error",
+		});
+		return null;
+	}
 }
 
 export function handleUpdateMeta(
@@ -205,7 +228,7 @@ export function handleRenameDocument(
 		});
 		return;
 	}
-	if (ctx.documents.all().has(newName)) {
+	if (ctx.documents.nameTaken(newName)) {
 		ctx.bus.emit("toast", {
 			key: "toast_document_name_taken",
 			params: { name: newName },
@@ -239,7 +262,7 @@ export function handleDuplicateDocument(
 		});
 		return;
 	}
-	if (ctx.documents.all().has(newName)) {
+	if (ctx.documents.nameTaken(newName)) {
 		ctx.bus.emit("toast", {
 			key: "toast_document_name_taken",
 			params: { name: newName },

@@ -63,6 +63,23 @@ export interface DocumentStates {
 		expectedRevision: number,
 		operation: Extract<JsonPatchOperation, { op: "replace" | "add" }>,
 	): DocumentStateRevision;
+	/** The refusals of `patchTerminal`, without writing. */
+	checkTerminal(
+		docName: string,
+		operation: Extract<JsonPatchOperation, { op: "replace" | "add" }>,
+	): void;
+	/**
+	 * Make the state a mirror of an item held elsewhere: one revision numbered
+	 * like the source revision, no history. Nothing is written, and nothing
+	 * emitted, when the mirror already holds that revision, schema and data.
+	 */
+	mirror(
+		docName: string,
+		revision: number,
+		schema: DocumentStateSchema,
+		data: DocumentStateData,
+		options?: { announce?: boolean },
+	): DocumentStateRevision;
 	changeSchema(
 		docName: string,
 		expectedRevision: number,
@@ -208,34 +225,41 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			return revision;
 		},
 		patchTerminal(docName, expectedRevision, operation) {
-			if (operation.path === "") {
-				throw new MessageError(
-					"The document-state root is not an editable terminal.",
-					"msg_state_root_not_terminal",
-				);
-			}
-			const { doc, current } = requiredState(deps, docName);
-			const previous =
-				operation.op === "add"
-					? missingTerminal(current.data, operation.path)
-					: readJsonPointer(current.data, operation.path);
-			if (
-				(operation.op === "replace" && !isTerminalJsonValue(previous)) ||
-				!isTerminalJsonValue(operation.value)
-			) {
-				throw new MessageError(
-					"Live document interactions can replace terminal JSON values only.",
-					"msg_state_terminal_only",
-				);
-			}
-			if (!activeBindingPaths(doc, current).has(operation.path)) {
-				throw new MessageError(
-					`Document state path "${operation.path}" is not exposed by an active document binding.`,
-					"msg_state_path_not_bound",
-					{ path: operation.path },
-				);
-			}
+			assertTerminalPatch(deps, docName, operation);
 			return patchState(deps, docName, expectedRevision, [operation]);
+		},
+		checkTerminal(docName, operation) {
+			assertTerminalPatch(deps, docName, operation);
+		},
+		mirror(docName, revision, schema, data, options) {
+			const doc = requiredDocument(deps.documents, docName);
+			const current =
+				doc.dataModel === "state" ? currentRevision(doc.id) : null;
+			if (
+				current?.revision === revision &&
+				JSON.stringify(current.schema) === JSON.stringify(schema) &&
+				JSON.stringify(current.data) === JSON.stringify(data)
+			)
+				return current;
+			const attached = doc.dataModel !== "state";
+			const mirrored = deps.store.mirrorDocumentState(
+				doc.id,
+				revision,
+				schema,
+				data,
+			);
+			currents.delete(doc.id);
+			doc.dataModel = "state";
+			if (options?.announce === false) return mirrored;
+			emitStateChanged(
+				deps.bus,
+				doc.name,
+				mirrored.revision,
+				[""],
+				attached || JSON.stringify(current?.schema) !== JSON.stringify(schema),
+				attached,
+			);
+			return mirrored;
 		},
 		changeSchema(docName, expectedRevision, schema, data) {
 			const { doc, current } = requiredState(deps, docName);
@@ -309,6 +333,40 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 			return change;
 		},
 	};
+}
+
+function assertTerminalPatch(
+	deps: DocumentStatesDeps,
+	docName: string,
+	operation: Extract<JsonPatchOperation, { op: "replace" | "add" }>,
+): void {
+	if (operation.path === "") {
+		throw new MessageError(
+			"The document-state root is not an editable terminal.",
+			"msg_state_root_not_terminal",
+		);
+	}
+	const { doc, current } = requiredState(deps, docName);
+	const previous =
+		operation.op === "add"
+			? missingTerminal(current.data, operation.path)
+			: readJsonPointer(current.data, operation.path);
+	if (
+		(operation.op === "replace" && !isTerminalJsonValue(previous)) ||
+		!isTerminalJsonValue(operation.value)
+	) {
+		throw new MessageError(
+			"Live document interactions can replace terminal JSON values only.",
+			"msg_state_terminal_only",
+		);
+	}
+	if (!activeBindingPaths(doc, current).has(operation.path)) {
+		throw new MessageError(
+			`Document state path "${operation.path}" is not exposed by an active document binding.`,
+			"msg_state_path_not_bound",
+			{ path: operation.path },
+		);
+	}
 }
 
 function patchState(

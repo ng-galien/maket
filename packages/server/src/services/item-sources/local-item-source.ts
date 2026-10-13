@@ -1,9 +1,9 @@
 /**
- * The local connector: items stored by Maket itself, one state-backed
- * document per item, listed by the Structured Workspace repository. Reads
- * come from the item documents' current state; writes go through the
- * Structured Workspaces item mutations, which keep their validation, lock
- * guards and bus events.
+ * The local connector: items stored by Maket itself, one row per item in
+ * `structured_workspace_items` holding the item data and its revision. Every
+ * read and write goes through those rows; the item documents only render
+ * them. Validation, lock guards and bus events stay with the Structured
+ * Workspaces engine, which writes through this source.
  */
 
 import crypto from "node:crypto";
@@ -12,17 +12,16 @@ import {
 	type StructuredWorkspaceDataSchema,
 	type StructuredWorkspaceDefinition,
 	type StructuredWorkspaceGroupValue,
-	type StructuredWorkspaceItemReference,
-	type StructuredWorkspaceItemView,
+	type StructuredWorkspaceItemDataIssue,
 	structuredWorkspaceBindingSchema,
 	structuredWorkspaceItemDataIssues,
 } from "@maket/shared";
-import { localizedOf } from "../../lib/message-error.js";
 import type { Bus } from "../bus.js";
-import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
-import type { StructuredWorkspaceRepository } from "../sqlite-store/structured-workspace-repository.js";
-import type { StructuredWorkspaces } from "../structured-workspaces.js";
+import type {
+	StoredStructuredWorkspaceItem,
+	StructuredWorkspaceRepository,
+} from "../sqlite-store/structured-workspace-repository.js";
 import { groupItems, sortItems } from "./item-order.js";
 import type {
 	ItemCreation,
@@ -31,7 +30,6 @@ import type {
 	ItemRecord,
 	ItemSource,
 	ItemSourceCapabilities,
-	ItemSourceError,
 	ItemSummary,
 } from "./item-source.js";
 import { itemSourceError } from "./item-source-error.js";
@@ -43,14 +41,9 @@ import {
 
 export interface LocalItemSourceDeps {
 	bus: Bus;
+	/** Template documents, read for the summary field rule of each binding. */
 	documents: Documents;
-	documentStates: DocumentStates;
 	store: StructuredWorkspaceRepository;
-	/** Read at write time only, so the engine and its sources resolve each other. */
-	structuredWorkspaces: Pick<
-		StructuredWorkspaces,
-		"addItem" | "updateItem" | "deleteItem"
-	>;
 }
 
 const localCapabilities: ItemSourceCapabilities = {
@@ -96,7 +89,7 @@ export function createLocalItemSource(
 		get(id) {
 			open();
 			const row = deps.store.loadStructuredWorkspaceItem(workspaceId, id);
-			return row ? itemRecord(deps, row) : null;
+			return row ? recordOf(row) : null;
 		},
 		async create(input) {
 			open();
@@ -124,39 +117,31 @@ export function createLocalItemSource(
 	};
 }
 
-/** The current data of one stored item, read from its document's state. */
-function itemRecord(
-	deps: Pick<LocalItemSourceDeps, "documents" | "documentStates">,
-	row: StructuredWorkspaceItemReference,
-): ItemRecord {
-	const document = deps.documents.resolveById(row.documentId);
-	if (!document)
-		throw itemSourceError(
-			"invalid_record",
-			"Structured Workspace instantiated document not found.",
-		);
-	const current = deps.documentStates.current(document.name);
-	if (!current)
-		throw itemSourceError(
-			"invalid_record",
-			`Document "${document.name}" has no item data.`,
-		);
+/** The record of a row, or null when the row holds no data. */
+function recordOf(row: StoredStructuredWorkspaceItem): ItemRecord | null {
+	if (row.data === null) return null;
 	return {
 		id: row.id,
-		revision: String(current.revision),
+		revision: String(row.revision),
 		bindingId: row.bindingId,
-		data: current.data,
+		data: row.data,
 	};
 }
 
-function recordOf(item: StructuredWorkspaceItemView): ItemRecord {
-	return {
-		id: item.id,
-		revision: String(item.dataRevision),
-		bindingId: item.bindingId,
-		data: item.data,
-	};
+/** The record of a row just written, which always holds data. */
+function writtenRecord(row: StoredStructuredWorkspaceItem): ItemRecord {
+	const record = recordOf(row);
+	if (!record)
+		throw itemSourceError("invalid_record", `Item "${row.id}" has no data.`);
+	return record;
 }
+
+const missingData: StructuredWorkspaceItemDataIssue = {
+	path: "",
+	rule: "missing",
+	message: "Item data is missing",
+	fix: "Write the item data with update_item, or delete the item.",
+};
 
 function listItems(
 	deps: LocalItemSourceDeps,
@@ -186,10 +171,9 @@ function listItems(
 			query.groupBy,
 		],
 	});
-	const listed = workspace.items
-		.filter((row) => row.collectionId === query.collectionId)
-		.sort((left, right) => left.position - right.position)
-		.map((row) => listedItem(deps, row, reads));
+	const listed = deps.store
+		.loadStructuredWorkspaceCollectionItems(workspace.id, query.collectionId)
+		.map((row) => listedItem(row, reads));
 	const ordered = orderedItems(listed, query, collection);
 	return {
 		...pageOf(ordered.items, query),
@@ -199,24 +183,26 @@ function listItems(
 }
 
 function listedItem(
-	deps: LocalItemSourceDeps,
-	row: StructuredWorkspaceItemReference,
+	row: StoredStructuredWorkspaceItem,
 	reads: ReadonlyMap<string, BindingRead>,
 ): ListedItem {
-	const record = itemRecord(deps, row);
 	const read = reads.get(row.bindingId);
-	const issues = read
-		? structuredWorkspaceItemDataIssues(read.schema, record.data)
-		: [];
+	const data = row.data ?? {};
+	const issues =
+		row.data === null
+			? [missingData]
+			: read
+				? structuredWorkspaceItemDataIssues(read.schema, data)
+				: [];
 	return {
 		summary: {
-			id: record.id,
-			revision: record.revision,
-			bindingId: record.bindingId,
-			fields: read ? summaryFields(record.data, read.rule) : record.data,
+			id: row.id,
+			revision: String(row.revision),
+			bindingId: row.bindingId,
+			fields: read ? summaryFields(data, read.rule) : data,
 			...(issues.length > 0 ? { issues } : {}),
 		},
-		data: record.data,
+		data,
 	};
 }
 
@@ -362,10 +348,10 @@ function requiredWorkspace(
 	return workspace;
 }
 
-function existingRecord(
+function existingRow(
 	deps: LocalItemSourceDeps,
 	target: { workspaceId: string; id: string },
-): ItemRecord {
+): StoredStructuredWorkspaceItem {
 	const row = deps.store.loadStructuredWorkspaceItem(
 		target.workspaceId,
 		target.id,
@@ -375,15 +361,17 @@ function existingRecord(
 			"unknown_item",
 			`Item "${target.id}" not found in Structured Workspace "${target.workspaceId}".`,
 		);
-	return itemRecord(deps, row);
+	return row;
 }
 
-function assertRevision(record: ItemRecord, expectedRevision: string): void {
-	if (record.revision === expectedRevision) return;
-	throw itemSourceError(
+function staleRevision(
+	row: StoredStructuredWorkspaceItem,
+	expectedRevision: string,
+) {
+	return itemSourceError(
 		"stale_revision",
-		`Item "${record.id}" is at revision ${record.revision}, not ${expectedRevision}.`,
-		{ currentRevision: record.revision },
+		`Item "${row.id}" is at revision ${row.revision}, not ${expectedRevision}.`,
+		{ currentRevision: String(row.revision) },
 	);
 }
 
@@ -394,20 +382,25 @@ function createItem(
 ): ItemRecord {
 	const workspace = requiredWorkspace(deps, workspaceId);
 	const id = input.id ?? crypto.randomUUID();
-	const collectionName =
-		workspace.representationSchema.collections[input.collectionId]?.name ??
-		input.collectionId;
-	return translatedRefusals(() =>
-		recordOf(
-			deps.structuredWorkspaces.addItem({
-				workspace: workspace.id,
-				itemId: id,
-				collectionId: input.collectionId,
-				bindingId: input.bindingId,
-				documentName: `${workspace.name} — ${collectionName} — ${id}`,
-				data: input.data,
-			}),
-		),
+	if (!input.document)
+		throw itemSourceError(
+			"invalid_record",
+			`Item "${id}" needs the document that renders it.`,
+		);
+	if (deps.store.loadStructuredWorkspaceItem(workspace.id, id))
+		throw itemSourceError(
+			"invalid_record",
+			`Item "${id}" already exists in "${workspace.name}".`,
+		);
+	return writtenRecord(
+		deps.store.addStructuredWorkspaceItem(workspace.id, {
+			id,
+			collectionId: input.collectionId,
+			bindingId: input.bindingId,
+			documentId: input.document.id,
+			documentName: input.document.name,
+			data: input.data,
+		}),
 	);
 }
 
@@ -416,17 +409,16 @@ function putItem(
 	target: { workspaceId: string; id: string },
 	change: { data: Record<string, unknown>; expectedRevision: string },
 ): ItemRecord {
-	existingRecord(deps, target);
-	return translatedRefusals(() =>
-		recordOf(
-			deps.structuredWorkspaces.updateItem(
-				target.workspaceId,
-				target.id,
-				Number(change.expectedRevision),
-				change.data,
-			),
-		),
+	const expected = Number(change.expectedRevision);
+	const write = deps.store.putStructuredWorkspaceItem(
+		target.workspaceId,
+		target.id,
+		Number.isInteger(expected) ? expected : -1,
+		change.data,
 	);
+	if (write.written) return writtenRecord(write.item);
+	if (!write.current) return writtenRecord(existingRow(deps, target));
+	throw staleRevision(write.current, change.expectedRevision);
 }
 
 function removeItem(
@@ -434,45 +426,21 @@ function removeItem(
 	target: { workspaceId: string; id: string },
 	expectedRevision: string | undefined,
 ): void {
-	const current = existingRecord(deps, target);
-	if (expectedRevision !== undefined) assertRevision(current, expectedRevision);
-	translatedRefusals(() =>
-		deps.structuredWorkspaces.deleteItem(target.workspaceId, target.id),
-	);
-}
-
-const invalidDataRefusal = /^Item data breaks the schema/;
-const duplicateRefusal = /^(Item|Document) ".*" already exists/;
-const revisionConflict = /revision conflict: expected .*, current (\d+)\./;
-
-/** Runs a Structured Workspaces mutation and gives its refusals the item
- * source code they stand for, keeping their message. */
-function translatedRefusals<T>(mutation: () => T): T {
-	try {
-		return mutation();
-	} catch (error) {
-		throw refusalOf(error);
-	}
-}
-
-function refusalOf(error: unknown): unknown {
-	if (!(error instanceof Error)) return error;
-	const key = localizedOf(error)?.key;
-	const conflict = revisionConflict.exec(error.message);
-	const code: ItemSourceError["code"] | null =
-		key === "msg_document_locked"
-			? "read_only"
-			: key === "msg_state_invalid" ||
-					invalidDataRefusal.test(error.message) ||
-					duplicateRefusal.test(error.message)
-				? "invalid_record"
-				: conflict
-					? "stale_revision"
-					: null;
-	if (!code) return error;
-	return itemSourceError(
-		code,
-		error.message,
-		conflict?.[1] ? { currentRevision: conflict[1] } : {},
-	);
+	const row = existingRow(deps, target);
+	if (
+		expectedRevision !== undefined &&
+		String(row.revision) !== expectedRevision
+	)
+		throw staleRevision(row, expectedRevision);
+	if (
+		!deps.store.deleteStructuredWorkspaceItem(
+			target.workspaceId,
+			target.id,
+			expectedRevision === undefined ? undefined : row.revision,
+		)
+	)
+		throw staleRevision(
+			existingRow(deps, target),
+			expectedRevision ?? String(row.revision),
+		);
 }

@@ -275,7 +275,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			},
 		});
 		for (let index = 0; index < 12; index += 1) {
-			workspaces.addItem({
+			await workspaces.addItem({
 				workspace: "Portfolio",
 				itemId: `project-${index}`,
 				collectionId: "projects",
@@ -456,7 +456,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			},
 		});
 		for (const [index, h] of [50, 150, 20, 20].entries()) {
-			workspaces.addItem({
+			await workspaces.addItem({
 				workspace: "Tall cards",
 				itemId: `card-${index}`,
 				collectionId: "cards",
@@ -491,14 +491,8 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

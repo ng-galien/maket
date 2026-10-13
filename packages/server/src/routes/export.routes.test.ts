@@ -39,6 +39,7 @@ import {
 	createDocumentRenderer,
 	type DocumentRenderer,
 } from "../services/document-renderer.js";
+import { createDocumentStateMutations } from "../services/document-state-mutations.js";
 import {
 	createDocumentStates,
 	type DocumentStates,
@@ -394,7 +395,7 @@ describe("export routes — .maket bundle", () => {
 				},
 			},
 		});
-		structuredWorkspaces.addItem({
+		await structuredWorkspaces.addItem({
 			workspace: "Delivery",
 			itemId: "task-1",
 			collectionId: "backlog",
@@ -402,6 +403,7 @@ describe("export routes — .maket bundle", () => {
 			documentName: "Ship the release",
 			data: { kind: "task", title: "Ship the release" },
 		});
+		expect(documents.resolveOrLoad("Ship the release")).toBeNull();
 		const collectionName = "Delivery — Backlog";
 
 		const httpResponse = await fetch(
@@ -490,9 +492,28 @@ describe("export routes — .maket bundle", () => {
 		if (!aggregate.ok) throw new Error(aggregate.message);
 		const aggregateBundle = await decodeBundle(aggregate.buffer);
 		expect(aggregateBundle.structuredWorkspaces).toHaveLength(1);
+		expect(aggregateBundle.structuredWorkspaces[0]?.workspace.items).toEqual([
+			expect.objectContaining({
+				id: "task-1",
+				documentName: "Ship the release",
+			}),
+		]);
 		expect(aggregateBundle.documents.map(({ name }) => name)).toContain(
 			collectionName,
 		);
+		expect(aggregateBundle.documents.map(({ name }) => name)).toContain(
+			"Ship the release",
+		);
+		expect(documents.resolve("Ship the release")).toBeNull();
+		expect(store.loadOne("Ship the release")).toBeNull();
+		const everything = await bundleExportService.build();
+		expect(everything.ok).toBe(true);
+		if (!everything.ok) throw new Error(everything.message);
+		expect(
+			(await decodeBundle(everything.buffer)).documents.map(({ name }) => name),
+		).toContain("Ship the release");
+		expect(documents.resolve("Ship the release")).toBeNull();
+		expect(store.loadOne("Ship the release")).toBeNull();
 		const restored = bundleImportService.restore(aggregateBundle);
 		expect(restored.structuredWorkspacesImported).toEqual([
 			"Delivery (imported)",
@@ -654,6 +675,102 @@ describe("export routes — .maket bundle", () => {
 			await targetServer.close();
 			targetStore.close();
 		}
+	});
+
+	it("allocates the names the engine makes around reserved item names, so items still open and an export succeeds", async () => {
+		const dataSchema = {
+			type: "object",
+			properties: { title: { type: "string" } },
+			required: ["title"],
+		};
+		const holder = structuredWorkspaces.create({ name: "Holder", dataSchema });
+		for (const [itemId, documentName] of [
+			["i7", "Other — Items"],
+			["i8", "Res — Other — detail template"],
+		] as const)
+			await structuredWorkspaces.addItem({
+				workspace: holder.id,
+				itemId,
+				collectionId: "items",
+				bindingId: "item",
+				documentName,
+				data: { title: itemId },
+			});
+		const oth = structuredWorkspaces.create({ name: "Oth", dataSchema });
+		const renamed = structuredWorkspaces.rename(oth.id, "Other", oth.revision);
+		expect(renamed.collectionDocuments.map((d) => d.documentName)).toEqual([
+			"Other — Items 2",
+		]);
+		const res = structuredWorkspaces.create({ name: "Res", dataSchema });
+		const updated = structuredWorkspaces.updateDefinition({
+			workspace: res.id,
+			expectedRevision: res.revision,
+			representationSchema: {
+				version: 1,
+				collections: { other: { name: "Other" } },
+			},
+		});
+		const templateNames = updated.templateDocuments.map((d) => d.documentName);
+		expect(templateNames).not.toContain("Res — Other — detail template");
+		expect(templateNames).toContain("Res — Other — detail template 2");
+		expect(documents.resolve("Other — Items")).toBeNull();
+		expect(documents.resolve("Res — Other — detail template")).toBeNull();
+
+		const everything = await bundleExportService.build();
+		expect(everything.ok).toBe(true);
+		expect(structuredWorkspaces.check(holder.id).verdict).toBe("ready");
+		for (const name of ["Other — Items", "Res — Other — detail template"]) {
+			const opened = structuredWorkspaces.openItem(holder.id, name);
+			expect(opened?.meta.structuredWorkspace).toMatchObject({
+				role: "item",
+				workspaceId: holder.id,
+			});
+		}
+	});
+
+	it("keeps an item document the user opens and pins while an export is in flight, and its edit succeeds", async () => {
+		const dataSchema = {
+			type: "object",
+			properties: { title: { type: "string" } },
+			required: ["title"],
+		};
+		const workspace = structuredWorkspaces.create({ name: "Exp", dataSchema });
+		for (const index of [1, 2, 3])
+			await structuredWorkspaces.addItem({
+				workspace: workspace.id,
+				itemId: `exp-${index}`,
+				collectionId: "items",
+				bindingId: "item",
+				documentName: `Exp ${index}`,
+				data: { title: `Item ${index}` },
+			});
+		const pending = bundleExportService.build({
+			names: ["Exp 1", "Exp 2", "Exp 3"],
+		});
+		const opened = structuredWorkspaces.openItem(workspace.id, "Exp 2");
+		expect(opened).not.toBeNull();
+		documents.pin("Exp 2");
+
+		const result = await pending;
+
+		expect(result.ok).toBe(true);
+		expect(documents.resolve("Exp 2")).toBe(opened);
+		expect(documents.resolve("Exp 2")?.pinnedAt).toBeTruthy();
+		expect(store.loadOne("Exp 2")).not.toBeNull();
+		expect(documents.resolve("Exp 1")).toBeNull();
+		expect(documents.resolve("Exp 3")).toBeNull();
+		const mutations = createDocumentStateMutations({
+			store,
+			documents,
+			documentStates,
+			structuredWorkspaces,
+		});
+		const revision = await mutations.update("Exp 2", 1, { title: "Edited" });
+		expect(revision).toMatchObject({ revision: 2, data: { title: "Edited" } });
+		expect(documents.resolve("Exp 2")?.pinnedAt).toBeTruthy();
+		expect(structuredWorkspaces.getItem(workspace.id, "exp-2")?.data).toEqual({
+			title: "Edited",
+		});
 	});
 
 	it("rolls back database, cache, events and newly created assets if the import cannot commit", async () => {
@@ -1269,14 +1386,8 @@ describe("export routes — .maket bundle", () => {
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

@@ -14,17 +14,46 @@ export interface NewStructuredWorkspace {
 	representationSchema: StructuredWorkspaceRepresentationSchema;
 }
 
+/** One stored item: its row, its whole data and the revision a write must
+ * expect. Data is null for a row migrated without a document state. */
+export interface StoredStructuredWorkspaceItem
+	extends StructuredWorkspaceItemReference {
+	data: Record<string, unknown> | null;
+	revision: number;
+}
+
+export type NewStructuredWorkspaceItem = Omit<
+	StoredStructuredWorkspaceItem,
+	"position" | "revision" | "data"
+> & { data: Record<string, unknown>; revision?: number };
+
+/** A write at an expected revision: the written item, or the current one
+ * (null when the item is gone) when the revision did not match. */
+export type StructuredWorkspaceItemWrite =
+	| { written: true; item: StoredStructuredWorkspaceItem }
+	| { written: false; current: StoredStructuredWorkspaceItem | null };
+
 export interface StructuredWorkspaceRepository {
 	createStructuredWorkspace(
 		workspace: NewStructuredWorkspace,
 	): StructuredWorkspaceDefinition;
 	loadStructuredWorkspace(name: string): StructuredWorkspaceDefinition | null;
 	loadAllStructuredWorkspaces(): StructuredWorkspaceDefinition[];
-	/** One item row of a workspace, or null when the workspace has no such item. */
+	/** One item row of a workspace with its data, or null when the workspace
+	 * has no such item. */
 	loadStructuredWorkspaceItem(
 		workspaceId: string,
 		itemId: string,
-	): StructuredWorkspaceItemReference | null;
+	): StoredStructuredWorkspaceItem | null;
+	/** Every item of one collection with its data, in position order. */
+	loadStructuredWorkspaceCollectionItems(
+		workspaceId: string,
+		collectionId: string,
+	): StoredStructuredWorkspaceItem[];
+	/** The item whose document bears `documentName`, in any workspace. */
+	loadStructuredWorkspaceItemByDocumentName(
+		documentName: string,
+	): { workspaceId: string; item: StoredStructuredWorkspaceItem } | null;
 	renameStructuredWorkspace(
 		workspaceId: string,
 		newName: string,
@@ -43,11 +72,25 @@ export interface StructuredWorkspaceRepository {
 		dataSchema: StructuredWorkspaceDataSchema,
 		representationSchema: StructuredWorkspaceRepresentationSchema,
 	): StructuredWorkspaceDefinition;
+	/** Insert an item last in its collection, at revision 1 unless given. */
 	addStructuredWorkspaceItem(
 		workspaceId: string,
-		item: Omit<StructuredWorkspaceItemReference, "position">,
-	): StructuredWorkspaceItemReference;
-	deleteStructuredWorkspaceItem(workspaceId: string, itemId: string): boolean;
+		item: NewStructuredWorkspaceItem,
+	): StoredStructuredWorkspaceItem;
+	/** Replace an item's data when its revision is `expectedRevision`. */
+	putStructuredWorkspaceItem(
+		workspaceId: string,
+		itemId: string,
+		expectedRevision: number,
+		data: Record<string, unknown>,
+	): StructuredWorkspaceItemWrite;
+	/** Delete an item, only at `expectedRevision` when given; false when no
+	 * row matched. */
+	deleteStructuredWorkspaceItem(
+		workspaceId: string,
+		itemId: string,
+		expectedRevision?: number,
+	): boolean;
 }
 
 interface WorkspaceRow {
@@ -67,6 +110,12 @@ interface ItemRow {
 	collection_id: string;
 	binding_id: string;
 	document_id: string;
+	document_name: string;
+}
+
+interface StoredItemRow extends ItemRow {
+	data: string | null;
+	revision: number;
 }
 
 type Statements = {
@@ -86,6 +135,10 @@ type Statements = {
 	itemInsert: StatementSync;
 	itemSelectByWorkspace: StatementSync;
 	itemSelectOne: StatementSync;
+	itemSelectCollection: StatementSync;
+	itemSelectByDocumentName: StatementSync;
+	itemCountCollection: StatementSync;
+	itemUpdate: StatementSync;
 	itemDelete: StatementSync;
 	itemCompactPositions: StatementSync;
 };
@@ -118,9 +171,25 @@ export function createStructuredWorkspaceRepository(
 		},
 		loadStructuredWorkspaceItem(workspaceId, itemId) {
 			const row = statements.itemSelectOne.get(workspaceId, itemId) as
-				| ItemRow
+				| StoredItemRow
 				| undefined;
-			return row ? itemFromRow(row) : null;
+			return row ? storedItemFromRow(row) : null;
+		},
+		loadStructuredWorkspaceCollectionItems(workspaceId, collectionId) {
+			return (
+				statements.itemSelectCollection.all(
+					workspaceId,
+					collectionId,
+				) as unknown as StoredItemRow[]
+			).map(storedItemFromRow);
+		},
+		loadStructuredWorkspaceItemByDocumentName(documentName) {
+			const row = statements.itemSelectByDocumentName.get(documentName) as
+				| (StoredItemRow & { workspace_id: string })
+				| undefined;
+			return row
+				? { workspaceId: row.workspace_id, item: storedItemFromRow(row) }
+				: null;
 		},
 		updateStructuredWorkspace(
 			reference,
@@ -185,13 +254,41 @@ export function createStructuredWorkspaceRepository(
 				collection_id: item.collectionId,
 				binding_id: item.bindingId,
 				document_id: item.documentId,
+				document_name: item.documentName,
+				data: JSON.stringify(item.data),
+				revision: item.revision ?? 1,
 			});
-			return { ...item, position };
+			return requiredItem(statements, workspaceId, item.id);
 		},
-		deleteStructuredWorkspaceItem(workspaceId, itemId) {
+		putStructuredWorkspaceItem(workspaceId, itemId, expectedRevision, data) {
+			const result = statements.itemUpdate.run({
+				workspace_id: workspaceId,
+				id: itemId,
+				expected_revision: expectedRevision,
+				data: JSON.stringify(data),
+			});
+			if (Number(result.changes) === 0) {
+				const current = statements.itemSelectOne.get(workspaceId, itemId) as
+					| StoredItemRow
+					| undefined;
+				return {
+					written: false,
+					current: current ? storedItemFromRow(current) : null,
+				};
+			}
+			return {
+				written: true,
+				item: requiredItem(statements, workspaceId, itemId),
+			};
+		},
+		deleteStructuredWorkspaceItem(workspaceId, itemId, expectedRevision) {
 			db.exec("SAVEPOINT maket_repository");
 			try {
-				const result = statements.itemDelete.run(workspaceId, itemId);
+				const result = statements.itemDelete.run({
+					workspace_id: workspaceId,
+					id: itemId,
+					expected_revision: expectedRevision ?? null,
+				});
 				statements.itemCompactPositions.run(workspaceId);
 				db.exec("RELEASE maket_repository");
 				return result.changes > 0;
@@ -342,19 +439,37 @@ function prepareStatements(db: DatabaseSync): Statements {
 		),
 		itemInsert: db.prepare(`
 			INSERT INTO structured_workspace_items
-				(workspace_id, id, position, collection_id, binding_id, document_id)
+				(workspace_id, id, position, collection_id, binding_id, document_id,
+				 document_name, data, revision)
 			VALUES
-				($workspace_id, $id, $position, $collection_id, $binding_id, $document_id)
+				($workspace_id, $id, $position, $collection_id, $binding_id, $document_id,
+				 $document_name, $data, $revision)
 		`),
 		itemSelectByWorkspace: db.prepare(
-			"SELECT id, position, collection_id, binding_id, document_id FROM structured_workspace_items WHERE workspace_id = ? ORDER BY collection_id ASC, position ASC",
+			"SELECT id, position, collection_id, binding_id, document_id, document_name FROM structured_workspace_items WHERE workspace_id = ? ORDER BY collection_id ASC, position ASC",
 		),
 		itemSelectOne: db.prepare(
-			"SELECT id, position, collection_id, binding_id, document_id FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
+			"SELECT id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
 		),
-		itemDelete: db.prepare(
-			"DELETE FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
+		itemSelectCollection: db.prepare(
+			"SELECT id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ? ORDER BY position ASC",
 		),
+		itemSelectByDocumentName: db.prepare(
+			"SELECT workspace_id, id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE document_name = ? LIMIT 1",
+		),
+		itemCountCollection: db.prepare(
+			"SELECT count(*) AS count FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ?",
+		),
+		itemUpdate: db.prepare(`
+			UPDATE structured_workspace_items
+			SET data = $data, revision = revision + 1
+			WHERE workspace_id = $workspace_id AND id = $id AND revision = $expected_revision
+		`),
+		itemDelete: db.prepare(`
+			DELETE FROM structured_workspace_items
+			WHERE workspace_id = $workspace_id AND id = $id
+				AND ($expected_revision IS NULL OR revision = $expected_revision)
+		`),
 		itemCompactPositions: db.prepare(`
 			UPDATE structured_workspace_items AS target
 			SET position = (
@@ -408,7 +523,28 @@ function itemFromRow(row: ItemRow): StructuredWorkspaceItemReference {
 		collectionId: row.collection_id,
 		bindingId: row.binding_id,
 		documentId: row.document_id,
+		documentName: row.document_name,
 	};
+}
+
+function storedItemFromRow(row: StoredItemRow): StoredStructuredWorkspaceItem {
+	return {
+		...itemFromRow(row),
+		data: row.data === null ? null : JSON.parse(row.data),
+		revision: Number(row.revision),
+	};
+}
+
+function requiredItem(
+	statements: Statements,
+	workspaceId: string,
+	itemId: string,
+): StoredStructuredWorkspaceItem {
+	const row = statements.itemSelectOne.get(workspaceId, itemId) as
+		| StoredItemRow
+		| undefined;
+	if (!row) throw new Error(`Item "${itemId}" was not persisted.`);
+	return storedItemFromRow(row);
 }
 
 function nextPosition(
@@ -416,8 +552,8 @@ function nextPosition(
 	workspaceId: string,
 	collectionId: string,
 ): number {
-	const rows = statements.itemSelectByWorkspace.all(
-		workspaceId,
-	) as unknown as ItemRow[];
-	return rows.filter((row) => row.collection_id === collectionId).length;
+	const row = statements.itemCountCollection.get(workspaceId, collectionId) as
+		| { count: number }
+		| undefined;
+	return Number(row?.count ?? 0);
 }

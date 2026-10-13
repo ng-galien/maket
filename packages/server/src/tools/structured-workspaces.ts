@@ -124,7 +124,7 @@ export function createMaketStructuredWorkspaceTool({
 	};
 }
 
-function handleStructuredWorkspaceTool(
+async function handleStructuredWorkspaceTool(
 	rawArgs: unknown,
 	structuredWorkspaces: StructuredWorkspaces,
 ) {
@@ -138,7 +138,7 @@ function handleStructuredWorkspaceTool(
 		);
 	}
 	try {
-		return dispatch(parsed.data, structuredWorkspaces);
+		return await dispatch(parsed.data, structuredWorkspaces);
 	} catch (error) {
 		if (isStructuredWorkspaceRefusal(error)) {
 			return text(
@@ -345,8 +345,8 @@ function runDelete(args: Args, workspaces: StructuredWorkspaces) {
 	);
 }
 
-function runAddItem(args: Args, workspaces: StructuredWorkspaces) {
-	const item = workspaces.addItem({
+async function runAddItem(args: Args, workspaces: StructuredWorkspaces) {
+	const item = await workspaces.addItem({
 		workspace: required(args.workspace, "workspace"),
 		itemId: args.item,
 		collectionId: required(args.collection, "collection"),
@@ -364,10 +364,10 @@ function runAddItem(args: Args, workspaces: StructuredWorkspaces) {
 	);
 }
 
-function runUpdateItem(args: Args, workspaces: StructuredWorkspaces) {
+async function runUpdateItem(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = required(args.workspace, "workspace");
 	const item = required(args.item, "item");
-	const updated = workspaces.updateItem(
+	const updated = await workspaces.updateItem(
 		workspace,
 		item,
 		requiredValue(args.expected_revision, "expected_revision"),
@@ -378,10 +378,10 @@ function runUpdateItem(args: Args, workspaces: StructuredWorkspaces) {
 	);
 }
 
-function runDeleteItem(args: Args, workspaces: StructuredWorkspaces) {
+async function runDeleteItem(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = required(args.workspace, "workspace");
 	const item = required(args.item, "item");
-	workspaces.deleteItem(workspace, item);
+	await workspaces.deleteItem(workspace, item);
 	return text(`Item "${item}" and its instantiated document were deleted.`);
 }
 

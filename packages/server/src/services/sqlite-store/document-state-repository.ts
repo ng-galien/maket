@@ -53,6 +53,17 @@ export interface DocumentStateRepository {
 		jsonPath: string,
 		value: unknown,
 	): number;
+	/**
+	 * Make the state a mirror of a source: one revision numbered `revision`
+	 * holding `schema` and `data`, every other revision dropped; creates the
+	 * state when the document has none.
+	 */
+	mirrorDocumentState(
+		documentId: string,
+		revision: number,
+		schema: DocumentStateSchema,
+		data: DocumentStateData,
+	): DocumentStateRevision;
 	/** Store the retention and prune revisions beyond it in one transaction. */
 	setDocumentStateRetention(
 		documentId: string,
@@ -121,6 +132,13 @@ export function createDocumentStateRepository(
 				data,
 			);
 		},
+		mirrorDocumentState(documentId, revision, schema, data) {
+			return mirrorState(db, statements, documentId, {
+				revision,
+				schema,
+				data,
+			});
+		},
 		setDocumentStateRetention(documentId, retention) {
 			return setRetention(db, statements, documentId, retention);
 		},
@@ -135,6 +153,8 @@ type DocumentStateStatements = {
 	stateRetentionUpdate: StatementSync;
 	revisionInsert: StatementSync;
 	revisionPrune: StatementSync;
+	revisionDeleteAll: StatementSync;
+	stateUpsert: StatementSync;
 	revisionSelect: StatementSync;
 	revisionSelectCurrent: StatementSync;
 	revisionNumberSelectCurrent: StatementSync;
@@ -310,6 +330,40 @@ function replaceSchema(
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// SQLite transaction adapter: the mirrored revision replaces the history in one savepoint.
+function mirrorState(
+	db: DatabaseSync,
+	statements: DocumentStateStatements,
+	documentId: string,
+	mirrored: {
+		revision: number;
+		schema: DocumentStateSchema;
+		data: DocumentStateData;
+	},
+): DocumentStateRevision {
+	db.exec("SAVEPOINT maket_repository");
+	try {
+		const schema = JSON.stringify(mirrored.schema);
+		statements.stateUpsert.run({ document_id: documentId, schema });
+		statements.revisionDeleteAll.run(documentId);
+		statements.revisionInsert.run({
+			document_id: documentId,
+			revision: mirrored.revision,
+			schema,
+			data: JSON.stringify(mirrored.data),
+		});
+		statements.documentMarkState.run({ document_id: documentId });
+		db.exec("RELEASE maket_repository");
+	} catch (error) {
+		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
+		throw error;
+	}
+	return requiredRevision(
+		statements.revisionSelect.get(documentId, mirrored.revision),
+	);
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // SQLite transaction adapter: the retention and its pruning commit together.
 function setRetention(
 	db: DatabaseSync,
@@ -384,6 +438,12 @@ function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 		),
 		revisionInsert: db.prepare(
 			"INSERT INTO document_state_revisions (document_id, revision, schema, data) VALUES ($document_id, $revision, $schema, $data)",
+		),
+		revisionDeleteAll: db.prepare(
+			"DELETE FROM document_state_revisions WHERE document_id = ?",
+		),
+		stateUpsert: db.prepare(
+			"INSERT INTO document_states (document_id, schema) VALUES ($document_id, $schema) ON CONFLICT(document_id) DO UPDATE SET schema = excluded.schema",
 		),
 		revisionPrune: db.prepare(
 			"DELETE FROM document_state_revisions WHERE document_id = $document_id AND revision < $keep_from",

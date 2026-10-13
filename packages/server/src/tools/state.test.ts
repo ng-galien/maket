@@ -48,6 +48,12 @@ function counterFixture() {
 		store,
 		documents,
 		documentStates,
+		structuredWorkspaces: structuredWorkspacesWithSources({
+			store,
+			documents,
+			documentStates,
+			bus,
+		}),
 	});
 	const tool = createMaketStateTool({
 		documentStates,
@@ -252,7 +258,7 @@ describe("maket_state revision retention on Workspace documents", () => {
 				},
 			},
 		});
-		const item = workspaces.addItem({
+		const item = await workspaces.addItem({
 			workspace: "Graph",
 			itemId: "topic-1",
 			collectionId: "topics",
@@ -260,6 +266,9 @@ describe("maket_state revision retention on Workspace documents", () => {
 			documentName: "Topic one",
 			data: { title: "v0" },
 		});
+		const workspaceId = workspaces.get("Graph")?.id;
+		if (!workspaceId) throw new Error("Workspace missing.");
+		expect(workspaces.openItem(workspaceId, item.documentName)).not.toBeNull();
 		const projection =
 			workspaces.get("Graph")?.collectionDocuments[0]?.documentName;
 		if (!projection) throw new Error("Collection projection missing.");
@@ -269,6 +278,7 @@ describe("maket_state revision retention on Workspace documents", () => {
 				store,
 				documents,
 				documentStates,
+				structuredWorkspaces: workspaces,
 			}),
 			documents,
 		});
@@ -281,12 +291,17 @@ describe("maket_state revision retention on Workspace documents", () => {
 		}
 
 		for (let step = 1; step <= 4; step += 1) {
-			workspaces.updateItem("Graph", "topic-1", step, { title: `v${step}` });
+			await workspaces.updateItem("Graph", "topic-1", step, {
+				title: `v${step}`,
+			});
 		}
 
 		const itemHistory = documentStates.history(item.documentName);
-		expect(itemHistory.map(({ revision }) => revision)).toEqual([5, 4]);
+		expect(itemHistory.map(({ revision }) => revision)).toEqual([5]);
 		expect(itemHistory[0]?.data).toEqual({ title: "v4" });
+		expect(
+			store.loadStructuredWorkspaceItem(workspaceId, "topic-1"),
+		).toMatchObject({ revision: 5, data: { title: "v4" } });
 		const projectionHistory = documentStates.history(projection);
 		expect(projectionHistory).toHaveLength(2);
 		expect(projectionHistory[0]?.data).toEqual({ items: [{ title: "v4" }] });
@@ -325,6 +340,12 @@ describe("maket_state", () => {
 			store,
 			documents,
 			documentStates,
+			structuredWorkspaces: structuredWorkspacesWithSources({
+				store,
+				documents,
+				documentStates,
+				bus,
+			}),
 		});
 		const tool = createMaketStateTool({
 			documentStates,
@@ -512,7 +533,7 @@ describe("maket_state", () => {
 				},
 			},
 		});
-		const item = workspaces.addItem({
+		const item = await workspaces.addItem({
 			workspace: "Delivery",
 			itemId: "task-1",
 			collectionId: "backlog",
@@ -523,10 +544,14 @@ describe("maket_state", () => {
 		const collectionName =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
 		if (!collectionName) throw new Error("Collection document missing.");
+		const workspaceId = workspaces.get("Delivery")?.id;
+		if (!workspaceId) throw new Error("Workspace missing.");
+		expect(workspaces.openItem(workspaceId, item.documentName)).not.toBeNull();
 		const documentStateMutations = createDocumentStateMutations({
 			store,
 			documents,
 			documentStates,
+			structuredWorkspaces: workspaces,
 		});
 		const tool = createMaketStateTool({
 			documentStates,
@@ -562,6 +587,9 @@ describe("maket_state", () => {
 			revision: 1,
 			data: { kind: "task", title: "Ship" },
 		});
+		expect(
+			store.loadStructuredWorkspaceItem(workspaceId, "task-1"),
+		).toMatchObject({ revision: 1, data: { kind: "task", title: "Ship" } });
 		store.close();
 	});
 });
@@ -616,14 +644,8 @@ describe("maket_state drawing from state", () => {
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

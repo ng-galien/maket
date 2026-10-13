@@ -34,18 +34,13 @@ const rows = [
 	{ title: "Echo", status: "done", priority: 1 },
 ];
 
-function setup() {
+async function setup() {
 	const store = createSQLiteStore(":memory:");
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const documentStates = createDocumentStates({ store, bus, documents });
 	const deps = { store, bus, documents, documentStates };
-	const itemSources: ItemSources = createItemSources({
-		...deps,
-		get structuredWorkspaces() {
-			return workspaces;
-		},
-	});
+	const itemSources: ItemSources = createItemSources(deps);
 	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
 		...deps,
 		itemSources,
@@ -61,7 +56,7 @@ function setup() {
 		},
 	});
 	for (const [index, row] of rows.entries()) {
-		workspaces.addItem({
+		await workspaces.addItem({
 			workspace: workspace.id,
 			itemId: `item-${index + 1}`,
 			collectionId: "items",
@@ -99,11 +94,11 @@ async function rejectionCode(promise: Promise<unknown>): Promise<string> {
 }
 
 describe("createLocalItemSource", () => {
-	let current: ReturnType<typeof setup>;
+	let current: Awaited<ReturnType<typeof setup>>;
 	let source: ItemSource;
 
-	beforeEach(() => {
-		current = setup();
+	beforeEach(async () => {
+		current = await setup();
 		source = current.source;
 	});
 
@@ -251,39 +246,40 @@ describe("createLocalItemSource", () => {
 		expect(await rejectionCode(put("missing", data, "1"))).toBe("unknown_item");
 	});
 
-	it("answers like update_item: the lock before the revision, refusals with their code and message", async () => {
+	it("writes rows only: no item document is created, read or written", async () => {
 		const put = source.put;
 		const create = source.create;
 		if (!put || !create) throw new Error("local source writes");
-		const data = { title: "Alpha 2", status: "doing" };
-		const document = current.documents.all().get("Tracker Alpha");
-		if (!document) throw new Error("item document");
-		document.meta.locked = true;
-		const lockedStale = await put("item-1", data, "9").then(
-			() => null,
-			(error: unknown) => error,
-		);
-		expect(isItemSourceError(lockedStale) && lockedStale.code).toBe(
-			"read_only",
-		);
-		expect((lockedStale as Error).message).toBe(
-			'Document "Tracker Alpha" is locked. Unlock it before changing its Workspace.',
-		);
-		expect(await rejectionCode(put("item-1", data, "1"))).toBe("read_only");
-		document.meta.locked = false;
-		const invalid = await put("item-1", { status: "todo" }, "1").then(
-			() => null,
-			(error: unknown) => error,
-		);
-		expect(isItemSourceError(invalid) && invalid.code).toBe("invalid_record");
-		expect((invalid as Error).message).toMatch(
-			/^Item data breaks the schema \(1 issue\(s\)\):/,
-		);
+		const documentsBefore = [...current.documents.all().keys()];
+		await put("item-1", { title: "Alpha 2", status: "doing" }, "1");
+		await create({
+			collectionId: "items",
+			bindingId: "item",
+			id: "item-6",
+			data: { title: "Foxtrot", status: "todo" },
+			document: { id: "doc-6", name: "Tracker Foxtrot" },
+		});
+		expect([...current.documents.all().keys()]).toEqual(documentsBefore);
+		expect(current.documents.resolve("Tracker Alpha")).toBeNull();
+		expect(current.store.loadOne("Tracker Alpha")).toBeNull();
+		expect(
+			current.store.loadStructuredWorkspaceItem(current.workspace.id, "item-1"),
+		).toMatchObject({
+			documentName: "Tracker Alpha",
+			revision: 2,
+			data: { title: "Alpha 2", status: "doing" },
+		});
+	});
+
+	it("refuses a duplicate id and an item without its document as invalid records", async () => {
+		const create = source.create;
+		if (!create) throw new Error("local source creates");
 		const duplicate = await create({
 			collectionId: "items",
 			bindingId: "item",
 			id: "item-2",
 			data: { title: "Again", status: "todo" },
+			document: { id: "doc-again", name: "Tracker Again" },
 		}).then(
 			() => null,
 			(error: unknown) => error,
@@ -294,14 +290,27 @@ describe("createLocalItemSource", () => {
 		expect((duplicate as Error).message).toBe(
 			'Item "item-2" already exists in "Tracker".',
 		);
+		expect(
+			await rejectionCode(
+				create({
+					collectionId: "items",
+					bindingId: "item",
+					id: "item-7",
+					data: { title: "Golf", status: "todo" },
+				}),
+			),
+		).toBe("invalid_record");
 	});
 
 	it("keeps an invalid stored record listed with its issues", () => {
-		const document = current.documents.all().get("Tracker Bravo");
-		if (!document) throw new Error("item document");
-		current.store.appendDocumentStateRevision(document.id, 1, {
-			status: "done",
-		});
+		current.store.putStructuredWorkspaceItem(
+			current.workspace.id,
+			"item-2",
+			1,
+			{
+				status: "done",
+			},
+		);
 		const page = source.list({ collectionId: "items", limit: 10 });
 		expect(page.total).toBe(5);
 		const bravo = page.items.find((item) => item.id === "item-2");
@@ -314,7 +323,7 @@ describe("createLocalItemSource", () => {
 		).toEqual(["item-2"]);
 	});
 
-	it("creates an item through the workspace mutations", async () => {
+	it("creates an item row last in its collection with the document that will render it", async () => {
 		const create = source.create;
 		if (!create) throw new Error("local source creates");
 		const created = await create({
@@ -322,6 +331,7 @@ describe("createLocalItemSource", () => {
 			bindingId: "item",
 			id: "item-6",
 			data: { title: "Foxtrot", status: "todo" },
+			document: { id: "doc-6", name: "Tracker Foxtrot" },
 		});
 		expect(created).toEqual({
 			id: "item-6",
@@ -333,8 +343,12 @@ describe("createLocalItemSource", () => {
 		expect(page.total).toBe(6);
 		expect(page.items.at(-1)?.id).toBe("item-6");
 		expect(
-			current.workspaces.get(current.workspace.id)?.items.at(-1)?.documentName,
-		).toBe("Tracker — Items — item-6");
+			current.workspaces.get(current.workspace.id)?.items.at(-1),
+		).toMatchObject({
+			position: 5,
+			documentId: "doc-6",
+			documentName: "Tracker Foxtrot",
+		});
 	});
 
 	it("deletes an item, at the expected revision when given", async () => {

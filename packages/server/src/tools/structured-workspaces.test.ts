@@ -440,7 +440,10 @@ describe("maket_structured_workspace", () => {
 		expect(updated.isError).toBeUndefined();
 		expect(textOf(updated)).toContain("revision 2");
 
-		const lockedItem = documents.resolveOrLoad("Release task");
+		const lockedItem = structuredWorkspaces.openItem(
+			structuredWorkspaces.get("Delivery")?.id ?? "",
+			"Release task",
+		);
 		if (!lockedItem) throw new Error("Expected instantiated document");
 		lockedItem.meta.locked = true;
 		documents.persist(lockedItem.name);
@@ -666,9 +669,10 @@ describe("maket_structured_workspace update_item propagation", () => {
 			documents.all().set(document.name, document);
 			documents.persist(document.name);
 		}
-		const tool = createMaketStructuredWorkspaceTool({
-			structuredWorkspaces: container.resolve("structuredWorkspaces"),
-		});
+		const structuredWorkspaces = container.resolve<StructuredWorkspaces>(
+			"structuredWorkspaces",
+		);
+		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
 		const created = await tool.handler(
 			{
 				action: "create",
@@ -720,6 +724,11 @@ describe("maket_structured_workspace update_item propagation", () => {
 			);
 			expect(added.isError).toBeUndefined();
 		}
+		const workspaceId = structuredWorkspaces.get("Graph")?.id ?? "";
+		expect(documents.resolve("Topic 30")).toBeNull();
+		expect(structuredWorkspaces.openItem(workspaceId, "Topic 30")?.id).toBe(
+			structuredWorkspaces.getItem(workspaceId, "topic-30")?.documentId,
+		);
 		writes.length = 0;
 		reads.length = 0;
 		events.length = 0;
@@ -738,8 +747,9 @@ describe("maket_structured_workspace update_item propagation", () => {
 
 		expect(textOf(updated)).toBe('Item "topic-30" updated to data revision 2.');
 		expect(writes).toEqual([
-			"appendDocumentStateRevision",
+			"putStructuredWorkspaceItem",
 			"replaceCurrentDocumentStateValue",
+			"mirrorDocumentState",
 		]);
 		expect(events.sort()).toEqual([
 			"document-state:changed",
@@ -794,7 +804,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 			{} as never,
 		);
 		expect(unchanged.isError).toBeUndefined();
-		expect(writes).toEqual(["appendDocumentStateRevision"]);
+		expect(writes).toEqual(["putStructuredWorkspaceItem"]);
 		expect(
 			broadcasts.filter(({ doc }) => doc === "Graph — Topics"),
 		).toHaveLength(0);
@@ -937,7 +947,13 @@ describe("maket_structured_workspace documented method", () => {
 				data: { title: "Dune", isbn: "978", pages: 412, tags: ["sf"] },
 			});
 			expect(added.isError).toBeUndefined();
-			expect(documents.resolve("Dune")?.pages).toHaveLength(2);
+			expect(documents.resolve("Dune")).toBeNull();
+			const opened = structuredWorkspaces.openItem(
+				structuredWorkspaces.get("Reading list")?.id ?? "",
+				"Dune",
+			);
+			expect(opened?.pages).toHaveLength(2);
+			expect(documents.resolve("Dune")).toBe(opened);
 			expect(structuredWorkspaces.check("Reading list").verdict).toBe("ready");
 		} finally {
 			store.close();
@@ -951,6 +967,17 @@ describe("maket_structured_workspace documented method", () => {
 		try {
 			let last: CallToolResult | null = null;
 			for (const step of failure.steps) {
+				if ("manual" in step && step.manual === "open-item") {
+					const workspace = structuredWorkspaces
+						.list()
+						.find((candidate) =>
+							candidate.items.some(
+								(item) => item.documentName === step.document,
+							),
+						);
+					structuredWorkspaces.openItem(workspace?.id ?? "", step.document);
+					continue;
+				}
 				if ("manual" in step) {
 					const document = documents.resolve(step.document);
 					const page = document?.pages[0];
@@ -1249,7 +1276,9 @@ describe("maket_structured_workspace Mermaid sources", () => {
 			expect(textOf(update)).toContain(
 				"State value /flow (format maket-mermaid) is not a Mermaid diagram Maket can draw: Mermaid styling directives are not supported.",
 			);
-			expect(documentStates.get("Release")?.current).toMatchObject({
+			expect(
+				store.loadStructuredWorkspaceItem(definition?.id ?? "", "Release"),
+			).toMatchObject({
 				revision: 1,
 				data: { title: "Release", flow: "flowchart LR\n  Draft --> Signed" },
 			});
@@ -1262,14 +1291,8 @@ describe("maket_structured_workspace Mermaid sources", () => {
 function structuredWorkspacesWithSources(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }

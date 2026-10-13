@@ -51,16 +51,10 @@ const pageFlow: Pick<PageFlow, "pages"> = {
 function engine(
 	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	return createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources({
-			...deps,
-			get structuredWorkspaces() {
-				return workspaces;
-			},
-		}),
+		itemSources: createItemSources(deps),
 	});
-	return workspaces;
 }
 
 function scenario() {
@@ -166,7 +160,7 @@ const schema = {
 	additionalProperties: false,
 };
 
-function add(
+async function add(
 	current: Scenario,
 	workspace: string,
 	collectionId: string,
@@ -178,16 +172,19 @@ function add(
 		address: { city: ["Lyon", "Brest"][index % 2] },
 	}),
 ) {
-	return Array.from({ length: count }, (_, i) =>
-		current.workspaces.addItem({
-			workspace,
-			itemId: `${collectionId}-${i + 1}`,
-			collectionId,
-			bindingId: "item",
-			documentName: `${workspace} ${collectionId} ${i + 1}`,
-			data: data(i + 1),
-		}),
-	);
+	const added = [];
+	for (let i = 0; i < count; i += 1)
+		added.push(
+			await current.workspaces.addItem({
+				workspace,
+				itemId: `${collectionId}-${i + 1}`,
+				collectionId,
+				bindingId: "item",
+				documentName: `${workspace} ${collectionId} ${i + 1}`,
+				data: data(i + 1),
+			}),
+		);
+	return added;
 }
 
 interface Case {
@@ -225,8 +222,8 @@ const cases: Case[] = [
 					},
 				},
 			});
-			add(current, ws.name, "open", 5);
-			add(current, ws.name, "board", 7);
+			await add(current, ws.name, "open", 5);
+			await add(current, ws.name, "board", 7);
 			return capture(current, ws.id, ["open", "board"], ["open-2", "board-3"]);
 		},
 	},
@@ -237,13 +234,14 @@ const cases: Case[] = [
 				name: "Broken",
 				dataSchema: schema,
 			});
-			const [first] = add(current, ws.name, "items", 3);
-			const id =
-				current.documents.all().get(first?.documentName ?? "")?.id ?? "";
-			current.store.appendDocumentStateRevision(id, 1, { status: "todo" });
+			const [first] = await add(current, ws.name, "items", 3);
+			current.store.putStructuredWorkspaceItem(ws.id, first?.id ?? "", 1, {
+				status: "todo",
+			});
 			return {
 				current: JSON.stringify(
-					current.documentStates.current(first?.documentName ?? "")?.data,
+					current.store.loadStructuredWorkspaceItem(ws.id, first?.id ?? "")
+						?.data,
 				),
 				...(await capture(current, ws.id, ["items"], ["items-1", "items-2"])),
 			};
@@ -256,8 +254,8 @@ const cases: Case[] = [
 				name: "Deleted",
 				dataSchema: schema,
 			});
-			add(current, ws.name, "items", 4);
-			current.workspaces.deleteItem(ws.name, "items-2");
+			await add(current, ws.name, "items", 4);
+			await current.workspaces.deleteItem(ws.name, "items-2");
 			return capture(current, ws.id, ["items"], ["items-2", "items-3"]);
 		},
 	},
@@ -268,7 +266,8 @@ const cases: Case[] = [
 				name: "Orphan",
 				dataSchema: schema,
 			});
-			const [first] = add(current, ws.name, "items", 3);
+			const [first] = await add(current, ws.name, "items", 3);
+			current.workspaces.openItem(ws.id, first?.documentName ?? "");
 			current.documents.all().delete(first?.documentName ?? "");
 			return capture(current, ws.id, ["items"], ["items-1", "items-2"]);
 		},
@@ -280,7 +279,7 @@ const cases: Case[] = [
 				name: "Stale",
 				dataSchema: schema,
 			});
-			add(current, ws.name, "items", 3);
+			await add(current, ws.name, "items", 3);
 			const refused = await call(current, {
 				action: "update_item",
 				workspace: ws.name,
@@ -309,8 +308,11 @@ const cases: Case[] = [
 				name: "Locked",
 				dataSchema: schema,
 			});
-			const [first] = add(current, ws.name, "items", 3);
-			const document = current.documents.all().get(first?.documentName ?? "");
+			const [first] = await add(current, ws.name, "items", 3);
+			const document = current.workspaces.openItem(
+				ws.id,
+				first?.documentName ?? "",
+			);
 			if (document) document.meta.locked = true;
 			const refused = await call(current, {
 				action: "update_item",
@@ -356,7 +358,7 @@ const cases: Case[] = [
 			});
 			const ws = current.workspaces.get("Nested");
 			if (!ws) return { created };
-			add(current, ws.name, "items", 3, (index) => ({
+			await add(current, ws.name, "items", 3, (index) => ({
 				title: `T${index}`,
 				status: "todo",
 				notes: `n${index}`,
@@ -402,15 +404,12 @@ describe("Structured Workspaces stay byte-identical to HEAD on the review cases"
 	});
 });
 
-describe("the local item source answers writes like the service", () => {
-	it("maps lock, invalid data, duplicate id, stale and unknown refusals, and closes on deletion", async () => {
+describe("the local item source writes rows at a revision", () => {
+	it("answers stale, unknown and duplicate refusals with their code, the engine answers lock and invalid data, and closes on deletion", async () => {
 		const current = scenario();
-		const sources = createItemSources({
-			...current,
-			structuredWorkspaces: current.workspaces,
-		});
+		const sources = createItemSources(current);
 		const ws = current.workspaces.create({ name: "Src", dataSchema: schema });
-		add(current, ws.name, "items", 2);
+		await add(current, ws.name, "items", 2);
 		const source = sources.sourceFor(ws.id);
 		const codeOf = async (run: () => Promise<unknown>) => {
 			try {
@@ -420,20 +419,34 @@ describe("the local item source answers writes like the service", () => {
 				return isItemSourceError(error) ? error.code : (error as Error).message;
 			}
 		};
-		const document = current.documents.all().get(`${ws.name} items 1`);
+		const document = current.workspaces.openItem(ws.id, `${ws.name} items 1`);
 		if (document) document.meta.locked = true;
-		const lockedWrongRevision = await codeOf(async () =>
-			source.put?.("items-1", { title: "x", status: "todo" }, "9"),
+		const lockedUpdate = await codeOf(async () =>
+			current.workspaces.updateItem(ws.name, "items-1", 1, {
+				title: "x",
+				status: "todo",
+			}),
 		);
-		const lockedRightRevision = await codeOf(async () =>
-			source.put?.("items-1", { title: "x", status: "todo" }, "1"),
+		const lockedDelete = await codeOf(async () =>
+			current.workspaces.deleteItem(ws.name, "items-1"),
 		);
-		const lockedDelete = await codeOf(async () => source.delete?.("items-1"));
 		if (document) document.meta.locked = false;
 		const results = {
-			lockedWrongRevision,
-			lockedRightRevision,
+			lockedUpdate,
 			lockedDelete,
+			invalidData: (
+				await codeOf(async () =>
+					current.workspaces.updateItem(ws.name, "items-2", 1, {
+						status: "todo",
+					}),
+				)
+			).split("\n")[0],
+			engineStale: await codeOf(async () =>
+				current.workspaces.updateItem(ws.name, "items-2", 9, {
+					title: "x",
+					status: "todo",
+				}),
+			),
 			stale: await codeOf(async () =>
 				source.put?.("items-2", { title: "x", status: "todo" }, "9"),
 			),
@@ -441,19 +454,29 @@ describe("the local item source answers writes like the service", () => {
 				source.put?.("nope", { title: "x", status: "todo" }, "1"),
 			),
 			unknownDelete: await codeOf(async () => source.delete?.("nope")),
-			invalidData: await codeOf(async () =>
-				source.put?.("items-2", { status: "todo" }, "1"),
-			),
 			duplicateCreate: await codeOf(async () =>
 				source.create?.({
 					collectionId: "items",
 					bindingId: "item",
 					id: "items-2",
 					data: { title: "x", status: "todo" },
+					document: { id: "d", name: "d" },
+				}),
+			),
+			withoutDocument: await codeOf(async () =>
+				source.create?.({
+					collectionId: "items",
+					bindingId: "item",
+					id: "items-3",
+					data: { title: "x", status: "todo" },
 				}),
 			),
 			staleDelete: await codeOf(async () => source.delete?.("items-2", "5")),
+			written: await codeOf(async () =>
+				source.put?.("items-2", { title: "y", status: "done" }, "1"),
+			),
 		};
+		const row = current.store.loadStructuredWorkspaceItem(ws.id, "items-2");
 		current.workspaces.delete(ws.name);
 		const afterDelete = await codeOf(async () =>
 			source.list({ collectionId: "items", limit: 10 }),
@@ -461,15 +484,23 @@ describe("the local item source answers writes like the service", () => {
 		const reopened = sources.sourceFor(ws.id) !== source;
 		current.store.close();
 		expect(results).toEqual({
-			lockedWrongRevision: "read_only",
-			lockedRightRevision: "read_only",
-			lockedDelete: "read_only",
+			lockedUpdate:
+				'Document "Src items 1" is locked. Unlock it before changing its Workspace.',
+			lockedDelete:
+				'Document "Src items 1" is locked. Unlock it before changing its Workspace.',
+			invalidData: "Item data breaks the schema (1 issue(s)):",
+			engineStale: "stale_revision",
 			stale: "stale_revision",
 			unknownPut: "unknown_item",
 			unknownDelete: "unknown_item",
-			invalidData: "invalid_record",
 			duplicateCreate: "invalid_record",
+			withoutDocument: "invalid_record",
 			staleDelete: "stale_revision",
+			written: "ok",
+		});
+		expect(row).toMatchObject({
+			revision: 2,
+			data: { title: "y", status: "done" },
 		});
 		expect(afterDelete).toBe("source_unreachable");
 		expect(reopened).toBe(true);

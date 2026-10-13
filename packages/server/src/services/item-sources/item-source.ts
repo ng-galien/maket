@@ -73,6 +73,8 @@ export interface ItemCreation {
 	bindingId: string;
 	data: Record<string, unknown>;
 	id?: string;
+	/** The document that will render the item, for a source that records it. */
+	document?: { id: string; name: string };
 }
 
 export type ItemRefreshTarget =

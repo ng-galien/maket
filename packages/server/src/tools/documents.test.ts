@@ -381,6 +381,29 @@ describe("maket_doc — action=lookup", () => {
 		expect(emitted).not.toHaveBeenCalled();
 		store.close();
 	});
+
+	it("leaves item documents out of near matches and still finds one by its exact name", async () => {
+		const { store, documents, lookup } = lookupFixture();
+		const item = makeDoc("Topic boards item");
+		item.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "w",
+			collectionId: "items",
+			itemId: "one",
+			bindingId: "item",
+		};
+		documents.all().set(item.name, item);
+		documents.persist(item.name);
+
+		const near = await lookup("Topic boards");
+		const exact = await lookup("Topic boards item");
+
+		expect(near.body).toContain('Near matches: "Topic board".');
+		expect(near.body).not.toContain("Topic boards item");
+		expect(exact.isError).toBeUndefined();
+		expect(JSON.parse(exact.body)).toMatchObject({ id: item.id });
+		store.close();
+	});
 });
 
 describe("maket_doc — action=delete", () => {
@@ -1612,5 +1635,60 @@ describe("maket_doc — action=export / import", () => {
 			expect(res.isError).toBe(true);
 			store.close();
 		});
+	});
+});
+
+describe("maket_doc — names reserved by Structured Workspace items", () => {
+	it("refuses new, duplicate and rename to the document name of an item never opened", async () => {
+		const { store, bus, documents, config, collections } = fixture();
+		store.createStructuredWorkspace({
+			id: "ws",
+			name: "Forms",
+			dataSchema: { type: "object" },
+			representationSchema: { version: 1, collections: {} },
+		});
+		store.addStructuredWorkspaceItem("ws", {
+			id: "three",
+			collectionId: "items",
+			bindingId: "item",
+			documentId: "doc-three",
+			documentName: "Form three",
+			data: { title: "Three" },
+		});
+		store.saveDoc(makeDoc("Scratch"));
+		documents.loadAll();
+		const tool = createMaketDocTool({
+			bus,
+			documents,
+			store,
+			config,
+			collections,
+		});
+		const run = async (args: Record<string, unknown>) => {
+			const result = await tool.handler(args as never, NO_EXTRA);
+			return {
+				isError: result.isError,
+				text: result.content[0]?.type === "text" ? result.content[0].text : "",
+			};
+		};
+
+		expect(await run({ action: "new", doc: "Form three" })).toEqual({
+			isError: true,
+			text: 'Document "Form three" already exists',
+		});
+		expect(
+			await run({ action: "duplicate", doc: "Scratch", name: "Form three" }),
+		).toEqual({ isError: true, text: 'Document "Form three" already exists' });
+		expect(
+			await run({ action: "rename", doc: "Scratch", name: "Form three" }),
+		).toEqual({ isError: true, text: 'Document "Form three" already exists' });
+		expect(documents.resolve("Form three")).toBeNull();
+		expect(store.loadOne("Form three")).toBeNull();
+		expect(documents.resolve("Scratch")).not.toBeNull();
+		expect(
+			(await run({ action: "rename", doc: "Scratch", name: "Form four" }))
+				.isError,
+		).toBeUndefined();
+		store.close();
 	});
 });

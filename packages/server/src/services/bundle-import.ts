@@ -161,7 +161,9 @@ function importDocuments(
 		const bundledState = snapshot.id
 			? stateByDocumentId.get(snapshot.id)
 			: undefined;
-		const finalName = uniqueName(snapshot.name, (name) => all.has(name));
+		const finalName = uniqueName(snapshot.name, (name) =>
+			deps.documents.nameTaken(name),
+		);
 		const document = createDocument({
 			name: finalName,
 			category: snapshot.category || "general",
