@@ -281,6 +281,7 @@ describe("maket_structured_workspace", () => {
 		expect(structuredWorkspacesPack.requires).toEqual([
 			"structuredWorkspaces",
 			"itemWindows",
+			"config",
 		]);
 	});
 

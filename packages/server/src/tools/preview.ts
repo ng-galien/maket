@@ -14,15 +14,24 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import { measureAutoPageHeights } from "../lib/auto-page-height.js";
+import {
+	fitsInline,
+	type InlineFrame,
+	inlineFrame,
+	inlineImageLine,
+} from "../lib/bounded-image.js";
 import { cursorRenderOptions } from "../lib/collection-render.js";
 import { inlineImages } from "../lib/image-inline.js";
-import { installNetworkGuard } from "../lib/page-network-guard.js";
-import { waitForPageStable } from "../lib/page-stable-wait.js";
+import {
+	captureInline,
+	type InlineCapture,
+	loadSurface,
+} from "../lib/inline-capture.js";
+import { documentReadingPath, readingLine } from "../lib/reading-link.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { AssetsService } from "../services/assets.js";
-import type { BrowserPool } from "../services/browser-pool.js";
+import type { BrowserPool, RenderPage } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
 import type { Config } from "../services/config.js";
 import {
@@ -69,7 +78,7 @@ const DESCRIPTION = [
 	"When to use: view documents outside the agent. `open` flips the live preview URL into the user's browser; `snapshot` rasterises a single page to PNG at its true mm size.",
 	"",
 	"  open     — launch the live preview URL (localhost) in the default browser. No params.",
-	"  snapshot — render a page via headless Chromium. Returns the PNG inline (binary) and as a file path on disk.",
+	"  snapshot — render a page via headless Chromium. Returns the full-size PNG as a file path on disk, the page's reading path in Maket, and the image inline (at most 1600 px on its longest side and 1 MB of base64, downscaled when larger; beyond a 2:1 ratio, the top or left part of the page).",
 ].join("\n");
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
@@ -181,26 +190,14 @@ async function runSnapshot(
 		surface: { kind: "snapshot" },
 	});
 
-	const scale = 3.78;
 	const browser = await browserPool.get();
 	const p = await browser.newPage();
 	try {
-		await installNetworkGuard(p, "offline");
-		await p.setViewport({
-			width: Math.ceil(w * scale),
-			height: rendered.canvas.format === "AUTO" ? 900 : Math.ceil(h * scale),
-		});
-		await p.setContent(fullHtml, { waitUntil: "load" });
-		await waitForPageStable(p);
-		if (rendered.canvas.format === "AUTO") {
-			const [height] = await measureAutoPageHeights(p);
-			await p.setViewport({ width: Math.ceil(w * scale), height: height ?? 1 });
-		}
+		const viewport = await loadSurface(p, rendered.canvas, fullHtml);
 		const png = (await p.screenshot({
 			type: "png",
 			fullPage: false,
 		})) as Buffer;
-		const b64 = Buffer.from(png).toString("base64");
 		const requested = args.path ?? `${safeFilename(d.name)}.png`;
 		let outPath: string;
 		try {
@@ -209,18 +206,75 @@ async function runSnapshot(
 			return text((e as Error).message, true);
 		}
 		writeFileSync(outPath, png);
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Snapshot saved: ${outPath} (${Math.round(png.length / 1024)} KB)`,
-				},
-				{ type: "image", data: b64, mimeType: "image/png" },
-			],
-		};
+		const frame = inlineFrame(viewport.width, viewport.height);
+		const inline = await inlineSnapshot(p, frame, Buffer.from(png)).catch(
+			() => null,
+		);
+		return snapshotAnswer(png.length, inline, {
+			frame,
+			outPath,
+			label: `"${d.name}" page ${args.page}`,
+			readingPath: documentReadingPath(d, config.BASE_PATH),
+		});
 	} finally {
 		await p.close();
 	}
+}
+
+/** The inline image of a snapshot: the full PNG when it already fits,
+ * else the frame drawn by Chromium. */
+async function inlineSnapshot(
+	page: RenderPage,
+	frame: InlineFrame,
+	full: Buffer,
+): Promise<InlineCapture> {
+	if (!frame.cropped && frame.scale === 1 && fitsInline(full))
+		return {
+			data: full,
+			mimeType: "image/png",
+			width: frame.width,
+			height: frame.height,
+		};
+	return captureInline(page, frame);
+}
+
+/** The snapshot answer: what was rendered and where the full-size PNG is,
+ * the reading path, and the inline image when one could be made. The text
+ * alone tells a client that shows no image where to see the page. */
+function snapshotAnswer(
+	fullBytes: number,
+	inline: InlineCapture | null,
+	target: {
+		frame: InlineFrame;
+		outPath: string;
+		label: string;
+		readingPath: string;
+	},
+): CallToolResult {
+	const full = `the full-size PNG is the saved file ${target.outPath}`;
+	return {
+		content: [
+			{
+				type: "text",
+				text: [
+					`Snapshot of ${target.label} saved: ${target.outPath} (${Math.round(fullBytes / 1024)} KB, full size).`,
+					inline
+						? inlineImageLine(target.frame, inline, full)
+						: `The inline image could not be attached; ${full}.`,
+					readingLine(target.readingPath),
+				].join("\n"),
+			},
+			...(inline
+				? [
+						{
+							type: "image" as const,
+							data: inline.data.toString("base64"),
+							mimeType: inline.mimeType,
+						},
+					]
+				: []),
+		],
+	};
 }
 
 export const previewPack: ToolPack = {

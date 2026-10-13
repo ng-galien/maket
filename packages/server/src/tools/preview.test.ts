@@ -15,12 +15,16 @@ import { createDocument } from "../types.js";
 import { createMaketPreviewTool, previewPack } from "./preview.js";
 
 const previewMocks = vi.hoisted(() => {
+	const onePixelPng = Buffer.from(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+		"base64",
+	);
 	const page = {
 		setViewport: vi.fn(async () => {}),
 		setContent: vi.fn(async () => {}),
 		waitForNetworkIdle: vi.fn(async () => {}),
-		evaluate: vi.fn(async () => undefined),
-		screenshot: vi.fn(async () => Buffer.from("png")),
+		evaluate: vi.fn(async (_script?: unknown): Promise<unknown> => undefined),
+		screenshot: vi.fn(async (_options?: unknown) => onePixelPng),
 		pdf: vi.fn(async () => Buffer.from("pdf")),
 		close: vi.fn(async () => {}),
 	};
@@ -31,6 +35,7 @@ const previewMocks = vi.hoisted(() => {
 		close: vi.fn(async () => {}),
 	};
 	return {
+		onePixelPng,
 		execFile: vi.fn(),
 		inlineImages: vi.fn(async (html: string) => html),
 		installNetworkGuard: vi.fn(async () => {}),
@@ -178,13 +183,198 @@ describe("maket_preview — action=snapshot", () => {
 		expect(previewMocks.get).toHaveBeenCalledOnce();
 		expect(previewMocks.page.close).toHaveBeenCalledOnce();
 		expect(readFileSync(join(config.EXPORTS_DIR, "d.png"))).toEqual(
-			Buffer.from("png"),
+			previewMocks.onePixelPng,
 		);
-		expect((res.content[0] as any).text).toMatch(/Snapshot saved:/);
-		expect((res.content[1] as any).data).toBe(
-			Buffer.from("png").toString("base64"),
+		const answer = (res.content[0] as any).text as string;
+		expect(answer).toMatch(/^Snapshot of "d" page 1 saved: .*d\.png/);
+		expect(answer).toContain("Inline image 794×1123 px.");
+		expect(answer).toContain(
+			`Read it in Maket: /documents/${documents.resolve("d")?.id}/read (a relative path: it opens in the Maket app, or in a browser on the Maket server origin).`,
 		);
+		expect(res.content[1]).toEqual({
+			type: "image",
+			data: previewMocks.onePixelPng.toString("base64"),
+			mimeType: "image/png",
+		});
 		cleanup();
+	});
+
+	/** Snapshot a one-page document, the full screenshot being `full`, while
+	 * measuring the longest stall of the event loop. */
+	async function snapshotOf(
+		canvas: Parameters<typeof createDocument>[0]["canvas"],
+		full: Buffer,
+	) {
+		const {
+			store,
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+			cleanup,
+		} = fixture();
+		store.saveDoc(
+			createDocument({
+				name: "big",
+				canvas,
+				pages: [
+					{ name: "P1", elements: [], html: `<div data-id="x">Big</div>` },
+				],
+			}),
+		);
+		documents.loadAll();
+		const tool = createMaketPreviewTool({
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+		});
+		previewMocks.page.screenshot.mockImplementation(
+			async (options?: unknown) =>
+				(options as { clip?: unknown } | undefined)?.clip
+					? previewMocks.onePixelPng
+					: (full as typeof previewMocks.onePixelPng),
+		);
+		let longest = 0;
+		let last = performance.now();
+		const monitor = setInterval(() => {
+			const now = performance.now();
+			longest = Math.max(longest, now - last);
+			last = now;
+		}, 5);
+		try {
+			const res = await tool.handler(
+				{ action: "snapshot", doc: "big", page: 1 },
+				NO_EXTRA,
+			);
+			await new Promise((resolve) => setTimeout(resolve, 20));
+			return {
+				res,
+				longest,
+				saved: readFileSync(join(config.EXPORTS_DIR, "big.png")),
+				clips: previewMocks.page.screenshot.mock.calls.flatMap(([options]) => {
+					const clip = (options as { clip?: unknown } | undefined)?.clip;
+					return clip ? [clip] : [];
+				}),
+			};
+		} finally {
+			clearInterval(monitor);
+			previewMocks.page.screenshot.mockImplementation(
+				async () => previewMocks.onePixelPng,
+			);
+			cleanup();
+		}
+	}
+
+	it("has Chromium draw the inline image of a 3840×2160 page at 1600 px, never blocking the event loop 200 ms, the full PNG kept on disk", async () => {
+		const full = Buffer.alloc(24 * 1024 * 1024, 7);
+		const { res, longest, saved, clips } = await snapshotOf(
+			{
+				format: "DESKTOP",
+				orientation: "landscape",
+				w: 1016,
+				h: 571.4,
+				bg: "#fff",
+			},
+			full,
+		);
+		expect(saved.length).toBe(full.length);
+		expect(clips).toEqual([
+			{ x: 0, y: 0, width: 3841, height: 2160, scale: 1600 / 3841 },
+		]);
+		expect(res.content[1]).toEqual({
+			type: "image",
+			data: previewMocks.onePixelPng.toString("base64"),
+			mimeType: "image/png",
+		});
+		expect((res.content[0] as any).text).toContain(
+			"Inline image downscaled to 1600×900 px: the full-size PNG is the saved file",
+		);
+		expect(longest).toBeLessThan(200);
+	});
+
+	it("inlines the top part of a very tall AUTO page at a legible scale and says it is cropped", async () => {
+		previewMocks.page.evaluate.mockImplementation(async (script?: unknown) =>
+			typeof script === "string" ? [157848] : undefined,
+		);
+		try {
+			const { res, longest, clips } = await snapshotOf(
+				{ format: "AUTO", orientation: "portrait", w: 420, h: 1, bg: "#fff" },
+				Buffer.alloc(20 * 1024 * 1024, 3),
+			);
+			expect(clips).toEqual([
+				{ x: 0, y: 0, width: 1588, height: 3176, scale: 1600 / 3176 },
+			]);
+			expect((res.content[0] as any).text).toContain(
+				"Inline image cropped to the top part (1588×3176 px of the full result, shown at 800×1600 px): the full-size PNG is the saved file",
+			);
+			expect(longest).toBeLessThan(200);
+		} finally {
+			previewMocks.page.evaluate.mockImplementation(async () => undefined);
+		}
+	});
+
+	it("keeps the answer when the inline image cannot be made", async () => {
+		const {
+			store,
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+			cleanup,
+		} = fixture();
+		store.saveDoc(
+			createDocument({
+				name: "wide",
+				canvas: {
+					format: "DESKTOP",
+					orientation: "landscape",
+					w: 1016,
+					h: 571.4,
+					bg: "#fff",
+				},
+				pages: [
+					{ name: "P1", elements: [], html: `<div data-id="x">Wide</div>` },
+				],
+			}),
+		);
+		documents.loadAll();
+		previewMocks.page.screenshot.mockImplementation(
+			async (options?: unknown) => {
+				if ((options as { clip?: unknown } | undefined)?.clip)
+					throw new Error("capture failed");
+				return previewMocks.onePixelPng;
+			},
+		);
+		try {
+			const res = await createMaketPreviewTool({
+				documents,
+				config,
+				assets,
+				browserPool,
+				documentRenderer,
+				collectionCursors,
+			}).handler({ action: "snapshot", doc: "wide", page: 1 }, NO_EXTRA);
+			expect(res.isError).toBeUndefined();
+			expect(res.content).toHaveLength(1);
+			const answer = (res.content[0] as any).text as string;
+			expect(answer).toMatch(/^Snapshot of "wide" page 1 saved: .*wide\.png/);
+			expect(answer).toContain(
+				"The inline image could not be attached; the full-size PNG is the saved file",
+			);
+			expect(answer).toContain("Read it in Maket: /documents/");
+		} finally {
+			previewMocks.page.screenshot.mockImplementation(
+				async () => previewMocks.onePixelPng,
+			);
+			cleanup();
+		}
 	});
 
 	it("renders the collection row selected by the shared cursor", async () => {

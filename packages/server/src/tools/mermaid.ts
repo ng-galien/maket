@@ -6,12 +6,15 @@
  * Deps: `documents` (resolve + persist), `bus` (emit element:updated).
  */
 
+import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asFunction } from "awilix";
 import { parseHTML } from "linkedom";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { inlineImageLine } from "../lib/bounded-image.js";
 import { escapeCssValue } from "../lib/css-escape.js";
+import { captureSurfaceElement } from "../lib/inline-capture.js";
 import {
 	createMermaidDiagramSpec,
 	mermaidSpecAttribute,
@@ -21,14 +24,24 @@ import {
 	MERMAID_TOKEN_ROLES,
 	type MermaidRenderingInput,
 } from "../lib/mermaid-rendering.js";
+import { documentReadingPath, readingLine } from "../lib/reading-link.js";
+import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
+import type { BrowserPool } from "../services/browser-pool.js";
 import type { Bus } from "../services/bus.js";
+import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
+import type { Document } from "../types.js";
 import { lockGuard, templatePageGuard, text } from "./_helpers.js";
 
 export interface MermaidDeps {
 	documents: Documents;
 	bus: Bus;
+	/** Base path of the reading links. */
+	config?: Pick<Config, "BASE_PATH">;
+	/** The browser that draws the inline image; without it the answer is
+	 * text only. */
+	browserPool?: Pick<BrowserPool, "get">;
 }
 
 const MERMAID_THEMES = [
@@ -182,7 +195,7 @@ const MermaidSchema = z.object({
 const DESCRIPTION = [
 	"When to use: add a diagram to a page. Works for flowcharts, sequence, class, ER, state, and XY chart diagrams. Pick this over manual SVG or nested divs when the thing you want is conceptually a graph.",
 	"",
-	"Renders Mermaid syntax to durable inline SVG and injects it into the page HTML. The source and semantic rendering choices stay on the wrapper so charte changes can rerender the diagram. The diagram scales with its wrapper (width/height drive the frame, not the SVG itself). If dataId already exists, the diagram is replaced in place — idempotent edits.",
+	"Renders Mermaid syntax to durable inline SVG and injects it into the page HTML. The answer gives the document's reading path in Maket and the rendered diagram as an inline image (at most 1600 px and 1 MB of base64; beyond a 2:1 ratio, its top or left part). The source and semantic rendering choices stay on the wrapper so charte changes can rerender the diagram. The diagram scales with its wrapper (width/height drive the frame, not the SVG itself). If dataId already exists, the diagram is replaced in place — idempotent edits.",
 	"A document charte is applied automatically through canonical diagram tokens and documented color/font fallbacks. tokenRefs selects any existing charte token explicitly; direct safe values take final precedence.",
 	"Density controls are supported for flowchart and state diagrams by the current renderer. Source-level Mermaid styling directives are rejected; use charte tokens or safe diagram options.",
 	"Header on its own line:  graph TD\\n  A-->B    (NOT graph TD; A-->B)",
@@ -208,7 +221,7 @@ function generateId(existingIds: string[]): string {
 }
 
 export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
-	const { documents, bus } = deps;
+	const { documents, bus, config, browserPool } = deps;
 
 	return {
 		metadata: {
@@ -216,13 +229,21 @@ export function createMaketMermaidTool(deps: MermaidDeps): ToolHandler {
 			description: DESCRIPTION,
 			schema: MermaidSchema,
 		},
-		handler: (rawArgs) => handleMaketMermaidTool(rawArgs, { documents, bus }),
+		handler: (rawArgs) =>
+			handleMaketMermaidTool(rawArgs, {
+				documents,
+				bus,
+				basePath: config?.BASE_PATH,
+				browserPool,
+			}),
 	};
 }
 
 interface MermaidToolDeps {
 	documents: Documents;
 	bus: Bus;
+	basePath: string | undefined;
+	browserPool: Pick<BrowserPool, "get"> | undefined;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -257,8 +278,69 @@ async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 		return text(error instanceof Error ? error.message : String(error), true);
 	}
 	deps.bus.emit("element:updated", { docName: doc.name, id: "html" });
-	return text(
-		`Mermaid diagram injected as "${result.dataId}"\npage data-ids (${result.addressableIds.length}): ${result.addressableIds.join(", ")}`,
+	return diagramAnswer(
+		[
+			`Mermaid diagram injected as "${result.dataId}"`,
+			`page data-ids (${result.addressableIds.length}): ${result.addressableIds.join(", ")}`,
+			readingLine(documentReadingPath(doc, deps.basePath)),
+		].join("\n"),
+		{ document: doc, pageIndex: pageIdx, dataId: result.dataId },
+		deps,
+	);
+}
+
+/** The answer text and, when a browser draws it, the diagram as it shows
+ * on its page (its top or left part beyond a 2:1 ratio); the text alone
+ * stays a complete answer. */
+async function diagramAnswer(
+	body: string,
+	target: { document: Document; pageIndex: number; dataId: string },
+	deps: MermaidToolDeps,
+): Promise<CallToolResult> {
+	const answer = text(body);
+	const drawn = deps.browserPool
+		? await drawnDiagram(deps.browserPool, target, deps.documents).catch(
+				() => null,
+			)
+		: null;
+	const first = answer.content[0];
+	if (!drawn || first?.type !== "text") return answer;
+	return {
+		...answer,
+		content: [
+			{
+				...first,
+				text: `${first.text}\n${inlineImageLine(drawn.frame, drawn.capture, "the whole diagram is on the page")}`,
+			},
+			{
+				type: "image",
+				data: drawn.capture.data.toString("base64"),
+				mimeType: drawn.capture.mimeType,
+			},
+		],
+	};
+}
+
+/** The diagram drawn by Chromium on the render surface of its page, with
+ * the document charte, at up to twice the page scale. */
+function drawnDiagram(
+	browserPool: Pick<BrowserPool, "get">,
+	target: { document: Document; pageIndex: number; dataId: string },
+	documents: Documents,
+) {
+	const { document } = target;
+	return captureSurfaceElement(
+		browserPool,
+		{
+			canvas: document.canvas,
+			html: buildRenderSurfaceHtml({
+				canvas: document.canvas,
+				pageHtmls: [document.pages[target.pageIndex]?.html ?? ""],
+				charteCss: documents.charteCss(document),
+				surface: { kind: "snapshot" },
+			}),
+		},
+		{ dataId: target.dataId, maxScale: 2 },
 	);
 }
 
@@ -351,7 +433,7 @@ function insertMermaidWrapper(
 export const mermaidPack: ToolPack = {
 	id: "mermaid",
 	name: "Mermaid diagrams",
-	requires: ["documents", "bus"],
+	requires: ["documents", "bus", "config", "browserPool"],
 	declaresTools: ["maket_mermaid"],
 	register(container) {
 		container.register({

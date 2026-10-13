@@ -111,6 +111,10 @@ describe("createMaketMermaidTool — happy path", () => {
 		expect(html).toMatch(/data-maket-mermaid="[A-Za-z0-9_-]+"/);
 		const firstItem = (res.content as any[])[0];
 		expect(firstItem?.text).toMatch(/Mermaid diagram injected/);
+		expect(firstItem?.text).toContain(
+			`Read it in Maket: /documents/${documents.resolve("test")?.id}/read`,
+		);
+		expect(res.content).toHaveLength(1);
 	});
 
 	it.each([

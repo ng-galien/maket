@@ -11,6 +11,8 @@ import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import { documentReadingPath, readingLine } from "../lib/reading-link.js";
+import type { Config } from "../services/config.js";
 import {
 	isItemSourceError,
 	itemSourceError,
@@ -26,6 +28,8 @@ import { json, text } from "./_helpers.js";
 export interface StructuredWorkspacesToolDeps {
 	structuredWorkspaces: StructuredWorkspaces;
 	itemWindows: Pick<ItemWindows, "query" | "page">;
+	/** Base path of the reading links. */
+	config?: Pick<Config, "BASE_PATH">;
 }
 
 const FormSchema = z.object({
@@ -132,7 +136,7 @@ const DESCRIPTION = [
 	'Optional collection grouping: `groupBy` is a JSON Pointer into item data (e.g. "/status"), `groupOrder` lists group values to place first, and `pageSize` (default 24) caps the compact cards per collection page. With `groupBy`, each item slot receives a group header followed by its cards and the collection document flows onto as many pages as needed; without it, the collection stays one page.',
 	'Optional collection sort: `sortBy` is a JSON Pointer into item data (e.g. "/place") and `sortDirection` is "ascending" (default) or "descending"; cards are ordered by that value inside each group, or across the slot without `groupBy`, items without a value last and ties in item id order; without `sortBy`, insertion order stays.',
 	"  list          — list Structured Workspaces, each prefixed with ready or incomplete.",
-	"  view          — verdict and finding count first, then the definition, item counts, pinned items, owned documents, and one batch of the collection window (see the cursor query above).",
+	"  view          — verdict and finding count first, then the definition, item counts, pinned items, owned documents, one batch of the collection window (see the cursor query above), and `reading`: the reading path of that collection's index in Maket.",
 	"  check         — the doctor: verdict ready or not ready and every finding with severity, object, sentence, fix and next call. Never writes.",
 	"  create        — create a workspace from a data schema, with an optional representation schema; refuses errors unless allow_incomplete=true.",
 	"  update_definition — validate and replace the data and/or representation contract, then update the item and index documents that exist; an erroneous definition is refused and the previous one kept unless allow_incomplete=true.",
@@ -151,6 +155,7 @@ type Args = z.infer<typeof StructuredWorkspaceSchema>;
 export function createMaketStructuredWorkspaceTool({
 	structuredWorkspaces,
 	itemWindows,
+	config,
 }: StructuredWorkspacesToolDeps): ToolHandler {
 	return {
 		metadata: {
@@ -162,6 +167,7 @@ export function createMaketStructuredWorkspaceTool({
 			handleStructuredWorkspaceTool(rawArgs, {
 				structuredWorkspaces,
 				itemWindows,
+				config,
 			}),
 	};
 }
@@ -396,14 +402,41 @@ function runView(args: Args, deps: StructuredWorkspacesToolDeps) {
 		);
 	const check = workspaces.check(workspace.id);
 	const call = `maket_structured_workspace action=check workspace=${workspace.id}`;
+	const window = viewWindow(args, deps.itemWindows, workspace);
+	const index = workspace.collectionDocuments.find(
+		(document) => document.collectionId === window?.collection,
+	);
 	const value = {
 		verdict: check.verdict,
 		findings: check.findings.length,
 		check: call,
 		...workspace,
-		window: viewWindow(args, deps.itemWindows, workspace),
+		window,
+		...(index ? { reading: indexReading(workspace.id, index, deps) } : {}),
 	};
 	return json(value, { indent: 2 });
+}
+
+/** The reading path of a collection index and the line that explains it. */
+function indexReading(
+	workspaceId: string,
+	index: StructuredWorkspaceView["collectionDocuments"][number],
+	deps: StructuredWorkspacesToolDeps,
+) {
+	const path = documentReadingPath(
+		{
+			id: index.documentId,
+			meta: {
+				structuredWorkspace: {
+					role: "collection",
+					workspaceId,
+					collectionId: index.collectionId,
+				},
+			},
+		},
+		deps.config?.BASE_PATH,
+	);
+	return { index: path, note: readingLine(path) };
 }
 
 /** One batch of a collection, read from its source. With a cursor, the
@@ -607,7 +640,7 @@ function requiredValue<T>(value: T | undefined, field: string): T {
 export const structuredWorkspacesPack: ToolPack = {
 	id: "structured-workspaces",
 	name: "Structured Workspaces",
-	requires: ["structuredWorkspaces", "itemWindows"],
+	requires: ["structuredWorkspaces", "itemWindows", "config"],
 	declaresTools: ["maket_structured_workspace"],
 	register(container) {
 		container.register({

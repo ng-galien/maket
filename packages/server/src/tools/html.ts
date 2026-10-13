@@ -275,6 +275,20 @@ function layoutNextHints(
 	];
 }
 
+/** The next calls after set or patch: the layout hints, or, on a page that
+ * fits, a snapshot for a visual check (set and patch return no image). */
+function writeNextHints(
+	result: LayoutResult,
+	docName: string,
+	page: number,
+): string[] | undefined {
+	if (result.status === "ok")
+		return [
+			`maket_preview action=snapshot doc=${docName} page=${page}  # visual check of the page`,
+		];
+	return layoutNextHints(result, docName, page);
+}
+
 // ============================================================
 // Patch op schema (used by action=patch)
 // ============================================================
@@ -812,7 +826,7 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 			"",
 			"Tip: use maket_html patch to refine by data-id (style, content, insert, replace, remove).",
 		].join("\n"),
-		{ next: layoutNextHints(layoutResult, doc.name, args.page) },
+		{ next: writeNextHints(layoutResult, doc.name, args.page) },
 	);
 }
 
@@ -882,7 +896,7 @@ async function runPatch(
 			"tree:",
 			tree,
 		].join("\n"),
-		{ next: layoutNextHints(layoutResult, doc.name, args.page) },
+		{ next: writeNextHints(layoutResult, doc.name, args.page) },
 	);
 }
 

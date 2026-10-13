@@ -528,7 +528,8 @@ function expectNewViewContract(
 		return;
 	}
 	const headView = JSON.parse(head) as HeadView;
-	const { window, ...view } = JSON.parse(output) as {
+	const { window, reading, ...view } = JSON.parse(output) as {
+		reading: { index: string };
 		window: {
 			collection: string;
 			items: Array<{ id: string; revision: number; fields: object }>;
@@ -537,6 +538,11 @@ function expectNewViewContract(
 		};
 	};
 	expect(view, key).toEqual(lightView(headView));
+	expect(reading.index, key).toMatch(
+		new RegExp(
+			`^/documents/[^/]+/read\\?workspace=${headView.id}&collection=${window.collection}$`,
+		),
+	);
 	const headItems = headView.items.filter(
 		(item) => item.collectionId === window.collection,
 	);

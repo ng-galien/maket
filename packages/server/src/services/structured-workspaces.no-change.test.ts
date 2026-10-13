@@ -371,10 +371,19 @@ describe("Structured Workspaces composition from the collection window", () => {
 			expect(output.listViews[0]).not.toHaveProperty("items");
 
 			const head = headCapture(`${name}.mcp-view.snap`) as HeadView;
-			const { window, ...view } = output.mcpView as {
+			const { window, reading, ...view } = output.mcpView as {
 				window: ViewWindow;
+				reading: { index: string; note: string };
 			};
 			expect(view).toEqual(lightView(head));
+			expect(reading.index).toMatch(
+				new RegExp(
+					`^/documents/[^/]+/read\\?workspace=${workspaceId}&collection=${collectionId}$`,
+				),
+			);
+			expect(reading.note).toBe(
+				`Read it in Maket: ${reading.index} (a relative path: it opens in the Maket app, or in a browser on the Maket server origin).`,
+			);
 			expect(window).toMatchObject({
 				collection: collectionId,
 				query: {},

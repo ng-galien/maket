@@ -1193,6 +1193,30 @@ describe("maket_html — layout signal → next: hints", () => {
 		store.close();
 	});
 
+	it("ends set and patch on a page that fits with a snapshot hint and no image", async () => {
+		const { store, documents, layout, assets } = fixture(OK_RESULT);
+		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		for (const args of [
+			{ action: "set", doc: "d", page: 1, html: `<div data-id="x">y</div>` },
+			{
+				action: "patch",
+				doc: "d",
+				page: 1,
+				ops: [{ id: "x", content: "z" }],
+			},
+		]) {
+			const res = await tool.handler(args as never, NO_EXTRA);
+			expect(res.isError, args.action).toBeUndefined();
+			expect(res.content.every((item) => item.type === "text")).toBe(true);
+			expect((res.content[0] as any).text).toMatch(
+				/next:\n {2}- maket_preview action=snapshot doc=d page=1 {2}# visual check of the page$/,
+			);
+		}
+		store.close();
+	});
+
 	it("appends snapshot + patch hints on tight (no specific ids)", async () => {
 		const { store, documents, layout, assets } = fixture(TIGHT);
 		store.saveDoc(makeDoc("d", `<div data-id="x">x</div>`));

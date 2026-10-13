@@ -18,6 +18,7 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { decodeBundle, MAKET_BUNDLE_EXT } from "../lib/maket-format.js";
+import { documentReadingPath } from "../lib/reading-link.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
 import type { BundleExportService } from "../services/bundle-export.js";
 import type {
@@ -480,16 +481,10 @@ function runLink(args: Args, documents: Documents, config: Config) {
 	if (!args.doc) return text("doc is required for action=link", true);
 	const doc = documents.resolveOrLoad(args.doc);
 	if (!doc) return text(`Document "${args.doc}" not found`, true);
-	const path = `${config.BASE_PATH ?? ""}/documents/${encodeURIComponent(doc.id)}/read`;
-	const owner = doc.meta?.structuredWorkspace;
-	const query = owner
-		? `?workspace=${encodeURIComponent(owner.workspaceId)}${
-				owner.role !== "template"
-					? `&collection=${encodeURIComponent(owner.collectionId)}`
-					: ""
-			}`
-		: "";
-	return json({ documentId: doc.id, path: `${path}${query}` });
+	return json({
+		documentId: doc.id,
+		path: documentReadingPath(doc, config.BASE_PATH),
+	});
 }
 
 type ListedDocument = ReturnType<Documents["list"]>[number];
