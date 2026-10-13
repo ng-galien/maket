@@ -251,6 +251,18 @@ describe("StructuredWorkspacesTab", () => {
 		expect(screen.queryByText("Ship the release")).not.toBeInTheDocument();
 	});
 
+	it("shows collection indexes as text without a document icon", () => {
+		const { container } = render(<StructuredWorkspacesTab />);
+		const index = screen.getByRole("button", {
+			name: "Open collection index Backlog",
+		});
+		expect(index.querySelector("svg")).toBeNull();
+		expect(index).toHaveTextContent("Backlog");
+		expect(
+			container.querySelector('[data-structured-collection="backlog"] svg'),
+		).toBeNull();
+	});
+
 	it("keeps templates accessible in the Workspace actions menu", async () => {
 		const user = userEvent.setup();
 		const load = vi.spyOn(ws, "sendLoadDoc").mockReturnValue(true);

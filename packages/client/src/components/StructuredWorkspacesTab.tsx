@@ -438,7 +438,6 @@ function StructuredCollectionNode({
 				style={{ paddingLeft: libraryCategoryRowOffset(1) }}
 				className={`flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md pr-2 text-left text-sm disabled:opacity-50 ${active ? "bg-accent-soft text-accent" : "text-text-2 hover:bg-input/70 hover:text-text-1"}`}
 			>
-				<FileText size={15} className="shrink-0" aria-hidden />
 				<span className="min-w-0 flex-1 truncate font-semibold">
 					{collection.representation.name}
 				</span>
