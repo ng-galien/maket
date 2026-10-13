@@ -211,8 +211,13 @@ function runFitView(bus: Bus) {
 
 function runListMessages(args: Args, pending: Annotations) {
 	const list = args.doc ? pending.forDoc(args.doc) : pending.all();
-	if (list.length === 0) return text("No pending messages");
-	return text(JSON.stringify(list, null, 2));
+	if (list.length === 0)
+		return text("No pending messages", {
+			structuredContent: { count: 0, messages: [] },
+		});
+	return text(JSON.stringify(list, null, 2), {
+		structuredContent: { count: list.length, messages: list },
+	});
 }
 
 function runAckMessages(args: Args, pending: Annotations) {

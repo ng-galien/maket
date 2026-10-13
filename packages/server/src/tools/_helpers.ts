@@ -18,6 +18,8 @@ export interface TextOpts {
 	 * as an esac-style `next:` block appended to the body, one per line.
 	 */
 	next?: string[];
+	/** Machine-readable structured content conforming to MCP record shape. */
+	structuredContent?: Record<string, unknown>;
 }
 
 /**
@@ -33,10 +35,17 @@ export function text(t: string, opts?: boolean | TextOpts): CallToolResult {
 	const isError = typeof opts === "boolean" ? opts : opts?.isError;
 	const next =
 		typeof opts === "object" && opts !== null ? opts.next : undefined;
+	const structuredContent =
+		typeof opts === "object" && opts !== null
+			? opts.structuredContent
+			: undefined;
 	const body = next?.length
 		? `${t}\n\nnext:\n${next.map((n) => `  - ${n}`).join("\n")}`
 		: t;
-	const base: CallToolResult = { content: [{ type: "text", text: body }] };
+	const base: CallToolResult = {
+		content: [{ type: "text", text: body }],
+		...(structuredContent ? { structuredContent } : {}),
+	};
 	return isError ? { ...base, isError: true } : base;
 }
 
