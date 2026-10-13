@@ -2,6 +2,10 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { asValue } from "awilix";
 import { describe, expect, it } from "vitest";
 import { createAppContainer } from "../bootstrap.js";
+import {
+	STRUCTURED_WORKSPACE_FAILURES,
+	STRUCTURED_WORKSPACE_METHOD,
+} from "../lib/learn-content.js";
 import { registerServerEvents } from "../server-events.js";
 import { type Bus, createBus } from "../services/bus.js";
 import { createConfig } from "../services/config.js";
@@ -10,6 +14,8 @@ import { createDocuments } from "../services/documents.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import { createStructuredWorkspaces } from "../services/structured-workspaces.js";
 import { createDocument } from "../types.js";
+import { text } from "./_helpers.js";
+import { createMaketDocTool, type DocumentsDeps } from "./documents.js";
 import {
 	createMaketStructuredWorkspaceTool,
 	structuredWorkspacesPack,
@@ -58,36 +64,46 @@ describe("maket_structured_workspace", () => {
 			});
 			documents.all().set(template.name, template);
 			documents.persist(template.name);
-			const result = await tool.handler(
-				{
-					action: "create",
-					workspace: "Incomplete",
-					data_schema: {
-						type: "object",
-						properties: { title: { type: "string" } },
-					},
-					representation_schema: {
-						version: 1,
-						collections: {
-							backlog: {
-								name: "Backlog",
-								collectionTemplateDocumentId: template.id,
-								bindings: {
-									task: {
-										schemaPath: "",
-										detailTemplateDocumentId: template.id,
-									},
+			const incompleteArgs = {
+				action: "create",
+				workspace: "Incomplete",
+				data_schema: {
+					type: "object",
+					properties: { title: { type: "string" } },
+				},
+				representation_schema: {
+					version: 1,
+					collections: {
+						backlog: {
+							name: "Backlog",
+							collectionTemplateDocumentId: template.id,
+							bindings: {
+								task: {
+									schemaPath: "",
+									detailTemplateDocumentId: template.id,
 								},
 							},
 						},
 					},
 				},
+			};
+			const refused = await tool.handler(incompleteArgs, {} as never);
+			expect(refused.isError).toBe(true);
+			expect(textOf(refused)).toContain(
+				'Structured Workspace "Incomplete" was not created',
+			);
+			expect(textOf(refused)).toContain("state.missing");
+			expect(textOf(refused)).toContain("next:");
+			expect(structuredWorkspaces.list()).toEqual([]);
+			const result = await tool.handler(
+				{ ...incompleteArgs, allow_incomplete: true },
 				{} as never,
 			);
 			expect(result.isError).toBeUndefined();
 			expect(textOf(result)).toContain("incomplete");
 			const listed = await tool.handler({ action: "list" }, {} as never);
 			expect(listed.isError).toBeUndefined();
+			expect(textOf(listed)).toContain("- [incomplete] Incomplete (");
 			expect(structuredWorkspaces.listViews()[0]?.integrity).toMatchObject({
 				status: "incomplete",
 				issues: expect.arrayContaining([
@@ -273,41 +289,52 @@ describe("maket_structured_workspace", () => {
 			bus,
 		});
 		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
-		const emptyBinding = await tool.handler(
-			{
-				action: "create",
-				workspace: "Invalid delivery",
-				data_schema: {
-					$defs: {
-						task: {
-							type: "object",
-							properties: { title: { type: "string" } },
-							required: ["title"],
-						},
+		const invalidArgs = {
+			action: "create",
+			workspace: "Invalid delivery",
+			data_schema: {
+				$defs: {
+					task: {
+						type: "object",
+						properties: { title: { type: "string" } },
+						required: ["title"],
 					},
 				},
-				representation_schema: {
-					version: 1,
-					collections: {
-						backlog: {
-							name: "Backlog",
-							collectionTemplateDocumentId: "Invalid template",
-							bindings: {
-								"": {
-									schemaPath: "/$defs/task",
-									detailTemplateDocumentId: "Invalid template",
-								},
+			},
+			representation_schema: {
+				version: 1,
+				collections: {
+					backlog: {
+						name: "Backlog",
+						collectionTemplateDocumentId: "Invalid template",
+						bindings: {
+							"": {
+								schemaPath: "/$defs/task",
+								detailTemplateDocumentId: "Invalid template",
 							},
 						},
 					},
 				},
 			},
+		};
+		const emptyBinding = await tool.handler(invalidArgs, {} as never);
+		expect(emptyBinding.isError).toBe(true);
+		expect(textOf(emptyBinding)).toContain(
+			'Structured Workspace "Invalid delivery" was not created',
+		);
+		expect(textOf(emptyBinding)).toContain(
+			'- collection "backlog" · representation_schema.collections.backlog.bindings.: Binding ids must not be empty.',
+		);
+		expect(structuredWorkspaces.get("Invalid delivery")).toBeNull();
+		const kept = await tool.handler(
+			{ ...invalidArgs, allow_incomplete: true },
 			{} as never,
 		);
-		expect(emptyBinding.isError).toBeUndefined();
-		expect(textOf(emptyBinding)).toContain(
+		expect(kept.isError).toBeUndefined();
+		expect(textOf(kept)).toContain(
 			'Structured Workspace "Invalid delivery" created',
 		);
+		expect(textOf(kept)).toContain("Verdict: incomplete");
 		expect(structuredWorkspaces.get("Invalid delivery")?.integrity).toEqual({
 			status: "incomplete",
 			issues: expect.arrayContaining(["Binding ids must not be empty."]),
@@ -767,5 +794,376 @@ describe("maket_structured_workspace update_item propagation", () => {
 			broadcasts.filter(({ doc }) => doc === "Graph — Topics"),
 		).toHaveLength(0);
 		store.close();
+	});
+});
+
+/** One Maket on an in-memory store with the calls the method uses. The
+ * maket_html set step writes the page as that tool does, without its browser
+ * layout measure. */
+function methodHarness() {
+	const store = createSQLiteStore(":memory:");
+	const bus = createBus();
+	const documents = createDocuments({ store });
+	const documentStates = createDocumentStates({ store, bus, documents });
+	const structuredWorkspaces = createStructuredWorkspaces({
+		store,
+		bus,
+		documents,
+		documentStates,
+	});
+	const workspaceTool = createMaketStructuredWorkspaceTool({
+		structuredWorkspaces,
+	});
+	const docTool = createMaketDocTool({
+		documents,
+		bus,
+		store,
+	} as unknown as DocumentsDeps);
+	const run = async (
+		tool: string,
+		args: Record<string, unknown>,
+	): Promise<CallToolResult> => {
+		if (tool === "maket_structured_workspace")
+			return workspaceTool.handler(args, {} as never);
+		if (tool === "maket_doc") return docTool.handler(args, {} as never);
+		const document = documents.resolve(String(args.doc));
+		const page = document?.pages[Number(args.page) - 1];
+		if (!document || !page) return text("missing page", true);
+		page.html = String(args.html);
+		documents.persist(document.name);
+		return text(`Page ${String(args.page)} of "${document.name}" set.`);
+	};
+	return { store, documents, structuredWorkspaces, run };
+}
+
+/** The answer text plus, for a check, every finding sentence unescaped. */
+function answerOf(result: CallToolResult): string {
+	const findings = (
+		result.structuredContent as
+			| { findings?: Array<{ message: string }> }
+			| undefined
+	)?.findings;
+	return [
+		textOf(result),
+		...(Array.isArray(findings) ? findings.map((f) => f.message) : []),
+	].join("\n");
+}
+
+describe("maket_structured_workspace documented method", () => {
+	it.each(STRUCTURED_WORKSPACE_METHOD.map((path) => [path.title, path]))(
+		"runs %s exactly as documented",
+		async (_title, path) => {
+			const { store, documents, structuredWorkspaces, run } = methodHarness();
+			try {
+				for (const step of path.steps) {
+					const result = await run(step.tool, step.args);
+					expect(result.isError, JSON.stringify(step.args)).toBeUndefined();
+					for (const line of step.answer)
+						expect(answerOf(result)).toContain(line);
+				}
+				const [workspace] = structuredWorkspaces.list();
+				if (!workspace) throw new Error("Workspace missing.");
+				expect(structuredWorkspaces.check(workspace.id).verdict).toBe("ready");
+				const category = `Structured Workspaces/${workspace.name}`;
+				expect(
+					[...documents.all().values()].map((document) => document.category),
+				).toEqual([...documents.all().values()].map(() => category));
+				const [collectionId] = Object.keys(
+					workspace.representationSchema.collections,
+				);
+				const index = structuredWorkspaces.renderCollection(
+					workspace.id,
+					collectionId ?? "",
+				);
+				expect(index.pages[0]?.html).toContain("data-maket-compact-root");
+			} finally {
+				store.close();
+			}
+		},
+	);
+
+	it("generates a detail page, a card and a form from the data schema alone", async () => {
+		const { store, documents, structuredWorkspaces, run } = methodHarness();
+		try {
+			const [create] = STRUCTURED_WORKSPACE_METHOD[0]?.steps ?? [];
+			if (!create) throw new Error("Method missing.");
+			await run(create.tool, {
+				...create.args,
+				data_schema: {
+					type: "object",
+					properties: {
+						title: { type: "string" },
+						isbn: { type: "string", readOnly: true },
+						pages: { type: "integer" },
+						tags: { type: "array", items: { type: "string" } },
+					},
+					required: ["title"],
+				},
+			});
+			const detail = documents.resolve(
+				"Reading list — Items — detail template",
+			);
+			expect(detail?.pages[0]?.html).toContain(
+				'<h1 data-id="detail-title">{{ state.title }}</h1>',
+			);
+			expect(detail?.pages[0]?.html).toContain(
+				"<dt>Isbn</dt><dd>{{ state.isbn }}</dd>",
+			);
+			expect(detail?.pages[0]?.html).toContain("{{#state.tags}}");
+			expect(detail?.pages[1]?.jsonForms).toEqual({
+				uischema: {
+					type: "VerticalLayout",
+					elements: [
+						{ type: "Control", scope: "#/properties/title" },
+						{ type: "Control", scope: "#/properties/pages" },
+					],
+				},
+			});
+			const card = documents.resolve("Reading list — Items — card template");
+			expect(card?.pages[0]?.html).toContain("Isbn: {{ state.isbn }}");
+			expect(card?.pages[0]?.html).toContain("Pages: {{ state.pages }}");
+			expect(card?.pages[0]?.html).not.toContain("state.tags");
+			const added = await run("maket_structured_workspace", {
+				action: "add_item",
+				workspace: "Reading list",
+				collection: "items",
+				binding: "item",
+				document_name: "Dune",
+				data: { title: "Dune", isbn: "978", pages: 412, tags: ["sf"] },
+			});
+			expect(added.isError).toBeUndefined();
+			expect(documents.resolve("Dune")?.pages).toHaveLength(2);
+			expect(structuredWorkspaces.check("Reading list").verdict).toBe("ready");
+		} finally {
+			store.close();
+		}
+	});
+
+	it.each(
+		STRUCTURED_WORKSPACE_FAILURES.map((failure) => [failure.title, failure]),
+	)("shows the documented answer when %s", async (_title, failure) => {
+		const { store, documents, structuredWorkspaces, run } = methodHarness();
+		try {
+			let last: CallToolResult | null = null;
+			for (const step of failure.steps) {
+				if ("manual" in step) {
+					const document = documents.resolve(step.document);
+					const page = document?.pages[0];
+					if (!document || !page) throw new Error("Template missing.");
+					if (step.manual === "edit-template")
+						page.html = `${page.html ?? ""}<p data-id="edited">Edited</p>`;
+					else document.category = "general";
+					documents.persist(document.name);
+					continue;
+				}
+				last = await run(step.tool, step.args);
+			}
+			if (!last) throw new Error("No call.");
+			expect(answerOf(last)).toContain(failure.seen);
+			const lastStep = failure.steps.at(-1);
+			if (lastStep && "args" in lastStep && lastStep.args.action === "create") {
+				expect(last.isError).toBe(true);
+				const name = String(lastStep.args.workspace);
+				expect(
+					structuredWorkspaces
+						.list()
+						.filter((workspace) => workspace.name === name)
+						.map((workspace) => workspace.revision),
+				).toEqual(
+					failure.steps.length > 1 && name === "Reading list" ? [1] : [],
+				);
+			}
+		} finally {
+			store.close();
+		}
+	});
+
+	it("never writes during check, and list and view lead with the verdict", async () => {
+		const { store, documents, run } = methodHarness();
+		try {
+			await run("maket_structured_workspace", {
+				action: "create",
+				workspace: "Reading list",
+				data_schema: {
+					type: "object",
+					properties: { title: { type: "string" } },
+				},
+			});
+			const card = documents.resolve("Reading list — Items — card template");
+			if (!card) throw new Error("Card missing.");
+			card.category = "general";
+			const before = JSON.stringify(
+				store.loadStructuredWorkspace("Reading list"),
+			);
+			const check = await run("maket_structured_workspace", {
+				action: "check",
+				workspace: "Reading list",
+			});
+			expect(check.structuredContent).toMatchObject({
+				workspace: "Reading list",
+				verdict: "ready",
+				findings: expect.arrayContaining([
+					expect.objectContaining({ severity: "warning", object: "template" }),
+					expect.objectContaining({
+						severity: "hint",
+						object: "item",
+						next: expect.stringContaining("action=add_item"),
+					}),
+				]),
+			});
+			expect(card.category).toBe("general");
+			expect(
+				JSON.stringify(store.loadStructuredWorkspace("Reading list")),
+			).toBe(before);
+			const listed = await run("maket_structured_workspace", {
+				action: "list",
+			});
+			expect(textOf(listed)).toMatch(/^- \[ready\] Reading list \(/);
+			const viewed = await run("maket_structured_workspace", {
+				action: "view",
+				workspace: "Reading list",
+			});
+			expect(Object.keys(viewed.structuredContent ?? {}).slice(0, 3)).toEqual([
+				"verdict",
+				"findings",
+				"check",
+			]);
+			expect(viewed.structuredContent).toMatchObject({
+				verdict: "ready",
+				findings: 1,
+				check: expect.stringContaining("action=check"),
+			});
+		} finally {
+			store.close();
+		}
+	});
+
+	it("keeps the previous definition when update_definition has errors, unless allow_incomplete", async () => {
+		const { store, structuredWorkspaces, run } = methodHarness();
+		try {
+			const [create] = STRUCTURED_WORKSPACE_METHOD[0]?.steps ?? [];
+			if (!create) throw new Error("Method missing.");
+			await run(create.tool, create.args);
+			const change = {
+				action: "update_definition",
+				workspace: "Reading list",
+				expected_workspace_revision: 1,
+				representation_schema: {
+					collections: { items: { groupBy: "/genre" } },
+				},
+			};
+			const refused = await run("maket_structured_workspace", change);
+			expect(refused.isError).toBe(true);
+			expect(textOf(refused)).toContain(
+				'Structured Workspace "Reading list" keeps its definition at revision 1: the new definition has 1 error(s).',
+			);
+			expect(textOf(refused)).toContain(
+				'- collection "items" · representation_schema.collections.items.groupBy: Collection "items" groupBy "/genre" names no property of the data schema. Fix:',
+			);
+			expect(textOf(refused)).toContain("action=update_definition workspace=");
+			expect(structuredWorkspaces.get("Reading list")).toMatchObject({
+				revision: 1,
+				representationSchema: {
+					collections: { items: { name: "Items" } },
+				},
+			});
+			expect(
+				structuredWorkspaces.get("Reading list")?.representationSchema
+					.collections.items?.groupBy,
+			).toBeUndefined();
+			const forced = await run("maket_structured_workspace", {
+				...change,
+				allow_incomplete: true,
+			});
+			expect(forced.isError).toBeUndefined();
+			expect(textOf(forced)).toContain(
+				"updated to revision 2. Verdict: incomplete, 1 error(s):",
+			);
+			expect(structuredWorkspaces.check("Reading list").verdict).toBe(
+				"not ready",
+			);
+		} finally {
+			store.close();
+		}
+	});
+
+	it("never retires a duplicated or instantiated copy of a generated template", async () => {
+		const { store, documents, run } = methodHarness();
+		try {
+			const [create, add] = STRUCTURED_WORKSPACE_METHOD[0]?.steps ?? [];
+			if (!create || !add) throw new Error("Method missing.");
+			await run(create.tool, create.args);
+			await run(add.tool, add.args);
+			for (const name of ["Dune", "Reading list — Items"])
+				expect(
+					documents.resolve(name)?.meta.structuredWorkspaceGenerated,
+				).toBeUndefined();
+			const duplicated = await run("maket_doc", {
+				action: "duplicate",
+				doc: "Reading list — Items — detail template",
+				name: "Detail copy",
+			});
+			expect(duplicated.isError).toBeUndefined();
+			const copy = documents.resolve("Detail copy");
+			expect(copy?.category).toBe("general");
+			expect(copy?.meta.structuredWorkspace).toBeUndefined();
+			expect(copy?.meta.structuredWorkspaceGenerated).toBeUndefined();
+			const original = documents.resolve(
+				"Reading list — Items — detail template",
+			);
+			const updated = await run("maket_structured_workspace", {
+				action: "update_definition",
+				workspace: "Reading list",
+				expected_workspace_revision: 1,
+				representation_schema: {
+					collections: {
+						items: {
+							detailTemplateHtml:
+								'<article data-id="book"><h1 data-id="title">{{ state.title }}</h1></article>',
+						},
+					},
+				},
+			});
+			expect(updated.isError).toBeUndefined();
+			expect(documents.resolveById(original?.id ?? "")).toBeNull();
+			expect(documents.resolve("Detail copy")).toMatchObject({
+				category: "general",
+			});
+			expect(
+				documents.resolve("Detail copy")?.meta.structuredWorkspace,
+			).toBeUndefined();
+		} finally {
+			store.close();
+		}
+	});
+
+	it("refuses update_item data that breaks the schema with path, rule and fix", async () => {
+		const { store, run } = methodHarness();
+		try {
+			const [create, add] = STRUCTURED_WORKSPACE_METHOD[0]?.steps ?? [];
+			if (!create || !add) throw new Error("Method missing.");
+			await run(create.tool, create.args);
+			await run(add.tool, add.args);
+			const view = await run("maket_structured_workspace", {
+				action: "view",
+				workspace: "Reading list",
+			});
+			const itemId = (
+				view.structuredContent as { items: Array<{ id: string }> }
+			).items[0]?.id;
+			const refused = await run("maket_structured_workspace", {
+				action: "update_item",
+				workspace: "Reading list",
+				item: itemId,
+				expected_revision: 1,
+				data: { title: "Dune", status: "lost" },
+			});
+			expect(refused.isError).toBe(true);
+			expect(textOf(refused)).toContain(
+				'- /status [rule enum]: Invalid item data/status: must be equal to one of the allowed values. Fix: Use one of ["to read","reading","done"] at /status.',
+			);
+		} finally {
+			store.close();
+		}
 	});
 });

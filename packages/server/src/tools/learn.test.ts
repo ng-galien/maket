@@ -1,4 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import {
+	learnText,
+	STRUCTURED_WORKSPACE_FAILURES,
+	STRUCTURED_WORKSPACE_FIRST_PATH,
+	STRUCTURED_WORKSPACE_METHOD,
+} from "../lib/learn-content.js";
 import { createMaketLearnTool, learnPack } from "./learn.js";
 
 describe("maket_learn", () => {
@@ -186,5 +193,68 @@ describe("maket_learn", () => {
 		expect(body).toContain(
 			"Portable .maket bundles carry the current schema and data snapshot",
 		);
+	});
+});
+
+describe("maket_learn structured-workspaces method", () => {
+	const agent = learnText("structured-workspaces", "agent");
+
+	it("documents the three paths in order, every call and answer of the tested method", () => {
+		const paths = STRUCTURED_WORKSPACE_METHOD.map((path) =>
+			agent.indexOf(`## ${path.title}`),
+		);
+		expect(paths.every((index) => index > 0)).toBe(true);
+		expect([...paths].sort((a, b) => a - b)).toEqual(paths);
+		expect(STRUCTURED_WORKSPACE_METHOD[0]?.title).toContain(
+			"data schema alone",
+		);
+		expect(STRUCTURED_WORKSPACE_METHOD[1]?.title).toContain("inline");
+		expect(STRUCTURED_WORKSPACE_METHOD[2]?.title).toContain("named");
+		for (const step of STRUCTURED_WORKSPACE_METHOD.flatMap(
+			(path) => path.steps,
+		)) {
+			expect(agent).toContain(JSON.stringify(step.args));
+			for (const line of step.answer) expect(agent).toContain(line);
+		}
+		expect(agent).toContain("## Where things live");
+		expect(agent).toContain("## When it fails");
+		for (const failure of STRUCTURED_WORKSPACE_FAILURES)
+			expect(agent).toContain(failure.seen);
+	});
+
+	it("gives humans the same method without tool syntax", () => {
+		const human = learnText("structured-workspaces", "human");
+		expect(human).toContain("## How a Workspace is built");
+		expect(human).toContain("## Where things live");
+		expect(human).toContain("## When it fails");
+		expect(human).not.toContain("maket_");
+		expect(human).not.toContain("{");
+		expect(human).toContain(
+			"sit in the Documents library until the assistant attaches them",
+		);
+	});
+
+	it("repeats the first path in the gemini topic and the Claude and Codex plugin skills", () => {
+		expect(STRUCTURED_WORKSPACE_FIRST_PATH.split("\n")).toHaveLength(5);
+		expect(learnText("gemini", "agent")).toContain(
+			STRUCTURED_WORKSPACE_FIRST_PATH,
+		);
+		const skill = readFileSync(
+			new URL(
+				"../../../../plugin/claude/skills/maket/SKILL.md",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		expect(skill).toContain(STRUCTURED_WORKSPACE_FIRST_PATH);
+		const codexSkill = readFileSync(
+			new URL(
+				"../../../../plugin/codex/skills/maket/SKILL.md",
+				import.meta.url,
+			),
+			"utf8",
+		);
+		expect(codexSkill).toContain("## Structured Workspaces");
+		expect(codexSkill).toContain(STRUCTURED_WORKSPACE_FIRST_PATH);
 	});
 });

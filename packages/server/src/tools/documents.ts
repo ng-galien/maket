@@ -600,7 +600,12 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		activePage: sourceDoc.activePage,
 		nextId: sourceDoc.nextId,
 	});
-	if (cloneData.meta) cloneData.meta.locked = false;
+	if (cloneData.meta) {
+		cloneData.meta.locked = false;
+		if (cloneData.meta.structuredWorkspace) cloneData.category = "general";
+		delete cloneData.meta.structuredWorkspace;
+		delete cloneData.meta.structuredWorkspaceGenerated;
+	}
 	const clone = createDocument(cloneData);
 	documents.all().set(clone.name, clone);
 	documents.persist(clone.name);

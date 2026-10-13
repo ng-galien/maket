@@ -7,6 +7,7 @@ import { createDocuments } from "./documents.js";
 import { createSQLiteStore } from "./store.js";
 import {
 	createStructuredWorkspaces,
+	isStructuredWorkspaceRefusal,
 	type StructuredWorkspacesDeps,
 } from "./structured-workspaces.js";
 
@@ -382,6 +383,7 @@ describe("StructuredWorkspaces", () => {
 					workspace: workspace.name,
 					expectedRevision: current.revision,
 					representationSchema,
+					allowIncomplete: true,
 				});
 				expect(updated.integrity).toMatchObject({
 					status: "incomplete",
@@ -766,6 +768,7 @@ describe("StructuredWorkspaces", () => {
 		});
 		const incomplete = workspaces.create({
 			name: "Needs templates",
+			allowIncomplete: true,
 			dataSchema: {},
 			representationSchema: {
 				version: 1,
@@ -1012,6 +1015,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		});
 		const workspace = workspaces.create({
 			name: "Portfolio",
+			allowIncomplete: true,
 			dataSchema: {
 				type: "object",
 				properties: {
@@ -1457,6 +1461,581 @@ describe("StructuredWorkspaces compact template styles", () => {
 			".card-title",
 		);
 		expect(cards).toHaveLength(3);
+		store.close();
+	});
+});
+
+describe("StructuredWorkspaces definition control and check", () => {
+	const bookSchema = {
+		type: "object",
+		properties: {
+			title: { type: "string" },
+			status: { type: "string", enum: ["open", "done"] },
+		},
+		required: ["title", "status"],
+		additionalProperties: false,
+	};
+
+	function bare() {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const documentStates = createDocumentStates({ store, documents, bus });
+		const workspaces = createStructuredWorkspaces({
+			store,
+			documents,
+			documentStates,
+			bus,
+		});
+		return { store, bus, documents, documentStates, workspaces };
+	}
+
+	it("creates a ready Workspace from a data schema alone, its templates in the Workspace category", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		const view = workspaces.get(workspace.id);
+		expect(view?.integrity.status).toBe("ready");
+		expect(view?.representationSchema.collections.items).toMatchObject({
+			name: "Items",
+			bindings: { item: { schemaPath: "" } },
+		});
+		expect(
+			view?.templateDocuments.map((document) => document.documentName),
+		).toEqual([
+			"Books — Items — index template",
+			"Books — Items — detail template",
+			"Books — Items — card template",
+		]);
+		for (const document of documents.all().values())
+			expect(document.category).toBe("Structured Workspaces/Books");
+		expect(workspaces.check(workspace.id)).toMatchObject({
+			verdict: "ready",
+			findings: [expect.objectContaining({ severity: "hint", object: "item" })],
+		});
+		store.close();
+	});
+
+	it("refuses an incomplete create with one finding per error and persists nothing", () => {
+		const { store, documents, workspaces } = bare();
+		let refusal: unknown;
+		try {
+			workspaces.create({
+				name: "Books",
+				dataSchema: bookSchema,
+				representationSchema: {
+					collections: {
+						shelf: {
+							name: "Shelf",
+							groupBy: "/genre",
+							bindings: { book: { detailTemplateDocumentId: "Book page" } },
+						},
+					},
+				},
+			});
+		} catch (error) {
+			refusal = error;
+		}
+		expect(isStructuredWorkspaceRefusal(refusal)).toBe(true);
+		if (!isStructuredWorkspaceRefusal(refusal)) throw new Error("No refusal.");
+		expect(refusal.message).toBe(
+			'Structured Workspace "Books" was not created: its definition has 2 error(s).',
+		);
+		expect(refusal.findings).toEqual([
+			expect.objectContaining({
+				severity: "error",
+				object: "template",
+				collection: "shelf",
+				path: "representation_schema.collections.shelf.bindings.book.detailTemplateDocumentId",
+				message: 'No document is named or identified "Book page".',
+				fix: expect.stringContaining("Remove detailTemplateDocumentId"),
+				next: expect.stringContaining("action=create workspace=Books"),
+			}),
+			expect.objectContaining({
+				object: "index",
+				path: "representation_schema.collections.shelf.groupBy",
+			}),
+		]);
+		expect(workspaces.list()).toEqual([]);
+		expect([...documents.all().keys()]).toEqual([]);
+		store.close();
+	});
+
+	it("persists an incomplete definition only with allowIncomplete", () => {
+		const { store, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+			representationSchema: { collections: { shelf: { groupBy: "/genre" } } },
+			allowIncomplete: true,
+		});
+		expect(workspaces.check(workspace.id)).toMatchObject({
+			verdict: "not ready",
+			findings: expect.arrayContaining([
+				expect.objectContaining({ severity: "error", object: "index" }),
+			]),
+		});
+		store.close();
+	});
+
+	it("keeps the previous definition when an update has errors", () => {
+		const { store, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		const before = workspaces.get(workspace.id);
+		expect(() =>
+			workspaces.updateDefinition({
+				workspace: workspace.id,
+				expectedRevision: 1,
+				representationSchema: {
+					collections: {
+						items: { detailTemplateHtml: "<h1>{{ state.titel }}</h1>" },
+					},
+				},
+			}),
+		).toThrow("keeps its definition at revision 1");
+		const after = workspaces.get(workspace.id);
+		expect(after?.revision).toBe(1);
+		expect(after?.representationSchema).toEqual(before?.representationSchema);
+		expect(after?.templateDocuments).toEqual(before?.templateDocuments);
+		store.close();
+	});
+
+	it("regenerates templates whose references no longer resolve, so check's fix reaches ready", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		for (const name of [
+			"Books — Items — index template",
+			"Books — Items — card template",
+		])
+			expect(documents.delete(name, { allowStructuredWorkspace: true })).toBe(
+				true,
+			);
+		const broken = workspaces.check(workspace.id);
+		expect(broken.verdict).toBe("not ready");
+		expect(broken.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					path: "representation_schema.collections.items.collectionTemplateDocumentId",
+					fix: expect.stringContaining("Remove collectionTemplateDocumentId"),
+				}),
+			]),
+		);
+		const current = workspaces.get(workspace.id);
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: current?.revision ?? 0,
+			representationSchema: { collections: { items: { name: "Items" } } },
+		});
+		expect(workspaces.check(workspace.id).verdict).toBe("ready");
+		expect(
+			workspaces
+				.get(workspace.id)
+				?.templateDocuments.map((document) => document.documentName),
+		).toEqual([
+			"Books — Items — index template",
+			"Books — Items — detail template",
+			"Books — Items — card template",
+		]);
+		store.close();
+	});
+
+	it("deletes the generated templates a new definition replaces, without numbered leftovers", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		const oldDetail = documents.resolve("Books — Items — detail template");
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 1,
+			representationSchema: {
+				collections: {
+					items: {
+						detailTemplateHtml:
+							'<article data-id="book"><h1 data-id="title">{{ state.title }}</h1></article>',
+					},
+				},
+			},
+		});
+		const detail = documents.resolve("Books — Items — detail template");
+		expect(detail?.id).not.toBe(oldDetail?.id);
+		expect(detail?.pages[0]?.html).toContain('data-id="book"');
+		expect(documents.resolveById(oldDetail?.id ?? "")).toBeNull();
+		expect(
+			[...documents.all().keys()].filter((name) => / \d+$/.test(name)),
+		).toEqual([]);
+		expect(
+			workspaces
+				.get(workspace.id)
+				?.templateDocuments.map((document) => document.documentName),
+		).toEqual([
+			"Books — Items — index template",
+			"Books — Items — detail template",
+			"Books — Items — card template",
+		]);
+		store.close();
+	});
+
+	it("shows Unicode property names and reports every property the generated templates leave out", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Livres",
+			dataSchema: {
+				type: "object",
+				properties: {
+					titre: { type: "string" },
+					année: { type: "integer" },
+					adresse: {
+						type: "object",
+						properties: { ville: { type: "string" } },
+					},
+					personnes: {
+						type: "array",
+						items: { type: "object", properties: { nom: { type: "string" } } },
+					},
+					"a b": { type: "string" },
+				},
+			},
+		});
+		expect(
+			documents.resolve("Livres — Items — detail template")?.pages[0]?.html,
+		).toContain("<dt>Année</dt><dd>{{ state.année }}</dd>");
+		const check = workspaces.check(workspace.id);
+		expect(check.verdict).toBe("ready");
+		expect(
+			check.findings
+				.filter((finding) => finding.object === "template")
+				.map((finding) => finding.message),
+		).toEqual([
+			'Property "adresse" is not shown by the generated templates: it is a nested object.',
+			'Property "personnes" is not shown by the generated templates: it is a list of objects or lists.',
+			'Property "a b" is not shown by the generated templates: its name cannot be used in a placeholder.',
+		]);
+		store.close();
+	});
+
+	it("points a oneOf binding at a concrete branch", () => {
+		const { store, documents, workspaces } = bare();
+		const generated = workspaces.create({ name: "Delivery", dataSchema });
+		expect(workspaces.check(generated.id).findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "hint",
+					message:
+						"The generated templates show no property: the binding schema has no direct properties (it uses oneOf).",
+					fix: expect.stringContaining(
+						'Set the binding schemaPath to a concrete branch such as "/$defs/task"',
+					),
+				}),
+			]),
+		);
+		let refusal: unknown;
+		try {
+			workspaces.create({
+				name: "Inline delivery",
+				dataSchema,
+				representationSchema: {
+					collections: {
+						items: { detailTemplateHtml: "<h1>{{ state.title }}</h1>" },
+					},
+				},
+			});
+		} catch (error) {
+			refusal = error;
+		}
+		if (!isStructuredWorkspaceRefusal(refusal)) throw new Error("No refusal.");
+		expect(refusal.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					message: expect.stringContaining(
+						'unsupported schema keyword "oneOf"',
+					),
+					fix: expect.stringContaining(
+						'Set the binding schemaPath to a concrete branch such as "/$defs/task"',
+					),
+				}),
+			]),
+		);
+		const typo = createDocument({
+			name: "Book index",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+		});
+		documents.all().set(typo.name, typo);
+		documents.persist(typo.name);
+		expect(() =>
+			workspaces.create({
+				name: "Books",
+				dataSchema: bookSchema,
+				representationSchema: {
+					collections: { items: { collectionTemplateDocumentId: "Bok index" } },
+				},
+			}),
+		).toThrow();
+		try {
+			workspaces.create({
+				name: "Books",
+				dataSchema: bookSchema,
+				representationSchema: {
+					collections: { items: { collectionTemplateDocumentId: "Bok index" } },
+				},
+			});
+		} catch (error) {
+			if (!isStructuredWorkspaceRefusal(error)) throw error;
+			expect(error.findings[0]?.fix).toBe(
+				'Remove collectionTemplateDocumentId so Maket creates the template itself, or use the exact name "Book index".',
+			);
+		}
+		store.close();
+	});
+
+	it("suggests an existing branch for a oneOf root without definitions, and following it reaches ready", () => {
+		const { store, documents, workspaces } = bare();
+		const alternatives = {
+			oneOf: [
+				{
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+				{ type: "object", properties: { name: { type: "string" } } },
+			],
+		};
+		const workspace = workspaces.create({
+			name: "Alternatives",
+			dataSchema: alternatives,
+		});
+		const hint = workspaces
+			.check(workspace.id)
+			.findings.find((finding) => finding.object === "template");
+		expect(hint?.fix).toBe(
+			'Set the binding schemaPath to a concrete branch such as "/oneOf/0", whose properties the template can name.',
+		);
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 1,
+			representationSchema: {
+				collections: {
+					items: { bindings: { item: { schemaPath: "/oneOf/0" } } },
+				},
+			},
+		});
+		const check = workspaces.check(workspace.id);
+		expect(check.verdict).toBe("ready");
+		expect(
+			check.findings.filter((finding) => finding.object === "template"),
+		).toEqual([]);
+		expect(
+			documents.resolve("Alternatives — Items — detail template")?.pages[0]
+				?.html,
+		).toContain("{{ state.title }}");
+		expect(
+			[...documents.all().keys()].filter((name) => / \d+$/.test(name)),
+		).toEqual([]);
+		const inline = {
+			detailTemplateHtml: '<h1 data-id="title">{{ state.title }}</h1>',
+		};
+		let refusal: unknown;
+		try {
+			workspaces.create({
+				name: "Inline alternatives",
+				dataSchema: alternatives,
+				representationSchema: { collections: { items: inline } },
+			});
+		} catch (error) {
+			refusal = error;
+		}
+		if (!isStructuredWorkspaceRefusal(refusal)) throw new Error("No refusal.");
+		expect(refusal.findings[0]?.fix).toContain('"/oneOf/0"');
+		const fixed = workspaces.create({
+			name: "Inline alternatives",
+			dataSchema: alternatives,
+			representationSchema: {
+				collections: {
+					items: { bindings: { item: { schemaPath: "/oneOf/0", ...inline } } },
+				},
+			},
+		});
+		expect(workspaces.check(fixed.id).verdict).toBe("ready");
+		store.close();
+	});
+
+	it("returns released named templates to the category they had, or to Templates", () => {
+		const { store, documents, workspaces } = bare();
+		const canvas = {
+			format: "A4",
+			orientation: "portrait",
+			w: 210,
+			h: 297,
+			bg: "#fff",
+		};
+		const named = [
+			createDocument({
+				name: "Shelf index",
+				category: "Library shelf",
+				canvas,
+				pages: [
+					{
+						name: "Index",
+						elements: [],
+						html: '<main data-id="index"><section data-id="cards" data-maket-structured-items></section></main>',
+					},
+				],
+			}),
+			createDocument({
+				name: "Shelf detail",
+				canvas,
+				pages: [
+					{
+						name: "Detail",
+						elements: [],
+						html: '<h1 data-id="title">{{ state.title }}</h1>',
+					},
+				],
+			}),
+		];
+		for (const document of named) {
+			documents.all().set(document.name, document);
+			documents.persist(document.name);
+		}
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+			representationSchema: {
+				collections: {
+					items: {
+						name: "Items",
+						collectionTemplateDocumentId: "Shelf index",
+						bindings: { item: { detailTemplateDocumentId: "Shelf detail" } },
+					},
+				},
+			},
+		});
+		for (const name of ["Shelf index", "Shelf detail"])
+			expect(documents.resolve(name)?.category).toBe(
+				"Structured Workspaces/Books",
+			);
+		const detailOwner =
+			documents.resolve("Shelf detail")?.meta.structuredWorkspace;
+		if (detailOwner?.role !== "template") throw new Error("Owner missing.");
+		expect(detailOwner.previousCategory).toBe("general");
+		delete detailOwner.previousCategory;
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 1,
+			representationSchema: {
+				collections: {
+					items: {
+						indexTemplateHtml:
+							'<main data-id="index"><section data-id="cards" data-maket-structured-items></section></main>',
+						detailTemplateHtml: '<h1 data-id="title">{{ state.title }}</h1>',
+					},
+				},
+			},
+		});
+		expect(documents.resolve("Shelf index")).toMatchObject({
+			category: "Library shelf",
+			meta: {},
+		});
+		expect(
+			documents.resolve("Shelf index")?.meta.structuredWorkspace,
+		).toBeUndefined();
+		expect(documents.resolve("Shelf detail")?.category).toBe("Templates");
+		expect(
+			documents.resolve("Shelf detail")?.meta.structuredWorkspace,
+		).toBeUndefined();
+		expect(workspaces.check(workspace.id).verdict).toBe("ready");
+		store.close();
+	});
+
+	it("checks item data, item documents and template synchronization", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		const first = workspaces.addItem({
+			workspace: workspace.id,
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Dune",
+			data: { title: "Dune", status: "open" },
+		});
+		const second = workspaces.addItem({
+			workspace: workspace.id,
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Emma",
+			data: { title: "Emma", status: "done" },
+		});
+		expect(workspaces.check(workspace.id)).toEqual({
+			workspace: "Books",
+			verdict: "ready",
+			findings: [],
+		});
+		const stricter = {
+			...bookSchema,
+			properties: {
+				...bookSchema.properties,
+				status: { type: "string", enum: ["open"] },
+			},
+		};
+		const current = store.loadStructuredWorkspace(workspace.id);
+		if (!current) throw new Error("Workspace missing.");
+		store.updateStructuredWorkspace(
+			workspace.id,
+			current.revision,
+			stricter,
+			current.representationSchema,
+		);
+		const detail = documents.resolve("Books — Items — detail template");
+		if (!detail?.pages[0]) throw new Error("Detail missing.");
+		detail.pages[0].html = `${detail.pages[0].html}<p data-id="note">Note</p>`;
+		const resolveById = documents.resolveById.bind(documents);
+		vi.spyOn(documents, "resolveById").mockImplementation((id) =>
+			id === first.documentId ? null : resolveById(id),
+		);
+		const check = workspaces.check(workspace.id);
+		expect(check.verdict).toBe("not ready");
+		expect(check.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					severity: "error",
+					object: "item",
+					path: `item "${first.id}"`,
+					message: `Item "${first.id}" has no document.`,
+					next: expect.stringContaining("action=delete_item"),
+				}),
+				expect.objectContaining({
+					severity: "error",
+					object: "item",
+					path: `item "${second.id}" /status`,
+					fix: 'Use one of ["open"] at /status.',
+					next: expect.stringContaining(
+						`action=update_item workspace=${workspace.id} item=${second.id} expected_revision=1`,
+					),
+				}),
+				expect.objectContaining({
+					severity: "warning",
+					object: "template",
+					next: `maket_structured_workspace action=sync_template workspace=${workspace.id} collection=items`,
+				}),
+			]),
+		);
 		store.close();
 	});
 });

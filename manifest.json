@@ -57,7 +57,7 @@
     },
     {
       "name": "maket_structured_workspace",
-      "description": "Create, inspect, rename, delete, and operate aggregate Workspaces with owned schemas, templates, projections, items, state history, and annotations. Collections can group cards (groupBy, groupOrder, pageSize) and flow onto several pages."
+      "description": "Create, check, inspect, rename, delete, and operate aggregate Workspaces with owned schemas, templates, projections, items, state history, and annotations. create from a data schema alone generates the templates and form; incomplete definitions are refused with one fix per error; check reports a ready verdict and every finding with its next call. Collections can group cards (groupBy, groupOrder, pageSize) and flow onto several pages."
     },
     {
       "name": "maket_learn",

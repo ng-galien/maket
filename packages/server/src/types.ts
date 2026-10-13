@@ -80,6 +80,9 @@ export interface DocMeta {
 	emailDraftId?: string; // Gmail draft ID after gmail_draft
 	emailDraftUrl?: string; // Deep link to review & send the draft in Gmail
 	emailDraftRole?: "body" | "attachment"; // How this doc was included in the last draft
+	/** Set on a template document Maket wrote for a Structured Workspace
+	 * definition; Maket deletes it once no definition references it. */
+	structuredWorkspaceGenerated?: boolean;
 	structuredWorkspace?:
 		| {
 				role: "template";
@@ -89,6 +92,9 @@ export interface DocMeta {
 					collectionId: string;
 					bindingId?: string;
 				}>;
+				/** The category the document had before the Workspace took it;
+				 * restored when the Workspace releases it. */
+				previousCategory?: string;
 		  }
 		| {
 				role: "collection";

@@ -120,6 +120,7 @@ export const ACTIVITY_POLICIES = {
 		actions: {
 			list: null,
 			view: null,
+			check: null,
 			create: null,
 			update_definition: null,
 			add_item: null,

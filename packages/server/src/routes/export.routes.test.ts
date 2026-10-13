@@ -704,6 +704,7 @@ describe("export routes — .maket bundle", () => {
 	it("roundtrips an incomplete Workspace through HTTP without requiring a collection", async () => {
 		structuredWorkspaces.create({
 			name: "Draft",
+			allowIncomplete: true,
 			dataSchema: {},
 			representationSchema: { version: 1, collections: {} },
 		});

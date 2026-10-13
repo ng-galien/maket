@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { type BootstrapInputs, createAppContainer } from "./bootstrap.js";
 import { assertActivityContract } from "./core/activity-contract.js";
 import { registerToolPacks } from "./core/tool-pack-registry.js";
@@ -183,6 +184,35 @@ describe("registerToolPacks", () => {
 				brokenPack,
 			]),
 		).toThrow(/did not register/);
+		c.dispose();
+	});
+
+	it("holds the boot-time activity contract over the real tool registry", () => {
+		const c = bootedContainer();
+		const { toolRegistry } = registerToolPacks(
+			c,
+			{ packs: manifestTools },
+			allPacks,
+		);
+		expect(() => assertActivityContract(toolRegistry)).not.toThrow();
+		const workspaceTool = toolRegistry.get("maket_structured_workspace");
+		if (!workspaceTool) throw new Error("Structured Workspace tool missing.");
+		const actionSchema = workspaceTool.metadata.schema.shape.action as {
+			options: string[];
+		};
+		const drifted = new Map(toolRegistry);
+		drifted.set("maket_structured_workspace", {
+			...workspaceTool,
+			metadata: {
+				...workspaceTool.metadata,
+				schema: workspaceTool.metadata.schema.extend({
+					action: z.enum(["unpoliced", ...actionSchema.options]),
+				}),
+			},
+		});
+		expect(() => assertActivityContract(drifted)).toThrow(
+			"Activity contract drift — maket_structured_workspace: missing action policy for unpoliced",
+		);
 		c.dispose();
 	});
 

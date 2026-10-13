@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	documentStateTemplateReferenceIssues,
 	parseDeclaredStateValue,
 	renderDocumentStateText,
 	resolveDocumentStateText,
 	validateDocumentState,
 	validateDocumentStateTemplate,
+	validateDocumentStateTemplateBindings,
 } from "./document-state.js";
 
 const schema = {
@@ -952,5 +954,46 @@ describe("select options from a state list", () => {
 				{ agent: "", agents: [], names: [3] },
 			),
 		).toThrow(/entries must be strings or objects/);
+	});
+});
+
+describe("document-state template references", () => {
+	const bookSchema = {
+		type: "object",
+		properties: {
+			title: { type: "string" },
+			tags: {
+				type: "array",
+				items: { type: "object", properties: { label: { type: "string" } } },
+			},
+		},
+	};
+
+	it("names every value and section the schema does not declare", () => {
+		expect(
+			documentStateTemplateReferenceIssues(
+				"<h1>{{ state.title }}</h1><p>{{ state.titel }}</p>{{#state.tags}}<i>{{label}}</i><b>{{lable}}</b>{{/state.tags}}{{#state.missing}}x{{/state.missing}}",
+				bookSchema,
+			),
+		).toEqual([
+			'Placeholder "state.titel" names a path the state schema does not declare.',
+			'Placeholder "lable" names a path the state schema does not declare.',
+			'Placeholder "state.missing" names a path the state schema does not declare.',
+		]);
+	});
+
+	it("validates bound controls against the schema without data", () => {
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<input type="text" data-maket-bind="state.title">',
+				bookSchema,
+			),
+		).not.toThrow();
+		expect(() =>
+			validateDocumentStateTemplateBindings(
+				'<input type="text" data-maket-bind="state.subtitle">',
+				bookSchema,
+			),
+		).toThrow(/not declared/);
 	});
 });

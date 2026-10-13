@@ -819,6 +819,7 @@ describe("ws-handler — document and canvas flows", () => {
 		const { store, structuredWorkspaces, handler, dispose } = fixture();
 		const workspace = structuredWorkspaces.create({
 			name: "Draft",
+			allowIncomplete: true,
 			dataSchema: {},
 			representationSchema: { version: 1, collections: {} },
 		});
@@ -852,6 +853,7 @@ describe("ws-handler — document and canvas flows", () => {
 		documents.persist(template.name);
 		const workspace = structuredWorkspaces.create({
 			name: "Incomplete",
+			allowIncomplete: true,
 			dataSchema: {},
 			representationSchema: {
 				version: 1,

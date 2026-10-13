@@ -49,6 +49,582 @@ const TOPIC_TITLES: Record<LearnTopic, string> = {
 	gemini: "Gemini CLI setup",
 };
 
+/** One call of the Structured Workspace method: the exact arguments, what
+ * the answer contains verbatim, and what to verify before going on. */
+export interface WorkspaceMethodStep {
+	tool: "maket_structured_workspace" | "maket_doc" | "maket_html";
+	purpose: string;
+	args: Record<string, unknown>;
+	answer: string[];
+	verify: string;
+}
+
+export interface WorkspaceMethodPath {
+	title: string;
+	when: string;
+	steps: WorkspaceMethodStep[];
+}
+
+/** One failure the method can meet: the call that meets it, the sentence the
+ * agent reads verbatim, the reason, and the correcting call. */
+export interface WorkspaceFailure {
+	title: string;
+	/** Calls that lead to it, run in order on a fresh Maket. A step named
+	 * `edit-template` or `move-template` stands for a manual change. */
+	steps: Array<
+		| Pick<WorkspaceMethodStep, "tool" | "args">
+		| { manual: "edit-template" | "move-template"; document: string }
+	>;
+	seen: string;
+	why: string;
+	fix: string;
+}
+
+const READING_SCHEMA = {
+	type: "object",
+	properties: {
+		title: { type: "string" },
+		author: { type: "string" },
+		year: { type: "integer" },
+		status: { type: "string", enum: ["to read", "reading", "done"] },
+	},
+	required: ["title", "status"],
+	additionalProperties: false,
+};
+
+const RECIPE_SCHEMA = {
+	type: "object",
+	properties: {
+		title: { type: "string" },
+		minutes: { type: "integer" },
+		vegetarian: { type: "boolean" },
+	},
+	required: ["title", "minutes"],
+	additionalProperties: false,
+};
+
+const TEAM_SCHEMA = {
+	type: "object",
+	properties: {
+		name: { type: "string" },
+		role: { type: "string" },
+	},
+	required: ["name", "role"],
+	additionalProperties: false,
+};
+
+const TEAM_TEMPLATES = [
+	{
+		doc: "Team index",
+		html: '<main data-id="index"><h1 data-id="heading">Team</h1><section data-id="cards" data-maket-structured-items></section></main>',
+	},
+	{
+		doc: "Team member",
+		html: '<article data-id="member"><h1 data-id="name">{{ state.name }}</h1><p data-id="role">{{ state.role }}</p></article>',
+	},
+	{
+		doc: "Team card",
+		html: '<article data-id="card" data-maket-compact-root><strong data-id="card-name">{{ state.name }}</strong></article>',
+	},
+];
+
+export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
+	{
+		title: "Path 1 — data schema alone (use it by default)",
+		when: "Use it whenever no template design is imposed: Maket writes the index, detail, card templates and the detail form from the data schema.",
+		steps: [
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Create the Workspace from its data schema only.",
+				args: {
+					action: "create",
+					workspace: "Reading list",
+					data_schema: READING_SCHEMA,
+				},
+				answer: [
+					'Structured Workspace "Reading list" created',
+					"Verdict: ready.",
+					"Collections: items (bindings: item).",
+					'Template documents in category "Structured Workspaces/Reading list": "Reading list — Items — index template", "Reading list — Items — detail template", "Reading list — Items — card template".',
+				],
+				verify:
+					"The answer says `Verdict: ready.` and is not an error. Note the collection id (`items`) and the binding id (`item`): add_item needs both.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Add the first item; its data must satisfy the data schema.",
+				args: {
+					action: "add_item",
+					workspace: "Reading list",
+					collection: "items",
+					binding: "item",
+					document_name: "Dune",
+					data: {
+						title: "Dune",
+						author: "Frank Herbert",
+						year: 1965,
+						status: "reading",
+					},
+				},
+				answer: ['instantiated as document "Dune" at data revision 1.'],
+				verify:
+					"The answer names the item document. An answer starting with `Item data breaks the schema` lists each wrong path with its fix: correct `data` and call add_item again.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose:
+					"Run the doctor before telling the user the Workspace is ready.",
+				args: { action: "check", workspace: "Reading list" },
+				answer: ['"verdict": "ready"'],
+				verify:
+					'`verdict` is `ready`. Otherwise apply the `fix` and the `next` call of every finding whose `severity` is `error`, then call check again. Findings of severity `warning` and `hint` do not block "ready" but say what the user will miss.',
+			},
+		],
+	},
+	{
+		title: "Path 2 — templates inline in the create call",
+		when: "Use it when the detail page, the card or the index must look a given way. Give the HTML in the call; Maket creates and names the template documents itself.",
+		steps: [
+			{
+				tool: "maket_structured_workspace",
+				purpose:
+					"Create the Workspace with its detail HTML, card HTML, index HTML and detail form inline.",
+				args: {
+					action: "create",
+					workspace: "Recipes",
+					data_schema: RECIPE_SCHEMA,
+					representation_schema: {
+						collections: {
+							recipes: {
+								name: "Recipes",
+								sortBy: "/minutes",
+								indexTemplateHtml:
+									'<main data-id="index"><h1 data-id="heading">Recipes</h1><section data-id="cards" data-maket-structured-items></section></main>',
+								detailTemplateHtml:
+									'<article data-id="recipe"><h1 data-id="name">{{ state.title }}</h1><p data-id="time">{{ state.minutes }} min</p></article>',
+								compactTemplateHtml:
+									'<article data-id="card" data-maket-compact-root><strong data-id="card-title">{{ state.title }}</strong> <span data-id="card-time">{{ state.minutes }} min</span></article>',
+								detailForm: {
+									uischema: {
+										type: "VerticalLayout",
+										elements: [
+											{ type: "Control", scope: "#/properties/minutes" },
+											{ type: "Control", scope: "#/properties/vegetarian" },
+										],
+									},
+								},
+							},
+						},
+					},
+				},
+				answer: [
+					'Structured Workspace "Recipes" created',
+					"Verdict: ready.",
+					"Collections: recipes (bindings: item).",
+					'Template documents in category "Structured Workspaces/Recipes": "Recipes — Recipes — index template", "Recipes — Recipes — detail template", "Recipes — Recipes — card template".',
+				],
+				verify:
+					"`Verdict: ready.`; the binding id is `item` because the collection declares no bindings.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Add the first item.",
+				args: {
+					action: "add_item",
+					workspace: "Recipes",
+					collection: "recipes",
+					binding: "item",
+					document_name: "Pancakes",
+					data: { title: "Pancakes", minutes: 20, vegetarian: true },
+				},
+				answer: ['instantiated as document "Pancakes" at data revision 1.'],
+				verify: "The answer names the item document.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Run the doctor.",
+				args: { action: "check", workspace: "Recipes" },
+				answer: ['"verdict": "ready"'],
+				verify: "`verdict` is `ready`.",
+			},
+		],
+	},
+	{
+		title: "Path 3 — template documents created beforehand and named",
+		when: "Use it only to reuse template documents that already exist or must be authored page by page. Create, fill and bind them in the same session.",
+		steps: [
+			...TEAM_TEMPLATES.map(
+				(template): WorkspaceMethodStep => ({
+					tool: "maket_doc",
+					purpose: `Create the template document "${template.doc}".`,
+					args: { action: "new", doc: template.doc, format: "A4" },
+					answer: [`New doc "${template.doc}" [general]`],
+					verify:
+						"The document exists. It sits in the Documents library only until the create step binds it.",
+				}),
+			),
+			...TEAM_TEMPLATES.map(
+				(template): WorkspaceMethodStep => ({
+					tool: "maket_html",
+					purpose: `Write page 1 of "${template.doc}".`,
+					args: {
+						action: "set",
+						doc: template.doc,
+						page: 1,
+						html: template.html,
+					},
+					answer: [],
+					verify: "The page is written without error.",
+				}),
+			),
+			{
+				tool: "maket_structured_workspace",
+				purpose:
+					"Create the Workspace and bind the three documents by exact name.",
+				args: {
+					action: "create",
+					workspace: "Team",
+					data_schema: TEAM_SCHEMA,
+					representation_schema: {
+						collections: {
+							people: {
+								name: "People",
+								collectionTemplateDocumentId: "Team index",
+								bindings: {
+									member: {
+										schemaPath: "",
+										detailTemplateDocumentId: "Team member",
+										compactTemplateDocumentId: "Team card",
+									},
+								},
+							},
+						},
+					},
+				},
+				answer: [
+					'Structured Workspace "Team" created',
+					"Verdict: ready.",
+					"Collections: people (bindings: member).",
+					'Template documents in category "Structured Workspaces/Team": "Team index", "Team member", "Team card".',
+				],
+				verify:
+					"`Verdict: ready.` and the three names are listed under the Workspace category: they left the Documents library.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Add the first item.",
+				args: {
+					action: "add_item",
+					workspace: "Team",
+					collection: "people",
+					binding: "member",
+					document_name: "Ada",
+					data: { name: "Ada", role: "Engineer" },
+				},
+				answer: ['instantiated as document "Ada" at data revision 1.'],
+				verify: "The answer names the item document.",
+			},
+			{
+				tool: "maket_structured_workspace",
+				purpose: "Run the doctor.",
+				args: { action: "check", workspace: "Team" },
+				answer: ['"verdict": "ready"'],
+				verify: "`verdict` is `ready`.",
+			},
+		],
+	},
+];
+
+const createReading = (representation?: unknown) => ({
+	tool: "maket_structured_workspace" as const,
+	args: {
+		action: "create",
+		workspace: "Reading list",
+		data_schema: READING_SCHEMA,
+		...(representation === undefined
+			? {}
+			: { representation_schema: representation }),
+	},
+});
+
+const addDune = {
+	tool: "maket_structured_workspace" as const,
+	args: {
+		action: "add_item",
+		workspace: "Reading list",
+		collection: "items",
+		binding: "item",
+		document_name: "Dune",
+		data: { title: "Dune", status: "reading" },
+	},
+};
+
+const checkReading = {
+	tool: "maket_structured_workspace" as const,
+	args: { action: "check", workspace: "Reading list" },
+};
+
+export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
+	{
+		title: "A named template document does not exist",
+		steps: [
+			createReading({
+				collections: {
+					items: {
+						name: "Items",
+						collectionTemplateDocumentId: "Reading index",
+					},
+				},
+			}),
+		],
+		seen: 'No document is named or identified "Reading index".',
+		why: "The name is not the exact name of an existing document (typo, or the document was never created).",
+		fix: "Call create again without collectionTemplateDocumentId: Maket writes the template.",
+	},
+	{
+		title: "A collection without binding",
+		steps: [
+			createReading({
+				collections: { items: { name: "Items", bindings: {} } },
+			}),
+		],
+		seen: 'Collection "items" must declare at least one binding.',
+		why: "`bindings` is present but empty, so no item can be added.",
+		fix: "Call create again without `bindings` (Maket binds the whole schema as `item`).",
+	},
+	{
+		title: "A placeholder names a path absent from the schema",
+		steps: [
+			createReading({
+				collections: {
+					items: {
+						name: "Items",
+						detailTemplateHtml: '<h1 data-id="title">{{ state.titel }}</h1>',
+					},
+				},
+			}),
+		],
+		seen: 'Placeholder "state.titel" names a path the state schema does not declare.',
+		why: "Placeholders read item data; `titel` is not a property of the data schema.",
+		fix: "Call create again with `{{ state.title }}`, a declared property, or declare the property in data_schema.",
+	},
+	{
+		title: "A form field on a missing path",
+		steps: [
+			createReading({
+				collections: {
+					items: {
+						name: "Items",
+						detailForm: {
+							uischema: {
+								type: "VerticalLayout",
+								elements: [{ type: "Control", scope: "#/properties/isbn" }],
+							},
+						},
+					},
+				},
+			}),
+		],
+		seen: 'JSON Pointer target does not exist: "/properties/isbn".',
+		why: "Every form Control `scope` must point at a property of the data schema.",
+		fix: 'Call create again with scopes of declared properties, such as "#/properties/status".',
+	},
+	{
+		title: "A form slot in the detail HTML",
+		steps: [
+			createReading({
+				collections: {
+					items: {
+						name: "Items",
+						detailTemplateHtml:
+							'<article data-id="book"><h1 data-id="title">{{ state.title }}</h1><!--maket-json-form--></article>',
+					},
+				},
+			}),
+		],
+		seen: "The page has a <!--maket-json-form--> slot but no form definition.",
+		why: "Maket places detailForm on its own page; a slot in the HTML stays empty.",
+		fix: "Call create again without the `<!--maket-json-form-->` comment, giving the form in detailForm.",
+	},
+	{
+		title: "groupBy or sortBy names no property",
+		steps: [
+			createReading({
+				collections: { items: { name: "Items", groupBy: "/genre" } },
+			}),
+		],
+		seen: 'Collection "items" groupBy "/genre" names no property of the data schema.',
+		why: "The index groups and sorts by item data; `/genre` is not declared.",
+		fix: 'Call create again with groupBy "/status" (a declared property), or declare genre in data_schema.',
+	},
+	{
+		title: "The data schema is not a JSON Schema",
+		steps: [
+			{
+				tool: "maket_structured_workspace",
+				args: {
+					action: "create",
+					workspace: "Reading list",
+					data_schema: { type: "strin" },
+				},
+			},
+		],
+		seen: "Invalid data schema/type: must be equal to one of the allowed values",
+		why: "`type` must be a JSON Schema type such as object, string, integer, boolean.",
+		fix: 'Call create again with data_schema {"type":"object","properties":{…}}.',
+	},
+	{
+		title: "An item breaks the schema",
+		steps: [
+			createReading(),
+			{
+				tool: "maket_structured_workspace",
+				args: {
+					action: "add_item",
+					workspace: "Reading list",
+					collection: "items",
+					binding: "item",
+					document_name: "Dune",
+					data: { title: "Dune", status: "reading", year: "1965" },
+				},
+			},
+		],
+		seen: "- /year [rule type]: Invalid item data/year: must be integer. Fix: Give /year a value of type integer.",
+		why: "Item data is validated against the data schema; no document is created.",
+		fix: "Call add_item again with corrected data (here year: 1965).",
+	},
+	{
+		title: "A Workspace with no item",
+		steps: [createReading(), checkReading],
+		seen: 'Workspace "Reading list" has no item yet.',
+		why: "A hint, not an error: the index is empty until the first add_item.",
+		fix: "Call the add_item given as `next` in the finding.",
+	},
+	{
+		title: "Template pages out of sync",
+		steps: [
+			createReading(),
+			addDune,
+			{
+				manual: "edit-template",
+				document: "Reading list — Items — detail template",
+			},
+			checkReading,
+		],
+		seen: 'Template-controlled pages of collection "items" differ from their templates.',
+		why: "A template document was edited after items were instantiated.",
+		fix: "Call sync_template with the workspace and collection given as `next`.",
+	},
+	{
+		title: "A template document outside the Workspace category",
+		steps: [
+			createReading(),
+			{
+				manual: "move-template",
+				document: "Reading list — Items — card template",
+			},
+			checkReading,
+		],
+		seen: 'sits in category "general", outside the Workspace category "Structured Workspaces/Reading list".',
+		why: "A template was moved out of the Workspace category.",
+		fix: "Call view on the Workspace: it files every template back in the Workspace category.",
+	},
+	{
+		title: "A template document owned by another Workspace",
+		steps: [
+			createReading(),
+			{
+				tool: "maket_structured_workspace",
+				args: {
+					action: "create",
+					workspace: "Second list",
+					data_schema: READING_SCHEMA,
+					representation_schema: {
+						collections: {
+							items: {
+								name: "Items",
+								collectionTemplateDocumentId:
+									"Reading list — Items — index template",
+							},
+						},
+					},
+				},
+			},
+		],
+		seen: 'Template document "Reading list — Items — index template" is owned by another resource.',
+		why: "A template belongs to exactly one Workspace.",
+		fix: "Call create again without collectionTemplateDocumentId: Maket writes a template for this Workspace.",
+	},
+];
+
+function parameterType(value: unknown): string {
+	if (Array.isArray(value)) return "array";
+	if (value === null) return "null";
+	if (typeof value === "number")
+		return Number.isInteger(value) ? "integer" : "number";
+	return typeof value;
+}
+
+const OBJECT_PARAMETERS: Record<string, string> = {
+	data_schema:
+		"the JSON Schema of one item, an object with `type`, `properties`, `required`; see the JSON call",
+	data: "one item, valid against data_schema; see the JSON call",
+	representation_schema:
+		"collections and their templates, fields listed under Method; see the JSON call",
+};
+
+function renderMethodStep(step: WorkspaceMethodStep, index: number): string {
+	const action = String(step.args.action);
+	const parameters = Object.entries(step.args).map(([name, value]) =>
+		typeof value === "object" && value !== null
+			? `   - \`${name}\` (${parameterType(value)}): ${OBJECT_PARAMETERS[name] ?? "see the JSON call"}`
+			: `   - \`${name}\` (${parameterType(value)}): \`${JSON.stringify(value)}\``,
+	);
+	return [
+		`${index + 1}. ${step.purpose} Call \`${step.tool}\` action \`${action}\`:`,
+		...parameters,
+		"",
+		"   ```json",
+		`   ${JSON.stringify(step.args)}`,
+		"   ```",
+		step.answer.length
+			? `   The answer contains: ${step.answer.map((line) => `\`${line}\``).join(" · ")}`
+			: "   The answer is a success, not an error.",
+		`   Verify: ${step.verify}`,
+	].join("\n");
+}
+
+function methodSections(): LearnSection[] {
+	return STRUCTURED_WORKSPACE_METHOD.map((path) =>
+		section(
+			path.title,
+			path.when,
+			path.steps.map(renderMethodStep).join("\n\n"),
+		),
+	);
+}
+
+function failureSection(): LearnSection {
+	return section(
+		"When it fails",
+		'create and update_definition refuse a definition with errors: the answer is an MCP error whose first line says the Workspace was not created (or keeps its definition), then one line per error `- collection "<id>" · <path>: <sentence> Fix: <fix>`, then `next:` calls. Nothing is persisted; fix every line and call again. `allow_incomplete=true` persists an incomplete definition on purpose; check then lists what remains. Every case below is what an agent reads verbatim.',
+		STRUCTURED_WORKSPACE_FAILURES.map(
+			(failure, index) =>
+				`${index + 1}. ${failure.title}.\n   Seen: \`${failure.seen}\`\n   Why: ${failure.why}\n   Fix: ${failure.fix}`,
+		).join("\n"),
+	);
+}
+
+/** The first path of the Structured Workspace method in five lines, repeated
+ * by the gemini topic and the plugin skills. */
+export const STRUCTURED_WORKSPACE_FIRST_PATH = [
+	'1. maket_structured_workspace {"action":"create","workspace":"<name>","data_schema":<JSON Schema object>}',
+	"2. Read the answer: `Verdict: ready.`, the collection id `items` and the binding id `item`.",
+	'3. maket_structured_workspace {"action":"add_item","workspace":"<name>","collection":"items","binding":"item","document_name":"<item name>","data":<item JSON>}',
+	'4. maket_structured_workspace {"action":"check","workspace":"<name>"} must answer "verdict": "ready".',
+	"5. On an error answer, apply every `Fix:` line and call again; the full method: maket_learn action=topic topic=structured-workspaces.",
+].join("\n");
+
 const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 	overview: document(
 		"Maket is a live visual workspace driven through MCP tools. The document is the unit of work; the human and the agent share the same persisted content and preview.",
@@ -420,16 +996,32 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		"A Workspace is the aggregate root for its schemas, templates, collection projections, items, instantiated documents, state history, and annotations. Owned resources appear only in the Workspace tree, never in the free-form Documents library.",
+		'A Workspace is the aggregate root for its schemas, templates, collection projections, items, instantiated documents, state history, and annotations. Build one with the method below: follow its steps in order, read every answer, and do not tell the user the Workspace works before `check` answers `"verdict": "ready"`.',
 		section(
-			"Identity and integrity",
+			"Method",
+			"Three paths, in this order of preference. Every path ends with add_item and check. Each step gives the exact JSON call, every parameter with its type, what the answer contains verbatim, and what to verify before the next step.",
+			"Generated templates: the detail template shows one labelled line per property in schema order with `{{ state.<property> }}` placeholders, titled by the first string property; its second page is a form on every editable property; the card shows the title and the next two properties; the index lists the cards. A property is editable when its type is string, number, integer, boolean or a string enum and it is not marked `readOnly: true` (the JSON Schema keyword the form already honours): mark a property `readOnly: true` to keep it out of the form.",
 			[
-				"- The stable Workspace id is its internal identity; its name is mutable display text.",
-				"- `list` and `view` expose `integrity.status` as `ready` or `incomplete` plus actionable issues.",
-				"- Incomplete Workspaces remain visible and their schemas and templates remain inspectable, but collection and item projections cannot open until integrity is ready.",
-				"- Templates belong to exactly one Workspace. One template may fill several roles inside that same Workspace.",
+				"Parameters of `create` (and of `update_definition`, which adds `expected_workspace_revision` (integer)):",
+				"- `workspace` (string): the Workspace name.",
+				"- `data_schema` (object): JSON Schema of one item.",
+				'- `representation_schema` (object, optional; omit it on path 1): `version` (integer 1, optional) and `collections` (object keyed by collection id). Each collection: `name` (string), `indexTemplateHtml`, `detailTemplateHtml`, `compactTemplateHtml` (string, inline HTML with `{{ state.<property> }}` placeholders), `detailForm` (object `{uischema}` in JSON Forms, Controls with `scope` `#/properties/<property>`), `collectionTemplateDocumentId` (string, exact name of an existing document, path 3), `groupBy`, `sortBy` (string JSON Pointer such as `/status`), `sortDirection` (`ascending` or `descending`), `groupOrder` (array), `pageSize` (integer), `bindings` (object keyed by binding id; omitted, one binding `item` covers the whole schema). Each binding: `schemaPath` (string, `""` for the whole schema), `detailTemplateDocumentId`, `compactTemplateDocumentId` (string names, path 3), and the same inline fields as the collection.',
+				"- `allow_incomplete` (boolean, optional): persist a definition with errors instead of refusing it; reserved for deliberate drafts.",
 			].join("\n"),
 		),
+		...methodSections(),
+		section(
+			"Where things live",
+			[
+				"- A Workspace owns its template documents, its index documents (one per collection, named `<workspace> — <collection>`) and its item documents. All of them live under the category `Structured Workspaces/<workspace name>`, never in the Documents library.",
+				"- On paths 1 and 2 Maket creates and names the templates (`<workspace> — <collection> — index template`, `… — detail template`, `… — card template`); the agent never places or names a template document.",
+				"- On path 3, a template document created in the library must be bound by `create` or `update_definition` in the same session: binding moves it into the Workspace category. An unbound template left in the library is an error of method.",
+				"- Template references may be exact document names or stable ids; Maket stores ids. A template belongs to exactly one Workspace.",
+				"- `list` prefixes each Workspace with `[ready]` or `[incomplete]`; `view` returns JSON whose first keys are `verdict`, `findings` (their count) and `check` (the call that lists them); `check` returns `{workspace, verdict, findings[]}`, each finding with `severity` (error, warning, hint), `object` (schema, collection, template, item, form, index), `collection`, `path`, `message`, `fix` and `next`. check never writes.",
+				"- Incomplete Workspaces (only through `allow_incomplete=true`) stay visible, but their index and item documents cannot open until check is ready.",
+			].join("\n"),
+		),
+		failureSection(),
 		section(
 			"Two contracts",
 			[
@@ -469,10 +1061,9 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			].join("\n"),
 		),
 		section(
-			"API workflow",
-			"```text\nmaket_structured_workspace action=create workspace=<name> [data_schema=<schema>] [representation_schema=<schema>]\nmaket_structured_workspace action=add_item workspace=<id-or-name> collection=<collection> binding=<binding> document_name=<doc> data=<data>\nmaket_structured_workspace action=update_item workspace=<id-or-name> item=<id> expected_revision=<n> data=<data>\nmaket_structured_workspace action=sync_template workspace=<id-or-name> [collection=<collection>] [binding=<binding>]\nmaket_structured_workspace action=rename workspace=<id-or-name> new_name=<name> expected_workspace_revision=<n>\nmaket_structured_workspace action=delete workspace=<id-or-name>\n```",
-			"Use `update_definition` with `expected_workspace_revision` to change the data schema or representation schema. Existing item data, concrete bindings, and prospective template pages are validated before the definition changes.",
-			"Template references may be current document names or stable document ids; Maket stores stable ids.",
+			"Other calls",
+			"```text\nmaket_structured_workspace action=update_definition workspace=<id-or-name> expected_workspace_revision=<n> [data_schema=<schema>] [representation_schema=<schema>] [allow_incomplete=true]\nmaket_structured_workspace action=update_item workspace=<id-or-name> item=<id> expected_revision=<n> data=<data>\nmaket_structured_workspace action=delete_item workspace=<id-or-name> item=<id>\nmaket_structured_workspace action=sync_template workspace=<id-or-name> [collection=<collection>] [binding=<binding>]\nmaket_structured_workspace action=rename workspace=<id-or-name> new_name=<name> expected_workspace_revision=<n>\nmaket_structured_workspace action=delete workspace=<id-or-name>\n```",
+			"update_definition validates existing item data, concrete bindings and prospective template pages before the definition changes; an erroneous definition is refused and the previous one kept. A collection or binding given without template references or inline HTML keeps its current templates. update_item refuses data that breaks the schema with the same path, rule and fix lines as add_item.",
 			"Rename preserves every owned document id, state revision, annotation, and instance-owned page. Delete is an aggregate cascade; global images, chartes, and connections are not owned and remain intact.",
 		),
 		section(
@@ -532,6 +1123,11 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Verify",
 			"Start Gemini with MCP enabled and call `maket_learn action=overview`.",
+		),
+		section(
+			"Structured Workspaces",
+			"Build a Structured Workspace with the method of `maket_learn action=topic topic=structured-workspaces`. Its first path, from a data schema alone:",
+			STRUCTURED_WORKSPACE_FIRST_PATH,
 		),
 	),
 };
@@ -602,10 +1198,23 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		"Workspaces own their models, templates, collections, items, documents, history, and annotations. Every Workspace stays in one tree; incomplete ones show what must be corrected before projections can open.",
+		"A Workspace is a typed list: you describe the fields of one item, and every item becomes a real document with its own page, gathered on an index page. Your assistant builds it in three steps and tells you it works only once Maket's check says ready.",
 		section(
-			"Document ownership",
-			"Owned resources are absent from Documents. Template pages stay synchronized for every item, while pages added to one instantiated document remain specific to that document. Renaming a Workspace does not recreate those documents; deleting it removes the whole owned aggregate.",
+			"How a Workspace is built",
+			[
+				"1. The assistant describes the fields of one item (for example title, author, year, status). From that alone, Maket writes the index page, the detail page of an item, its card on the index, and a form to edit the item.",
+				"2. The assistant adds the first item. Maket checks its values against the fields and creates its document.",
+				"3. The assistant runs Maket's check, which answers ready or lists, for each problem, what is wrong and how to correct it.",
+				"When you want a particular look, the assistant gives the page designs in the same first step instead, and Maket files them for you. Only when you already have template documents does it name them; it then attaches them right away.",
+			].join("\n"),
+		),
+		section(
+			"Where things live",
+			"A Workspace keeps its templates, its index pages and its item documents together under its own name, in the Workspace tree. They never appear in the Documents library, except template documents prepared beforehand by name: those sit in the Documents library until the assistant attaches them to the Workspace, which moves them under its name. Template pages stay synchronized for every item, while pages added to one item document remain specific to it. Renaming a Workspace does not recreate those documents; deleting it removes them all.",
+		),
+		section(
+			"When it fails",
+			"Maket refuses a Workspace whose description has a mistake — a template that does not exist, a field shown on a page but not described, a form field that points nowhere, grouping by an unknown field — and says for each one what to change. It refuses an item whose values do not fit the fields. Its check also reports pages that no longer match their template and an empty Workspace. Nothing half-built is kept unless the assistant asks for it explicitly.",
 		),
 	),
 	review: document(
@@ -625,6 +1234,10 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 	gemini: document(
 		"Gemini uses the same Maket MCP tools as other supported agents.",
 		section("Command", "```sh\nmaket install gemini --apply\n```"),
+		section(
+			"Structured Workspaces",
+			"Ask Gemini to follow the Structured Workspaces method of Maket's learning topics: describe the fields of one item, add the first item, then run Maket's check until it says ready.",
+		),
 	),
 };
 

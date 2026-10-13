@@ -315,6 +315,69 @@ function validateTemplateBindings(
 	}
 }
 
+/** Template syntax and bound controls checked against the schema alone. */
+export function validateDocumentStateTemplateBindings(
+	template: string,
+	schema: DocumentStateSchema,
+): void {
+	const tokens = Mustache.parse(template) as MustacheToken[];
+	validateTemplateTokens(tokens, false, template);
+	validateTemplateBindings(tokens, [{ schema, pointer: "" }]);
+}
+
+/**
+ * The values and sections of a template that the schema does not declare,
+ * one sentence each. Rendering leaves such a placeholder empty; this names it.
+ */
+export function documentStateTemplateReferenceIssues(
+	template: string,
+	schema: DocumentStateSchema,
+): string[] {
+	const issues: string[] = [];
+	try {
+		collectReferenceIssues(
+			Mustache.parse(template) as MustacheToken[],
+			[{ schema, pointer: "" }],
+			issues,
+		);
+	} catch (error) {
+		issues.push(error instanceof Error ? error.message : String(error));
+	}
+	return issues;
+}
+
+function collectReferenceIssues(
+	tokens: MustacheToken[],
+	frames: SchemaFrame[],
+	issues: string[],
+): void {
+	for (const token of tokens) {
+		const [kind, name] = token;
+		if (kind !== "name" && kind !== "&" && kind !== "#" && kind !== "^")
+			continue;
+		let resolved: ResolvedSchema;
+		try {
+			resolved = resolveSchemaReference(name, frames);
+		} catch (error) {
+			issues.push(error instanceof Error ? error.message : String(error));
+			continue;
+		}
+		if (!resolved.found) {
+			issues.push(
+				`Placeholder "${name}" names a path the state schema does not declare.`,
+			);
+			continue;
+		}
+		if (kind === "#" || kind === "^") {
+			collectReferenceIssues(
+				sectionChildren(token),
+				kind === "#" ? sectionSchemaFrames(frames, resolved) : frames,
+				issues,
+			);
+		}
+	}
+}
+
 function sectionSchemaFrames(
 	frames: SchemaFrame[],
 	resolved: ResolvedSchema,

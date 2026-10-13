@@ -1,10 +1,13 @@
 import crypto from "node:crypto";
 import type {
 	BundleStructuredWorkspaceSnapshot,
+	JsonFormsTemplate,
+	StructuredWorkspaceCheck,
 	StructuredWorkspaceCollectionDocumentView,
 	StructuredWorkspaceCollectionRepresentation,
 	StructuredWorkspaceDataSchema,
 	StructuredWorkspaceDefinition,
+	StructuredWorkspaceFinding,
 	StructuredWorkspaceGroupValue,
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceRepresentationSchema,
@@ -12,12 +15,22 @@ import type {
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
+	diagnoseStructuredWorkspaceDefinition,
+	documentStateTemplateReferenceIssues,
+	generateStructuredWorkspaceTemplates,
+	hasJsonFormSlot,
 	readJsonPointer,
 	renderDocumentStatePage,
+	renderJsonFormsTemplate,
 	structuredWorkspaceBindingSchema,
 	structuredWorkspaceDefaultPageSize,
+	structuredWorkspaceHiddenProperties,
+	structuredWorkspaceItemDataIssues,
+	structuredWorkspaceSchemaDeclaresPath,
+	structuredWorkspaceTemplateFields,
+	validateDocumentStatePageTemplate,
+	validateDocumentStateTemplateBindings,
 	validateStructuredWorkspaceDefinition,
-	validateStructuredWorkspaceItemData,
 } from "@maket/shared";
 import { parseHTML } from "linkedom";
 import { MessageError } from "../lib/message-error.js";
@@ -35,11 +48,50 @@ import {
 } from "./page-flow.js";
 import type { StructuredWorkspaceRepository } from "./sqlite-store/structured-workspace-repository.js";
 
+/** One binding as an agent writes it: template documents by name or id, or
+ * the templates themselves inline; Maket creates the documents it lacks. */
+export interface StructuredWorkspaceBindingInput {
+	/** JSON Pointer into the data schema; "" (default) is the whole schema. */
+	schemaPath?: string;
+	detailTemplateDocumentId?: string;
+	compactTemplateDocumentId?: string;
+	detailTemplateHtml?: string;
+	compactTemplateHtml?: string;
+	/** JSON Forms definition embedded in the detail page. */
+	detailForm?: JsonFormsTemplate;
+}
+
+/** One collection as an agent writes it. The inline template fields of the
+ * collection apply to every binding that gives none of its own; without
+ * bindings, one binding `item` covers the whole data schema. */
+export interface StructuredWorkspaceCollectionInput
+	extends Omit<
+		StructuredWorkspaceCollectionRepresentation,
+		"name" | "collectionTemplateDocumentId" | "bindings"
+	> {
+	name?: string;
+	collectionTemplateDocumentId?: string;
+	indexTemplateHtml?: string;
+	detailTemplateHtml?: string;
+	compactTemplateHtml?: string;
+	detailForm?: JsonFormsTemplate;
+	bindings?: Record<string, StructuredWorkspaceBindingInput>;
+}
+
+/** The representation schema as an agent writes it; omitted, Maket declares
+ * one collection `items` with generated templates. */
+export interface StructuredWorkspaceRepresentationInput {
+	version?: number;
+	collections?: Record<string, StructuredWorkspaceCollectionInput>;
+}
+
 export interface CreateStructuredWorkspaceInput {
 	name: string;
 	description?: string;
 	dataSchema: StructuredWorkspaceDataSchema;
-	representationSchema: StructuredWorkspaceRepresentationSchema;
+	representationSchema?: StructuredWorkspaceRepresentationInput;
+	/** Persist a definition with errors instead of refusing it. */
+	allowIncomplete?: boolean;
 }
 
 export interface AddStructuredWorkspaceItemInput {
@@ -55,13 +107,39 @@ export interface UpdateStructuredWorkspaceInput {
 	workspace: string;
 	expectedRevision: number;
 	dataSchema?: StructuredWorkspaceDataSchema;
-	representationSchema?: StructuredWorkspaceRepresentationSchema;
+	representationSchema?: StructuredWorkspaceRepresentationInput;
+	/** Replace the definition even when it has errors instead of keeping the
+	 * previous one. */
+	allowIncomplete?: boolean;
+}
+
+/** A definition refused for its errors; `findings` lists each of them. */
+export interface StructuredWorkspaceRefusal extends Error {
+	findings: StructuredWorkspaceFinding[];
+}
+
+export function isStructuredWorkspaceRefusal(
+	error: unknown,
+): error is StructuredWorkspaceRefusal {
+	return (
+		error instanceof Error &&
+		Array.isArray((error as Partial<StructuredWorkspaceRefusal>).findings)
+	);
+}
+
+function refusal(
+	message: string,
+	findings: StructuredWorkspaceFinding[],
+): StructuredWorkspaceRefusal {
+	return Object.assign(new Error(message), { findings });
 }
 
 export interface StructuredWorkspaces {
 	list(): StructuredWorkspaceDefinition[];
 	listViews(): StructuredWorkspaceView[];
 	get(name: string): StructuredWorkspaceView | null;
+	/** Every finding about the Workspace and its documents; never writes. */
+	check(name: string): StructuredWorkspaceCheck;
 	create(input: CreateStructuredWorkspaceInput): StructuredWorkspaceDefinition;
 	updateDefinition(
 		input: UpdateStructuredWorkspaceInput,
@@ -124,6 +202,9 @@ export function createStructuredWorkspaces(
 		get(name) {
 			const workspace = deps.store.loadStructuredWorkspace(name);
 			return workspace ? workspaceView(deps, workspace) : null;
+		},
+		check(name) {
+			return checkWorkspace(deps, requiredWorkspace(deps.store, name));
 		},
 		create(input) {
 			const workspace = createWorkspace(deps, input);
@@ -1107,35 +1188,69 @@ function updateDefinition(
 	const workspace = requiredWorkspace(deps.store, input.workspace);
 	assertWorkspaceUnlocked(deps, workspace);
 	const dataSchema = input.dataSchema ?? workspace.dataSchema;
-	const representationSchema = input.representationSchema
-		? normalizeTemplateDocumentReferences(
+	const materialized = input.representationSchema
+		? materializeRepresentation(deps, {
+				workspaceName: workspace.name,
+				dataSchema,
+				input: input.representationSchema,
+				current: workspace.representationSchema,
+			})
+		: {
+				representation: workspace.representationSchema,
+				created: [],
+				preferredNames: new Map<string, string>(),
+			};
+	try {
+		replaceDefinition(deps, workspace, input, {
+			dataSchema,
+			representationSchema: normalizeTemplateDocumentReferences(
 				deps.documents,
-				input.representationSchema,
-			)
-		: workspace.representationSchema;
-	assertTemplatesUnlocked(deps.documents, representationSchema);
-	const issues = validateStructuredWorkspaceDefinition(
-		dataSchema,
-		representationSchema,
-	);
-	if (issues.length > 0) {
-		const updated = deps.store.updateStructuredWorkspace(
-			workspace.id,
-			input.expectedRevision,
-			dataSchema,
-			representationSchema,
-		);
-		reconcileTemplateOwnership(deps, updated);
-		return workspaceView(deps, updated);
+				materialized.representation,
+			),
+		});
+		adoptPreferredNames(deps, materialized);
+		announceCreatedTemplates(deps, materialized.created);
+		return workspaceView(deps, requiredWorkspace(deps.store, workspace.id));
+	} catch (error) {
+		const persisted = deps.store.loadStructuredWorkspace(workspace.id);
+		if (persisted?.revision === workspace.revision)
+			discardDocuments(deps, materialized.created);
+		throw error;
 	}
+}
+
+function replaceDefinition(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	input: UpdateStructuredWorkspaceInput,
+	next: {
+		dataSchema: StructuredWorkspaceDataSchema;
+		representationSchema: StructuredWorkspaceRepresentationSchema;
+	},
+): StructuredWorkspaceView {
+	const { dataSchema, representationSchema } = next;
+	assertTemplatesUnlocked(deps.documents, representationSchema);
 	const candidate = { ...workspace, dataSchema, representationSchema };
-	if (workspaceIntegrity(deps, candidate).status === "incomplete") {
+	const errors = definitionErrors(
+		deps,
+		candidate,
+		`maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} representation_schema=<corrected>`,
+	);
+	if (errors.length > 0) {
+		if (!input.allowIncomplete) {
+			throw refusal(
+				`Structured Workspace "${workspace.name}" keeps its definition at revision ${workspace.revision}: the new definition has ${errors.length} error(s).`,
+				errors,
+			);
+		}
 		const updated = deps.store.updateStructuredWorkspace(
 			workspace.id,
 			input.expectedRevision,
 			dataSchema,
 			representationSchema,
 		);
+		retireReplacedTemplates(deps, updated);
+		reconcileTemplateOwnership(deps, updated);
 		return workspaceView(deps, updated);
 	}
 	const currentCollectionDocuments = ensureCollectionDocuments(deps, workspace);
@@ -1220,6 +1335,7 @@ function updateDefinition(
 		dataSchema,
 		representationSchema,
 	);
+	retireReplacedTemplates(deps, updated);
 	reconcileTemplateOwnership(deps, updated);
 	for (const plan of collectionPlans) {
 		plan.document.pages = plan.pages;
@@ -1262,17 +1378,56 @@ function createWorkspace(
 	if (deps.store.loadStructuredWorkspace(input.name)) {
 		throw new Error(`Structured Workspace "${input.name}" already exists.`);
 	}
-	const representationSchema = normalizeTemplateDocumentReferences(
-		deps.documents,
-		input.representationSchema,
-	);
-	assertTemplatesUnlocked(deps.documents, representationSchema);
+	const materialized = materializeRepresentation(deps, {
+		workspaceName: input.name,
+		dataSchema: input.dataSchema,
+		input: input.representationSchema,
+		current: null,
+	});
+	let candidate: StructuredWorkspaceDefinition;
+	try {
+		const representationSchema = normalizeTemplateDocumentReferences(
+			deps.documents,
+			materialized.representation,
+		);
+		assertTemplatesUnlocked(deps.documents, representationSchema);
+		candidate = {
+			id: crypto.randomUUID(),
+			name: input.name,
+			...(input.description === undefined
+				? {}
+				: { description: input.description }),
+			dataSchema: input.dataSchema,
+			representationSchema,
+			revision: 0,
+			items: [],
+			createdAt: "",
+			updatedAt: "",
+		};
+		const errors = definitionErrors(
+			deps,
+			candidate,
+			`maket_structured_workspace action=create workspace=${input.name} data_schema=<schema> representation_schema=<corrected, or omit it for generated templates>`,
+		);
+		if (errors.length > 0 && !input.allowIncomplete) {
+			throw refusal(
+				`Structured Workspace "${input.name}" was not created: its definition has ${errors.length} error(s).`,
+				errors,
+			);
+		}
+	} catch (error) {
+		discardDocuments(deps, materialized.created);
+		throw error;
+	}
 	const workspace = deps.store.createStructuredWorkspace({
-		id: crypto.randomUUID(),
-		...input,
-		representationSchema,
+		id: candidate.id,
+		name: candidate.name,
+		description: candidate.description,
+		dataSchema: candidate.dataSchema,
+		representationSchema: candidate.representationSchema,
 	});
 	reconcileTemplateOwnership(deps, workspace);
+	announceCreatedTemplates(deps, materialized.created);
 	if (workspaceIntegrity(deps, workspace).status === "ready") {
 		ensureCollectionDocuments(deps, workspace);
 	}
@@ -1361,6 +1516,15 @@ function updateItem(
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
 	const item = requiredItem(workspace, itemId);
 	assertValidItemData(workspace.dataSchema, data);
+	const binding =
+		workspace.representationSchema.collections[item.collectionId]?.bindings[
+			item.bindingId
+		];
+	if (binding)
+		assertValidItemData(
+			structuredWorkspaceBindingSchema(workspace.dataSchema, binding),
+			data,
+		);
 	const document = requiredDocument(
 		deps.documents,
 		item.documentId,
@@ -1716,7 +1880,7 @@ function instantiateCollectionDocument(
 		dataModel: "static",
 		canvas: structuredClone(template.canvas),
 		meta: {
-			...structuredClone(template.meta),
+			...templateMeta(template),
 			locked: false,
 			structuredWorkspace: {
 				role: "collection",
@@ -1859,7 +2023,7 @@ function instantiateDocument(
 		category: `Structured Workspaces/${workspace.name}`,
 		canvas: structuredClone(template.canvas),
 		meta: {
-			...structuredClone(template.meta),
+			...templateMeta(template),
 			locked: false,
 			structuredWorkspace: {
 				role: "item",
@@ -1953,6 +2117,7 @@ function reconcileTemplateOwnership(
 		const roles = desired.get(document.id);
 		if (!roles) {
 			delete document.meta.structuredWorkspace;
+			document.category = owner.previousCategory ?? "Templates";
 			deps.documents.persist(document.name);
 			continue;
 		}
@@ -1973,12 +2138,16 @@ function reconcileTemplateOwnership(
 		const owner = document.meta.structuredWorkspace;
 		if (owner && owner.workspaceId !== workspace.id) continue;
 		if (owner && owner.role !== "template") continue;
+		const category = `Structured Workspaces/${workspace.name}`;
 		document.meta.structuredWorkspace = {
 			role: "template",
 			workspaceId: workspace.id,
 			templateRoles: roles,
+			...(document.category === category
+				? {}
+				: { previousCategory: document.category }),
 		};
-		document.category = `Structured Workspaces/${workspace.name}`;
+		document.category = category;
 		deps.documents.persist(document.name);
 	}
 }
@@ -2074,6 +2243,15 @@ function workspaceIntegrity(
 	return issues.length === 0
 		? { status: "ready", issues: [] }
 		: { status: "incomplete", issues };
+}
+
+/** A template's meta for a document instantiated from it: never the marker
+ * of a Maket-written template, so only templates are ever retired. */
+function templateMeta(template: Document): Document["meta"] {
+	const { structuredWorkspaceGenerated: _generated, ...meta } = structuredClone(
+		template.meta,
+	);
+	return meta;
 }
 
 function templatePage(
@@ -2194,8 +2372,17 @@ function assertValidItemData(
 	schema: StructuredWorkspaceDataSchema,
 	data: Record<string, unknown>,
 ): void {
-	const issues = validateStructuredWorkspaceItemData(schema, data);
-	if (issues.length > 0) throw new Error(issues.join("\n"));
+	const issues = structuredWorkspaceItemDataIssues(schema, data);
+	if (issues.length === 0) return;
+	throw new Error(
+		[
+			`Item data breaks the schema (${issues.length} issue(s)):`,
+			...issues.map(
+				(issue) =>
+					`- ${issue.path} [rule ${issue.rule}]: ${issue.message}. Fix: ${issue.fix}`,
+			),
+		].join("\n"),
+	);
 }
 
 function restorePageProvenance(
@@ -2285,4 +2472,812 @@ function assertTemplatesUnlocked(
 			if (document) assertDocumentUnlocked(document);
 		}
 	}
+}
+
+const templateCanvas = {
+	format: "A4",
+	orientation: "portrait",
+	w: 210,
+	h: 297,
+	bg: "#ffffff",
+};
+
+interface MaterializeRequest {
+	workspaceName: string;
+	dataSchema: StructuredWorkspaceDataSchema;
+	input: StructuredWorkspaceRepresentationInput | undefined;
+	current: StructuredWorkspaceRepresentationSchema | null;
+}
+
+interface MaterializedRepresentation {
+	representation: StructuredWorkspaceRepresentationSchema;
+	/** Template documents written for this call, discarded on refusal. */
+	created: Document[];
+	preferredNames: ReadonlyMap<string, string>;
+}
+
+/**
+ * The representation schema with a template document behind every
+ * reference. A reference given by name or id stays as given; a template given
+ * inline, or absent and absent from the current definition (or named there
+ * by a reference that no longer resolves), becomes a new document in the
+ * Workspace category, generated from the binding schema when no HTML is
+ * given. `preferredNames` holds the name each new document asked for.
+ */
+function materializeRepresentation(
+	deps: StructuredWorkspacesDeps,
+	request: MaterializeRequest,
+): MaterializedRepresentation {
+	const { workspaceName, dataSchema, input, current } = request;
+	const created: Document[] = [];
+	const preferredNames = new Map<string, string>();
+	const resolve = (id: string | undefined) =>
+		id === undefined
+			? null
+			: (deps.documents.resolveById(id) ??
+				deps.documents.all().get(id) ??
+				null);
+	const live = (id: string | undefined) => (resolve(id) ? id : undefined);
+	const generatedTemplate = (id: string | undefined) =>
+		resolve(id)?.meta.structuredWorkspaceGenerated === true;
+	const write = (name: string, html: string, form?: JsonFormsTemplate) => {
+		const document = createDocument({
+			name: availableCollectionDocumentName(deps.documents, name),
+			category: `Structured Workspaces/${workspaceName}`,
+			canvas: structuredClone(templateCanvas),
+			meta: { structuredWorkspaceGenerated: true },
+			pages: [
+				{ name: "Template", elements: [], html },
+				...(form ? [{ name: "Form", elements: [], jsonForms: form }] : []),
+			],
+		});
+		deps.documents.all().set(document.name, document);
+		deps.documents.persist(document.name);
+		created.push(document);
+		preferredNames.set(document.id, name);
+		return document.id;
+	};
+	const collectionsInput: Record<string, StructuredWorkspaceCollectionInput> =
+		input?.collections ?? { items: { name: "Items" } };
+	const collections: StructuredWorkspaceRepresentationSchema["collections"] =
+		{};
+	try {
+		for (const [collectionId, collection] of Object.entries(collectionsInput)) {
+			const previous = current?.collections[collectionId];
+			const name = collection.name ?? previous?.name ?? collectionId;
+			const label = `${workspaceName} — ${name}`;
+			const bindingsInput: Record<string, StructuredWorkspaceBindingInput> =
+				collection.bindings ??
+				(previous
+					? Object.fromEntries(
+							Object.keys(previous.bindings).map((id) => [id, {}]),
+						)
+					: { item: {} });
+			const bindingIds = Object.keys(bindingsInput);
+			const bindings: StructuredWorkspaceCollectionRepresentation["bindings"] =
+				{};
+			for (const [bindingId, binding] of Object.entries(bindingsInput)) {
+				const before = previous?.bindings[bindingId];
+				const schemaPath = binding.schemaPath ?? before?.schemaPath ?? "";
+				const suffix = bindingIds.length > 1 ? ` (${bindingId})` : "";
+				const generated = generateStructuredWorkspaceTemplates(
+					name,
+					bindingSchemaOrEmpty(dataSchema, schemaPath),
+				);
+				const detailHtml =
+					binding.detailTemplateHtml ?? collection.detailTemplateHtml;
+				const detailForm = binding.detailForm ?? collection.detailForm;
+				const inlineDetail =
+					detailHtml !== undefined || detailForm !== undefined;
+				const rebound =
+					before !== undefined && schemaPath !== before.schemaPath;
+				const kept = (id: string | undefined) =>
+					rebound && generatedTemplate(id) ? undefined : live(id);
+				let detailId =
+					binding.detailTemplateDocumentId ??
+					(inlineDetail ? undefined : kept(before?.detailTemplateDocumentId));
+				if (detailId === undefined) {
+					const form =
+						detailForm ??
+						(detailHtml === undefined ? generated.detailForm : undefined);
+					const html = detailHtml ?? generated.detailHtml;
+					detailId = write(`${label}${suffix} — detail template`, html, form);
+				}
+				const compactHtml =
+					binding.compactTemplateHtml ?? collection.compactTemplateHtml;
+				let compactId =
+					binding.compactTemplateDocumentId ??
+					(compactHtml === undefined
+						? kept(before?.compactTemplateDocumentId)
+						: undefined);
+				if (
+					compactId === undefined &&
+					(compactHtml !== undefined ||
+						(binding.detailTemplateDocumentId === undefined &&
+							(!before ||
+								(before.compactTemplateDocumentId !== undefined &&
+									!kept(before.compactTemplateDocumentId)))))
+				) {
+					compactId = write(
+						`${label}${suffix} — card template`,
+						compactHtml ?? generated.compactHtml,
+					);
+				}
+				bindings[bindingId] = {
+					schemaPath,
+					detailTemplateDocumentId: detailId,
+					...(compactId === undefined
+						? {}
+						: { compactTemplateDocumentId: compactId }),
+				};
+			}
+			const {
+				name: _name,
+				collectionTemplateDocumentId,
+				indexTemplateHtml,
+				detailTemplateHtml: _detail,
+				compactTemplateHtml: _compact,
+				detailForm: _form,
+				bindings: _bindings,
+				...layout
+			} = collection;
+			const collectionTemplateId =
+				collectionTemplateDocumentId ??
+				(indexTemplateHtml === undefined
+					? live(previous?.collectionTemplateDocumentId)
+					: undefined) ??
+				write(
+					`${label} — index template`,
+					indexTemplateHtml ??
+						generateStructuredWorkspaceTemplates(name, {}).indexHtml,
+				);
+			collections[collectionId] = {
+				...layout,
+				name,
+				collectionTemplateDocumentId: collectionTemplateId,
+				bindings,
+			};
+		}
+	} catch (error) {
+		discardDocuments(deps, created);
+		throw error;
+	}
+	return {
+		representation: {
+			version: (input?.version ?? 1) as 1,
+			collections,
+		},
+		created,
+		preferredNames,
+	};
+}
+
+function bindingSchemaOrEmpty(
+	dataSchema: StructuredWorkspaceDataSchema,
+	schemaPath: string,
+): StructuredWorkspaceDataSchema {
+	try {
+		return structuredWorkspaceBindingSchema(dataSchema, {
+			schemaPath,
+			detailTemplateDocumentId: "",
+		});
+	} catch {
+		return {};
+	}
+}
+
+function discardDocuments(
+	deps: StructuredWorkspacesDeps,
+	documents: Document[],
+): void {
+	for (const document of documents) deps.documents.delete(document.name);
+}
+
+/** Delete the templates Maket wrote for this Workspace that its definition
+ * no longer references. */
+function retireReplacedTemplates(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): void {
+	const referenced = templateRoles(workspace);
+	for (const document of [...deps.documents.all().values()]) {
+		const owner = document.meta.structuredWorkspace;
+		if (
+			document.meta.structuredWorkspaceGenerated !== true ||
+			owner?.role !== "template" ||
+			owner.workspaceId !== workspace.id ||
+			referenced.has(document.id)
+		)
+			continue;
+		deps.documents.delete(document.name, { allowStructuredWorkspace: true });
+		deps.bus.emit("document:deleted", { docName: document.name });
+	}
+}
+
+/** Give each template written for the call the name it asked for once the
+ * template it replaces is gone. */
+function adoptPreferredNames(
+	deps: StructuredWorkspacesDeps,
+	materialized: MaterializedRepresentation,
+): void {
+	for (const document of materialized.created) {
+		const preferred = materialized.preferredNames.get(document.id);
+		if (
+			!preferred ||
+			preferred === document.name ||
+			deps.documents.resolveOrLoad(preferred)
+		)
+			continue;
+		const oldName = document.name;
+		deps.documents.rename(oldName, preferred);
+		deps.bus.emit("document:renamed", { oldName, docName: preferred });
+	}
+}
+
+function announceCreatedTemplates(
+	deps: StructuredWorkspacesDeps,
+	documents: Document[],
+): void {
+	for (const document of documents)
+		deps.bus.emit("document:created", { docName: document.name });
+}
+
+function definitionErrors(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	next: string,
+): StructuredWorkspaceFinding[] {
+	return diagnoseWorkspace(deps, workspace, { items: false, next }).filter(
+		(finding) => finding.severity === "error",
+	);
+}
+
+function checkWorkspace(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): StructuredWorkspaceCheck {
+	const findings = diagnoseWorkspace(deps, workspace, {
+		items: true,
+		next: `maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} representation_schema=<corrected>`,
+	});
+	return {
+		workspace: workspace.name,
+		verdict: findings.some((finding) => finding.severity === "error")
+			? "not ready"
+			: "ready",
+		findings,
+	};
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Workspace diagnosis: reads the definition, its template documents and its items, each owning its own rule.
+function diagnoseWorkspace(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	options: { items: boolean; next: string },
+): StructuredWorkspaceFinding[] {
+	const { next } = options;
+	const findings: StructuredWorkspaceFinding[] =
+		diagnoseStructuredWorkspaceDefinition(
+			workspace.dataSchema,
+			workspace.representationSchema,
+		).map((finding) => ({ ...finding, next }));
+	for (const [collectionId, collection] of Object.entries(
+		workspace.representationSchema.collections ?? {},
+	)) {
+		const base = `representation_schema.collections.${collectionId}`;
+		const reference = { workspace, collectionId, next };
+		const index = collection.collectionTemplateDocumentId
+			? templateDocument(deps, reference, findings, {
+					path: `${base}.collectionTemplateDocumentId`,
+					id: collection.collectionTemplateDocumentId,
+				})
+			: null;
+		let cards = false;
+		for (const [bindingId, binding] of Object.entries(
+			collection.bindings ?? {},
+		)) {
+			const path = `${base}.bindings.${bindingId}`;
+			const detail = binding.detailTemplateDocumentId
+				? templateDocument(deps, reference, findings, {
+						path: `${path}.detailTemplateDocumentId`,
+						id: binding.detailTemplateDocumentId,
+					})
+				: null;
+			const compact = binding.compactTemplateDocumentId
+				? templateDocument(deps, reference, findings, {
+						path: `${path}.compactTemplateDocumentId`,
+						id: binding.compactTemplateDocumentId,
+					})
+				: null;
+			if (binding.compactTemplateDocumentId) cards = true;
+			let schema: StructuredWorkspaceDataSchema;
+			try {
+				schema = structuredWorkspaceBindingSchema(
+					workspace.dataSchema,
+					binding,
+				);
+			} catch {
+				continue;
+			}
+			for (const document of [detail, compact]) {
+				if (document)
+					findings.push(...templatePageFindings(document, schema, reference));
+			}
+			if (detail?.meta.structuredWorkspaceGenerated === true)
+				findings.push(
+					...hiddenPropertyFindings(workspace, schema, {
+						collectionId,
+						path,
+						next,
+					}),
+				);
+		}
+		if (index) {
+			findings.push(
+				...templatePageFindings(
+					index,
+					collectionDocumentStateSchema(workspace),
+					reference,
+					"warning",
+				),
+			);
+			if (
+				!index.pages.some((page) =>
+					page.html?.includes("data-maket-structured-items"),
+				)
+			)
+				findings.push({
+					severity: "warning",
+					object: "index",
+					collection: collectionId,
+					path: `document "${index.name}"`,
+					message: `The index template "${index.name}" has no item slot, so the index shows no item.`,
+					fix: `Add <section data-maket-structured-items></section> to the index template, or remove collectionTemplateDocumentId so Maket generates it.`,
+					next,
+				});
+		}
+		if (!cards && Object.keys(collection.bindings ?? {}).length > 0)
+			findings.push({
+				severity: "hint",
+				object: "index",
+				collection: collectionId,
+				path: `${base}.bindings`,
+				message: `No binding of collection "${collectionId}" has a compact template, so its index shows no card.`,
+				fix: "Give compactTemplateHtml (or compactTemplateDocumentId) to the binding.",
+				next,
+			});
+		for (const field of ["groupBy", "sortBy"] as const) {
+			const pointer = collection[field];
+			if (
+				pointer?.startsWith("/") &&
+				!structuredWorkspaceSchemaDeclaresPath(workspace.dataSchema, pointer)
+			)
+				findings.push({
+					severity: "error",
+					object: "index",
+					collection: collectionId,
+					path: `${base}.${field}`,
+					message: `Collection "${collectionId}" ${field} "${pointer}" names no property of the data schema.`,
+					fix: `Point ${field} at a declared property${suggestedPointer(workspace.dataSchema, collection)}, or declare "${pointer}" in data_schema.`,
+					next,
+				});
+		}
+	}
+	if (options.items) findings.push(...itemFindings(deps, workspace));
+	const integrity = workspaceIntegrity(deps, workspace);
+	if (
+		integrity.status === "incomplete" &&
+		!findings.some((finding) => finding.severity === "error")
+	) {
+		for (const issue of integrity.issues)
+			findings.push({
+				severity: "error",
+				object: "collection",
+				path: "representation_schema",
+				message: issue,
+				fix: "Correct the definition or the template document it names, then call check.",
+				next,
+			});
+	}
+	return findings;
+}
+
+function suggestedPointer(
+	dataSchema: StructuredWorkspaceDataSchema,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): string {
+	const binding = Object.values(collection.bindings ?? {})[0];
+	const field = binding
+		? structuredWorkspaceTemplateFields(
+				bindingSchemaOrEmpty(dataSchema, binding.schemaPath),
+			)[0]
+		: undefined;
+	return field ? ` such as "/${field.name}"` : "";
+}
+
+interface FindingReference {
+	workspace: StructuredWorkspaceDefinition;
+	collectionId: string;
+	next: string;
+}
+
+/** The template document a reference names, or null with a finding. */
+function templateDocument(
+	deps: StructuredWorkspacesDeps,
+	reference: FindingReference,
+	findings: StructuredWorkspaceFinding[],
+	target: { path: string; id: string },
+): Document | null {
+	const { workspace, collectionId, next } = reference;
+	const field = target.path.slice(target.path.lastIndexOf(".") + 1);
+	const document =
+		deps.documents.resolveById(target.id) ??
+		deps.documents.all().get(target.id) ??
+		null;
+	if (!document) {
+		const close = closeDocumentNames(deps, target.id);
+		findings.push({
+			severity: "error",
+			object: "template",
+			collection: collectionId,
+			path: target.path,
+			message: `No document is named or identified "${target.id}".`,
+			fix: `Remove ${field} so Maket creates the template itself${close.length ? `, or use the exact name ${close.map((name) => `"${name}"`).join(" or ")}` : ", or give the template HTML inline"}.`,
+			next,
+		});
+		return null;
+	}
+	const owner = document.meta.structuredWorkspace;
+	if (
+		owner &&
+		(owner.workspaceId !== workspace.id || owner.role !== "template")
+	) {
+		findings.push({
+			severity: "error",
+			object: "template",
+			collection: collectionId,
+			path: target.path,
+			message: `Template document "${document.name}" is owned by another resource.`,
+			fix: `Remove ${field} so Maket creates a template owned by this Workspace, or give the template HTML inline.`,
+			next,
+		});
+		return document;
+	}
+	const category = `Structured Workspaces/${workspace.name}`;
+	if (owner && document.category !== category)
+		findings.push({
+			severity: "warning",
+			object: "template",
+			collection: collectionId,
+			path: target.path,
+			message: `Template document "${document.name}" sits in category "${document.category}", outside the Workspace category "${category}".`,
+			fix: "Open the Workspace with view, which files its templates in the Workspace category.",
+			next: `maket_structured_workspace action=view workspace=${workspace.id}`,
+		});
+	return document;
+}
+
+/** Findings of a template's pages. A placeholder the schema does not declare
+ * renders empty: an error on item templates, a warning on an index template,
+ * which still composes its cards. */
+function templatePageFindings(
+	document: Document,
+	schema: StructuredWorkspaceDataSchema,
+	reference: FindingReference,
+	placeholderSeverity: StructuredWorkspaceFinding["severity"] = "error",
+): StructuredWorkspaceFinding[] {
+	const { collectionId, next } = reference;
+	const findings: StructuredWorkspaceFinding[] = [];
+	const fields = structuredWorkspaceTemplateFields(schema)
+		.slice(0, 5)
+		.map((field) => `{{ state.${field.name} }}`)
+		.join(", ");
+	const add = (
+		object: StructuredWorkspaceFinding["object"],
+		path: string,
+		message: string,
+		fix: string,
+	) =>
+		findings.push({
+			severity: "error",
+			object,
+			collection: collectionId,
+			path,
+			message,
+			fix,
+			next,
+		});
+	for (const page of document.pages) {
+		if (!page.html && !page.jsonForms) continue;
+		const path = `document "${document.name}" page "${page.name ?? page.id}"`;
+		try {
+			validateDocumentStatePageTemplate(page);
+		} catch (error) {
+			add(
+				page.jsonForms ? "form" : "template",
+				path,
+				errorMessage(error),
+				"Correct the template page; a page with a form needs exactly one <!--maket-json-form--> slot inside a block element.",
+			);
+			continue;
+		}
+		if (page.html) {
+			try {
+				validateDocumentStateTemplateBindings(page.html, schema);
+			} catch (error) {
+				add(
+					"template",
+					path,
+					errorMessage(error),
+					unsupportedKeywordFix(error, schema) ??
+						`Bind only declared properties${fields ? `, such as ${fields}` : ""}.`,
+				);
+			}
+			for (const issue of documentStateTemplateReferenceIssues(
+				page.html,
+				schema,
+			))
+				findings.push({
+					severity: placeholderSeverity,
+					object: "template",
+					collection: collectionId,
+					path,
+					message: issue,
+					fix:
+						unsupportedKeywordFix(issue, schema) ??
+						`Declare that property in data_schema, or use a declared one${fields ? ` such as ${fields}` : ""}.`,
+					next,
+				});
+			if (hasJsonFormSlot(page.html) && !page.jsonForms)
+				add(
+					"form",
+					path,
+					"The page has a <!--maket-json-form--> slot but no form definition.",
+					"Remove the <!--maket-json-form--> slot from the HTML: the form goes in detailForm, which Maket places on its own page of the detail template.",
+				);
+		}
+		if (page.jsonForms) {
+			try {
+				renderJsonFormsTemplate(page.jsonForms, {}, schema);
+			} catch (error) {
+				add(
+					"form",
+					path,
+					errorMessage(error),
+					`Point every form Control scope at a declared property, such as "#/properties/${structuredWorkspaceTemplateFields(schema)[0]?.name ?? "title"}".`,
+				);
+			}
+		}
+	}
+	return findings;
+}
+
+/** The fix of a template error caused by a binding schema that combines
+ * alternatives: bind a concrete branch instead. */
+function unsupportedKeywordFix(
+	error: unknown,
+	schema: StructuredWorkspaceDataSchema,
+): string | null {
+	const message = typeof error === "string" ? error : errorMessage(error);
+	if (!message.includes("unsupported schema keyword")) return null;
+	return `Set the binding schemaPath to a concrete branch such as "${concreteBranchPath(schema)}", whose properties the template can name.`;
+}
+
+/** A path of the data schema that names one concrete alternative: its first
+ * definition, else its first oneOf, anyOf or allOf branch. */
+function concreteBranchPath(schema: StructuredWorkspaceDataSchema): string {
+	for (const key of ["$defs", "definitions"] as const) {
+		const definitions = schema[key];
+		const first =
+			definitions && typeof definitions === "object"
+				? Object.keys(definitions)[0]
+				: undefined;
+		if (first !== undefined) return `/${key}/${first}`;
+	}
+	for (const keyword of ["oneOf", "anyOf", "allOf"] as const) {
+		if (Array.isArray(schema[keyword]) && schema[keyword].length > 0)
+			return `/${keyword}/0`;
+	}
+	return "/$defs/<name>";
+}
+
+/** Hints for the properties generated templates leave out, so a ready
+ * verdict never hides one. */
+function hiddenPropertyFindings(
+	workspace: StructuredWorkspaceDefinition,
+	schema: StructuredWorkspaceDataSchema,
+	at: { collectionId: string; path: string; next: string },
+): StructuredWorkspaceFinding[] {
+	return structuredWorkspaceHiddenProperties(schema).map((hidden) => ({
+		severity: "hint",
+		object: "template",
+		collection: at.collectionId,
+		path: at.path,
+		message: hidden.name
+			? `Property "${hidden.name}" is not shown by the generated templates: ${hidden.reason}.`
+			: `The generated templates show no property: ${hidden.reason}.`,
+		fix: hidden.name
+			? `Give detailTemplateHtml (and compactTemplateHtml) that show "${hidden.name}", or make it a plain property of data_schema.`
+			: (unsupportedKeywordFix(
+					"unsupported schema keyword",
+					bindingSchemaOrEmpty(workspace.dataSchema, ""),
+				) ?? "Bind a concrete branch of the data schema."),
+		next: at.next,
+	}));
+}
+
+/** Names of documents within a small edit distance of a reference, closest
+ * first, so a typo gets a suggestion. */
+function closeDocumentNames(
+	deps: StructuredWorkspacesDeps,
+	reference: string,
+): string[] {
+	const wanted = reference.toLowerCase();
+	const limit = Math.max(2, Math.floor(wanted.length / 4));
+	return [...deps.documents.all().values()]
+		.map((document) => ({
+			name: document.name,
+			distance: editDistance(wanted, document.name.toLowerCase()),
+		}))
+		.filter((candidate) => candidate.distance <= limit)
+		.sort((left, right) => left.distance - right.distance)
+		.slice(0, 3)
+		.map((candidate) => candidate.name);
+}
+
+function editDistance(left: string, right: string): number {
+	let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+	for (let row = 1; row <= left.length; row += 1) {
+		const current = [row];
+		for (let column = 1; column <= right.length; column += 1) {
+			current[column] = Math.min(
+				(previous[column] ?? 0) + 1,
+				(current[column - 1] ?? 0) + 1,
+				(previous[column - 1] ?? 0) +
+					(left[row - 1] === right[column - 1] ? 0 : 1),
+			);
+		}
+		previous = current;
+	}
+	return previous[right.length] ?? 0;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Item diagnosis: reads each item's document, state and template provenance.
+function itemFindings(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+): StructuredWorkspaceFinding[] {
+	const findings: StructuredWorkspaceFinding[] = [];
+	const ref = workspace.id;
+	const [firstCollectionId, firstCollection] =
+		Object.entries(workspace.representationSchema.collections ?? {})[0] ?? [];
+	if (workspace.items.length === 0)
+		findings.push({
+			severity: "hint",
+			object: "item",
+			path: "items",
+			message: `Workspace "${workspace.name}" has no item yet.`,
+			fix: "Add the first item; its data must satisfy the data schema.",
+			next: `maket_structured_workspace action=add_item workspace=${ref} collection=${firstCollectionId ?? "<collection>"} binding=${Object.keys(firstCollection?.bindings ?? {})[0] ?? "<binding>"} document_name=<name> data=<json>`,
+		});
+	const unsynced = new Set<string>();
+	for (const item of workspace.items) {
+		const path = `item "${item.id}"`;
+		const document = deps.documents.resolveById(item.documentId);
+		const remove = `maket_structured_workspace action=delete_item workspace=${ref} item=${item.id}`;
+		if (!document) {
+			findings.push({
+				severity: "error",
+				object: "item",
+				collection: item.collectionId,
+				path,
+				message: `Item "${item.id}" has no document.`,
+				fix: "Delete the item and add it again.",
+				next: remove,
+			});
+			continue;
+		}
+		const state = deps.documentStates.current(document.name);
+		if (!state) {
+			findings.push({
+				severity: "error",
+				object: "item",
+				collection: item.collectionId,
+				path,
+				message: `Item document "${document.name}" has no state.`,
+				fix: "Delete the item and add it again.",
+				next: remove,
+			});
+			continue;
+		}
+		const binding =
+			workspace.representationSchema.collections[item.collectionId]?.bindings[
+				item.bindingId
+			];
+		if (!binding) continue;
+		const schemas = [workspace.dataSchema];
+		try {
+			schemas.push(
+				structuredWorkspaceBindingSchema(workspace.dataSchema, binding),
+			);
+		} catch {
+			// The definition findings report the binding.
+		}
+		const seen = new Set<string>();
+		for (const schema of schemas) {
+			for (const issue of structuredWorkspaceItemDataIssues(
+				schema,
+				state.data,
+			)) {
+				if (seen.has(issue.message)) continue;
+				seen.add(issue.message);
+				findings.push({
+					severity: "error",
+					object: "item",
+					collection: item.collectionId,
+					path: `${path} ${issue.path}`,
+					message: `${issue.message} (rule ${issue.rule}).`,
+					fix: issue.fix,
+					next: `maket_structured_workspace action=update_item workspace=${ref} item=${item.id} expected_revision=${state.revision} data=<corrected>`,
+				});
+			}
+		}
+		const template = deps.documents.resolveById(
+			binding.detailTemplateDocumentId,
+		);
+		if (template && !pagesInSync(template, document.pages))
+			unsynced.add(item.collectionId);
+	}
+	for (const [collectionId, collection] of Object.entries(
+		workspace.representationSchema.collections ?? {},
+	)) {
+		const document = findCollectionDocument(
+			deps.documents,
+			workspace.id,
+			collectionId,
+		);
+		const template = deps.documents.resolveById(
+			collection.collectionTemplateDocumentId,
+		);
+		if (document && template && !pagesInSync(template, document.pages))
+			unsynced.add(collectionId);
+	}
+	for (const collectionId of unsynced)
+		findings.push({
+			severity: "warning",
+			object: "template",
+			collection: collectionId,
+			path: `collection "${collectionId}"`,
+			message: `Template-controlled pages of collection "${collectionId}" differ from their templates.`,
+			fix: "Synchronize the instantiated documents with their templates.",
+			next: `maket_structured_workspace action=sync_template workspace=${ref} collection=${collectionId}`,
+		});
+	return findings;
+}
+
+/** Whether the template-controlled pages match the template's pages. */
+function pagesInSync(template: Document, pages: Page[]): boolean {
+	const controlled = pages.filter(
+		(page) => page.provenance?.kind === "template",
+	);
+	if (controlled.length !== template.pages.length) return false;
+	return template.pages.every((source) => {
+		const page = controlled.find(
+			(candidate) =>
+				candidate.provenance?.kind === "template" &&
+				candidate.provenance.templatePageId === source.id,
+		);
+		return (
+			page !== undefined &&
+			(page.html ?? "") === (source.html ?? "") &&
+			JSON.stringify(page.jsonForms ?? null) ===
+				JSON.stringify(source.jsonForms ?? null)
+		);
+	});
 }

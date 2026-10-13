@@ -13,6 +13,9 @@ describe("activity contract", () => {
 		expect(resolveActivity("maket_html", { action: "get" })).toBeNull();
 		expect(resolveActivity("maket_page", { action: "list" })).toBeNull();
 		expect(resolveActivity("maket_learn", { action: "overview" })).toBeNull();
+		expect(
+			resolveActivity("maket_structured_workspace", { action: "check" }),
+		).toBeNull();
 	});
 
 	it("keeps document-state mutations silent", () => {
