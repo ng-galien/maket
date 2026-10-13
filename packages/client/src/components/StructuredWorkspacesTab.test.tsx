@@ -1,5 +1,5 @@
 import type { StructuredWorkspaceView } from "@maket/shared";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
@@ -7,6 +7,7 @@ import type { DocSummary } from "../store/types";
 import { useStore } from "../store/useStore";
 import * as ws from "../store/ws";
 import { StructuredWorkspacesTab } from "./StructuredWorkspacesTab";
+import { WorkspaceHeader } from "./WorkspaceHeader";
 
 const docList: DocSummary[] = [
 	{
@@ -99,81 +100,170 @@ beforeEach(() => {
 		workspaceDocNames: ["Delivery board", "Ship the release"],
 		focusedDocName: "Ship the release",
 		docs: new Map(),
+		structuredWorkspaceFilterRequest: null,
+		settingsOpen: false,
 	});
 });
 
 afterEach(cleanup);
 
 describe("StructuredWorkspacesTab", () => {
-	it("groups templates under each collection definition and keeps items direct", () => {
-		const { container } = render(<StructuredWorkspacesTab />);
+	it("dismisses navigation only after an explicit index selection, not search or workspace expansion", async () => {
+		const user = userEvent.setup();
+		const onNavigate = vi.fn();
+		const open = vi
+			.spyOn(useStore.getState(), "openWorkspaceDocument")
+			.mockImplementation(() => {});
+		render(<StructuredWorkspacesTab onNavigate={onNavigate} />);
+		await user.type(screen.getByRole("textbox"), "Del");
+		expect(onNavigate).not.toHaveBeenCalled();
+		await user.click(
+			screen.getByRole("button", { name: "Show or hide workspace Delivery" }),
+		);
+		expect(onNavigate).not.toHaveBeenCalled();
+		await user.click(
+			screen.getByRole("button", { name: "Open collection index Backlog" }),
+		);
+		expect(open).toHaveBeenCalledWith("Delivery board", {
+			workspaceId: "delivery",
+			collectionId: "backlog",
+		});
+		expect(onNavigate).toHaveBeenCalledOnce();
+		open.mockRestore();
+	});
 
+	it("clears the workspace scope when its workspace disappears from the snapshot", () => {
+		const otherWorkspace = { ...workspace, id: "other", name: "Editorial" };
+		useStore.setState({
+			structuredWorkspaces: [workspace, otherWorkspace],
+			structuredWorkspaceFilterRequest: { workspaceId: workspace.id },
+		});
+		render(<StructuredWorkspacesTab />);
+		expect(screen.getByText("Workspace: Delivery")).toBeVisible();
 		expect(
-			container.querySelector('[data-category-path="Delivery"]'),
+			screen.queryByRole("button", {
+				name: "Show or hide workspace Editorial",
+			}),
+		).toBeNull();
+		act(() => {
+			useStore.setState({ structuredWorkspaces: [otherWorkspace] });
+		});
+		expect(
+			screen.getByRole("button", { name: "Show or hide workspace Editorial" }),
+		).toBeVisible();
+		expect(screen.getByRole("textbox")).toHaveValue("");
+		expect(screen.queryByText("Workspace: Delivery")).toBeNull();
+		expect(screen.queryByText("No Workspace matches the search")).toBeNull();
+		act(() => {
+			useStore.setState({ structuredWorkspaces: [workspace, otherWorkspace] });
+		});
+		expect(
+			screen.getByRole("button", { name: "Show or hide workspace Editorial" }),
+		).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Show or hide workspace Delivery" }),
+		).toBeVisible();
+		expect(screen.queryByText("Workspace: Delivery")).toBeNull();
+	});
+
+	it("routes owned breadcrumbs to the workspace scope and preserves the open reading context", async () => {
+		const user = userEvent.setup();
+		const doc = {
+			id: "task-doc",
+			name: "Ship the release",
+			category: "Structured Workspaces/Delivery",
+			canvas: { w: 210, h: 297, background: "#fff" },
+			pages: [{ id: "task-page", name: "p1", elements: [] }],
+			activePage: 0,
+			meta: {
+				structuredWorkspace: {
+					role: "item" as const,
+					workspaceId: "delivery",
+					collectionId: "backlog",
+					itemId: "task-1",
+				},
+			},
+		};
+		useStore.setState({
+			structuredWorkspaces: [
+				workspace,
+				{ ...workspace, id: "other", name: "Delivery extended" },
+			],
+			docs: new Map([[doc.name, doc]]),
+			libraryView: "docs",
+			libraryOpen: false,
+			workspaceView: "reading",
+			structuredWorkspaceLayout: "split",
+			documentCategoryFilterRequest: null,
+		});
+		const { container } = render(
+			<>
+				<WorkspaceHeader />
+				<StructuredWorkspacesTab />
+			</>,
+		);
+		await user.click(
+			screen.getByRole("button", {
+				name: "Filter workspaces by category Workspaces/Delivery",
+			}),
+		);
+		expect(useStore.getState()).toMatchObject({
+			libraryView: "structured-workspaces",
+			libraryOpen: true,
+			documentCategoryFilterRequest: null,
+			activeStructuredWorkspaceId: "delivery",
+			activeStructuredCollectionId: "backlog",
+			workspaceView: "reading",
+			structuredWorkspaceLayout: "split",
+			workspaceDocNames: ["Delivery board", "Ship the release"],
+			focusedDocName: "Ship the release",
+		});
+		expect(screen.getByText("Workspace: Delivery")).toBeVisible();
+		expect(
+			container.querySelector('[data-structured-workspace="other"]'),
+		).toBeNull();
+		await user.type(screen.getByRole("textbox"), "Nothing");
+		await user.click(
+			screen.getByRole("button", {
+				name: "Filter workspaces by category Workspaces",
+			}),
+		);
+		expect(screen.getByRole("textbox")).toHaveValue("");
+		expect(
+			container.querySelector('[data-structured-workspace="other"]'),
 		).not.toBeNull();
+		expect(screen.queryByText("Workspace: Delivery")).toBeNull();
+	});
+
+	it("lists only collection indexes without item or template children", () => {
+		const { container } = render(<StructuredWorkspacesTab />);
 		expect(
 			container.querySelector('[data-category-path="Delivery/Backlog"]'),
 		).not.toBeNull();
 		expect(
-			container.querySelector('[data-structured-item="task-1"]'),
-		).not.toBeNull();
-		const definition = container.querySelector("[data-structured-definition]");
-		const item = container.querySelector('[data-structured-item="task-1"]');
-		expect(definition).not.toBeNull();
+			container.querySelectorAll(
+				"[data-structured-item], [data-structured-template], [data-structured-definition]",
+			),
+		).toHaveLength(0);
 		expect(
-			definition?.querySelectorAll("[data-structured-template]"),
-		).toHaveLength(2);
-		expect(definition?.contains(item)).toBe(false);
-		expect(screen.queryByText("Data schema")).not.toBeInTheDocument();
-		expect(screen.queryByText("Representation schema")).not.toBeInTheDocument();
-		expect(screen.getByText("Compact · task / Detail · task")).toBeVisible();
-		expect(
-			screen.queryByText("Collection view always open"),
-		).not.toBeInTheDocument();
+			screen.getByRole("button", { name: "Open collection index Backlog" }),
+		).toBeVisible();
+		expect(screen.queryByText("Ship the release")).not.toBeInTheDocument();
 	});
 
-	it("places each template only in the definitions named by its roles", () => {
-		const multiCollection: StructuredWorkspaceView = {
-			...structuredClone(workspace),
-			representationSchema: {
-				...structuredClone(workspace.representationSchema),
-				collections: {
-					...structuredClone(workspace.representationSchema.collections),
-					archive: {
-						name: "Archive",
-						collectionTemplateDocumentId: "archive-template",
-						bindings: {},
-					},
-				},
-			},
-			templateDocuments: [
-				...structuredClone(workspace.templateDocuments),
-				{
-					documentId: "archive-template",
-					documentName: "Archive template",
-					roles: [{ role: "collection", collectionId: "archive" }],
-				},
-			],
-		};
-		useStore.setState({ structuredWorkspaces: [multiCollection] });
-
-		const { container } = render(<StructuredWorkspacesTab />);
-		const backlog = container.querySelector(
-			'[data-structured-collection="backlog"]',
+	it("keeps templates accessible in the Workspace actions menu", async () => {
+		const user = userEvent.setup();
+		const load = vi.spyOn(ws, "sendLoadDoc").mockReturnValue(true);
+		render(<StructuredWorkspacesTab />);
+		await user.click(screen.getByRole("button", { name: "Workspace actions" }));
+		await user.click(
+			screen.getByRole("menuitem", { name: "Open template Task template" }),
 		);
-		const archive = container.querySelector(
-			'[data-structured-collection="archive"]',
-		);
-
-		expect(
-			backlog?.querySelector('[data-structured-template="Task template"]'),
-		).not.toBeNull();
-		expect(
-			backlog?.querySelector('[data-structured-template="Archive template"]'),
-		).toBeNull();
-		expect(
-			archive?.querySelector('[data-structured-template="Archive template"]'),
-		).not.toBeNull();
+		expect(load).toHaveBeenCalledWith("Task template", {
+			workspaceId: "delivery",
+		});
+		expect(useStore.getState().stateDockOpen).toBe(true);
+		load.mockRestore();
 	});
 
 	it("selects one workspace at a time and loads its collection projection", async () => {
@@ -243,21 +333,6 @@ describe("StructuredWorkspacesTab", () => {
 		sendLoadDoc.mockRestore();
 	});
 
-	it("closes an instantiated document without removing its collection root", async () => {
-		const user = userEvent.setup();
-		render(<StructuredWorkspacesTab />);
-
-		await user.click(
-			screen.getByRole("button", { name: "Close Ship the release" }),
-		);
-
-		expect(useStore.getState().workspaceDocNames).toEqual(["Delivery board"]);
-		expect(useStore.getState()).toMatchObject({
-			activeStructuredWorkspaceId: "delivery",
-			activeStructuredCollectionId: "backlog",
-		});
-	});
-
 	it("reopens the active collection root after it was closed", async () => {
 		const user = userEvent.setup();
 		const sendLoadDoc = vi.spyOn(ws, "sendLoadDoc").mockReturnValue(true);
@@ -266,7 +341,7 @@ describe("StructuredWorkspacesTab", () => {
 
 		await user.click(
 			screen.getByRole("button", {
-				name: "Open or collapse collection Backlog",
+				name: "Open collection index Backlog",
 			}),
 		);
 
@@ -281,15 +356,15 @@ describe("StructuredWorkspacesTab", () => {
 		sendLoadDoc.mockRestore();
 	});
 
-	it("filters across workspace, collection, and document names", async () => {
+	it("searches only the workspace and collection indexes", async () => {
 		const user = userEvent.setup();
 		const { container } = render(<StructuredWorkspacesTab />);
 
 		await user.type(
 			screen.getByRole("textbox", {
-				name: "Search workspaces, collections, or documents",
+				name: "Search workspaces or collection indexes",
 			}),
-			"Ship",
+			"Backlog",
 		);
 		expect(
 			container.querySelector('[data-structured-workspace="delivery"]'),
@@ -302,7 +377,7 @@ describe("StructuredWorkspacesTab", () => {
 		).toBeInTheDocument();
 	});
 
-	it("keeps incomplete collection definitions inspectable but blocks projections", async () => {
+	it("blocks incomplete indexes while keeping template access in the actions menu", async () => {
 		const user = userEvent.setup();
 		const sendLoadDoc = vi.spyOn(ws, "sendLoadDoc").mockReturnValue(true);
 		useStore.setState({
@@ -327,8 +402,9 @@ describe("StructuredWorkspacesTab", () => {
 		expect(
 			container.querySelector('[data-structured-item="task-1"]'),
 		).toBeNull();
+		await user.click(screen.getByRole("button", { name: "Workspace actions" }));
 		await user.click(
-			screen.getByRole("button", { name: "Open template Task template" }),
+			screen.getByRole("menuitem", { name: "Open template Task template" }),
 		);
 		expect(sendLoadDoc).toHaveBeenCalledWith("Task template", {
 			workspaceId: "delivery",

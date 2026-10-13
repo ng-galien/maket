@@ -45,6 +45,7 @@ export default function App() {
 	const workspaceDocNames = useStore((s) => s.workspaceDocNames);
 	const focusedDocName = useStore((s) => s.focusedDocName);
 	const docs = useStore((s) => s.docs);
+	const workspaces = useStore((s) => s.structuredWorkspaces);
 	const setFocusedDoc = useStore((s) => s.setFocusedDoc);
 	const hasFocusedDoc = useStore((s) =>
 		s.focusedDocName ? s.docs.has(s.focusedDocName) : false,
@@ -116,7 +117,12 @@ export default function App() {
 		if (
 			focusedDocName &&
 			workspaceDocNames.includes(focusedDocName) &&
-			docs.has(focusedDocName)
+			(docs.has(focusedDocName) ||
+				workspaces.some((workspace) =>
+					[...workspace.collectionDocuments, ...workspace.items].some(
+						(entry) => entry.documentName === focusedDocName,
+					),
+				))
 		) {
 			return;
 		}
@@ -132,6 +138,7 @@ export default function App() {
 		linkedDocumentId,
 		setFocusedDoc,
 		workspaceDocNames,
+		workspaces,
 	]);
 
 	return (

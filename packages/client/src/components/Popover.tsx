@@ -71,6 +71,8 @@ function usePopoverModel() {
 	const focusedDoc = useStore((s) =>
 		s.focusedDocName ? s.docs.get(s.focusedDocName) : null,
 	);
+	const readOnly = useStore((state) => state.readOnly);
+	const inaccessible = readOnly || focusedDoc?.meta?.locked === true;
 	const addPending = useStore((s) => s.addPending);
 	const pending = useStore((s) => s.pending);
 	const [note, setNote] = useState("");
@@ -89,9 +91,13 @@ function usePopoverModel() {
 		setNote("");
 		setError(null);
 		setSaving(false);
-	}, [selectedId]);
+	}, [selectedId, focusedDocName, focusedPageIndex]);
 
-	if (!selectedId || !showPopover || isEditing) return null;
+	useEffect(() => {
+		if (inaccessible) useStore.getState().selectElement(null);
+	}, [inaccessible]);
+
+	if (!selectedId || !showPopover || isEditing || inaccessible) return null;
 
 	const el = selectedElement(selectedId, focusedDocName, focusedPageIndex);
 	if (!el) return null;

@@ -22,6 +22,7 @@ import { enterReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import {
+	ReaderSurface,
 	ReadingWorkspace,
 	readingScale,
 	readingShortcutBlocked,
@@ -105,6 +106,88 @@ describe("ReadingWorkspace", () => {
 		expect(useStore.getState().zoom).toBe(100);
 	});
 
+	it("uses ordinary wheel zoom in a workspace canvas while retaining native form scrolling", () => {
+		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(900);
+		const doc = makeDoc("canvas-wheel");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+		});
+		const { container } = render(
+			<ReaderSurface
+				doc={doc}
+				dataSource="connected"
+				canvasNavigation
+				onNavigatePage={() => {}}
+				status={
+					<form>
+						<textarea aria-label="Instructions" />
+					</form>
+				}
+			/>,
+		);
+		const root = container.querySelector(
+			"[data-reading-workspace]",
+		) as HTMLElement;
+		const content = container.querySelector(
+			"[data-reader-zoom]",
+		) as HTMLElement;
+		expect(fireEvent.wheel(root, { deltaY: -100, cancelable: true })).toBe(
+			false,
+		);
+		const zoom = content.style.zoom;
+		expect(Number(zoom)).toBeGreaterThan(1);
+		expect(
+			fireEvent.wheel(screen.getByRole("textbox", { name: "Instructions" }), {
+				deltaY: -100,
+				cancelable: true,
+			}),
+		).toBe(true);
+		expect(content.style.zoom).toBe(zoom);
+		expect(screen.queryByRole("group", { name: "Reader zoom" })).toBeNull();
+	});
+
+	it("accumulates wheel events before a render without moving their document anchor", () => {
+		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(900);
+		const doc = makeDoc("rapid-canvas-wheel");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+		});
+		const { container } = render(
+			<ReaderSurface
+				doc={doc}
+				dataSource="connected"
+				canvasNavigation
+				onNavigatePage={() => {}}
+			/>,
+		);
+		const root = container.querySelector(
+			"[data-reading-workspace]",
+		) as HTMLElement;
+		const content = container.querySelector(
+			"[data-reader-zoom]",
+		) as HTMLElement;
+		act(() => {
+			for (let i = 0; i < 2; i++)
+				root.dispatchEvent(
+					new WheelEvent("wheel", {
+						bubbles: true,
+						cancelable: true,
+						deltaY: -100,
+						clientX: 200,
+						clientY: 200,
+					}),
+				);
+		});
+		const scale = Number(content.style.zoom);
+		expect(scale).toBeCloseTo(Math.exp(0.4));
+		expect(root.scrollLeft).toBeCloseTo(200 * (scale - 1));
+		expect(root.scrollTop).toBeCloseTo(200 * (scale - 1));
+	});
+
 	it("starts at the responsive reading fit and allows horizontal overflow after zooming", () => {
 		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(320);
 		const doc = makeDoc("report");
@@ -182,6 +265,30 @@ describe("ReadingWorkspace", () => {
 		expect(container.querySelector("[data-doc='beta']")).not.toBeNull();
 		expect(container.querySelector(".doc-label")).toBeNull();
 	});
+
+	it.each([1, 3])(
+		"shows page titles only for a multi-page Reader document (%i pages)",
+		(count) => {
+			const doc = makeDoc("report", count);
+			doc.pages[0].name = "Overview";
+			useStore.setState({
+				docs: new Map([[doc.name, doc]]),
+				workspaceDocNames: [doc.name],
+				focusedDocName: doc.name,
+				focusedPageIndex: 0,
+				workspaceView: "reading",
+			});
+			const { container } = render(<ReadingWorkspace />);
+			const titles = container.querySelectorAll("[data-reader-page-title]");
+			expect(titles).toHaveLength(count > 1 ? count : 0);
+			if (count > 1)
+				expect([...titles].map((title) => title.textContent)).toEqual([
+					"Overview",
+					"Page 2",
+					"Page 3",
+				]);
+		},
+	);
 
 	it("navigates between workspace documents without exposing author controls", async () => {
 		const user = userEvent.setup();

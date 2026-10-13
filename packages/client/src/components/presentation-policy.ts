@@ -7,6 +7,7 @@ export interface PresentationPolicy {
 	dataSource: PresentationDataSource;
 	access: PresentationAccess;
 	authoring: boolean;
+	annotations: boolean;
 	stateRepresentation: "canvas" | "live";
 	stateControls: "persist" | "local" | "disabled";
 	showGuides: boolean;
@@ -19,27 +20,34 @@ export function presentationPolicy({
 	surface,
 	dataSource,
 	access,
+	annotating = false,
 }: {
 	surface: PresentationSurface;
 	dataSource: PresentationDataSource;
 	access: PresentationAccess;
+	annotating?: boolean;
 }): PresentationPolicy {
 	const reader = surface === "reader";
 	const writable = access === "writable";
+	const annotations = annotating && dataSource === "connected" && writable;
 	return {
 		surface,
 		dataSource,
 		access,
-		authoring: !reader && dataSource === "connected" && writable,
+		authoring:
+			!annotations && !reader && dataSource === "connected" && writable,
+		annotations,
 		stateRepresentation: reader ? "live" : "canvas",
-		stateControls: writable
-			? "persist"
-			: reader && dataSource === "static" && access === "read-only"
-				? "local"
-				: "disabled",
+		stateControls: annotations
+			? "disabled"
+			: writable
+				? "persist"
+				: reader && dataSource === "static" && access === "read-only"
+					? "local"
+					: "disabled",
 		showGuides: !reader,
 		showDiagnostics: !reader,
-		showPendingMarkers: !reader,
+		showPendingMarkers: !reader || annotations,
 		showPreviewOutline: !reader,
 	};
 }

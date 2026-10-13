@@ -214,7 +214,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- The href is a literal. `maket_html` set and patch and `maket_page` add refuse Mustache in a page link such as `#page={{ n }}`, naming the element. Any element may sit inside the anchor; style it like any other link.",
 				"- `maket_html action=check` lists every page link that targets no page of the document with its `data-id`, including a Mustache target that reached the page another way.",
 			].join("\n"),
-			'```html\n<nav data-id="nav">\n  <a data-id="nav-detail" href="#page=3">Details</a>\n  <a data-id="nav-summary" href="#page:Synthèse">Summary</a>\n</nav>\n```',
+			'```html\n<nav data-id="nav">\n  <a data-id="nav-detail" href="#page=3">Details</a>\n  <a data-id="nav-summary" href="#page:Summary">Summary</a>\n</nav>\n```',
 		),
 		section(
 			"Next",
@@ -328,7 +328,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	state: document(
-		"Document state belongs to one living document. It has one current JSON snapshot and immutable full revisions; unlike a collection, it never expands into variants. A list longer than its page continues on generated pages.",
+		"Document state belongs to one living document. It has one current JSON snapshot and immutable full revisions; unlike a collection, it never expands into variants. On fixed-height canvases, a list longer than its page continues on generated pages; on AUTO canvases it stays on one continuous page.",
 		section(
 			"Choose the right model",
 			[
@@ -374,10 +374,10 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- Mustache interpolation is display-only.",
 				"- Checkbox binds a boolean; text input binds a string and commits on blur or Enter. Escape cancels.",
 				'- `<textarea data-maket-bind="state.note"></textarea>` binds a multiline string: the state value replaces whatever the template writes between the tags, Enter adds a line, the field commits on blur or ⌘/Ctrl+Enter, and Escape cancels. In the live canvas and the Reader its height follows its content between its own CSS `min-height` (or `rows`) and `max-height`, beyond which it scrolls; print and PDF show it at its CSS height.',
-				"- Select binds one string enum with exactly one static option per value: no multiple, duplicates, dynamic options, or disabled optgroup coverage.",
+				"- A static select binds one string enum with exactly one option per value: no multiple, duplicates, or disabled optgroup coverage. For options from a state list, use the separate contract below.",
 				'- A select can take its options from a state list instead: `<select data-maket-bind="state.agent" data-maket-options="state.agents"></select>`. The list holds strings or `{ "value": "…", "label": "…" }` objects and must be declared as an array by the schema; the bound value is a plain string (no enum needed), the options are generated at every render and replace any written between the tags, and a current value missing from the list keeps its own selected option. The server checks the value against the schema only, not against the list.',
 				"- `button[type=button]` opens the single-terminal-value editor.",
-				'- An action button writes a declared value instead: `<button type="button" data-maket-action="set" data-maket-bind="state.instruction" data-maket-value="Relancer l\'agent">Relancer</button>`. A click writes `data-maket-value` to the bound path at the state revision the page shows, without an editor; several buttons bound to the field of a textarea pre-fill it. The value is typed as the binding: text for a string, a number, `true`/`false`, or `null`, and must belong to a string enum when there is one; a value that does not fit refuses the template. `data-maket-action` is optional and only `set` is accepted there.',
+				'- An action button writes a declared value instead: `<button type="button" data-maket-action="set" data-maket-bind="state.instruction" data-maket-value="Restart agent">Restart</button>`. A click writes `data-maket-value` to the bound path at the state revision the page shows, without an editor; several buttons bound to the field of a textarea pre-fill it. The value is typed as the binding: text for a string, a number, `true`/`false`, or `null`, and must belong to a string enum when there is one; a value that does not fit refuses the template. `data-maket-action` is optional and only `set` is accepted there.',
 				"- `data-id` identifies authored structure; it is not a binding.",
 				"- Never author or persist `data-maket-path`, `data-maket-type`, `pending`, or `error`.",
 				"- The document owns all labels, accessibility, CSS, and native-state styling.",
@@ -404,7 +404,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Lists longer than the page",
 			[
 				"- A section over an array placed in element content, not inside another list item and not inside `svg`, `select`, `textarea` or `title`, is a flowing list.",
-				"- Maket lays the rendered page out at the canvas size. When an item of a flowing list ends below the canvas or below a clipping ancestor (`overflow` other than visible, line clamps excepted), that item and the following ones continue on a generated page `<page id>~2` named `<page name> (2)`, and so on. An item taller than the whole page stands alone on its own page, clipped, and the list continues after it.",
+				"- AUTO canvases retain all list items on one continuous content-height page. On fixed-height canvases, Maket lays the rendered page out at the canvas size. When an item of a flowing list ends below the canvas or below a clipping ancestor (`overflow` other than visible, line clamps excepted), that item and the following ones continue on a generated page `<page id>~2` named `<page name> (2)`, and so on. An item taller than the whole page stands alone on its own page, clipped, and the list continues after it.",
 				"- The whole template repeats on every continuation page, so its own heading heads each of them; lists already shown render no item there, and inverted sections still test the whole array. The first element of every page of a flowed set carries `data-maket-flow-page` and `data-maket-flow-pages` (1-based) for a continuation style.",
 				"- `#page=<n>` links keep pointing at the first page of their authored page. `maket_html check` measures every generated page; `set` and `patch` keep editing the authored template.",
 			].join("\n"),
@@ -435,7 +435,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			[
 				"- The data schema is a JSON Schema for every item and may use `oneOf`.",
 				"- The representation schema gives each collection a global template and binds each concrete schema path to compact and detail template documents.",
-				"- A collection may group its cards: `groupBy` is a JSON Pointer into the item data (for example `/status`), `groupOrder` lists the group values to place first (other groups follow in order of first appearance), and `pageSize` (default 24, at most 500) caps the compact cards per collection page.",
+				"- A collection may group its cards: `groupBy` is a JSON Pointer into the item data (for example `/status`), `groupOrder` lists the group values to place first (other groups follow in order of first appearance), and `pageSize` (default 24, at most 500) caps the compact cards per fixed-height collection page. AUTO collection pages retain all compact cards on one continuous page.",
 				"- A binding points to the concrete schema used by its instantiated document, so templates do not resolve `oneOf` themselves.",
 				'- A compact template renders its `[data-maket-compact-root]` element as the card and keeps the `<style>` elements of its page: they are emitted once per collection page, every selector prefixed with the card\'s `[data-maket-compact-template="<key>"]` wrapper (`body`, `html`, `:root` and `:scope` stand for the card itself), so card CSS belongs in the compact template and cannot style the rest of the page. Card `data-id` values are prefixed per item, so style cards by class or element, not by `data-id`.',
 			].join("\n"),
@@ -443,13 +443,21 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Grouped, flowing collection pages",
 			[
-				"- Without `groupBy`, each collection template page holds every card of its item slots; the cards that do not fit the laid-out page continue on further pages of the collection document (`<page id>~2`, `~3`, …), the template repeating on each.",
+				"- On fixed-height canvases, without `groupBy`, each collection template page holds every card of its item slots; the cards that do not fit the laid-out page continue on further pages of the collection document (`<page id>~2`, `~3`, …), the template repeating on each.",
 				'- With `groupBy`, every `data-maket-structured-items` slot receives, group by group, a `<header data-maket-structured-group="<value>">` with `[data-maket-structured-group-label]` and `[data-maket-structured-group-count]` children, followed by that group\'s compact cards.',
-				"- When a slot exceeds `pageSize` cards, or when its cards do not fit the laid-out page, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
+				"- On fixed-height canvases, when a slot exceeds `pageSize` cards, or when its cards do not fit the laid-out page, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
 				"- Headers carry `grid-column: 1 / -1` and `flex: 0 0 100%`, so they span a grid or wrapping flex slot. Choose `pageSize` so that many cards plus their headers fit the page, then check a snapshot.",
 				"- Item changes re-render the collection document and its page count.",
 			].join("\n"),
 			'```json\n{"name":"Projects","collectionTemplateDocumentId":"<board>","groupBy":"/status","groupOrder":["live","paused","dormant"],"pageSize":24,"bindings":{"project":{"schemaPath":"","compactTemplateDocumentId":"<card>","detailTemplateDocumentId":"<detail>"}}}\n```',
+		),
+		section(
+			"Continuous indexes and Reader navigation",
+			"Use one AUTO collection template page with a narrow fixed width for a continuous list. AUTO bypasses both pageSize splitting and physical-page flow; keep the content in normal flow and do not impose fixed height or clipping. A detail document may still have multiple real pages. The List and detail view opens two Reader panes, initially 28/72, with ordinary scrolling. Its icon-only layout toggle lives in the general toolbar: Square means one document and PanelLeft means list/detail; no separate view-choice toolbar is shown. Annotation remains an icon-only tool in the detail document toolbar. Opening another item replaces the detail and preserves the list. Canvas navigation is an explicit per-pane opt-in. A narrow window shows the library as an overlay rather than reducing document readability.",
+		),
+		section(
+			"Clickable SVG cards",
+			'HTML and SVG cards use the same native document action: data-maket-action="open-document" plus data-maket-document="<exact instantiated document name>". Enter and Space activate focusable cards. An SVG items slot must use SVG compact roots; its wrappers are SVG <g> elements. An HTML slot accepts an HTML compact root or a complete <svg> root, never a bare <g>. SVG slots cannot use automatic groupBy: author explicit SVG groups instead. Incompatible roots or grouping make Workspace integrity incomplete; fix the definition/templates before opening projections. Use explicit SVG positions for SVG cards.',
 		),
 		section(
 			"Instantiated documents",
@@ -484,6 +492,10 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			].join("\n"),
 		),
 		section(
+			"Human annotations",
+			"The connected writable Reader and the detail document toolbar expose an explicit Annotate toggle. Annotation selects a target without editing HTML or state. Static and linked read-only readers cannot annotate. Read the current document's queue with `maket_workspace action=list_messages doc=<exact-name>`; omit doc only when an all-document review is intended. Each saved note includes id, type=note, docName, zero-based pageIndex, elementId, text and ts. Read the target with maket_html get before interpreting the note. Keep the human wording intact, apply only authorized corrections, then acknowledge handled ids with maket_workspace action=ack_messages. A note is feedback, not an adopted decision.",
+		),
+		section(
 			"Guardrails",
 			[
 				"- Do not redesign unless the review exposes a structural defect.",
@@ -502,6 +514,10 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Verify",
 			"Restart or reconnect the client to refresh the tool schema, then call `maket_learn action=overview`.",
+		),
+		section(
+			"Linux desktop",
+			"The Electron app bundles its runtime; install the Linux x64 DEB or RPM rather than the npm server when a native window is wanted. For an unpublished main version, select its desktop-snapshot workflow artifact at the exact commit. Follow docs/linux-desktop.md for package-manager commands, locating the installed executable, AppArmor/user-namespace diagnostics, and a testing-only --no-sandbox fallback. Do not disable system sandbox policies or run the app as root to fix a launch error. A version bump and push do not publish npm or create a release tag.",
 		),
 		section("Next", "Read `gemini` for Gemini-specific details."),
 	),

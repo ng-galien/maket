@@ -57,6 +57,7 @@ export interface StructuredWorkspaceDefinition {
 export interface StructuredWorkspaceItemView
 	extends StructuredWorkspaceItemReference {
 	documentName: string;
+	pinnedAt?: string;
 	data: Record<string, unknown>;
 	dataRevision: number;
 }

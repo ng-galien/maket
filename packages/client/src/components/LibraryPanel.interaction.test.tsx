@@ -8,6 +8,9 @@ import {
 	within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+const originalViewportWidth = window.innerWidth;
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getDesktopConfigurationState,
@@ -63,11 +66,73 @@ beforeEach(() => {
 
 afterEach(() => {
 	delete window.maketDesktop;
+	window.innerWidth = originalViewportWidth;
 	resetDesktopConfigurationForTests();
 	cleanup();
 });
 
 describe("LibraryPanel", () => {
+	it.each([false, true])(
+		"overlays a narrow collection library without changing its pinned preference (%s)",
+		async (pinned) => {
+			window.innerWidth = 974;
+			useStore.setState({ libraryPinned: pinned });
+			localStorage.setItem("maket-library-pinned", String(pinned));
+			const onOverlayChange = vi.fn();
+			const user = userEvent.setup();
+			const { container } = render(
+				<LibraryPanel collectionNavigation onOverlayChange={onOverlayChange} />,
+			);
+			const panel = container.querySelector("[data-library-panel]");
+			expect(panel).toHaveAttribute("data-library-overlay", "true");
+			expect(panel).toHaveClass("absolute");
+			expect(
+				container.querySelector("[data-library-overlay-rail]"),
+			).not.toBeNull();
+			expect(onOverlayChange).toHaveBeenLastCalledWith(true);
+			await user.click(screen.getByRole("button", { name: "Documents" }));
+			expect(useStore.getState().libraryOpen).toBe(false);
+			expect(useStore.getState().libraryPinned).toBe(pinned);
+			expect(localStorage.getItem("maket-library-pinned")).toBe(String(pinned));
+		},
+	);
+
+	it("keeps a pinned library docked when the collection has enough space and adapts to its resized width", () => {
+		window.innerWidth = 1440;
+		localStorage.setItem("maket-library-width", "480");
+		useStore.setState({ libraryPinned: true });
+		const onOverlayChange = vi.fn();
+		const { container } = render(
+			<LibraryPanel collectionNavigation onOverlayChange={onOverlayChange} />,
+		);
+		const panel = container.querySelector("[data-library-panel]");
+		expect(panel).not.toHaveAttribute("data-library-overlay");
+		expect(panel).toHaveClass("relative");
+		const resize = screen.getByRole("separator", {
+			name: "Resize library panel",
+		});
+		for (let index = 0; index < 4; index++)
+			fireEvent.keyDown(resize, { key: "ArrowRight" });
+		expect(panel).toHaveStyle({ width: "544px" });
+		expect(panel).toHaveAttribute("data-library-overlay", "true");
+		expect(onOverlayChange).toHaveBeenLastCalledWith(true);
+		expect(useStore.getState().libraryPinned).toBe(true);
+		window.innerWidth = 1600;
+		fireEvent(window, new Event("resize"));
+		expect(panel).not.toHaveAttribute("data-library-overlay");
+		expect(onOverlayChange).toHaveBeenLastCalledWith(false);
+	});
+
+	it("preserves the normal pinned library outside collection navigation", () => {
+		window.innerWidth = 974;
+		useStore.setState({ libraryPinned: true });
+		const { container } = render(<LibraryPanel />);
+		expect(container.querySelector("[data-library-panel]")).not.toHaveAttribute(
+			"data-library-overlay",
+		);
+		expect(container.querySelector("[data-library-overlay-rail]")).toBeNull();
+	});
+
 	it("orders and scales the library rail around the primary workflow", () => {
 		render(<LibraryPanel />);
 

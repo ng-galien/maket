@@ -12,9 +12,11 @@ import {
 	Settings as SettingsIcon,
 } from "lucide-react";
 import {
+	Fragment,
 	type ReactNode,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -58,7 +60,17 @@ interface LibraryOption {
 /** One persistent library pane replaces the four competing overlay panels. */
 // This shell adapter intentionally composes the existing domain panels and store selectors.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-export function LibraryPanel() {
+// At the default 28/72 split, 900px leaves about252px for the index and648px
+// for the detail. A64mm index and168mm detail retain readable type at that fit.
+const COLLECTION_WORKSPACE_MIN_WIDTH = 900;
+
+export function LibraryPanel({
+	collectionNavigation = false,
+	onOverlayChange,
+}: {
+	collectionNavigation?: boolean;
+	onOverlayChange?: (overlay: boolean) => void;
+}) {
 	const t = useT();
 	const open = useStore((state) => state.libraryOpen);
 	const view = useStore((state) => state.libraryView);
@@ -69,10 +81,16 @@ export function LibraryPanel() {
 	const settingsOpen = useStore((state) => state.settingsOpen);
 	const toggleSettings = useStore((state) => state.toggleSettings);
 	const closeSettings = useStore((state) => state.closeSettings);
+	const closeLastPanel = useStore((state) => state.closeLastPanel);
 	const pendingCount = useStore((state) => state.pending.length);
 	const update = useDesktopUpdates();
 	const configuration = useDesktopConfiguration();
 	const [width, setWidth] = useState(() => loadPanelWidth("library"));
+	const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
+	const overlay =
+		collectionNavigation &&
+		viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH;
+	useLayoutEffect(() => onOverlayChange?.(overlay), [onOverlayChange, overlay]);
 	const preferredWidth = useRef(width);
 	const panelRef = useRef<HTMLElement>(null);
 	const resizePanel = useCallback((next: number) => {
@@ -80,7 +98,10 @@ export function LibraryPanel() {
 		setWidth(next);
 	}, []);
 	useEffect(() => {
-		const reclamp = () => setWidth(clampPanelWidth(preferredWidth.current));
+		const reclamp = () => {
+			setWidth(clampPanelWidth(preferredWidth.current));
+			setViewportWidth(window.innerWidth);
+		};
 		reclamp();
 		window.addEventListener("resize", reclamp);
 		return () => window.removeEventListener("resize", reclamp);
@@ -123,40 +144,65 @@ export function LibraryPanel() {
 		options.find((option) => option.value === view) ?? options[0];
 
 	return (
-		<aside
-			ref={panelRef}
-			data-library-panel
-			data-library-mode={open ? "extended" : "compact"}
-			data-library-view={view}
-			aria-label={open ? selected.label : t("libraries")}
-			style={open ? { width } : undefined}
-			className={`relative z-[var(--z-bar)] flex h-full shrink-0 flex-row border-r border-border bg-panel transition-[transform,width] duration-200 data-[resizing=true]:transition-none ${
-				open
-					? "max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:max-w-[calc(100vw-3rem)] max-[959px]:shadow-xl"
-					: "w-14"
-			}`}
-		>
-			<NavigationRail
-				library={{ options, view, open, pinned, setView, toggleLibrary }}
-				settings={{
-					open: settingsOpen,
-					toggle: toggleSettings,
-					close: closeSettings,
-				}}
-				update={update}
-				configuration={configuration}
-			/>
-			{open && (
-				<ExtendedLibrary
-					view={view}
-					pinned={pinned}
-					width={width}
-					setWidth={resizePanel}
-					panelRef={panelRef}
-					onTogglePinned={toggleLibraryPinned}
+		<Fragment>
+			{open && overlay && (
+				<div
+					data-library-overlay-rail
+					className="w-14 shrink-0"
+					aria-hidden="true"
 				/>
 			)}
-		</aside>
+			<aside
+				ref={panelRef}
+				data-library-panel
+				data-library-mode={open ? "extended" : "compact"}
+				data-library-view={view}
+				data-library-overlay={open && overlay ? "true" : undefined}
+				aria-label={open ? selected.label : t("libraries")}
+				style={open ? { width } : undefined}
+				className={`${open && overlay ? "absolute inset-y-0 left-0 max-w-[calc(100vw-3rem)] shadow-xl" : "relative"} z-[var(--z-bar)] flex h-full shrink-0 flex-row border-r border-border bg-panel transition-[transform,width] duration-200 data-[resizing=true]:transition-none ${
+					open && !overlay
+						? "max-[959px]:absolute max-[959px]:inset-y-0 max-[959px]:left-0 max-[959px]:max-w-[calc(100vw-3rem)] max-[959px]:shadow-xl"
+						: "w-14"
+				}`}
+			>
+				<NavigationRail
+					library={{
+						options,
+						view,
+						open,
+						pinned,
+						overlay,
+						setView,
+						toggleLibrary,
+					}}
+					settings={{
+						open: settingsOpen,
+						toggle: toggleSettings,
+						close: closeSettings,
+					}}
+					update={update}
+					configuration={configuration}
+				/>
+				{open && (
+					<ExtendedLibrary
+						view={view}
+						pinned={pinned}
+						width={width}
+						setWidth={resizePanel}
+						panelRef={panelRef}
+						onTogglePinned={toggleLibraryPinned}
+						onCollectionNavigate={() => {
+							if (
+								useStore.getState().structuredWorkspaceLayout === "split" &&
+								viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH
+							)
+								closeLastPanel();
+						}}
+					/>
+				)}
+			</aside>
+		</Fragment>
 	);
 }
 
@@ -171,6 +217,7 @@ function NavigationRail({
 		view: LibraryView;
 		open: boolean;
 		pinned: boolean;
+		overlay: boolean;
 		setView: (view: LibraryView) => void;
 		toggleLibrary: () => void;
 	};
@@ -198,7 +245,8 @@ function NavigationRail({
 									data-library-rail-view={option.value}
 									onClick={() => {
 										if (library.open && option.value === library.view) {
-											if (!library.pinned) library.toggleLibrary();
+											if (!library.pinned || library.overlay)
+												library.toggleLibrary();
 											return;
 										}
 										library.setView(option.value);
@@ -248,6 +296,7 @@ function ExtendedLibrary({
 	setWidth,
 	panelRef,
 	onTogglePinned,
+	onCollectionNavigate,
 }: {
 	view: LibraryView;
 	pinned: boolean;
@@ -255,6 +304,7 @@ function ExtendedLibrary({
 	setWidth: (width: number) => void;
 	panelRef: React.RefObject<HTMLElement | null>;
 	onTogglePinned: () => void;
+	onCollectionNavigate: () => void;
 }) {
 	return (
 		<div
@@ -270,7 +320,9 @@ function ExtendedLibrary({
 				{view === "chartes" && <ChartesTab />}
 				{view === "photos" && <PhotosTab />}
 				{view === "collections" && <CollectionsTab />}
-				{view === "structured-workspaces" && <StructuredWorkspacesTab />}
+				{view === "structured-workspaces" && (
+					<StructuredWorkspacesTab onNavigate={onCollectionNavigate} />
+				)}
 				{view === "exchange" && <MessagesPanel />}
 			</div>
 			<PanelResizeHandle

@@ -618,6 +618,53 @@ export const PageCanvas = memo(function PageCanvas({
 		[dismissToolbar],
 	);
 
+	// Capture targets before links, item cards and live controls. Annotation
+	// never enables HTML editing or changes the underlying document state.
+	useEffect(() => {
+		const canvas = pageRef.current;
+		if (!canvas || !activePolicy.annotations) return;
+		const annotate = (event: MouseEvent | KeyboardEvent) => {
+			if (
+				event instanceof KeyboardEvent &&
+				event.key !== "Enter" &&
+				event.key !== " "
+			)
+				return;
+			if (!(event.target instanceof Element)) return;
+			const target = event.target.closest<Element>("[data-id]");
+			const id = target?.getAttribute("data-id");
+			if (!target || !id) return;
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			canvas.querySelectorAll("[data-id].selected").forEach((element) => {
+				element.classList.remove("selected");
+			});
+			target.classList.add("selected");
+			useStore.getState().setFocusedPage(doc.name, pageIndex);
+			openComment(id);
+		};
+		const preventControlFocus = (event: PointerEvent) => {
+			if (
+				event.target instanceof Element &&
+				event.target.closest(
+					"input, select, textarea, [contenteditable='true']",
+				)
+			)
+				event.preventDefault();
+		};
+		canvas.addEventListener("click", annotate, true);
+		canvas.addEventListener("keydown", annotate, true);
+		canvas.addEventListener("pointerdown", preventControlFocus, true);
+		return () => {
+			canvas.removeEventListener("click", annotate, true);
+			canvas.removeEventListener("keydown", annotate, true);
+			canvas.removeEventListener("pointerdown", preventControlFocus, true);
+			canvas.querySelectorAll("[data-id].selected").forEach((element) => {
+				element.classList.remove("selected");
+			});
+		};
+	}, [activePolicy.annotations, doc.name, pageIndex, openComment, renderHtml]);
+
 	const applyPlaceholder = useCallback(
 		(id: string, placeholder: string) => {
 			if (!placeholder || !pageRef.current) return;
@@ -1092,8 +1139,8 @@ export const PageCanvas = memo(function PageCanvas({
 		const canvas = pageRef.current;
 		if (!canvas) return;
 		const openInstantiatedDocument = (target: EventTarget | null) => {
-			if (!(target instanceof HTMLElement)) return false;
-			const action = target.closest<HTMLElement>(
+			if (!(target instanceof Element)) return false;
+			const action = target.closest<Element>(
 				'[data-maket-action="open-document"][data-maket-document]',
 			);
 			const documentName = action?.getAttribute("data-maket-document");
@@ -1121,12 +1168,14 @@ export const PageCanvas = memo(function PageCanvas({
 			return true;
 		};
 		const onClick = (event: MouseEvent) => {
+			if (activePolicy.annotations) return;
 			if (followPageLink(event)) return;
 			if (!openInstantiatedDocument(event.target)) return;
 			event.preventDefault();
 			event.stopPropagation();
 		};
 		const onKeyDown = (event: KeyboardEvent) => {
+			if (activePolicy.annotations) return;
 			if (event.key !== "Enter" && event.key !== " ") return;
 			if (!openInstantiatedDocument(event.target)) return;
 			event.preventDefault();
@@ -1138,7 +1187,7 @@ export const PageCanvas = memo(function PageCanvas({
 			canvas.removeEventListener("click", onClick, true);
 			canvas.removeEventListener("keydown", onKeyDown, true);
 		};
-	}, [authoring, doc, renderHtml]);
+	}, [activePolicy.annotations, authoring, doc, renderHtml]);
 
 	const dismissEnumEditor = useCallback(
 		(restoreFocus: boolean) => {
@@ -1215,7 +1264,7 @@ export const PageCanvas = memo(function PageCanvas({
 		<>
 			<div
 				ref={pageRef}
-				className={`page-canvas${activePolicy.showPreviewOutline && (preview?.mode === "rendered" || liveState) ? " data-preview" : ""}${liveState ? " state-live" : ""}${activePolicy.surface === "reader" ? " reader-page" : ""}`}
+				className={`page-canvas${activePolicy.annotations ? " is-annotating" : ""}${activePolicy.showPreviewOutline && (preview?.mode === "rendered" || liveState) ? " data-preview" : ""}${liveState ? " state-live" : ""}${activePolicy.surface === "reader" ? " reader-page" : ""}`}
 				data-page={pageIndex}
 				data-auto-height={canvas.format === "AUTO" ? "true" : undefined}
 				data-document-mode={doc.dataModel}

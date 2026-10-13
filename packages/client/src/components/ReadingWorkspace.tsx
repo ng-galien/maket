@@ -30,7 +30,9 @@ import { pinnedDocuments } from "../lib/pinnedDocuments";
 import { exitReadingSession } from "../store/readingSession";
 import type { DocSummary, Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
+import { AnnotationToggle } from "./AnnotationToggle";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
+import { Popover } from "./Popover";
 import { PAGE_LINK_EVENT, type PageLinkEvent } from "./page-link-navigation";
 import type { PresentationDataSource } from "./presentation-policy";
 import { READER_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
@@ -73,6 +75,7 @@ export function ReadingWorkspace() {
 				onNavigatePage={model.bar.onPageChange}
 			/>
 			<ReaderBar model={model.bar} />
+			<Popover />
 		</div>
 	);
 }
@@ -233,6 +236,10 @@ export function ReaderSurface({
 	onVisiblePage,
 	onNavigatePage,
 	status,
+	canvasNavigation = false,
+	zoomControls = true,
+	rememberZoom = true,
+	onZoomChange,
 }: {
 	doc: Document;
 	dataSource: PresentationDataSource;
@@ -243,10 +250,30 @@ export function ReaderSurface({
 	/** Show a logical reader page; page links inside the document use it. */
 	onNavigatePage: (logicalIndex: number) => void;
 	status?: ReactNode;
+	/** Workspace navigation uses wheel zoom; reading keeps native scrolling. */
+	canvasNavigation?: boolean;
+	/** Collection panes expose compact controls in their own header. */
+	zoomControls?: boolean;
+	/** Collection panes start fitted instead of inheriting a previous canvas zoom. */
+	rememberZoom?: boolean;
+	onZoomChange?: (scale: number) => void;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const initiallyPositioned = useRef(false);
-	const board = useReaderBoard({ doc, rootRef: scrollRef });
+	const board = useReaderBoard({
+		doc,
+		rootRef: scrollRef,
+		canvasNavigation,
+		rememberZoom,
+	});
+	useEffect(() => onZoomChange?.(board.scale), [board.scale, onZoomChange]);
+	useEffect(() => {
+		const reset = (event: Event) => {
+			if ((event as CustomEvent<string>).detail === doc.name) board.reset();
+		};
+		window.addEventListener("maket:reader-fit", reset);
+		return () => window.removeEventListener("maket:reader-fit", reset);
+	}, [doc.name, board.reset]);
 
 	useLayoutEffect(() => {
 		if (initiallyPositioned.current) return;
@@ -285,21 +312,23 @@ export function ReaderSurface({
 						docName={doc.name}
 						zoomK={1}
 						showDocumentLabel={false}
-						showPageLabels={false}
+						showPageLabels
 						surface="reader"
 						dataSource={dataSource}
 					/>
 				</div>
 			</div>
-			<ReaderZoomControls
-				scale={board.scale}
-				minimum={board.minimum}
-				variant={embedded ? "minimal" : "bar"}
-				position={barPosition === "bottom" ? "top" : "bottom"}
-				onZoomIn={board.zoomIn}
-				onZoomOut={board.zoomOut}
-				onReset={board.reset}
-			/>
+			{zoomControls && !canvasNavigation && (
+				<ReaderZoomControls
+					scale={board.scale}
+					minimum={board.minimum}
+					variant={embedded ? "minimal" : "bar"}
+					position={barPosition === "bottom" ? "top" : "bottom"}
+					onZoomIn={board.zoomIn}
+					onZoomOut={board.zoomOut}
+					onReset={board.reset}
+				/>
+			)}
 		</div>
 	);
 }
@@ -346,6 +375,8 @@ interface ZoomAnchor {
 	x: number;
 	y: number;
 	from: number;
+	clientX?: number;
+	clientY?: number;
 }
 
 /** Non-standard WebKit trackpad gesture event (Safari). */
@@ -387,14 +418,24 @@ function storeReaderZoom(documentId: string, scale: number | null): void {
 function useReaderBoard({
 	doc,
 	rootRef,
+	canvasNavigation,
+	rememberZoom,
 }: {
 	doc: Document;
 	rootRef: RefObject<HTMLDivElement | null>;
+	canvasNavigation: boolean;
+	rememberZoom: boolean;
 }): ReaderBoard {
 	const documentId = doc.id || doc.name;
+	const annotating = useStore(
+		(state) =>
+			state.annotationDocName === doc.name &&
+			!state.readOnly &&
+			!doc.meta?.locked,
+	);
 	const [fitScale, setFitScale] = useState(1);
 	const [manualScale, setManualScale] = useState<number | null>(() =>
-		storedReaderZoom(documentId),
+		rememberZoom ? storedReaderZoom(documentId) : null,
 	);
 	const [panning, setPanning] = useState(false);
 	const anchorRef = useRef<ZoomAnchor | null>(null);
@@ -426,17 +467,29 @@ function useReaderBoard({
 			const current = scaleRef.current;
 			const bounded = Math.max(minimum, Math.min(READER_MAX_SCALE, next));
 			if (root) {
-				const rect = root.getBoundingClientRect();
-				anchorRef.current = {
-					x: anchor ? anchor.clientX - rect.left : root.clientWidth / 2,
-					y: anchor ? anchor.clientY - rect.top : root.clientHeight / 2,
-					from: current,
-				};
+				const content = root.querySelector<HTMLElement>("[data-reader-zoom]");
+				const contentRect = content?.getBoundingClientRect();
+				const renderedScale = Number(content?.style.zoom) || current;
+				anchorRef.current =
+					anchor && contentRect
+						? {
+								x: (anchor.clientX - contentRect.left) / renderedScale,
+								y: (anchor.clientY - contentRect.top) / renderedScale,
+								clientX: anchor.clientX,
+								clientY: anchor.clientY,
+								from: renderedScale,
+							}
+						: {
+								x: root.clientWidth / 2,
+								y: root.clientHeight / 2,
+								from: renderedScale,
+							};
 			}
+			scaleRef.current = bounded;
 			setManualScale(bounded);
-			storeReaderZoom(documentId, bounded);
+			if (rememberZoom) storeReaderZoom(documentId, bounded);
 		},
-		[documentId, minimum, rootRef],
+		[documentId, minimum, rememberZoom, rootRef],
 	);
 	const zoomIn = useCallback(
 		() => zoomTo(scaleRef.current + READER_ZOOM_STEP),
@@ -449,55 +502,87 @@ function useReaderBoard({
 	const reset = useCallback(() => {
 		anchorRef.current = null;
 		setManualScale(null);
-		storeReaderZoom(documentId, null);
-	}, [documentId]);
+		if (rememberZoom) storeReaderZoom(documentId, null);
+	}, [documentId, rememberZoom]);
 
 	useLayoutEffect(() => {
 		const root = rootRef.current;
 		const anchor = anchorRef.current;
 		anchorRef.current = null;
 		if (!root || !anchor || anchor.from === scale) return;
+		if (anchor.clientX !== undefined && anchor.clientY !== undefined) {
+			const bounds = root
+				.querySelector<HTMLElement>("[data-reader-zoom]")
+				?.getBoundingClientRect();
+			if (bounds) {
+				root.scrollLeft += bounds.left + anchor.x * scale - anchor.clientX;
+				root.scrollTop += bounds.top + anchor.y * scale - anchor.clientY;
+				return;
+			}
+		}
 		const ratio = scale / anchor.from;
 		root.scrollLeft = (root.scrollLeft + anchor.x) * ratio - anchor.x;
 		root.scrollTop = (root.scrollTop + anchor.y) * ratio - anchor.y;
 	}, [rootRef, scale]);
 
 	useReaderZoomKeyboard({
+		docName: doc.name,
 		onZoomIn: zoomIn,
 		onZoomOut: zoomOut,
 		onReset: reset,
 	});
-	useReaderPinch({ rootRef, scaleRef, zoomTo });
+	useReaderPinch({ rootRef, scaleRef, zoomTo, canvasNavigation });
 	const pannable = scale > fitScale + 0.001;
-	useReaderDragPan({ rootRef, enabled: pannable, onPanningChange: setPanning });
+	useReaderDragPan({
+		rootRef,
+		enabled: pannable && !annotating,
+		onPanningChange: setPanning,
+	});
 
 	return { scale, minimum, pannable, panning, zoomIn, zoomOut, reset };
 }
 
-/** Trackpad pinch: Chromium and Firefox report it as a modified wheel,
- * Safari as gesture events. Both need a non-passive native listener. */
+/** Workspace wheel zoom and trackpad pinch: Chromium and Firefox report pinch as a modified wheel,
+ * Safari as gesture events. Both need a non-passive native listener.
+ * Editing fields and forms retain native scrolling for ordinary wheel input. */
 function useReaderPinch({
 	rootRef,
 	scaleRef,
 	zoomTo,
+	canvasNavigation,
 }: {
 	rootRef: RefObject<HTMLDivElement | null>;
 	scaleRef: RefObject<number>;
 	zoomTo: (next: number, anchor?: { clientX: number; clientY: number }) => void;
+	canvasNavigation: boolean;
 }) {
 	useEffect(() => {
 		const root = rootRef.current;
 		if (!root) return;
 		let gestureStart = 1;
 		const onWheel = (event: WheelEvent) => {
-			if (!event.ctrlKey && !event.metaKey) return;
+			const modified = event.ctrlKey || event.metaKey;
+			if (!modified && !canvasNavigation) return;
+			if (
+				!modified &&
+				event.target instanceof Element &&
+				event.target.closest(
+					"input, textarea, select, form, .maket-json-forms, [contenteditable='true'], [role='listbox']",
+				)
+			)
+				return;
 			event.preventDefault();
-			const delta = Math.max(
-				-READER_WHEEL_DELTA_LIMIT,
-				Math.min(READER_WHEEL_DELTA_LIMIT, event.deltaY),
-			);
+			const units =
+				event.deltaMode === 1
+					? 16
+					: event.deltaMode === 2
+						? root.clientHeight
+						: 1;
+			const limit = modified ? READER_WHEEL_DELTA_LIMIT : 100;
+			const delta = Math.max(-limit, Math.min(limit, event.deltaY * units));
 			zoomTo(
-				scaleRef.current * Math.exp(-delta * READER_WHEEL_ZOOM_RATE),
+				scaleRef.current *
+					Math.exp(-delta * (modified ? READER_WHEEL_ZOOM_RATE : 0.002)),
 				event,
 			);
 		};
@@ -520,7 +605,7 @@ function useReaderPinch({
 			root.removeEventListener("gesturestart", onGestureStart);
 			root.removeEventListener("gesturechange", onGestureChange);
 		};
-	}, [rootRef, scaleRef, zoomTo]);
+	}, [canvasNavigation, rootRef, scaleRef, zoomTo]);
 }
 
 const READER_PAN_THRESHOLD = 4;
@@ -693,6 +778,7 @@ function ReaderZoomControls({
 
 function ReaderBar({ model }: { model: ReaderBarModel }) {
 	const t = useT();
+	const doc = useStore((state) => state.docs.get(model.docName));
 	const documentNames = model.documents.map((document) => document.name);
 	const documentIndex = documentNames.indexOf(model.docName);
 	return (
@@ -742,6 +828,7 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 			/>
 			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
 			<DocumentOutputButtons docName={model.docName} surface="reader" />
+			{doc && <AnnotationToggle doc={doc} />}
 			<ReaderButton label={t("close_reader")} onClick={model.onExit}>
 				<X size={17} strokeWidth={1.8} />
 			</ReaderButton>
@@ -1431,10 +1518,12 @@ export function useReadingKeyboard({
 }
 
 function useReaderZoomKeyboard({
+	docName,
 	onZoomIn,
 	onZoomOut,
 	onReset,
 }: {
+	docName: string;
 	onZoomIn: () => void;
 	onZoomOut: () => void;
 	onReset: () => void;
@@ -1443,6 +1532,11 @@ function useReaderZoomKeyboard({
 		const onKeyDown = (event: KeyboardEvent) => {
 			if (event.ctrlKey || event.metaKey || event.altKey) return;
 			if (readingShortcutBlocked(event.target)) return;
+			if (
+				document.querySelectorAll("[data-reading-workspace]").length > 1 &&
+				useStore.getState().focusedDocName !== docName
+			)
+				return;
 			if (event.key === "+" || event.key === "=") onZoomIn();
 			else if (event.key === "-") onZoomOut();
 			else if (event.key === "0") onReset();
@@ -1451,7 +1545,7 @@ function useReaderZoomKeyboard({
 		};
 		window.addEventListener("keydown", onKeyDown);
 		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [onReset, onZoomIn, onZoomOut]);
+	}, [docName, onReset, onZoomIn, onZoomOut]);
 }
 
 export function readingShortcutBlocked(target: EventTarget | null): boolean {
@@ -1481,7 +1575,9 @@ export function scrollToReadingPage(
 	logicalPageIndex: number,
 	behavior: ScrollBehavior = "smooth",
 ): void {
-	const root = document.querySelector<HTMLElement>("[data-reading-workspace]");
+	const root = [
+		...document.querySelectorAll<HTMLElement>("[data-reading-workspace]"),
+	].find((surface) => readingPageElements(surface, docName).length > 0);
 	const page = root
 		? readingPageElements(root, docName).find(
 				(element) =>
@@ -1491,6 +1587,12 @@ export function scrollToReadingPage(
 	if (page && typeof page.scrollIntoView === "function") {
 		page.scrollIntoView({ behavior, block: "start" });
 	}
+}
+
+export function fitReadingDocument(docName: string): void {
+	window.dispatchEvent(
+		new CustomEvent("maket:reader-fit", { detail: docName }),
+	);
 }
 
 export function preferredScroll(behavior: ScrollBehavior): ScrollBehavior {

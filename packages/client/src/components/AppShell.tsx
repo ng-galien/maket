@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { Board } from "./Board";
@@ -10,6 +10,10 @@ import { LibraryPanel } from "./LibraryPanel";
 import { Popover } from "./Popover";
 import { SettingsPage } from "./SettingsPage";
 import { StateWorkspace } from "./StateWorkspace";
+import {
+	StructuredCollectionWorkspace,
+	selectStructuredCollectionNavigation,
+} from "./StructuredCollectionWorkspace";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 
 // Shell composition intentionally coordinates the independently owned UI zones.
@@ -17,12 +21,17 @@ import { WorkspaceHeader } from "./WorkspaceHeader";
 export function AppShell({ locked }: { locked: boolean }) {
 	const t = useT();
 	const canvasRef = useRef<HTMLDivElement>(null);
+	const [libraryOverlay, setLibraryOverlay] = useState(false);
 	const libraryOpen = useStore((state) => state.libraryOpen);
 	const libraryPinned = useStore((state) => state.libraryPinned);
 	const settingsOpen = useStore((state) => state.settingsOpen);
 	const closeLastPanel = useStore((state) => state.closeLastPanel);
 	const setDataDockMode = useStore((state) => state.setDataDockMode);
+	const structuredNavigation = useStore((state) =>
+		Boolean(selectStructuredCollectionNavigation(state)),
+	);
 	const collectionLayout = useStore(selectCollectionWorkspaceLayout);
+	const structuredLayout = useStore((state) => state.structuredWorkspaceLayout);
 
 	useEffect(() => {
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -45,19 +54,27 @@ export function AppShell({ locked }: { locked: boolean }) {
 		>
 			<WorkspaceHeader />
 			<div data-shell-workarea className="relative flex min-h-0 flex-1">
-				{libraryOpen && !libraryPinned && (
+				{libraryOpen && (!libraryPinned || libraryOverlay) && (
 					<button
 						type="button"
 						aria-label={t("close_active_panel")}
 						onClick={closeLastPanel}
-						className="absolute inset-0 z-[calc(var(--z-panel)-1)] hidden bg-black/15 backdrop-blur-[1px] max-[959px]:block"
+						className={`absolute inset-0 z-[calc(var(--z-panel)-1)] bg-black/15 backdrop-blur-[1px] ${libraryOverlay ? "" : "hidden max-[959px]:block"}`}
 					/>
 				)}
-				<LibraryPanel />
+				<LibraryPanel
+					collectionNavigation={
+						structuredNavigation &&
+						structuredLayout === "split" &&
+						!settingsOpen
+					}
+					onOverlayChange={setLibraryOverlay}
+				/>
 				<section
 					data-workspace-surface
 					onPointerDownCapture={() => {
-						if (libraryOpen && !libraryPinned) closeLastPanel();
+						if (libraryOpen && (!libraryPinned || libraryOverlay))
+							closeLastPanel();
 					}}
 					className="relative flex min-w-0 flex-1 flex-col"
 				>
@@ -78,7 +95,11 @@ export function AppShell({ locked }: { locked: boolean }) {
 											: ""
 								}`}
 							>
-								<Board locked={locked} />
+								{structuredNavigation ? (
+									<StructuredCollectionWorkspace />
+								) : (
+									<Board locked={locked} />
+								)}
 								{expandedDocumentPreview && (
 									<button
 										type="button"

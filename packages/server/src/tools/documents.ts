@@ -183,8 +183,8 @@ const DESCRIPTION = [
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
 	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
-	"  pin       — pin `doc` at the top of the document lists (desktop library, Reader navigation, list). The most recently pinned document comes first; pinning an already pinned doc keeps its place. Allowed on locked documents.",
-	"  unpin     — remove `doc`'s pin; it returns to its category.",
+	"  pin       — pin `doc` at the top of the document lists (desktop library, Reader navigation, list). The most recently pinned document comes first; pinning an already pinned doc keeps its place. Allowed on locked documents. Workspace item pins appear under their collection in the Workspace sidebar; indexes and templates cannot be pinned.",
+	"  unpin     — remove `doc`'s pin; free documents return to their category and Workspace items disappear from the pinned shortcuts.",
 	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots (with their revision retention) are embedded automatically; revision history stays local. Override the filename with `output`.",
 	"  import    — load a `.maket` bundle from `input` (absolute path or EXPORTS_DIR-relative). Documents land with conflict-renamed names; chartes and collections skip names that already exist. Current document-state snapshots initialize revision 1, and assets are restored to ASSETS_DIR with the existing collision rule.",
 ].join("\n");
@@ -359,7 +359,10 @@ function runPin(args: Args, documents: Documents, bus: Bus, pinned: boolean) {
 	if (!args.doc) return text(`doc is required for action=${action}`, true);
 	const d = documents.resolve(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	if (d.meta.structuredWorkspace) {
+	if (
+		d.meta.structuredWorkspace &&
+		d.meta.structuredWorkspace.role !== "item"
+	) {
 		return text(
 			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace.workspaceId}" and cannot be pinned.`,
 			true,

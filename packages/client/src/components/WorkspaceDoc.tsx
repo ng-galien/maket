@@ -244,6 +244,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	const collectionCursors = useStore((s) => s.collectionCursors);
 	const draftCursorOverrides = useStore((s) => s.draftCursorOverrides);
 	const readOnly = useStore((s) => s.readOnly);
+	const annotating = useStore((s) => s.annotationDocName === docName);
 	const isFocused = useStore((s) => s.focusedDocName === docName);
 	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
 	const documentLabelPosition = useStore((s) => s.documentLabelPosition);
@@ -296,6 +297,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			presentationPolicy({
 				surface,
 				dataSource,
+				annotating,
 				access:
 					surface === "reader" && dataSource === "static"
 						? "read-only"
@@ -305,7 +307,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 								? "read-only"
 								: "writable",
 			}),
-		[dataSource, doc?.meta?.locked, readOnly, surface],
+		[annotating, dataSource, doc?.meta?.locked, readOnly, surface],
 	);
 
 	if (!doc) return null;
@@ -434,11 +436,20 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 								}}
 							/>
 						)}
-					{showPageLabels && (doc.pages.length > 1 || view.generatedLabel) && (
+					{showPageLabels && (pageViews.length > 1 || view.generatedLabel) && (
 						<span
-							className="text-text-3 mt-1"
+							data-reader-page-title={surface === "reader" ? "" : undefined}
+							className={
+								surface === "reader"
+									? "order-first mb-2 w-full break-words text-sm font-medium text-text-2"
+									: "text-text-3 mt-1"
+							}
 							style={{
-								fontSize: `${11 / Math.max(zoomK, 0.1)}px`,
+								fontSize:
+									surface === "reader"
+										? undefined
+										: `${11 / Math.max(zoomK, 0.1)}px`,
+								maxWidth: docWidthPx,
 								transformOrigin: "top center",
 							}}
 						>

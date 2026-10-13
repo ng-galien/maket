@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { presentationPolicy } from "./presentation-policy";
 
 describe("presentationPolicy", () => {
+	it.each(["static", "connected"] as const)(
+		"only permits annotation on a writable connected surface (%s)",
+		(dataSource) => {
+			const policy = presentationPolicy({
+				surface: "reader",
+				dataSource,
+				access: "writable",
+				annotating: true,
+			});
+			expect(policy.annotations).toBe(dataSource === "connected");
+			expect(policy.authoring).toBe(false);
+			if (dataSource === "connected")
+				expect(policy.stateControls).toBe("disabled");
+		},
+	);
 	it("keeps authoring exclusive to a writable connected canvas", () => {
 		expect(
 			presentationPolicy({

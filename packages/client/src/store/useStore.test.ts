@@ -694,6 +694,30 @@ describe("workspace / focus", () => {
 		expect(useStore.getState().selectedIds).toEqual([]);
 	});
 
+	it("remembers a passive pane page without stealing document focus", () => {
+		const alpha = makeDoc("alpha", "flyer", 3);
+		const beta = makeDoc("beta", "flyer", 3);
+		useStore.setState({
+			docs: new Map([
+				["alpha", alpha],
+				["beta", beta],
+			]),
+			workspaceDocNames: ["alpha", "beta"],
+			focusedDocName: "beta",
+			focusedPageIndex: 1,
+			selectedIds: ["selection"],
+		});
+		useStore.getState().setFocusedPage("alpha", 2, { focus: false });
+		expect(useStore.getState()).toMatchObject({
+			focusedDocName: "beta",
+			focusedPageIndex: 1,
+			selectedIds: ["selection"],
+		});
+		expect(useStore.getState().docs.get("alpha")?.activePage).toBe(2);
+		useStore.getState().setFocusedDoc("alpha");
+		expect(useStore.getState().focusedPageIndex).toBe(2);
+	});
+
 	it("setFocusedPage is a no-op when the active page is unchanged", () => {
 		const alpha = makeDoc("alpha", "flyer", 2);
 		useStore.setState({
@@ -1134,5 +1158,107 @@ describe("nextDocumentStateView", () => {
 		expect(nextDocumentStateView(undefined, entry)).toBeNull();
 		const whole = { ...held, revision: 9 };
 		expect(nextDocumentStateView(held, whole)).toBe(whole);
+	});
+});
+
+// These protect navigation state across asynchronous document loads, not layout details.
+describe("collection navigation", () => {
+	function seed(layout: "single" | "split") {
+		const workspace = workspaceView();
+		const index = makeDoc("Owned collection", "", 3, 0);
+		index.meta = {
+			structuredWorkspace: {
+				role: "collection",
+				workspaceId: workspace.id,
+				collectionId: "backlog",
+			},
+		};
+		const item = makeDoc("Owned item");
+		item.meta = {
+			structuredWorkspace: {
+				role: "item",
+				workspaceId: workspace.id,
+				collectionId: "backlog",
+				itemId: "item-1",
+				bindingId: "task",
+			},
+		};
+		useStore.setState({
+			structuredWorkspaces: [workspace],
+			structuredWorkspaceLayout: layout,
+			activeStructuredWorkspaceId: workspace.id,
+			activeStructuredCollectionId: "backlog",
+			docs: new Map([[index.name, index]]),
+			workspaceDocNames: [index.name],
+			focusedDocName: index.name,
+			focusedPageIndex: 2,
+		});
+		return { index, item };
+	}
+
+	it.each(["single", "split"] as const)(
+		"returns to the cached index and its page after closing a child in %s mode",
+		(layout) => {
+			const { index, item } = seed(layout);
+			useStore.getState().upsertDoc(item, [], "", true, true, true);
+			expect(useStore.getState().workspaceDocNames).toEqual(
+				layout === "split" ? [index.name, item.name] : [item.name],
+			);
+			useStore.getState().closeWorkspaceDocuments([item.name]);
+			expect(useStore.getState().workspaceDocNames).toEqual([index.name]);
+			expect(useStore.getState().focusedDocName).toBe(index.name);
+			expect(useStore.getState().focusedPageIndex).toBe(2);
+		},
+	);
+
+	it("replaces the previous child instead of accumulating documents", () => {
+		const { index, item } = seed("split");
+		useStore.getState().upsertDoc(item, [], "", true, true, true);
+		const next = { ...item, name: "Next item", id: "next" };
+		useStore.getState().upsertDoc(next, [], "", true, true, true);
+		expect(useStore.getState().workspaceDocNames).toEqual([
+			index.name,
+			next.name,
+		]);
+	});
+
+	it("does not reopen a hidden index on a background refresh in single mode", () => {
+		const { index, item } = seed("single");
+		useStore.getState().upsertDoc(item, [], "", true, true, true);
+		useStore.getState().upsertDoc(index, [], "", true, false);
+		expect(useStore.getState().workspaceDocNames).toEqual([item.name]);
+		expect(useStore.getState().focusedDocName).toBe(item.name);
+	});
+
+	it("switches presentation without losing the current child", () => {
+		const { index, item } = seed("single");
+		useStore.getState().upsertDoc(item, [], "", true, true, true);
+		useStore.getState().setStructuredWorkspaceLayout("split");
+		expect(useStore.getState().workspaceDocNames).toEqual([
+			index.name,
+			item.name,
+		]);
+		useStore.getState().setStructuredWorkspaceLayout("single");
+		expect(useStore.getState().workspaceDocNames).toEqual([item.name]);
+	});
+
+	it("switches to single view when closing the index while retaining its child", () => {
+		const { index, item } = seed("split");
+		useStore.getState().upsertDoc(item, [], "", true, true, true);
+		useStore
+			.getState()
+			.closeWorkspaceDocuments([index.name], { returnToCollection: false });
+		expect(useStore.getState().workspaceDocNames).toEqual([item.name]);
+		expect(useStore.getState().structuredWorkspaceLayout).toBe("single");
+		expect(useStore.getState().focusedDocName).toBe(item.name);
+	});
+
+	it("does not reopen an index for close-all or context replacement", () => {
+		const { item } = seed("single");
+		useStore.getState().upsertDoc(item, [], "", true, true, true);
+		useStore
+			.getState()
+			.closeWorkspaceDocuments([item.name], { returnToCollection: false });
+		expect(useStore.getState().workspaceDocNames).toEqual([]);
 	});
 });

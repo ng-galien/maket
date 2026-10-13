@@ -293,6 +293,28 @@ describe("WorkspaceHeader", () => {
 		).toBeDisabled();
 	});
 
+	it.each(["Close all documents", "Close other documents"])(
+		"%s also closes documents awaiting their load response",
+		async (command) => {
+			const user = userEvent.setup();
+			const alpha = makeDoc("Alpha");
+			useStore.setState({
+				docs: new Map([[alpha.name, alpha]]),
+				workspaceDocNames: [alpha.name, "Pending index"],
+				focusedDocName: alpha.name,
+			});
+			render(<WorkspaceHeader />);
+			await user.click(screen.getByRole("button", { name: "Document" }));
+			expect(
+				screen.getByRole("option", { name: "Pending index" }),
+			).toBeVisible();
+			await user.click(screen.getByRole("button", { name: command }));
+			expect(useStore.getState().workspaceDocNames).toEqual(
+				command === "Close all documents" ? [] : [alpha.name],
+			);
+		},
+	);
+
 	it("names the open-document commands in French", async () => {
 		setLang("fr");
 		const user = userEvent.setup();

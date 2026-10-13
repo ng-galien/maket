@@ -1,23 +1,23 @@
 import type {
 	StructuredWorkspaceCollectionRepresentation,
 	StructuredWorkspaceItemView,
-	StructuredWorkspaceTemplateDocumentView,
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
-	ChevronDown,
-	ChevronRight,
+	FileText,
 	MoreVertical,
 	Pencil,
+	Pin,
 	Search,
 	Trash2,
 	X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import {
 	sendDeleteStructuredWorkspace,
+	sendPinDoc,
 	sendRenameStructuredWorkspace,
 } from "../store/ws";
 import { InlineNameEditor } from "./docs/DocMenu";
@@ -26,7 +26,7 @@ import { HoldToDelete } from "./shared/HoldToDelete";
 import {
 	LibraryCategoryHeader,
 	libraryCategoryGuideOffset,
-	libraryCategoryLabelOffset,
+	libraryCategoryRowOffset,
 } from "./shared/LibraryCategoryHeader";
 import { LibraryToolbar, LibraryToolbarRow } from "./shared/LibraryToolbar";
 import { showLibraryScrollActivity } from "./shared/libraryScroll";
@@ -35,46 +35,37 @@ interface CollectionNode {
 	id: string;
 	representation: StructuredWorkspaceCollectionRepresentation;
 	documentName?: string;
-	templates: CollectionTemplateNode[];
 	items: StructuredWorkspaceItemView[];
 }
 
-interface CollectionTemplateNode {
-	documentId: string;
-	documentName: string;
-	roles: StructuredWorkspaceTemplateDocumentView["roles"];
-}
-
 interface StructuredWorkspaceTreeModel {
+	onNavigate?: () => void;
 	query: string;
 	setQuery: (query: string) => void;
+	workspaceScope: StructuredWorkspaceView | undefined;
+	clearWorkspaceScope: () => void;
 	visibleWorkspaces: StructuredWorkspaceView[];
 	workspaceCount: number;
 	activeWorkspaceId: string | null;
 	activeCollectionId: string | null;
 	openNames: Set<string>;
-	collapsedCollections: Set<string>;
-	collapsedDefinitions: Set<string>;
 	activateWorkspace: (workspace: StructuredWorkspaceView) => void;
 	activateTemplate: (
 		workspace: StructuredWorkspaceView,
 		documentName: string,
 	) => void;
-	toggleCollection: (key: string) => void;
-	toggleDefinition: (key: string) => void;
 	activateCollection: (
 		workspace: StructuredWorkspaceView,
 		collection: CollectionNode,
 	) => void;
-	toggleItem: (
-		workspace: StructuredWorkspaceView,
-		collection: CollectionNode,
-		item: StructuredWorkspaceItemView,
-	) => void;
 }
 
-export function StructuredWorkspacesTab() {
-	const model = useStructuredWorkspaceTree();
+export function StructuredWorkspacesTab({
+	onNavigate,
+}: {
+	onNavigate?: () => void;
+}) {
+	const model = useStructuredWorkspaceTree(onNavigate);
 	const t = useT();
 	return (
 		<div
@@ -82,6 +73,21 @@ export function StructuredWorkspacesTab() {
 			className="flex h-full min-h-0 flex-col"
 		>
 			<WorkspaceSearch query={model.query} setQuery={model.setQuery} />
+			{model.workspaceScope && (
+				<div className="flex items-center gap-2 border-b border-border px-3 py-2 text-sm text-text-2">
+					<span className="min-w-0 flex-1 truncate">
+						{t("workspace_scope", { workspace: model.workspaceScope.name })}
+					</span>
+					<button
+						type="button"
+						onClick={model.clearWorkspaceScope}
+						aria-label={t("clear_workspace_scope")}
+						className="grid h-6 w-6 shrink-0 place-items-center rounded text-text-3 hover:bg-input hover:text-text-1"
+					>
+						<X size={13} />
+					</button>
+				</div>
+			)}
 			<div
 				data-structured-workspaces-scroll
 				onScroll={showLibraryScrollActivity}
@@ -109,7 +115,9 @@ export function StructuredWorkspacesTab() {
 // Client composition boundary between the authoritative server snapshot,
 // the shared document workspace and this domain-specific tree.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-function useStructuredWorkspaceTree(): StructuredWorkspaceTreeModel {
+function useStructuredWorkspaceTree(
+	onNavigate?: () => void,
+): StructuredWorkspaceTreeModel {
 	const workspaces = useStore((state) => state.structuredWorkspaces);
 	const openDocNames = useStore((state) => state.workspaceDocNames);
 	const activeWorkspaceId = useStore(
@@ -129,20 +137,42 @@ function useStructuredWorkspaceTree(): StructuredWorkspaceTreeModel {
 		(state) => state.openWorkspaceDocument,
 	);
 	const [query, setQuery] = useState("");
-	const [collapsedCollections, setCollapsedCollections] = useState<Set<string>>(
-		new Set(),
+	const [workspaceScopeId, setWorkspaceScopeId] = useState<string | null>(null);
+	const filterRequest = useStore(
+		(state) => state.structuredWorkspaceFilterRequest,
 	);
-	const [collapsedDefinitions, setCollapsedDefinitions] = useState<Set<string>>(
-		new Set(),
+	const clearFilterRequest = useStore(
+		(state) => state.clearStructuredWorkspaceFilterRequest,
 	);
+	useEffect(() => {
+		if (!filterRequest) return;
+		setQuery("");
+		setWorkspaceScopeId(filterRequest.workspaceId);
+		clearFilterRequest();
+	}, [filterRequest, clearFilterRequest]);
+	useEffect(() => {
+		if (
+			workspaceScopeId &&
+			!workspaces.some((workspace) => workspace.id === workspaceScopeId)
+		) {
+			setWorkspaceScopeId(null);
+		}
+	}, [workspaces, workspaceScopeId]);
 	const visibleWorkspaces = useMemo(
-		() => filterWorkspaces(workspaces, query),
-		[query, workspaces],
+		() =>
+			filterWorkspaces(
+				workspaces.filter(
+					(workspace) => !workspaceScopeId || workspace.id === workspaceScopeId,
+				),
+				query,
+			),
+		[query, workspaces, workspaceScopeId],
 	);
 	const openNames = new Set(openDocNames);
 	const activateCollection = (
 		workspace: StructuredWorkspaceView,
 		collection: CollectionNode,
+		dismissNavigation = true,
 	) => {
 		const collectionDocumentName = collection.documentName;
 		if (workspace.integrity.status === "incomplete" || !collectionDocumentName)
@@ -151,67 +181,47 @@ function useStructuredWorkspaceTree(): StructuredWorkspaceTreeModel {
 			workspace.id !== activeWorkspaceId ||
 			collection.id !== activeCollectionId
 		) {
-			closeWorkspaceDocuments(openDocNames);
+			closeWorkspaceDocuments(openDocNames, { returnToCollection: false });
 			setActiveCollection(workspace.id, collection.id);
 		}
 		openWorkspaceDocument(collectionDocumentName, {
 			workspaceId: workspace.id,
 			collectionId: collection.id,
 		});
+		if (dismissNavigation) onNavigate?.();
 	};
 	return {
+		onNavigate,
 		query,
 		setQuery,
+		workspaceScope: workspaces.find(
+			(workspace) => workspace.id === workspaceScopeId,
+		),
+		clearWorkspaceScope: () => setWorkspaceScopeId(null),
 		visibleWorkspaces,
 		workspaceCount: workspaces.length,
 		activeWorkspaceId,
 		activeCollectionId,
 		openNames,
-		collapsedCollections,
-		collapsedDefinitions,
 		activateWorkspace: (workspace) => {
 			if (workspace.integrity.status === "incomplete") {
-				closeWorkspaceDocuments(openDocNames);
+				closeWorkspaceDocuments(openDocNames, { returnToCollection: false });
 				setActiveCollection(workspace.id, null);
-				const template = workspace.templateDocuments[0];
-				if (template) {
-					openWorkspaceDocument(template.documentName, {
-						workspaceId: workspace.id,
-					});
-					setStateDockOpen(true);
-				}
 				return;
 			}
 			const firstCollection = collectionNodes(workspace)[0];
-			if (firstCollection) activateCollection(workspace, firstCollection);
+			if (firstCollection)
+				activateCollection(workspace, firstCollection, false);
 		},
 		activateTemplate: (workspace, documentName) => {
 			if (workspace.id !== activeWorkspaceId) {
-				closeWorkspaceDocuments(openDocNames);
+				closeWorkspaceDocuments(openDocNames, { returnToCollection: false });
 				setActiveCollection(workspace.id, null);
 			}
 			openWorkspaceDocument(documentName, { workspaceId: workspace.id });
 			setStateDockOpen(true);
 		},
-		toggleCollection: (key) =>
-			setCollapsedCollections((current) => toggleInSet(current, key)),
-		toggleDefinition: (key) =>
-			setCollapsedDefinitions((current) => toggleInSet(current, key)),
 		activateCollection,
-		toggleItem: (workspace, collection, item) => {
-			const active =
-				workspace.id === activeWorkspaceId &&
-				collection.id === activeCollectionId;
-			if (!active) activateCollection(workspace, collection);
-			if (openNames.has(item.documentName)) {
-				closeWorkspaceDocuments([item.documentName]);
-			} else {
-				openWorkspaceDocument(item.documentName, {
-					workspaceId: workspace.id,
-					collectionId: collection.id,
-				});
-			}
-		},
 	};
 }
 
@@ -342,6 +352,23 @@ function StructuredWorkspaceNode({
 									>
 										{t("doc_rename")}
 									</AnchoredMenuItem>
+									{workspace.templateDocuments.map((template) => (
+										<AnchoredMenuItem
+											key={template.documentId}
+											icon={<FileText size={14} />}
+											onClick={() => {
+												setMode("idle");
+												model.activateTemplate(
+													workspace,
+													template.documentName,
+												);
+											}}
+										>
+											{t("structured_template_open", {
+												document: template.documentName,
+											})}
+										</AnchoredMenuItem>
+									))}
 									<AnchoredMenuItem
 										icon={<Trash2 size={14} />}
 										onClick={() => setMode("delete")}
@@ -387,195 +414,79 @@ function StructuredCollectionNode({
 	model: StructuredWorkspaceTreeModel;
 }) {
 	const t = useT();
-	const key = `${workspace.id}:${collection.id}`;
-	const definitionKey = `${key}:definition`;
-	const collapsed = model.collapsedCollections.has(key);
-	const definitionCollapsed = model.collapsedDefinitions.has(definitionKey);
+	const open = useStore((state) => state.openWorkspaceDocument);
+	const readOnly = useStore((state) => state.readOnly);
 	const active =
 		workspace.id === model.activeWorkspaceId &&
 		collection.id === model.activeCollectionId;
-	const collectionDocumentOpen = collection.documentName
-		? model.openNames.has(collection.documentName)
-		: false;
-	const activeTotal = collection.items.filter((item) =>
-		model.openNames.has(item.documentName),
-	).length;
+	const unavailable =
+		workspace.integrity.status === "incomplete" || !collection.documentName;
 	return (
 		<div
 			data-structured-collection={collection.id}
 			data-active={active || undefined}
+			data-category-path={`${workspace.name}/${collection.representation.name}`}
 		>
-			<LibraryCategoryHeader
-				model={{
-					name: collection.representation.name,
-					path: `${workspace.name}/${collection.representation.name}`,
-					depth: 1,
-					total: collection.items.length,
-					activeTotal,
-					collapsed,
-					toggle: () => {
-						if (
-							workspace.integrity.status === "incomplete" ||
-							!collection.documentName ||
-							(active && collectionDocumentOpen)
-						) {
-							model.toggleCollection(key);
-							return;
-						}
-						model.activateCollection(workspace, collection);
-					},
-				}}
-				toggleLabel={t("structured_collection_toggle", {
-					collection: collection.representation.name,
-				})}
-				countTitle={t("structured_collection_item_count", {
-					count: collection.items.length,
-				})}
-			/>
-			{!collapsed && (
-				<div className="relative">
-					<TreeGuide depth={1} />
-					<div
-						className="flex flex-col gap-px"
-						style={{
-							marginLeft: `${libraryCategoryLabelOffset(2) - 8}px`,
-						}}
-					>
-						<StructuredCollectionDefinition
-							collapsed={definitionCollapsed}
-							templates={collection.templates}
-							openNames={model.openNames}
-							onToggle={() => model.toggleDefinition(definitionKey)}
-							onOpen={(documentName) =>
-								model.activateTemplate(workspace, documentName)
-							}
-						/>
-						{workspace.integrity.status === "ready" &&
-							collection.items.map((item) => (
-								<StructuredItemRow
-									key={item.id}
-									item={item}
-									open={model.openNames.has(item.documentName)}
-									onToggle={() => model.toggleItem(workspace, collection, item)}
-								/>
-							))}
-					</div>
-				</div>
-			)}
-		</div>
-	);
-}
-
-function StructuredItemRow({
-	item,
-	open,
-	onToggle,
-}: {
-	item: StructuredWorkspaceItemView;
-	open: boolean;
-	onToggle: () => void;
-}) {
-	const t = useT();
-	return (
-		<button
-			type="button"
-			data-structured-item={item.id}
-			data-open={open || undefined}
-			onClick={onToggle}
-			className={`group flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors ${
-				open
-					? "bg-accent-soft text-accent"
-					: "text-text-2 hover:bg-input/70 hover:text-text-1"
-			}`}
-			aria-label={
-				open
-					? t("structured_item_close", { document: item.documentName })
-					: t("structured_item_open", { document: item.documentName })
-			}
-		>
-			<span className="min-w-0 flex-1 truncate text-sm font-medium">
-				{item.documentName}
-			</span>
-			<span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-text-3 group-hover:text-text-2">
-				{item.bindingId}
-			</span>
-		</button>
-	);
-}
-
-function StructuredTemplateRow({
-	documentName,
-	roles,
-	open,
-	onOpen,
-}: {
-	documentName: string;
-	roles: StructuredWorkspaceTemplateDocumentView["roles"];
-	open: boolean;
-	onOpen: () => void;
-}) {
-	const t = useT();
-	return (
-		<button
-			type="button"
-			data-structured-template={documentName}
-			data-open={open || undefined}
-			onClick={onOpen}
-			className={`ml-8 flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors ${
-				open
-					? "bg-accent-soft text-accent"
-					: "text-text-2 hover:bg-input/70 hover:text-text-1"
-			}`}
-			aria-label={t("structured_template_open", { document: documentName })}
-		>
-			<span className="min-w-0 flex-1 truncate text-sm font-medium">
-				{documentName}
-			</span>
-			<span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-text-3">
-				{templateRoleLabel(roles, t)}
-			</span>
-		</button>
-	);
-}
-
-function StructuredCollectionDefinition({
-	collapsed,
-	templates,
-	openNames,
-	onToggle,
-	onOpen,
-}: {
-	collapsed: boolean;
-	templates: CollectionTemplateNode[];
-	openNames: ReadonlySet<string>;
-	onToggle: () => void;
-	onOpen: (documentName: string) => void;
-}) {
-	const t = useT();
-	return (
-		<div data-structured-definition>
 			<button
 				type="button"
-				aria-expanded={!collapsed}
-				onClick={onToggle}
-				className="flex min-h-8 w-full items-center gap-1 rounded-md px-2 text-left text-sm font-medium text-text-2 transition-colors hover:bg-input/70 hover:text-text-1"
+				disabled={unavailable}
+				aria-current={active ? "page" : undefined}
+				aria-label={t("structured_collection_toggle", {
+					collection: collection.representation.name,
+				})}
+				onClick={() => model.activateCollection(workspace, collection)}
+				style={{ paddingLeft: libraryCategoryRowOffset(1) }}
+				className={`flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md pr-2 text-left text-sm disabled:opacity-50 ${active ? "bg-accent-soft text-accent" : "text-text-2 hover:bg-input/70 hover:text-text-1"}`}
 			>
-				{collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-				{t("structured_definition")}
+				<FileText size={15} className="shrink-0" aria-hidden />
+				<span className="min-w-0 flex-1 truncate font-semibold">
+					{collection.representation.name}
+				</span>
+				<span
+					className="shrink-0 text-xs tabular-nums"
+					title={t("structured_collection_item_count", {
+						count: collection.items.length,
+					})}
+				>
+					{collection.items.length}
+				</span>
 			</button>
-			{!collapsed && (
-				<div className="ml-4 flex flex-col gap-px">
-					{templates.map((template) => (
-						<StructuredTemplateRow
-							key={template.documentId}
-							documentName={template.documentName}
-							roles={template.roles}
-							open={openNames.has(template.documentName)}
-							onOpen={() => onOpen(template.documentName)}
-						/>
-					))}
-				</div>
-			)}
+			{collection.items
+				.filter((item) => item.pinnedAt)
+				.map((item) => (
+					<div
+						key={item.id}
+						data-structured-item={item.id}
+						className="flex min-w-0 items-center gap-1 rounded-md hover:bg-input/70"
+						style={{ paddingLeft: libraryCategoryRowOffset(2) }}
+					>
+						<button
+							type="button"
+							disabled={unavailable}
+							onClick={() => {
+								open(item.documentName, {
+									workspaceId: workspace.id,
+									collectionId: collection.id,
+								});
+								model.onNavigate?.();
+							}}
+							className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left text-sm text-text-2"
+						>
+							<Pin size={13} className="shrink-0 text-accent" />
+							<span className="truncate">{item.documentName}</span>
+						</button>
+						{!readOnly && (
+							<button
+								type="button"
+								aria-label={t("unpin_document", { name: item.documentName })}
+								onClick={() => sendPinDoc(item.documentName, false)}
+								className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded text-text-3 hover:bg-input hover:text-text-1"
+							>
+								<Pin size={14} />
+							</button>
+						)}
+					</div>
+				))}
 		</div>
 	);
 }
@@ -600,47 +511,12 @@ function collectionNodes(workspace: StructuredWorkspaceView): CollectionNode[] {
 				id,
 				representation,
 				documentName: document?.documentName,
-				templates: workspace.templateDocuments.flatMap((template) => {
-					const roles = template.roles
-						.filter((role) => role.collectionId === id)
-						.sort(compareTemplateRoles);
-					return roles.length > 0 ? [{ ...template, roles }] : [];
-				}),
 				items: workspace.items
 					.filter((item) => item.collectionId === id)
 					.sort((left, right) => left.position - right.position),
 			};
 		},
 	);
-}
-
-function compareTemplateRoles(
-	left: StructuredWorkspaceTemplateDocumentView["roles"][number],
-	right: StructuredWorkspaceTemplateDocumentView["roles"][number],
-): number {
-	const order = { collection: 0, compact: 1, detail: 2 } as const;
-	return (
-		order[left.role] - order[right.role] ||
-		(left.bindingId ?? "").localeCompare(right.bindingId ?? "")
-	);
-}
-
-function templateRoleLabel(
-	roles: StructuredWorkspaceTemplateDocumentView["roles"],
-	t: ReturnType<typeof useT>,
-): string {
-	return roles
-		.map((role) => {
-			if (role.role === "collection") {
-				return t("structured_template_role_collection");
-			}
-			const label =
-				role.role === "compact"
-					? t("structured_template_role_compact")
-					: t("structured_template_role_detail");
-			return `${label} · ${role.bindingId ?? ""}`;
-		})
-		.join(" / ");
 }
 
 function filterWorkspaces(
@@ -656,19 +532,14 @@ function filterWorkspaces(
 			...Object.values(workspace.representationSchema.collections).map(
 				(collection) => collection.name,
 			),
-			...workspace.items.map((item) => item.documentName),
-			...workspace.templateDocuments.map((template) => template.documentName),
+			...workspace.collectionDocuments.map((document) => document.documentName),
+			...workspace.items
+				.filter((item) => item.pinnedAt)
+				.map((item) => item.documentName),
 		]
 			.filter(Boolean)
 			.join(" ")
 			.toLocaleLowerCase()
 			.includes(normalized),
 	);
-}
-
-function toggleInSet(current: Set<string>, value: string): Set<string> {
-	const next = new Set(current);
-	if (next.has(value)) next.delete(value);
-	else next.add(value);
-	return next;
 }

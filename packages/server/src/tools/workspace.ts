@@ -51,7 +51,7 @@ const MaketWorkspaceSchema = z.object({
 		.min(1)
 		.optional()
 		.describe(
-			"The document in scope. Required for focus/state/lock. Do not pass it for list_messages; that action returns every queued user message across all documents and the workspace.",
+			"The document in scope. Required for focus/state/lock. For list_messages, pass an exact document name to read only its annotations; omit to read all document and workspace messages.",
 		),
 	page: z
 		.number()
@@ -79,7 +79,7 @@ const DESCRIPTION = [
 	"  state         — summarise `doc`'s current state: canvas, pages with element counts and data-source cursors (collection · mode · row), charte, pending messages.",
 	"  lock          — lock or unlock `doc`. When locked, every doc-scoped mutation refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
 	"  fit_view      — zoom out the client to fit the whole workspace (same as the Maximize button).",
-	"  list_messages — return every pending user message across all docs and the workspace bucket as JSON. Each message carries its own `docName` (or none for workspace scope).",
+	"  list_messages — return pending annotations as JSON. With `doc`, return only that document's messages; without it, return all document and workspace messages. Each message carries `docName` (or none for workspace scope).",
 	"  ack_messages  — drop the given `ids` from whichever bucket they live in.",
 ].join("\n");
 
@@ -107,7 +107,7 @@ export function createMaketWorkspaceTool(deps: WorkspaceDeps): ToolHandler {
 				case "fit_view":
 					return runFitView(bus);
 				case "list_messages":
-					return runListMessages(pending);
+					return runListMessages(args, pending);
 				case "ack_messages":
 					return runAckMessages(args, pending);
 			}
@@ -209,8 +209,8 @@ function runFitView(bus: Bus) {
 	return text("Workspace fit-to-view triggered.");
 }
 
-function runListMessages(pending: Annotations) {
-	const list = pending.all();
+function runListMessages(args: Args, pending: Annotations) {
+	const list = args.doc ? pending.forDoc(args.doc) : pending.all();
 	if (list.length === 0) return text("No pending messages");
 	return text(JSON.stringify(list, null, 2));
 }

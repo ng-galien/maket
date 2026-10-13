@@ -34,7 +34,9 @@ import {
 import type { DocSummary, Document } from "./types";
 import {
 	type AnnotationCreateOutcome,
+	cancelDocumentLoads,
 	sendAnnotationCreate,
+	sendBackgroundLoadDoc,
 	sendLoadDoc,
 	sendSettings,
 	wsSend,
@@ -221,6 +223,8 @@ interface StructuredWorkspaceSlice {
 	structuredWorkspaces: StructuredWorkspaceView[];
 	activeStructuredWorkspaceId: string | null;
 	activeStructuredCollectionId: string | null;
+	structuredWorkspaceLayout: "single" | "split";
+	setStructuredWorkspaceLayout: (layout: "single" | "split") => void;
 	setStructuredWorkspaces: (workspaces: StructuredWorkspaceView[]) => void;
 	/** Replace one item of a known workspace; other views are kept as they are. */
 	applyStructuredWorkspaceItem: (
@@ -245,6 +249,7 @@ interface ShellSlice {
 	libraryPinned: boolean;
 	settingsOpen: boolean;
 	documentCategoryFilterRequest: { path: string } | null;
+	structuredWorkspaceFilterRequest: { workspaceId: string | null } | null;
 	workspaceView: WorkspaceView;
 	themeMode: ThemeMode;
 	darkMode: boolean;
@@ -252,6 +257,8 @@ interface ShellSlice {
 	setLibraryView: (view: ShellSlice["libraryView"]) => void;
 	filterDocumentsByCategory: (path: string) => void;
 	clearDocumentCategoryFilterRequest: () => void;
+	filterStructuredWorkspaces: (workspaceId: string | null) => void;
+	clearStructuredWorkspaceFilterRequest: () => void;
 	toggleLibrary: () => void;
 	toggleLibraryPinned: () => void;
 	closeLastPanel: () => void;
@@ -293,6 +300,8 @@ interface AppState
 	selectedIds: string[];
 	editingElementId: string | null;
 	showPopover: boolean;
+	/** Transient annotation tool; never part of the document or saved workspace. */
+	annotationDocName: string | null;
 	locked: boolean;
 	zoom: number;
 	autoFocusFit: boolean;
@@ -313,13 +322,20 @@ interface AppState
 		explicitFocus?: boolean,
 	) => void;
 	addDocToWorkspace: (docName: string) => void;
-	closeWorkspaceDocuments: (docNames: string[]) => void;
+	closeWorkspaceDocuments: (
+		docNames: string[],
+		options?: { returnToCollection?: boolean },
+	) => void;
 	openWorkspaceDocument: (
 		docName: string,
 		structuredWorkspace?: StructuredWorkspaceRenderTarget,
 	) => void;
 	setFocusedDoc: (docName: string | null) => void;
-	setFocusedPage: (docName: string, pageIndex: number) => void;
+	setFocusedPage: (
+		docName: string,
+		pageIndex: number,
+		options?: { focus: boolean },
+	) => void;
 	selectElement: (id: string | null, toggle?: boolean) => void;
 	setEditingElement: (id: string | null) => void;
 	setLocked: (v: boolean) => void;
@@ -603,12 +619,45 @@ export const useStore = create<AppState>((set, get) => ({
 	chartesVersion: 0,
 	collections: [],
 	structuredWorkspaces: [],
+	structuredWorkspaceLayout:
+		localStorage.getItem("maket-structured-layout") === "single"
+			? "single"
+			: "split",
+	setStructuredWorkspaceLayout: (layout) => {
+		localStorage.setItem("maket-structured-layout", layout);
+		const state = get();
+		const workspace = state.structuredWorkspaces.find(
+			(candidate) => candidate.id === state.activeStructuredWorkspaceId,
+		);
+		const item = workspace?.items.find((candidate) =>
+			state.workspaceDocNames.includes(candidate.documentName),
+		);
+		const index = workspace?.collectionDocuments.find(
+			(candidate) => candidate.collectionId === item?.collectionId,
+		);
+		set({ structuredWorkspaceLayout: layout });
+		if (!workspace || !item || !index) return;
+		const workspaceDocNames =
+			layout === "split"
+				? [index.documentName, item.documentName]
+				: [item.documentName];
+		set({ workspaceDocNames });
+		saveWorkspace(workspaceDocNames);
+		syncWorkspace();
+		if (layout === "single") state.setFocusedDoc(item.documentName);
+		if (!state.docs.has(index.documentName))
+			sendBackgroundLoadDoc(index.documentName, {
+				workspaceId: workspace.id,
+				collectionId: index.collectionId,
+			});
+	},
 	activeStructuredWorkspaceId: null,
 	activeStructuredCollectionId: null,
 	readOnly: false,
 	selectedIds: [],
 	editingElementId: null,
 	showPopover: false,
+	annotationDocName: null,
 	pending: [],
 	libraryView:
 		(localStorage.getItem("maket-library-view") as
@@ -622,6 +671,7 @@ export const useStore = create<AppState>((set, get) => ({
 	libraryPinned: localStorage.getItem("maket-library-pinned") === "true",
 	settingsOpen: false,
 	documentCategoryFilterRequest: null,
+	structuredWorkspaceFilterRequest: null,
 	workspaceView:
 		localStorage.getItem("maket-workspace-view") === "reading"
 			? "reading"
@@ -652,9 +702,27 @@ export const useStore = create<AppState>((set, get) => ({
 				...workspace.items.map((item) => item.documentName),
 			]),
 		);
-		const active = structuredWorkspaces.find(
-			(workspace) => workspace.id === previous.activeStructuredWorkspaceId,
-		);
+		const restored = previous.activeStructuredWorkspaceId
+			? undefined
+			: structuredWorkspaces.find((workspace) =>
+					[
+						...workspace.collectionDocuments,
+						...workspace.items,
+						...workspace.templateDocuments,
+					].some(
+						(document) => document.documentName === previous.focusedDocName,
+					),
+				);
+		const active =
+			restored ??
+			structuredWorkspaces.find(
+				(workspace) => workspace.id === previous.activeStructuredWorkspaceId,
+			);
+		const restoredCollection =
+			restored &&
+			[...restored.collectionDocuments, ...restored.items].find(
+				(document) => document.documentName === previous.focusedDocName,
+			)?.collectionId;
 		const allowed = new Set(
 			active
 				? [
@@ -675,7 +743,12 @@ export const useStore = create<AppState>((set, get) => ({
 		set({
 			structuredWorkspaces,
 			...(active
-				? {}
+				? {
+						activeStructuredWorkspaceId: active.id,
+						activeStructuredCollectionId: restored
+							? (restoredCollection ?? null)
+							: previous.activeStructuredCollectionId,
+					}
 				: {
 						activeStructuredWorkspaceId: null,
 						activeStructuredCollectionId: null,
@@ -684,7 +757,10 @@ export const useStore = create<AppState>((set, get) => ({
 		const incompatible = previous.workspaceDocNames.filter(
 			(name) => previouslyOwned.has(name) && !allowed.has(name),
 		);
-		if (incompatible.length > 0) get().closeWorkspaceDocuments(incompatible);
+		if (incompatible.length > 0)
+			get().closeWorkspaceDocuments(incompatible, {
+				returnToCollection: false,
+			});
 	},
 	applyStructuredWorkspaceItem: (workspaceId, item) =>
 		set((state) => ({
@@ -1056,6 +1132,52 @@ export const useStore = create<AppState>((set, get) => ({
 					...s.workspaceDocNames.slice(pos),
 				];
 			}
+			const ownership = doc.meta?.structuredWorkspace;
+			const navigating =
+				explicitFocus &&
+				addToWorkspace &&
+				ownership &&
+				ownership.role !== "template";
+			if (navigating) {
+				const workspace = s.structuredWorkspaces.find(
+					(candidate) => candidate.id === ownership.workspaceId,
+				);
+				const index = workspace?.collectionDocuments.find(
+					(candidate) => candidate.collectionId === ownership.collectionId,
+				);
+				// Keep the index cached, with its current page, while replacing the visible child.
+				if (index && s.focusedDocName === index.documentName) {
+					const parent = docs.get(index.documentName);
+					if (parent)
+						docs.set(parent.name, {
+							...parent,
+							activePage: s.focusedPageIndex,
+						});
+				}
+				workspaceDocNames =
+					ownership.role === "item" &&
+					index &&
+					s.structuredWorkspaceLayout === "split"
+						? [index.documentName, doc.name]
+						: [doc.name];
+			} else if (
+				ownership?.role === "collection" &&
+				(inWorkspace || addToWorkspace)
+			) {
+				const workspace = s.structuredWorkspaces.find(
+					(candidate) => candidate.id === ownership.workspaceId,
+				);
+				const child = workspace?.items.find(
+					(item) =>
+						item.collectionId === ownership.collectionId &&
+						s.workspaceDocNames.includes(item.documentName),
+				);
+				if (child)
+					workspaceDocNames =
+						s.structuredWorkspaceLayout === "split"
+							? [doc.name, child.documentName]
+							: [child.documentName];
+			}
 			// Reading is deliberately user-steady: server work may update or open
 			// documents in the background, but must not replace the document being
 			// read. Manual UI focus still goes through setFocusedDoc/setFocusedPage.
@@ -1104,6 +1226,14 @@ export const useStore = create<AppState>((set, get) => ({
 			return {
 				docs,
 				workspaceDocNames,
+				...(ownership &&
+				ownership.role !== "template" &&
+				focusedDocName === doc.name
+					? {
+							activeStructuredWorkspaceId: ownership.workspaceId,
+							activeStructuredCollectionId: ownership.collectionId ?? null,
+						}
+					: {}),
 				focusedDocName,
 				focusedPageIndex,
 				...collectionDock,
@@ -1115,8 +1245,22 @@ export const useStore = create<AppState>((set, get) => ({
 
 	applyDocumentPin: (name, pinnedAt) =>
 		set((s) => {
-			if (!s.docList.some((entry) => entry.name === name)) return {};
+			if (
+				!s.docList.some((entry) => entry.name === name) &&
+				!s.structuredWorkspaces.some((workspace) =>
+					workspace.items.some((item) => item.documentName === name),
+				)
+			)
+				return {};
 			return {
+				structuredWorkspaces: s.structuredWorkspaces.map((workspace) => ({
+					...workspace,
+					items: workspace.items.map((item) => {
+						if (item.documentName !== name) return item;
+						const { pinnedAt: _previous, ...rest } = item;
+						return pinnedAt ? { ...rest, pinnedAt } : rest;
+					}),
+				})),
 				docList: s.docList.map((entry) => {
 					if (entry.name !== name) return entry;
 					const { pinnedAt: _previous, ...rest } = entry;
@@ -1197,10 +1341,15 @@ export const useStore = create<AppState>((set, get) => ({
 			};
 		}),
 
-	closeWorkspaceDocuments: (docNames) => {
+	closeWorkspaceDocuments: (docNames, options) => {
 		const names = new Set(docNames);
 		if (names.size === 0) return;
 		const current = get();
+		cancelDocumentLoads(
+			names,
+			current.workspaceDocNames.length > 0 &&
+				current.workspaceDocNames.every((name) => names.has(name)),
+		);
 		const closesWorkspace = current.workspaceDocNames.some((name) =>
 			names.has(name),
 		);
@@ -1208,19 +1357,48 @@ export const useStore = create<AppState>((set, get) => ({
 			current.docs.has(name),
 		);
 		if (!closesWorkspace && !closesLoadedDocument) return;
+		const workspace = current.structuredWorkspaces.find(
+			(candidate) =>
+				candidate.id === current.activeStructuredWorkspaceId &&
+				candidate.integrity.status === "ready",
+		);
+		const closingItem = workspace?.items.find(
+			(item) =>
+				names.has(item.documentName) &&
+				current.workspaceDocNames.includes(item.documentName),
+		);
+		const returnIndex =
+			options?.returnToCollection === false
+				? undefined
+				: workspace?.collectionDocuments.find(
+						(index) =>
+							index.collectionId === closingItem?.collectionId &&
+							!names.has(index.documentName),
+					);
 		if (closesWorkspace) cancelFitForWorkspaceRemoval();
 		set((s) => {
-			const workspaceDocNames = s.workspaceDocNames.filter(
-				(name) => !names.has(name),
-			);
+			const workspaceDocNames = returnIndex
+				? [returnIndex.documentName]
+				: s.workspaceDocNames.filter((name) => !names.has(name));
 			saveWorkspace(workspaceDocNames);
 			const docs = new Map(s.docs);
 			for (const name of names) docs.delete(name);
+			const remainingItem = workspace?.items.find((item) =>
+				workspaceDocNames.includes(item.documentName),
+			);
+			const closesIndex = workspace?.collectionDocuments.some(
+				(index) =>
+					names.has(index.documentName) &&
+					index.collectionId === remainingItem?.collectionId,
+			);
+			if (closesIndex)
+				localStorage.setItem("maket-structured-layout", "single");
 			const focusedDocName = resolveWorkspaceFocus(
 				workspaceDocNames,
-				s.focusedDocName && !names.has(s.focusedDocName)
-					? s.focusedDocName
-					: null,
+				returnIndex?.documentName ??
+					(s.focusedDocName && !names.has(s.focusedDocName)
+						? s.focusedDocName
+						: null),
 				null,
 				docs,
 			);
@@ -1233,6 +1411,9 @@ export const useStore = create<AppState>((set, get) => ({
 			);
 			return {
 				workspaceDocNames,
+				...(closesIndex
+					? { structuredWorkspaceLayout: "single" as const }
+					: {}),
 				docs,
 				focusedDocName,
 				focusedPageIndex,
@@ -1250,7 +1431,12 @@ export const useStore = create<AppState>((set, get) => ({
 			saveFocusedDoc(next.focusedDocName ?? "");
 			if (next.focusedDocName) {
 				if (!next.docs.has(next.focusedDocName)) {
-					wsSend({ type: "load_document", name: next.focusedDocName });
+					if (returnIndex && workspace)
+						sendLoadDoc(next.focusedDocName, {
+							workspaceId: workspace.id,
+							collectionId: returnIndex.collectionId,
+						});
+					else wsSend({ type: "load_document", name: next.focusedDocName });
 				}
 				if (next.workspaceView === "canvas") {
 					requestFit({
@@ -1264,6 +1450,38 @@ export const useStore = create<AppState>((set, get) => ({
 
 	openWorkspaceDocument: (docName, structuredWorkspace) => {
 		let state = get();
+		if (
+			state.workspaceView === "reading" &&
+			state.workspaceDocNames.includes(docName) &&
+			state.docs.has(docName)
+		) {
+			state.setFocusedDoc(docName);
+			return;
+		}
+		// Reader and document pickers use names; recover the same ownership
+		// context as a click in the structured workspace navigation.
+		if (!structuredWorkspace) {
+			const owner = state.structuredWorkspaces.find((workspace) =>
+				[
+					...workspace.collectionDocuments,
+					...workspace.templateDocuments,
+					...workspace.items,
+				].some((entry) => entry.documentName === docName),
+			);
+			const entry =
+				owner &&
+				[
+					...owner.collectionDocuments,
+					...owner.templateDocuments,
+					...owner.items,
+				].find((candidate) => candidate.documentName === docName);
+			if (owner && entry)
+				structuredWorkspace = {
+					workspaceId: owner.id,
+					collectionId:
+						"collectionId" in entry ? entry.collectionId : undefined,
+				};
+		}
 		const ownedNames = new Set(
 			state.structuredWorkspaces.flatMap((workspace) => [
 				...workspace.templateDocuments.map((document) => document.documentName),
@@ -1294,8 +1512,26 @@ export const useStore = create<AppState>((set, get) => ({
 			allowed ? !allowed.has(name) : ownedNames.has(name),
 		);
 		if (incompatible.length > 0) {
-			state.closeWorkspaceDocuments(incompatible);
+			state.closeWorkspaceDocuments(incompatible, {
+				returnToCollection: false,
+			});
 			state = get();
+		}
+		if (structuredWorkspace) {
+			const workspace = state.structuredWorkspaces.find(
+				(candidate) => candidate.id === structuredWorkspace.workspaceId,
+			);
+			const item = workspace?.items.find(
+				(candidate) => candidate.documentName === docName,
+			);
+			const index = workspace?.collectionDocuments.find(
+				(candidate) => candidate.collectionId === item?.collectionId,
+			);
+			if (workspace && index && !state.docs.has(index.documentName))
+				sendBackgroundLoadDoc(index.documentName, {
+					workspaceId: workspace.id,
+					collectionId: index.collectionId,
+				});
 		}
 		if (structuredWorkspace || !state.workspaceDocNames.includes(docName)) {
 			sendLoadDoc(docName, structuredWorkspace);
@@ -1340,18 +1576,31 @@ export const useStore = create<AppState>((set, get) => ({
 			};
 		}),
 
-	setFocusedPage: (docName, pageIndex) =>
+	setFocusedPage: (docName, pageIndex, options) =>
 		set((s) => {
 			if (!s.workspaceDocNames.includes(docName)) return {};
-			const focusedPageIndex = clampPageIndex(s.docs.get(docName), pageIndex);
+			const doc = s.docs.get(docName);
+			const focusedPageIndex = clampPageIndex(doc, pageIndex);
+			const docs =
+				doc && doc.activePage !== focusedPageIndex
+					? new Map(s.docs).set(docName, {
+							...doc,
+							activePage: focusedPageIndex,
+						})
+					: s.docs;
+			// Passive visibility observers remember their own pane without
+			// stealing focus from the other side of a split workspace.
+			if (options?.focus === false && s.focusedDocName !== docName)
+				return docs === s.docs ? {} : { docs };
 			if (
 				s.focusedDocName === docName &&
 				s.focusedPageIndex === focusedPageIndex
 			) {
-				return {};
+				return docs === s.docs ? {} : { docs };
 			}
 			saveFocusedDoc(docName);
 			return {
+				docs,
 				focusedDocName: docName,
 				focusedPageIndex,
 				selectedIds: [],
@@ -1394,6 +1643,12 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 	clearDocumentCategoryFilterRequest: () =>
 		set({ documentCategoryFilterRequest: null }),
+	filterStructuredWorkspaces: (workspaceId) => {
+		get().setLibraryView("structured-workspaces");
+		set({ structuredWorkspaceFilterRequest: { workspaceId } });
+	},
+	clearStructuredWorkspaceFilterRequest: () =>
+		set({ structuredWorkspaceFilterRequest: null }),
 	toggleLibrary: () =>
 		set((s) => {
 			const libraryOpen = s.settingsOpen ? true : !s.libraryOpen;

@@ -53,7 +53,7 @@ Your AI assistant is good at writing. But design is about space, hierarchy, and 
 
 ## Features
 
-- **Live preview** — Changes appear in your browser the instant the AI writes them. Click any element to annotate it and send feedback back to the chat.
+- **Live preview** — Changes appear in your browser the instant the AI writes them. Use **Annotate** in the detail document toolbar (or connected Reader) to select an element and save feedback for the agent; turn it off to resume navigation.
 - **HTML/CSS canvas** — Pages are real HTML sized in mm. No lock-in to a proprietary format.
 - **Brand chartes** — Define design tokens (colors, fonts, spacing, shadows) once; Maket enforces them during composition.
 - **Image library** — Drop images in, tag them, the AI picks the right one for the brief.
@@ -139,6 +139,10 @@ Use `maket_state action=init` to attach the initial schema and data, then `get`,
 
 A Structured Workspace groups one or more named collections whose detail views are real, persistent living documents. Its data schema validates every item and may use `oneOf`; its representation schema gives each collection a global template and binds concrete schema paths to compact and detail template documents. Adding an item to a collection creates its instantiated document and initial data revision.
 
+The Workspace sidebar lists collection indexes and pinned items only; other items are opened from their index, and templates remain available in the Workspace actions menu. The icon-only display toggle in the general toolbar switches between a single document (Square) and list/detail (PanelLeft); there is no separate view-choice toolbar. Opening another item replaces the current detail pane; closing the item returns to its index. Both panes open in Reader with ordinary scrolling; a narrow AUTO list holds every item on one continuous page. Explicit Canvas navigation enables independent wheel zoom and drag pan, and the header percentage resets the fit. A draggable, keyboard-accessible separator starts at 28/72 and adjusts the widths. On narrow windows the library opens as an overlay, preserving readable document widths and its pin preference. Item pins persist and can be removed from the sidebar. This browsing surface keeps live document forms interactive; template authoring continues on the canvas.
+
+Reader shows the focused document with titles above each page of a multi-page document. Entering Reader from collection browsing preserves the current page; switching between its open index and item keeps their navigation context. Closing Reader restores the originating document and page and the single/split layout. Passive page visibility in either split pane remembers its own position without taking focus from the other pane. Closing all documents cancels pending explicit openings, so late server replies cannot reopen the workspace.
+
 Template-controlled pages stay synchronized across every instantiated document and are edited at the template. Pages added to one instance remain editable and survive template synchronization. `maket_structured_workspace` exposes workspace creation, revision-checked schema and template-binding changes, item creation and mutation, deletion, inspection, and explicit template synchronization through MCP.
 
 ## Installation details
@@ -167,7 +171,8 @@ macOS and Windows installers are currently unsigned. On macOS, if Gatekeeper
 blocks the first launch, Control-click **Maket**, choose **Open**, then confirm
 once. Windows may show a SmartScreen warning that must be confirmed manually.
 On Linux, install the package with your distribution's package manager; updates
-are downloaded manually from the latest release.
+are downloaded manually. For a version not yet released, use the Linux snapshot
+artifact from the matching `main` commit. See [Linux installation and sandbox diagnostics](docs/linux-desktop.md).
 
 Maket App carries its own runtime — **you do not need Node.js installed**. On
 first launch it offers to wire the AI clients it finds on your machine (Claude

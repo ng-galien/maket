@@ -619,6 +619,45 @@ describe("maket_doc — action=pin/unpin", () => {
 		return { store, bus, documents, call };
 	}
 
+	it("pins workspace items while keeping indexes and templates protected", async () => {
+		const { store, documents, call } = pinFixture([
+			"item",
+			"index",
+			"template",
+		]);
+		const item = documents.resolve("item");
+		const index = documents.resolve("index");
+		const template = documents.resolve("template");
+		if (!item || !index || !template) throw new Error("Missing documents");
+		item.meta.structuredWorkspace = {
+			role: "item",
+			workspaceId: "delivery",
+			collectionId: "backlog",
+			itemId: "item",
+			bindingId: "task",
+		};
+		index.meta.structuredWorkspace = {
+			role: "collection",
+			workspaceId: "delivery",
+			collectionId: "backlog",
+		};
+		template.meta.structuredWorkspace = {
+			role: "template",
+			workspaceId: "delivery",
+			templateRoles: [{ role: "collection", collectionId: "backlog" }],
+		};
+		expect(
+			(await call({ action: "pin", doc: "item" })).isError,
+		).toBeUndefined();
+		expect(store.loadOne("item")?.pinnedAt).toEqual(expect.any(String));
+		expect((await call({ action: "pin", doc: "index" })).isError).toBe(true);
+		expect((await call({ action: "pin", doc: "template" })).isError).toBe(true);
+		expect(documents.list()).toEqual([]);
+		await call({ action: "unpin", doc: "item" });
+		expect(store.loadOne("item")?.pinnedAt).toBeNull();
+		store.close();
+	});
+
 	it("lists pinned documents first, most recently pinned first, and the rest as a category tree", async () => {
 		const { store, bus, documents, call } = pinFixture([
 			"board",

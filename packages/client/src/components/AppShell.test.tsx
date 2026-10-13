@@ -5,7 +5,10 @@ import { setLang } from "../i18n/useT";
 import { useStore } from "../store/useStore";
 import { AppShell } from "./AppShell";
 
-const shellSpies = vi.hoisted(() => ({ collectionAction: vi.fn() }));
+const shellSpies = vi.hoisted(() => ({
+	collectionAction: vi.fn(),
+	libraryOverlay: false,
+}));
 
 vi.mock("./Board", () => ({ Board: () => null }));
 vi.mock("./CollectionWorkspace", () => ({
@@ -16,9 +19,22 @@ vi.mock("./CollectionWorkspace", () => ({
 	),
 	selectCollectionWorkspaceLayout: () => "closed",
 }));
-vi.mock("./LibraryPanel", () => ({
-	LibraryPanel: () => <aside data-library-panel />,
-}));
+vi.mock("./LibraryPanel", async () => {
+	const { useLayoutEffect } = await import("react");
+	return {
+		LibraryPanel: ({
+			onOverlayChange,
+		}: {
+			onOverlayChange?: (overlay: boolean) => void;
+		}) => {
+			useLayoutEffect(
+				() => onOverlayChange?.(shellSpies.libraryOverlay),
+				[onOverlayChange],
+			);
+			return <aside data-library-panel />;
+		},
+	};
+});
 vi.mock("./Popover", () => ({ Popover: () => null }));
 vi.mock("./SettingsPage", () => ({
 	SettingsPage: () => <main data-settings-page />,
@@ -29,6 +45,7 @@ vi.mock("./WorkspaceHeader", () => ({
 
 beforeEach(() => {
 	shellSpies.collectionAction.mockReset();
+	shellSpies.libraryOverlay = false;
 	class ResizeObserverMock {
 		observe() {}
 		disconnect() {}
@@ -88,6 +105,21 @@ describe("AppShell interaction contract", () => {
 		await user.click(collectionCell);
 
 		expect(useStore.getState().libraryOpen).toBe(false);
+		expect(shellSpies.collectionAction).toHaveBeenCalledOnce();
+	});
+
+	it("dismisses a temporary collection overlay on a workspace action while retaining the pin", async () => {
+		const user = userEvent.setup();
+		shellSpies.libraryOverlay = true;
+		useStore.setState({ libraryPinned: true });
+		localStorage.setItem("maket-library-pinned", "true");
+		const { container } = render(<AppShell locked={false} />);
+		const action = container.querySelector("[data-workspace-surface] button");
+		if (!action) throw new Error("Missing collection action");
+		await user.click(action);
+		expect(useStore.getState().libraryOpen).toBe(false);
+		expect(useStore.getState().libraryPinned).toBe(true);
+		expect(localStorage.getItem("maket-library-pinned")).toBe("true");
 		expect(shellSpies.collectionAction).toHaveBeenCalledOnce();
 	});
 

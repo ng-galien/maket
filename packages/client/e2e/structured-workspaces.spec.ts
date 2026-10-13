@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import {
 	createDocument,
 	expect,
@@ -6,8 +7,48 @@ import {
 	test,
 } from "./workspace-test";
 
+async function checkReaderRoundTrip(
+	page: Page,
+	docName: string,
+	layout: "single" | "split",
+) {
+	const navigation = page.locator("[data-structured-navigation]");
+	const pane = navigation.locator("[data-structured-item-pane]");
+	if (
+		(await pane
+			.locator("[data-collection-document-mode]")
+			.getAttribute("data-collection-document-mode")) === "canvas"
+	) {
+		await pane
+			.getByRole("button", { name: "Reading view", exact: true })
+			.click();
+	}
+	await pane.getByRole("link", { name: "Read delivery notes" }).click();
+	await expect(pane.locator("[data-reader-page-title]")).toHaveText([
+		"Overview",
+		"Delivery notes",
+	]);
+	const toggle = page.locator("[data-workspace-layout-toggle]");
+	await toggle.click();
+	await expect(navigation).toHaveAttribute(
+		"data-layout",
+		layout === "split" ? "single" : "split",
+	);
+	await expect(pane.locator(`[data-doc="${docName}"]`)).toBeVisible();
+	await expect(pane.locator("[data-page-view='1']")).toHaveAttribute(
+		"data-active-page",
+		"true",
+	);
+	await toggle.click();
+	await expect(navigation).toHaveAttribute("data-layout", layout);
+	await expect(pane.locator("[data-page-view='1']")).toHaveAttribute(
+		"data-active-page",
+		"true",
+	);
+}
+
 test.describe("Structured Workspace", () => {
-	test("opens an item from its rendered collection action", async ({
+	test("navigates between indexes and one current item in split and single views", async ({
 		mcp,
 		page,
 	}) => {
@@ -22,10 +63,22 @@ test.describe("Structured Workspace", () => {
 			html: '<main data-id="board"><section data-id="items" data-maket-structured-items="task"></section></main>',
 		});
 		await createDocument(mcp, compactTemplate, {
-			html: '<article data-id="card" data-maket-compact-root><h2 data-id="title">{{ state.title }}</h2><button data-id="open" type="button" data-maket-action="open-document">Open item</button></article>',
+			html: '<article data-id="card" data-maket-compact-root><h2 data-id="title">{{ state.title }}</h2><button data-id="open" type="button" data-maket-action="open-document">Open {{ state.title }}</button></article>',
 		});
 		await createDocument(mcp, detailTemplate, {
-			html: '<main data-id="detail"><h1 data-id="title">{{ state.title }}</h1><p data-id="proof">Detail opened from collection</p></main>',
+			html: '<main data-id="detail"><h1 data-id="title">{{ state.title }}</h1><p data-id="proof">Detail opened from collection</p><a data-id="notes-link" href="#page=2">Read delivery notes</a></main>',
+		});
+		await mcp.call("maket_page", {
+			action: "rename",
+			doc: detailTemplate,
+			page: 1,
+			name: "Overview",
+		});
+		await mcp.call("maket_page", {
+			action: "add",
+			doc: detailTemplate,
+			name: "Delivery notes",
+			html: '<main data-id="notes"><h2 data-id="notes-title">Delivery notes for {{ state.title }}</h2></main>',
 		});
 		await mcp.call("maket_structured_workspace", {
 			action: "create",
@@ -71,6 +124,16 @@ test.describe("Structured Workspace", () => {
 			data: { kind: "task", title: "Ship the release" },
 		});
 
+		await mcp.call("maket_structured_workspace", {
+			action: "add_item",
+			workspace: workspaceName,
+			item: "review",
+			collection: "backlog",
+			binding: "task",
+			document_name: "Review the release",
+			data: { kind: "task", title: "Review the release" },
+		});
+
 		const library = await openLibraryView(page, "structured-workspaces");
 		const workspace = library
 			.locator("[data-structured-workspace]")
@@ -82,13 +145,261 @@ test.describe("Structured Workspace", () => {
 		await expect(
 			page.locator(`[data-doc="${collectionDocument}"]`),
 		).toBeVisible();
-		await page.getByRole("button", { name: "Open item" }).click();
+		await page
+			.getByRole("button", { name: "Open Ship the release", exact: true })
+			.click();
 
 		const detail = page.locator(`[data-doc="${itemDocument}"]`);
 		await expect(detail).toBeVisible();
 		await expect(
 			detail.getByText("Detail opened from collection"),
 		).toBeVisible();
+		const navigation = page.locator("[data-structured-navigation]");
+		await expect(navigation).toHaveAttribute("data-layout", "split");
+		await expect(
+			library.locator("[data-structured-item], [data-structured-definition]"),
+		).toHaveCount(0);
+		const indexPane = navigation.locator("[data-structured-index-pane]");
+		const itemPane = navigation.locator("[data-structured-item-pane]");
+		await expect(async () => {
+			const [left, right] = await navigation
+				.locator("[data-structured-index-pane], [data-structured-item-pane]")
+				.evaluateAll((panes) =>
+					panes.map((pane) => {
+						const bounds = pane.getBoundingClientRect();
+						return { left: bounds.left, right: bounds.right };
+					}),
+				);
+			expect(left && right && left.right <= right.left + 1).toBe(true);
+		}).toPass();
+
+		// Reader starts with native scrolling; opt in to canvas wheel zoom per pane.
+		const zoom = (pane: typeof indexPane) =>
+			pane
+				.locator("[data-reader-zoom]")
+				.evaluate((node) => (node as HTMLElement).style.zoom);
+		await indexPane
+			.locator("[data-collection-document-mode]")
+			.getByRole("button", { name: "Canvas view", exact: true })
+			.click();
+		await itemPane
+			.getByRole("button", { name: "Canvas view", exact: true })
+			.click();
+		await expect(library).toHaveAttribute("data-library-mode", "compact");
+		await expect(async () => {
+			const bounds = await indexPane.boundingBox();
+			expect(bounds?.width).toBeGreaterThan(220);
+		}).toPass();
+		const wheel = async (pane: typeof indexPane, delta: number) => {
+			const bounds = await pane
+				.locator("[data-reading-workspace]")
+				.boundingBox();
+			if (!bounds) throw new Error("Missing reader pane");
+			await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + 200);
+			await page.mouse.wheel(0, delta);
+		};
+		const rightBefore = await zoom(itemPane);
+		const leftInitial = await zoom(indexPane);
+		await wheel(indexPane, -100);
+		await expect
+			.poll(async () => Number(await zoom(indexPane)))
+			.toBeGreaterThan(Number(leftInitial));
+		expect(await zoom(itemPane)).toBe(rightBefore);
+		const leftBefore = await zoom(indexPane);
+		await wheel(itemPane, -100);
+		await expect
+			.poll(async () => Number(await zoom(itemPane)))
+			.toBeGreaterThan(Number(rightBefore));
+		expect(await zoom(indexPane)).toBe(leftBefore);
+		await expect(navigation.locator("[data-reader-zoom-controls]")).toHaveCount(
+			0,
+		);
+		// Panning is local to the zoomed pane; controls and forms remain clickable.
+		const rightRoot = itemPane.locator("[data-reading-workspace]");
+		for (let step = 0; step < 8; step++) await wheel(itemPane, -100);
+		await expect(rightRoot).toHaveAttribute("data-reader-pannable", "");
+		const beforePan = await rightRoot.evaluate((root) => root.scrollTop);
+		const indexScroll = await indexPane
+			.locator("[data-reading-workspace]")
+			.evaluate((root) => root.scrollTop);
+		const panBounds = await rightRoot.boundingBox();
+		if (!panBounds) throw new Error("Missing reader pane");
+		await page.mouse.move(panBounds.x + 70, panBounds.y + 240);
+		await page.mouse.down();
+		await page.mouse.move(panBounds.x + 30, panBounds.y + 160, { steps: 5 });
+		await page.mouse.up();
+		expect(await rightRoot.evaluate((root) => root.scrollTop)).toBeGreaterThan(
+			beforePan,
+		);
+		expect(
+			await indexPane
+				.locator("[data-reading-workspace]")
+				.evaluate((root) => root.scrollTop),
+		).toBe(indexScroll);
+		const pointX = panBounds.x + 150,
+			pointY = panBounds.y + 250;
+		const pointInDocument = async () =>
+			itemPane.locator("[data-reader-zoom]").evaluate(
+				(node, point) => {
+					const bounds = node.getBoundingClientRect();
+					const scale = Number((node as HTMLElement).style.zoom);
+					return {
+						x: (point.x - bounds.left) / scale,
+						y: (point.y - bounds.top) / scale,
+					};
+				},
+				{ x: pointX, y: pointY },
+			);
+		const anchorBefore = await pointInDocument();
+		const zoomBefore = await zoom(itemPane);
+		await page.mouse.move(pointX, pointY);
+		await page.mouse.wheel(0, 100);
+		await expect
+			.poll(async () => Number(await zoom(itemPane)))
+			.toBeLessThan(Number(zoomBefore));
+		const anchorAfter = await pointInDocument();
+		expect(Math.abs(anchorAfter.x - anchorBefore.x)).toBeLessThan(2);
+		expect(Math.abs(anchorAfter.y - anchorBefore.y)).toBeLessThan(2);
+		await itemPane.getByRole("button", { name: /^Fit/ }).click();
+		// A keyboard shortcut targets the focused pane only.
+		await page.mouse.click(panBounds.x + 70, panBounds.y + 240);
+		const indexZoom = await zoom(indexPane);
+		const itemZoom = await zoom(itemPane);
+		await page.keyboard.press("+");
+		expect(await zoom(indexPane)).toBe(indexZoom);
+		expect(Number(await zoom(itemPane))).toBeGreaterThan(Number(itemZoom));
+		await itemPane.getByRole("button", { name: /^Fit/ }).click();
+		const separator = navigation.getByRole("separator", {
+			name: "Resize index and item panels",
+		});
+		await separator.focus();
+		await separator.press("ArrowRight");
+		await expect(separator).toHaveAttribute("aria-valuenow", "30");
+		const grip = await separator.boundingBox();
+		if (!grip) throw new Error("Missing split handle");
+		await page.mouse.move(grip.x + grip.width / 2, grip.y + 120);
+		await page.mouse.down();
+		await page.mouse.move(grip.x + 100, grip.y + 120, { steps: 5 });
+		await page.mouse.up();
+		expect(
+			Number(await separator.getAttribute("aria-valuenow")),
+		).toBeGreaterThan(30);
+		await separator.dblclick();
+		await expect(separator).toHaveAttribute("aria-valuenow", "28");
+		await checkReaderRoundTrip(page, itemDocument, "split");
+
+		// Pins are durable collection shortcuts, not a second list of all items.
+		await itemPane
+			.getByRole("button", { name: `Pin ${itemDocument}`, exact: true })
+			.click();
+		await expect(
+			itemPane.getByRole("button", {
+				name: `Unpin ${itemDocument}`,
+				exact: true,
+			}),
+		).toBeVisible();
+		const pinSnapshot = await mcp.callJson<{
+			items: { documentName: string; pinnedAt?: string }[];
+		}>("maket_structured_workspace", {
+			action: "view",
+			workspace: workspaceName,
+		});
+		expect(
+			pinSnapshot.items.find((item) => item.documentName === itemDocument)
+				?.pinnedAt,
+		).toBeTruthy();
+		const pinLibrary = await openLibraryView(page, "structured-workspaces");
+		const pinnedRow = pinLibrary
+			.locator("[data-structured-item]")
+			.filter({ hasText: itemDocument });
+		await expect(pinnedRow).toBeVisible();
+		await pinnedRow
+			.getByRole("button", { name: `Unpin ${itemDocument}`, exact: true })
+			.click();
+		await expect(pinnedRow).toHaveCount(0);
+		await expect(
+			itemPane.locator(`[data-doc="${itemDocument}"]`),
+		).toBeVisible();
+		await mcp.call("maket_doc", { action: "pin", doc: itemDocument });
+
+		await indexPane
+			.getByRole("button", { name: "Open Review the release", exact: true })
+			.click();
+		await expect(
+			itemPane.locator('[data-doc="Review the release"]'),
+		).toBeVisible();
+		await expect(
+			navigation.locator('[data-doc="Ship the release"]'),
+		).toHaveCount(0);
+		await expect(navigation.locator("[data-doc]")).toHaveCount(2);
+		await itemPane
+			.getByRole("button", { name: "Close Review the release", exact: true })
+			.click();
+		await expect(navigation).toHaveAttribute("data-layout", "split");
+		await expect(navigation.locator("[data-structured-item-pane]")).toHaveCount(
+			1,
+		);
+		await expect(itemPane.locator("[data-doc]")).toHaveCount(0);
+		await page.locator("[data-workspace-layout-toggle]").click();
+		await expect(navigation).toHaveAttribute("data-layout", "single");
+		await indexPane
+			.getByRole("button", { name: "Open Ship the release", exact: true })
+			.click();
+		await expect(navigation).toHaveAttribute("data-layout", "single");
+		await expect(indexPane).toBeHidden();
+		await expect(navigation.locator("[data-doc]:visible")).toHaveCount(1);
+		await checkReaderRoundTrip(page, itemDocument, "single");
+		await itemPane
+			.getByRole("button", { name: "Close Ship the release", exact: true })
+			.click();
+		await expect(indexPane).toBeVisible();
+		await expect(navigation.locator("[data-structured-item-pane]")).toHaveCount(
+			0,
+		);
+		await page.locator("[data-workspace-layout-toggle]").click();
+		await indexPane
+			.getByRole("button", { name: "Open Ship the release", exact: true })
+			.click();
+
+		await expect(
+			itemPane.locator(`[data-doc="${itemDocument}"]`),
+		).toBeVisible();
+		await page.reload();
+		await expect(page.locator("[data-structured-navigation]")).toHaveAttribute(
+			"data-layout",
+			"split",
+		);
+		await expect(
+			indexPane.locator(`[data-doc="${collectionDocument}"]`),
+		).toBeVisible();
+		await expect(
+			itemPane.locator(`[data-doc="${itemDocument}"]`),
+		).toBeVisible();
+
+		await expect(
+			itemPane.getByRole("button", {
+				name: `Unpin ${itemDocument}`,
+				exact: true,
+			}),
+		).toBeVisible();
+		await itemPane
+			.getByRole("button", { name: `Close ${itemDocument}`, exact: true })
+			.click();
+		const restoredLibrary = await openLibraryView(
+			page,
+			"structured-workspaces",
+		);
+		await restoredLibrary
+			.locator("[data-structured-item]")
+			.getByRole("button", { name: itemDocument, exact: true })
+			.click();
+		await expect(
+			itemPane.locator(`[data-doc="${itemDocument}"]`),
+		).toBeVisible();
+		await page.screenshot({
+			path: "/private/tmp/maket-workspace-navigation-split.png",
+		});
+
 		const picker = page
 			.locator("[data-workspace-header]")
 			.getByRole("button", { name: "Document", exact: true });
@@ -100,7 +411,7 @@ test.describe("Structured Workspace", () => {
 			).toBeVisible();
 			await expect(
 				menu.locator(`[data-open-document-pin="${name}"]`),
-			).toHaveCount(0);
+			).toHaveCount(name === itemDocument ? 1 : 0);
 		}
 		await picker.press("Escape");
 		await expect(menu).toHaveCount(0);

@@ -1,4 +1,11 @@
-import { BookOpen, Lock, Maximize, Unlock } from "lucide-react";
+import {
+	BookOpen,
+	Lock,
+	Maximize,
+	PanelLeft,
+	Square,
+	Unlock,
+} from "lucide-react";
 import { openReadingView } from "../desktopCommands";
 import { useT } from "../i18n/useT";
 import { browserPath } from "../lib/browserBasePath";
@@ -9,8 +16,9 @@ import { sendLockDoc, sendPinDoc } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
 import { CollectionDockButton } from "./CollectionDataControls";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
-import { ReaderDocumentPicker } from "./ReadingWorkspace";
+import { fitReadingDocument, ReaderDocumentPicker } from "./ReadingWorkspace";
 import { StateDockButton } from "./StateDataControls";
+import { selectStructuredCollectionNavigation } from "./StructuredCollectionWorkspace";
 import { WORKSPACE_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
 
 /** Stable document toolbar composed from the existing commands. */
@@ -26,6 +34,7 @@ export function WorkspaceHeader({
 	const focusedDoc = useFocusedDoc();
 	const docs = useStore((state) => state.docs);
 	const docList = useStore((state) => state.docList);
+	const workspaces = useStore((state) => state.structuredWorkspaces);
 	const readOnly = useStore((state) => state.readOnly);
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
@@ -36,7 +45,7 @@ export function WorkspaceHeader({
 	const settingsOpen = useStore((state) => state.settingsOpen);
 	const closeSettings = useStore((state) => state.closeSettings);
 	const macDesktop = window.maketDesktop?.platform === "darwin";
-	const openDocumentNames = workspaceDocNames.filter((name) => docs.has(name));
+	const openDocumentNames = workspaceDocNames;
 	const openDocuments = openDocumentNames.flatMap((name) => {
 		const doc = docs.get(name);
 		return doc
@@ -44,13 +53,28 @@ export function WorkspaceHeader({
 					{
 						name: doc.name,
 						category: doc.category,
-						canPin: !doc.meta?.structuredWorkspace,
+						canPin:
+							!doc.meta?.structuredWorkspace ||
+							doc.meta.structuredWorkspace.role === "item",
 						pinned: Boolean(
-							docList.find((entry) => entry.name === name)?.pinnedAt,
+							docList.find((entry) => entry.name === name)?.pinnedAt ||
+								workspaces.some((workspace) =>
+									workspace.items.some(
+										(item) => item.documentName === name && item.pinnedAt,
+									),
+								),
 						),
 					},
 				]
-			: [];
+			: [
+					{
+						name,
+						category:
+							docList.find((entry) => entry.name === name)?.category ?? "",
+						canPin: false,
+						pinned: false,
+					},
+				];
 	});
 	const headerClassName = `flex h-14 min-w-0 shrink-0 items-center gap-2.5 border-b border-border bg-panel pr-3 ${
 		macDesktop ? "pl-[86px]" : "pl-3"
@@ -115,7 +139,7 @@ export function WorkspaceHeader({
 					data-document-context
 					className="flex min-w-0 flex-1 items-center gap-2"
 				>
-					<DocumentBreadcrumb category={focusedDoc?.category} />
+					<DocumentBreadcrumb doc={focusedDoc} />
 					<span aria-hidden="true" className="shrink-0 text-text-3/70">
 						/
 					</span>
@@ -133,8 +157,12 @@ export function WorkspaceHeader({
 										openDocumentNames.filter(
 											(name) => name !== focusedDoc.name,
 										),
+										{ returnToCollection: false },
 									),
-								closeAll: () => closeWorkspaceDocuments(openDocumentNames),
+								closeAll: () =>
+									closeWorkspaceDocuments(openDocumentNames, {
+										returnToCollection: false,
+									}),
 							}}
 							variant="header"
 							className="min-w-0 max-w-[min(32vw,28rem)] shrink"
@@ -166,10 +194,21 @@ export function WorkspaceHeader({
 	);
 }
 
-function DocumentBreadcrumb({ category }: { category?: string }) {
+function DocumentBreadcrumb({ doc }: { doc: Document | null }) {
 	const t = useT();
 	const filterByCategory = useStore((state) => state.filterDocumentsByCategory);
-	const categorySegments = category?.split("/").filter(Boolean) ?? [];
+	const filterWorkspaces = useStore(
+		(state) => state.filterStructuredWorkspaces,
+	);
+	const ownership = doc?.meta?.structuredWorkspace;
+	const categorySegments = doc?.category?.split("/").filter(Boolean) ?? [];
+	const navigate = (path: string, index: number) => {
+		if (ownership) {
+			filterWorkspaces(index > 1 ? ownership.workspaceId : null);
+		} else {
+			filterByCategory(path);
+		}
+	};
 	const crumbs = [
 		{ segment: "Maket", path: "", displayPath: "" },
 		...categorySegments.map((segment, index) => ({
@@ -202,16 +241,25 @@ function DocumentBreadcrumb({ category }: { category?: string }) {
 					)}
 					{index === 0 ? (
 						<MaketBrandButton
-							onClick={() => filterByCategory(path)}
-							ariaLabel={t("clear_document_category_filters")}
+							onClick={() => navigate(path, index)}
+							ariaLabel={t(
+								ownership
+									? "clear_workspace_filters"
+									: "clear_document_category_filters",
+							)}
 						/>
 					) : (
 						<button
 							type="button"
-							onClick={() => filterByCategory(path)}
-							aria-label={t("filter_documents_by_category", {
-								category: displayPath,
-							})}
+							onClick={() => navigate(path, index)}
+							aria-label={t(
+								ownership
+									? "filter_workspaces_by_category"
+									: "filter_documents_by_category",
+								{
+									category: displayPath,
+								},
+							)}
 							className="min-w-0 truncate rounded-sm transition-colors duration-100 hover:text-text-1 hover:underline hover:underline-offset-2"
 						>
 							{segment}
@@ -251,6 +299,39 @@ function MaketBrandButton({
 
 function ReadingButton({ doc }: { doc: Document }) {
 	const t = useT();
+	const hasCollectionNavigation = useStore((state) =>
+		Boolean(selectStructuredCollectionNavigation(state)),
+	);
+	const layout = useStore((state) => state.structuredWorkspaceLayout);
+	const setLayout = useStore((state) => state.setStructuredWorkspaceLayout);
+	if (hasCollectionNavigation) {
+		const split = layout === "split";
+		const label = t("workspace_display_toggle", {
+			current: t(
+				split ? "structured_navigation_split" : "structured_navigation_single",
+			),
+			next: t(
+				split ? "structured_navigation_single" : "structured_navigation_split",
+			),
+		});
+		return (
+			<button
+				type="button"
+				data-workspace-layout-toggle
+				aria-label={label}
+				aria-pressed={split}
+				title={label}
+				onClick={() => setLayout(split ? "single" : "split")}
+				className={WORKSPACE_ICON_BUTTON_CLASS}
+			>
+				{split ? (
+					<PanelLeft size={19} strokeWidth={1.8} />
+				) : (
+					<Square size={19} strokeWidth={1.8} />
+				)}
+			</button>
+		);
+	}
 	return (
 		<button
 			type="button"
@@ -267,10 +348,16 @@ function ReadingButton({ doc }: { doc: Document }) {
 
 function FitButton() {
 	const t = useT();
+	const doc = useFocusedDoc();
+	const ownership = doc?.meta?.structuredWorkspace;
 	return (
 		<button
 			type="button"
-			onClick={fitToView}
+			onClick={() =>
+				ownership && ownership.role !== "template" && doc
+					? fitReadingDocument(doc.name)
+					: fitToView()
+			}
 			title={t("fit")}
 			aria-label={t("fit")}
 			className={WORKSPACE_ICON_BUTTON_CLASS}

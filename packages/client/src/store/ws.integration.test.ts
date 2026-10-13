@@ -1,5 +1,6 @@
 import type {
 	Collection,
+	StructuredWorkspaceView,
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
@@ -1202,5 +1203,329 @@ describe("doc_pinned", () => {
 			pinnedAt: "2026-10-10T09:00:00.000Z",
 		});
 		expect(useStore.getState().docList).toBe(before);
+	});
+});
+
+describe("structured navigation loads", () => {
+	function snapshot(): StructuredWorkspaceView {
+		return {
+			id: "nav",
+			name: "Navigation",
+			dataSchema: {},
+			representationSchema: { version: 1 as const, collections: {} },
+			revision: 1,
+			collectionDocuments: [
+				{ collectionId: "items", documentId: "index", documentName: "Index" },
+			],
+			templateDocuments: [],
+			items: ["First", "Second"].map((name, position) => ({
+				id: name,
+				position,
+				collectionId: "items",
+				bindingId: "item",
+				documentId: name,
+				documentName: name,
+				data: {},
+				dataRevision: 1,
+			})),
+			integrity: { status: "ready" as const, issues: [] },
+			createdAt: "2026-10-11",
+			updatedAt: "2026-10-11",
+		};
+	}
+	function owned(name: string, role: "collection" | "item"): Document {
+		return {
+			...doc(name),
+			meta: {
+				structuredWorkspace:
+					role === "collection"
+						? { role, workspaceId: "nav", collectionId: "items" }
+						: {
+								role,
+								workspaceId: "nav",
+								collectionId: "items",
+								itemId: name,
+								bindingId: "item",
+							},
+			},
+		};
+	}
+
+	it("restores saved owned documents when the server has no free initial document", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		useStore.setState({
+			workspaceDocNames: ["Index", "First"],
+			focusedDocName: "First",
+		});
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.emit({
+			type: "state",
+			doc: null,
+			docList: [],
+			charteCss: "",
+			structuredWorkspaces: [snapshot()],
+		});
+		const loads = socket
+			.sentPayloads()
+			.filter((message) => message.type === "load_document");
+		expect(loads).toEqual(
+			["Index", "First"].map((name) => ({
+				type: "load_document",
+				name,
+				structuredWorkspace: { workspaceId: "nav", collectionId: "items" },
+			})),
+		);
+		expect(useStore.getState().workspaceHydrated).toBe(false);
+		for (const name of ["Index", "First"])
+			socket.emit({
+				type: "state",
+				doc: owned(name, name === "Index" ? "collection" : "item"),
+				docList: [],
+				charteCss: "",
+				addToWorkspace: true,
+				focus: true,
+			});
+		expect(useStore.getState()).toMatchObject({
+			workspaceDocNames: ["Index", "First"],
+			focusedDocName: "First",
+			activeStructuredWorkspaceId: "nav",
+			activeStructuredCollectionId: "items",
+			workspaceHydrated: true,
+		});
+	});
+
+	it.each(["close-all", "context-switch"])(
+		"does not reopen a late background index after %s",
+		async (action) => {
+			const { initWs, useStore, sendBackgroundLoadDoc } = await freshWsModule();
+			initWs();
+			const socket = MockWebSocket.last();
+			socket.open();
+			socket.emit({
+				type: "state",
+				doc: null,
+				docList: [],
+				charteCss: "",
+				structuredWorkspaces: [snapshot()],
+			});
+			useStore.setState({
+				workspaceDocNames: ["Index"],
+				docs: new Map([["Index", owned("Index", "collection")]]),
+				focusedDocName: "Index",
+			});
+			sendBackgroundLoadDoc("Index", {
+				workspaceId: "nav",
+				collectionId: "items",
+			});
+			useStore
+				.getState()
+				.closeWorkspaceDocuments(["Index"], { returnToCollection: false });
+			if (action === "context-switch")
+				useStore.getState().upsertDoc(doc("Free"), [], "", true, true, true);
+			socket.emit({
+				type: "state",
+				doc: owned("Index", "collection"),
+				docList: [],
+				charteCss: "",
+				addToWorkspace: true,
+				focus: true,
+			});
+			expect(useStore.getState().workspaceDocNames).toEqual(
+				action === "close-all" ? [] : ["Free"],
+			);
+			expect(useStore.getState().focusedDocName).toBe(
+				action === "close-all" ? null : "Free",
+			);
+		},
+	);
+
+	it.each([
+		{ kind: "owned", openings: 1 },
+		{ kind: "free", openings: 1 },
+		{ kind: "owned", openings: 3 },
+		{ kind: "free", openings: 3 },
+	])(
+		"does not reopen $openings cancelled explicit $kind loads after Close all",
+		async ({ kind, openings }) => {
+			const { initWs, useStore, sendLoadDoc } = await freshWsModule();
+			initWs();
+			const socket = MockWebSocket.last();
+			socket.open();
+			socket.emit({
+				type: "state",
+				doc: null,
+				docList: [],
+				charteCss: "",
+				structuredWorkspaces: [snapshot()],
+			});
+			const index = owned("Index", "collection");
+			useStore.setState({
+				workspaceDocNames: ["Index"],
+				docs: new Map([["Index", index]]),
+				focusedDocName: "Index",
+				activeStructuredWorkspaceId: "nav",
+				activeStructuredCollectionId: "items",
+				structuredWorkspaceLayout: "split",
+			});
+			for (let attempt = 0; attempt < openings; attempt++)
+				sendLoadDoc(
+					"First",
+					kind === "owned"
+						? { workspaceId: "nav", collectionId: "items" }
+						: undefined,
+				);
+			useStore
+				.getState()
+				.closeWorkspaceDocuments(["Index"], { returnToCollection: false });
+			// Non-opening broadcasts must not consume an explicit load reply.
+			socket.emit({
+				type: "state",
+				doc: kind === "owned" ? owned("First", "item") : doc("First"),
+				docList: [],
+				charteCss: "",
+				addToWorkspace: false,
+				focus: false,
+			});
+			for (let reply = 0; reply < openings; reply++) {
+				socket.emit({
+					type: "state",
+					doc: kind === "owned" ? owned("First", "item") : doc("First"),
+					docList: [],
+					charteCss: "",
+					addToWorkspace: true,
+					focus: true,
+				});
+				expect(useStore.getState().workspaceDocNames).toEqual([]);
+				expect(useStore.getState().focusedDocName).toBeNull();
+			}
+
+			// A fresh explicit opening remains possible after cancellation.
+			sendLoadDoc(
+				"First",
+				kind === "owned"
+					? { workspaceId: "nav", collectionId: "items" }
+					: undefined,
+			);
+			socket.emit({
+				type: "state",
+				doc: kind === "owned" ? owned("First", "item") : doc("First"),
+				docList: [],
+				charteCss: "",
+				addToWorkspace: true,
+				focus: true,
+			});
+			expect(useStore.getState().focusedDocName).toBe("First");
+		},
+	);
+
+	it("keeps the open index and child while switching Reader documents", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.emit({
+			type: "state",
+			doc: null,
+			docList: [],
+			charteCss: "",
+			structuredWorkspaces: [snapshot()],
+		});
+		useStore.setState({
+			workspaceDocNames: ["Index", "First"],
+			docs: new Map([
+				["Index", owned("Index", "collection")],
+				["First", owned("First", "item")],
+			]),
+			focusedDocName: "First",
+			workspaceView: "reading",
+		});
+		useStore.getState().openWorkspaceDocument("Index");
+		expect(useStore.getState().workspaceDocNames).toEqual(["Index", "First"]);
+		expect(useStore.getState().focusedDocName).toBe("Index");
+		useStore.getState().openWorkspaceDocument("First");
+		expect(useStore.getState().focusedDocName).toBe("First");
+		expect(
+			socket
+				.sentPayloads()
+				.filter((message) => message.type === "load_document"),
+		).toHaveLength(0);
+	});
+
+	it("recovers ownership for a named document opening in Reader", async () => {
+		const { initWs, useStore } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.emit({
+			type: "state",
+			doc: null,
+			docList: [],
+			charteCss: "",
+			structuredWorkspaces: [snapshot()],
+		});
+		useStore.setState({
+			workspaceDocNames: ["Free"],
+			docs: new Map([["Free", doc("Free")]]),
+			focusedDocName: "Free",
+			workspaceView: "reading",
+		});
+		useStore.getState().openWorkspaceDocument("First");
+		expect(
+			socket
+				.sentPayloads()
+				.filter((message) => message.type === "load_document"),
+		).toEqual([
+			{
+				type: "load_document",
+				name: "Index",
+				structuredWorkspace: { workspaceId: "nav", collectionId: "items" },
+			},
+			{
+				type: "load_document",
+				name: "First",
+				structuredWorkspace: { workspaceId: "nav", collectionId: "items" },
+			},
+		]);
+	});
+
+	it("ignores a late load of the previously requested child", async () => {
+		const { initWs, useStore, sendLoadDoc } = await freshWsModule();
+		useStore.setState({
+			workspaceDocNames: ["Index"],
+			focusedDocName: "Index",
+			structuredWorkspaceLayout: "split",
+			structuredWorkspaces: [snapshot()],
+		});
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		socket.emit({
+			type: "state",
+			doc: owned("Index", "collection"),
+			docList: [],
+			charteCss: "",
+		});
+		sendLoadDoc("First", { workspaceId: "nav", collectionId: "items" });
+		sendLoadDoc("Second", { workspaceId: "nav", collectionId: "items" });
+		socket.emit({
+			type: "state",
+			doc: owned("Second", "item"),
+			docList: [],
+			charteCss: "",
+			addToWorkspace: true,
+			focus: true,
+		});
+		socket.emit({
+			type: "state",
+			doc: owned("First", "item"),
+			docList: [],
+			charteCss: "",
+			addToWorkspace: true,
+			focus: true,
+		});
+		expect(useStore.getState().workspaceDocNames).toEqual(["Index", "Second"]);
+		expect(useStore.getState().focusedDocName).toBe("Second");
 	});
 });

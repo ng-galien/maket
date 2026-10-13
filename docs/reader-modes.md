@@ -12,9 +12,31 @@ model or persist a reader-specific copy.
 | Reader | Connected | Locked | Disabled | Disabled | Live |
 | Reader | Static bundle | Read-only | Disabled | Local, not saved | Live snapshot |
 
-Reader never exposes selection, annotation, text/template editing, structural
-changes, author diagnostics, safe margins, pending markers, or collection
-binding controls. Changing document focus is navigation, not authoring.
+Reader does not expose text/template editing, structural changes, author
+diagnostics, safe margins, or collection binding controls. In a connected,
+writable document, the explicit **Annotate** toggle enables element selection
+and the annotation dialog, with pending annotation markers. It does not enable
+HTML editing or state mutations. Static exports and the linked read-only
+document route cannot create annotations. Changing document focus is navigation.
+
+## Document annotations
+
+In a collection split view, **Annotate** belongs to the detail document's own
+toolbar, not the application's general toolbar. It is scoped to that document;
+the list remains navigable. The standalone connected Reader offers the same
+document tool. While enabled, clicking an element or pressing Enter/Space on a
+focusable element opens a note rather than following its document/page link.
+Drag-to-pan is suspended so the annotation target remains selectable. Turning
+the toggle off closes the dialog and restores navigation without changing any
+saved annotation. Locked and read-only documents do not offer the toggle.
+
+The existing persisted annotation queue is used. An agent reads it through
+`maket_workspace action=list_messages doc=<exact-name>`; omitting `doc` reads all
+pending document and workspace messages. Notes carry `id`, `type`, `docName`,
+`pageIndex` (zero-based), `elementId`, `text`, and `ts`. Read the target HTML and
+human request before making a correction; acknowledge only handled ids with
+`maket_workspace action=ack_messages ids=[...]`. Annotation does not itself
+change a document's content or record a business decision.
 
 A collection-bound template is expanded locally for reading: each saved member
 produces a successive logical page. This does not update the shared collection
@@ -83,3 +105,28 @@ the viewer with a root-relative bundle URL:
 Cross-origin bundle URLs are rejected before fetching. The iframe host should
 set its own sizing policy; the Reader fits fixed-layout pages within the
 available width down to 320 px, and the reader can zoom from there.
+
+## Structured Workspace reading
+
+A structured collection opens as two reading panes: a narrow index on the left
+and one detail document on the right. The index is the collection document,
+not an extra navigation tree. Use a narrow AUTO-format index template when
+composing a menu: its height follows its content and the pane scrolls normally.
+An AUTO index stays one continuous page with all compact items; `pageSize` and
+physical-page pagination apply only to fixed-height collection pages.
+Each document keeps its pages and page links. Opening another item replaces
+the detail while preserving the index and its scroll position; closing the
+detail leaves the index available.
+
+Both panes start fitted in Reader, independently of previously saved document
+zoom. The pane header offers an explicit Canvas navigation mode for wheel zoom
+and drag pan. Switching back to Reader restores the fit and ordinary scrolling.
+This is a transient presentation choice and does not change the document, its
+templates, or its bindings. The separator resizes the panes; its initial index
+width is 28 percent and a double-click returns to that width.
+
+The general toolbar replaces its reading button with one icon-only display toggle in the Structured Workspace context: **Square** means one document and **PanelLeft** means list and detail. The tooltip states the current mode and the available switch. The former view-choice toolbar is removed; the annotation tool stays icon-only in the detail document toolbar. On narrow windows, opening the
+library uses an overlay instead of shrinking both documents below a readable
+width. Selecting a document closes that overlay but preserves the pin choice;
+searching or expanding folders keeps the library open. A wide window retains
+the docked library, using its user-selected width.

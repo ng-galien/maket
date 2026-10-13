@@ -467,13 +467,13 @@ function renderCollection(
 
 interface CollectionCardEntry {
 	item: StructuredWorkspaceItemView;
-	cards: HTMLElement[];
+	cards: Element[];
 	/** Scoped style sheets of the compact templates, by template key. */
 	styles: Map<string, string>;
 }
 
 interface CompactCard {
-	element: HTMLElement;
+	element: Element;
 	style: { key: string; css: string } | null;
 }
 
@@ -489,7 +489,7 @@ interface SlotSegment {
 	groupIndex: number;
 	count: number;
 	continued: boolean;
-	cards: HTMLElement[];
+	cards: Element[];
 }
 
 interface CollectionPageSource {
@@ -503,8 +503,10 @@ interface CollectionPageSource {
  * so a collection re-render after one item change renders one card. */
 type CompactCardCache = Map<
 	string,
-	{ html: string; style: CompactCard["style"] }
+	{ html: string; style: CompactCard["style"]; svg: boolean }
 >;
+
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 
 const MAX_CACHED_COMPACT_CARDS = 5000;
 
@@ -516,9 +518,11 @@ function cachedCompactCard(
 ): CompactCard {
 	const cached = source.compactCards.get(key);
 	if (cached) {
-		const holder = document.createElement("div");
+		const holder = cached.svg
+			? document.createElementNS(SVG_NAMESPACE, "svg")
+			: document.createElement("div");
 		holder.innerHTML = cached.html;
-		const element = holder.firstElementChild as HTMLElement | null;
+		const element = holder.firstElementChild;
 		if (element) return { element, style: cached.style };
 	}
 	const card = render();
@@ -526,6 +530,7 @@ function cachedCompactCard(
 	source.compactCards.set(key, {
 		html: card.element.outerHTML,
 		style: card.style,
+		svg: card.element.namespaceURI === SVG_NAMESPACE,
 	});
 	while (source.compactCards.size > MAX_CACHED_COMPACT_CARDS) {
 		const oldest = source.compactCards.keys().next().value;
@@ -539,6 +544,8 @@ function cachedCompactCard(
  * Compose one collection template page. Each items slot is cut into pages of
  * at most `pageSize` cards when the collection is grouped; each such page then
  * flows onto as many continuation pages as its cards need once laid out.
+ * AUTO pages instead grow with their content: retain groups, but never split
+ * them by card count or physical page height.
  */
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Collection page composition: assembles DOM slots, card groups and the page flow planner, each owning its part.
@@ -557,6 +564,7 @@ function renderCollectionPage(
 	];
 	const compactStyles = new Map<string, string>();
 	const slotPages = slots.map((slot, slotIndex) => {
+		assertSlotGrouping(slot.namespaceURI === SVG_NAMESPACE, collection.groupBy);
 		const entries = collectionCardEntries(
 			deps,
 			source,
@@ -587,7 +595,9 @@ function renderCollectionPage(
 				collection.groupBy,
 				collection.groupOrder ?? [],
 			),
-			collection.pageSize ?? structuredWorkspaceDefaultPageSize,
+			owner.doc.canvas.format === "AUTO"
+				? Number.POSITIVE_INFINITY
+				: (collection.pageSize ?? structuredWorkspaceDefaultPageSize),
 		);
 	});
 	prependCompactStyles(document, compactStyles);
@@ -610,7 +620,9 @@ function renderCollectionPage(
 			return { html: document.body.innerHTML, lists };
 		};
 		const plan =
-			deps.pageFlow && segments.some((slot) => slot.length > 0)
+			owner.doc.canvas.format !== "AUTO" &&
+			deps.pageFlow &&
+			segments.some((slot) => slot.length > 0)
 				? deps.pageFlow.pages({
 						doc: owner.doc,
 						pageKey: `${owner.pageId}#${base}`,
@@ -701,6 +713,7 @@ function collectionCardEntries(
 			const options = {
 				suffix: `${slotIndex}-${pageIndex}`,
 				styleKey: `${safeToken(compact.id)}-${pageIndex}`,
+				svgSlot: slot.namespaceURI === SVG_NAMESPACE,
 			};
 			const key = [
 				compact.id,
@@ -711,6 +724,7 @@ function collectionCardEntries(
 				item.id,
 				item.documentName,
 				item.dataRevision,
+				options.svgSlot,
 			].join("\u0000");
 			return [
 				cachedCompactCard(source, document, key, () =>
@@ -838,14 +852,20 @@ function renderCompactCard(
 	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
-	options: { suffix: string; styleKey: string },
+	options: { suffix: string; styleKey: string; svgSlot: boolean },
 ): CompactCard {
 	const prefix = `structured-${safeToken(item.id)}-${options.suffix}`;
 	const { root, css } = renderedCompactRoot(page, item, schema);
 	prefixDataIds(root, prefix);
 	stripCompactBindings(root);
 	linkCompactActions(root, item.documentName);
-	const element = compactCardWrapper(document, root, item.documentName, prefix);
+	const element = compactCardWrapper(
+		document,
+		root,
+		item.documentName,
+		prefix,
+		options.svgSlot,
+	);
 	if (!css) return { element, style: null };
 	element.setAttribute(compactTemplateAttribute, options.styleKey);
 	return {
@@ -868,7 +888,7 @@ function renderedCompactRoot(
 	page: Pick<Page, "html" | "jsonForms">,
 	item: StructuredWorkspaceItemView,
 	schema: StructuredWorkspaceDataSchema,
-): { root: HTMLElement; css: string } {
+): { root: Element; css: string } {
 	const rendered = renderDocumentStatePage(page, item.data, { schema }).html;
 	const compactDom = parseHTML(
 		`<html><body>${rendered}</body></html>`,
@@ -883,7 +903,7 @@ function renderedCompactRoot(
 		.join("\n");
 	return {
 		root:
-			compactDom.body.querySelector<HTMLElement>("[data-maket-compact-root]") ??
+			compactDom.body.querySelector<Element>("[data-maket-compact-root]") ??
 			compactDom.body,
 		css,
 	};
@@ -903,8 +923,8 @@ function prependCompactStyles(
 	document.body.prepend(...elements);
 }
 
-function stripCompactBindings(compactRoot: HTMLElement): void {
-	for (const binding of compactRoot.querySelectorAll<HTMLElement>(
+function stripCompactBindings(compactRoot: Element): void {
+	for (const binding of compactRoot.querySelectorAll<Element>(
 		"[data-maket-bind], [data-maket-path], [data-maket-type]",
 	)) {
 		binding.removeAttribute("data-maket-bind");
@@ -913,11 +933,8 @@ function stripCompactBindings(compactRoot: HTMLElement): void {
 	}
 }
 
-function linkCompactActions(
-	compactRoot: HTMLElement,
-	documentName: string,
-): void {
-	for (const action of compactRoot.querySelectorAll<HTMLElement>(
+function linkCompactActions(compactRoot: Element, documentName: string): void {
+	for (const action of compactRoot.querySelectorAll<Element>(
 		'[data-maket-action="open-document"]',
 	)) {
 		action.setAttribute("data-maket-document", documentName);
@@ -926,11 +943,15 @@ function linkCompactActions(
 
 function compactCardWrapper(
 	document: ReturnType<typeof parseHTML>["document"],
-	compactRoot: HTMLElement,
+	compactRoot: Element,
 	documentName: string,
 	prefix: string,
-): HTMLElement {
-	const wrapper = document.createElement("article");
+	svgSlot: boolean,
+): Element {
+	assertCompactNamespace(compactRoot, svgSlot);
+	const wrapper = svgSlot
+		? document.createElementNS(SVG_NAMESPACE, "g")
+		: document.createElement("article");
 	wrapper.setAttribute("data-id", `${prefix}-card`);
 	wrapper.setAttribute("data-maket-action", "open-document");
 	wrapper.setAttribute("data-maket-document", documentName);
@@ -941,8 +962,64 @@ function compactCardWrapper(
 	return wrapper;
 }
 
-function prefixDataIds(root: HTMLElement, prefix: string): void {
-	const elements = [root, ...root.querySelectorAll<HTMLElement>("[data-id]")];
+function assertSlotGrouping(
+	svgSlot: boolean,
+	groupBy: string | undefined,
+): void {
+	if (svgSlot && groupBy !== undefined) {
+		throw new Error(
+			"SVG collection slots require explicit SVG groups instead of automatic groupBy.",
+		);
+	}
+}
+
+function assertCompactNamespace(compactRoot: Element, svgSlot: boolean): void {
+	const svgRoot = compactRoot.namespaceURI === SVG_NAMESPACE;
+	if (svgSlot && !svgRoot) {
+		throw new Error("SVG collection slots require an SVG compact root.");
+	}
+	if (!svgSlot && svgRoot && compactRoot.tagName.toLowerCase() !== "svg") {
+		throw new Error(
+			"HTML collection slots require a complete svg compact root.",
+		);
+	}
+}
+
+/** Check the same namespace contract before a definition can be ready, even
+ * when an empty collection has no compact card to render yet. */
+function validateCollectionCardSlots(
+	deps: StructuredWorkspacesDeps,
+	collection: StructuredWorkspaceCollectionRepresentation,
+	html: string,
+): void {
+	const dom = parseHTML(`<html><body>${html}</body></html>`).document;
+	for (const slot of dom.body.querySelectorAll(
+		"[data-maket-structured-items]",
+	)) {
+		const svgSlot = slot.namespaceURI === SVG_NAMESPACE;
+		assertSlotGrouping(svgSlot, collection.groupBy);
+		const bindingId = slot.getAttribute("data-maket-structured-items");
+		for (const [id, binding] of Object.entries(collection.bindings)) {
+			if (bindingId && bindingId !== id) continue;
+			if (!binding.compactTemplateDocumentId) continue;
+			const compact = requiredDocument(
+				deps.documents,
+				binding.compactTemplateDocumentId,
+				"compact template",
+			);
+			for (const page of compact.pages) {
+				if (!page.html && !page.jsonForms) continue;
+				const body = parseHTML(`<html><body>${page.html ?? ""}</body></html>`)
+					.document.body;
+				const root = body.querySelector("[data-maket-compact-root]") ?? body;
+				assertCompactNamespace(root, svgSlot);
+			}
+		}
+	}
+}
+
+function prefixDataIds(root: Element, prefix: string): void {
+	const elements = [root, ...root.querySelectorAll<Element>("[data-id]")];
 	for (const element of elements) {
 		const id = element.getAttribute("data-id");
 		if (id) element.setAttribute("data-id", `${prefix}-${safeToken(id)}`);
@@ -1710,6 +1787,7 @@ function itemView(
 	return {
 		...item,
 		documentName: document.name,
+		...(document.pinnedAt ? { pinnedAt: document.pinnedAt } : {}),
 		data: current.data,
 		dataRevision: current.revision,
 	};
@@ -1924,8 +2002,15 @@ function workspaceIntegrity(
 				for (const page of [
 					...template.pages,
 					...(document !== template ? document.pages : []),
-				])
-					renderDocumentStatePage(page, data, { schema });
+				]) {
+					const rendered = renderDocumentStatePage(page, data, { schema });
+					if (
+						template.pages.includes(page) ||
+						page.provenance?.kind === "instance"
+					) {
+						validateCollectionCardSlots(deps, collection, rendered.html);
+					}
+				}
 			} catch (error) {
 				issues.push(
 					`Collection "${collectionId}": ${error instanceof Error ? error.message : String(error)}`,

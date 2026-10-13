@@ -252,6 +252,41 @@ describe("maket_workspace — action=lock", () => {
 });
 
 describe("maket_workspace — action=list_messages", () => {
+	it("returns only the exact document's annotations when a scope is supplied", async () => {
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		seedAnnotations(store, pending, [
+			{
+				id: "mine",
+				docName: "alpha",
+				type: "note",
+				elementId: "text",
+				pageIndex: 0,
+				text: "Clarify this",
+			},
+			{ id: "other", docName: "beta", text: "Unrelated" },
+			{ id: "workspace", text: "Workspace request" },
+		]);
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
+		const result = await tool.handler(
+			{ action: "list_messages", doc: "alpha" },
+			NO_EXTRA,
+		);
+		expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([
+			expect.objectContaining({
+				id: "mine",
+				docName: "alpha",
+				elementId: "text",
+				pageIndex: 0,
+			}),
+		]);
+		expect(pending.all()).toHaveLength(3);
+		store.close();
+	});
 	it("returns the empty sentinel when nothing is queued", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
 		const tool = createMaketWorkspaceTool({

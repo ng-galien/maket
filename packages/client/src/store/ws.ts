@@ -8,7 +8,10 @@ import type {
 	WorkspaceCommand,
 	WorkspaceSignal,
 } from "@maket/shared";
-import { readJsonPointer } from "@maket/shared";
+import {
+	readJsonPointer,
+	type StructuredWorkspaceRenderTarget,
+} from "@maket/shared";
 import { setLang, type TranslationKey, translate } from "../i18n/useT";
 import { browserBasePath, linkedDocumentId } from "../lib/browserBasePath";
 import type { DocSummary, Document } from "./types";
@@ -36,6 +39,8 @@ export function translateToast(
 
 let ws: WebSocket | null = null;
 const backgroundLoadDocs = new Set<string>();
+const requestedLoadDocs = new Map<string, number>();
+const cancelledLoadDocs = new Set<string>();
 const annotationCreateRequests = new Map<
 	string,
 	{
@@ -300,6 +305,9 @@ function connect(): void {
 
 function handleWsOpen(): void {
 	pendingLoadDoc = null;
+	requestedLoadDocs.clear();
+	cancelledLoadDocs.clear();
+	backgroundLoadDocs.clear();
 	initialStateReceived = false;
 	useStore.getState().setConnected(true);
 	if (!isLinkedReaderPath()) {
@@ -369,7 +377,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			useStore.setState((state) => ({
 				docList: state.docList.filter((doc) => doc.name !== msg.name),
 			}));
-			useStore.getState().closeWorkspaceDocuments([msg.name]);
+			useStore
+				.getState()
+				.closeWorkspaceDocuments([msg.name], { returnToCollection: false });
 			break;
 		case "doc_pinned":
 			useStore.getState().applyDocumentPin(msg.name, msg.pinnedAt);
@@ -459,8 +469,13 @@ function applyStateMessage(
 	}
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
 	if (!doc) {
+		const restore = !initialStateReceived && !isLinkedReaderPath();
 		initialStateReceived = true;
 		useStore.setState({ docList });
+		if (restore) {
+			for (const name of useStore.getState().workspaceDocNames)
+				sendBackgroundLoadDoc(name);
+		}
 		updateWorkspaceHydration();
 		return;
 	}
@@ -472,22 +487,47 @@ function applyStateMessage(
 				(msg.documentState as DocumentStateClientView | null) ?? null,
 			);
 	}
+	const openingState = msg.addToWorkspace !== false;
 	if (!initialStateReceived)
 		applyInitialState(doc, docList, msg.charteCss || "");
 	else {
 		const fillsFocusedPlaceholder =
 			useStore.getState().focusedDocName === doc.name &&
 			!useStore.getState().docs.has(doc.name);
-		const explicitFocus = pendingLoadDoc === doc.name;
-		const backgroundLoad = backgroundLoadDocs.delete(doc.name);
+		const explicitFocus = openingState && pendingLoadDoc === doc.name;
+		const cancelledLoad = cancelledLoadDocs.has(doc.name);
+		const requestedLoads = openingState
+			? (requestedLoadDocs.get(doc.name) ?? 0)
+			: 0;
+		if (openingState) {
+			if (requestedLoads > 1)
+				requestedLoadDocs.set(doc.name, requestedLoads - 1);
+			else {
+				requestedLoadDocs.delete(doc.name);
+				cancelledLoadDocs.delete(doc.name);
+			}
+		}
+		const backgroundLoad = openingState && backgroundLoadDocs.delete(doc.name);
+		const staleNavigation =
+			requestedLoads > 0 &&
+			!explicitFocus &&
+			Boolean(doc.meta?.structuredWorkspace);
 		useStore
 			.getState()
 			.upsertDoc(
 				doc,
 				docList,
 				msg.charteCss || "",
-				msg.addToWorkspace ?? true,
-				backgroundLoad && !explicitFocus ? false : (msg.focus ?? false),
+				cancelledLoad ||
+					staleNavigation ||
+					(backgroundLoad &&
+						!explicitFocus &&
+						!useStore.getState().workspaceDocNames.includes(doc.name))
+					? false
+					: (msg.addToWorkspace ?? true),
+				cancelledLoad || staleNavigation || (backgroundLoad && !explicitFocus)
+					? false
+					: (msg.focus ?? false),
 				explicitFocus,
 			);
 		if (
@@ -500,7 +540,7 @@ function applyStateMessage(
 			});
 		}
 	}
-	if (pendingLoadDoc === doc.name) pendingLoadDoc = null;
+	if (openingState && pendingLoadDoc === doc.name) pendingLoadDoc = null;
 	updateWorkspaceHydration();
 }
 
@@ -508,6 +548,14 @@ function updateWorkspaceHydration(): void {
 	if (!initialStateReceived) return;
 	const state = useStore.getState();
 	const available = new Set(state.docList.map((document) => document.name));
+	for (const workspace of state.structuredWorkspaces) {
+		for (const document of [
+			...workspace.collectionDocuments,
+			...workspace.items,
+			...workspace.templateDocuments,
+		])
+			available.add(document.documentName);
+	}
 	const expected = state.workspaceDocNames.filter((name) =>
 		available.has(name),
 	);
@@ -556,9 +604,36 @@ function applyInitialState(
 	}
 }
 
-function sendBackgroundLoadDoc(name: string): void {
+export function sendBackgroundLoadDoc(
+	name: string,
+	structuredWorkspace?: StructuredWorkspaceRenderTarget,
+): void {
 	backgroundLoadDocs.add(name);
-	wsSend({ type: "load_document", name });
+	if (!structuredWorkspace) {
+		for (const workspace of useStore.getState().structuredWorkspaces) {
+			const owned =
+				workspace.collectionDocuments.find(
+					(index) => index.documentName === name,
+				) ?? workspace.items.find((item) => item.documentName === name);
+			if (
+				owned ||
+				workspace.templateDocuments.some(
+					(template) => template.documentName === name,
+				)
+			) {
+				structuredWorkspace = {
+					workspaceId: workspace.id,
+					...(owned ? { collectionId: owned.collectionId } : {}),
+				};
+				break;
+			}
+		}
+	}
+	wsSend({
+		type: "load_document",
+		name,
+		...(structuredWorkspace ? { structuredWorkspace } : {}),
+	});
 }
 
 function applyCharteUpdated(name: string, css: string): void {
@@ -706,10 +781,31 @@ export function sendLoadDoc(
 	},
 ): boolean {
 	backgroundLoadDocs.delete(name);
+	cancelledLoadDocs.delete(name);
 	pendingLoadDoc = name;
+	requestedLoadDocs.set(name, (requestedLoadDocs.get(name) ?? 0) + 1);
 	const sent = wsSend({ type: "load_document", name, structuredWorkspace });
-	if (!sent) pendingLoadDoc = null;
+	if (!sent) {
+		pendingLoadDoc = null;
+		const remaining = (requestedLoadDocs.get(name) ?? 1) - 1;
+		if (remaining > 0) requestedLoadDocs.set(name, remaining);
+		else requestedLoadDocs.delete(name);
+	}
 	return sent;
+}
+
+/** Closing a navigation context also cancels its in-flight explicit opening.
+ * Keep a marker until the reply arrives: it may update the cache, never reopen. */
+export function cancelDocumentLoads(
+	names: Set<string>,
+	closesAll: boolean,
+): void {
+	for (const name of requestedLoadDocs.keys()) {
+		if (names.has(name) || closesAll) {
+			cancelledLoadDocs.add(name);
+			if (pendingLoadDoc === name) pendingLoadDoc = null;
+		}
+	}
 }
 
 export function clearActivityBubbles(): void {

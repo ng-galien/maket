@@ -40,7 +40,7 @@ Build the layout with `maket_html set`. Pass `context_token` if a charte is load
 ### Step 4 — Iterate
 
 1. `maket_html patch` to refine
-2. `maket_workspace list_messages` for user annotations → process and `maket_workspace ack_messages`
+2. `maket_workspace action=list_messages doc=<exact-name>` for the current document’s user annotations → process and `maket_workspace ack_messages`
 3. Repeat until satisfied
 
 ### Step 5 — Visual review

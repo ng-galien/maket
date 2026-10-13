@@ -292,7 +292,11 @@ export function handlePinDocument(
 	msg: Extract<WorkspaceCommand, { type: "pin_document" }>,
 ): void {
 	const d = ctx.documents.resolve(msg.name);
-	if (!d || d.meta.structuredWorkspace) return;
+	if (
+		!d ||
+		(d.meta.structuredWorkspace && d.meta.structuredWorkspace.role !== "item")
+	)
+		return;
 	const wasPinned = Boolean(d.pinnedAt);
 	const pinned = msg.pinned === true;
 	if (wasPinned === pinned) return;

@@ -284,6 +284,10 @@ button[data-library-pin]:focus-visible {
   outline-color: var(--color-accent);
 }
 
+.page-canvas.is-annotating [data-id] { cursor: crosshair; }
+.page-canvas.is-annotating [data-id]:hover { outline: 2px solid var(--color-accent-border); outline-offset: 2px; }
+.page-canvas.is-annotating [data-id].selected { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
 /* Inline text editing */
 .page-canvas [data-id][contenteditable="true"] {
   outline: 2px solid var(--color-editing) !important;

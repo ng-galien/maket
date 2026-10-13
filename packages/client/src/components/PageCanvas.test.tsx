@@ -190,6 +190,53 @@ describe("PageCanvas toolbar interactions", () => {
 		openDocument.mockRestore();
 	});
 
+	it.each(["canvas", "reader"] as const)(
+		"opens SVG collection cards from their shapes and keyboard on the %s surface",
+		async (surface) => {
+			const openDocument = vi
+				.spyOn(useStore.getState(), "openWorkspaceDocument")
+				.mockImplementation(() => {});
+			const doc = makeDoc(
+				'<svg data-id="map" viewBox="0 0 240 120"><g data-id="card" data-maket-action="open-document" data-maket-document="Ship the release" role="button" tabindex="0"><rect data-id="shape" width="200" height="80" /><text data-id="title" x="10" y="25">Ship SVG card</text></g></svg>',
+			);
+			doc.meta = {
+				structuredWorkspace: {
+					role: "collection",
+					workspaceId: "delivery",
+					collectionId: "backlog",
+				},
+			};
+			const { container } = render(
+				<PageCanvas
+					doc={doc}
+					pageIndex={0}
+					charteCss=""
+					focused={true}
+					policy={presentationPolicy({
+						surface,
+						dataSource: "connected",
+						access: "writable",
+					})}
+				/>,
+			);
+			const shape = container.querySelector('[data-id="shape"]');
+			const card = container.querySelector('[data-id="card"]');
+			if (!shape || !card) throw new Error("SVG collection card missing.");
+			await act(async () => {
+				fireEvent.click(shape);
+				fireEvent.click(screen.getByText("Ship SVG card"));
+				fireEvent.keyDown(card, { key: "Enter" });
+				fireEvent.keyDown(card, { key: " " });
+			});
+			expect(openDocument).toHaveBeenCalledTimes(4);
+			expect(openDocument).toHaveBeenCalledWith("Ship the release", {
+				workspaceId: "delivery",
+				collectionId: "backlog",
+			});
+			openDocument.mockRestore();
+		},
+	);
+
 	it("selects an element and shows the toolbar", async () => {
 		render(
 			<PageCanvas

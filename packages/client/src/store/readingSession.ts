@@ -93,6 +93,8 @@ export function exitReadingSession(): void {
 			: null,
 		showPopover: originalDocumentAvailable ? snapshot.showPopover : false,
 	});
-	if (focusedDocName)
+	if (focusedDocName) {
+		state.setFocusedPage(focusedDocName, focusedPageIndex);
 		requestFit({ docName: focusedDocName, pageIndex: focusedPageIndex });
+	}
 }

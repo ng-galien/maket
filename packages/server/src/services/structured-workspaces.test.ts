@@ -5,7 +5,10 @@ import { createBus } from "./bus.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createSQLiteStore } from "./store.js";
-import { createStructuredWorkspaces } from "./structured-workspaces.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspacesDeps,
+} from "./structured-workspaces.js";
 
 const taskSchema = {
 	type: "object",
@@ -274,6 +277,145 @@ describe("StructuredWorkspaces", () => {
 		expect(rendered.pages[0]?.html).not.toContain("{{ state.title }}");
 		store.close();
 	});
+
+	it.each(["HTML", "SVG"] as const)(
+		"composes a clickable SVG compact card in an %s collection slot, including cached renders",
+		(destination) => {
+			const { store, documents, workspaces, template, workspace } = fixture();
+			const board = createDocument({
+				name: "SVG collection",
+				canvas: template.canvas,
+				pages: [
+					{
+						name: "Map",
+						elements: [],
+						html:
+							destination === "SVG"
+								? '<svg data-id="map" viewBox="0 0 240 120"><g data-maket-structured-items="task"></g></svg>'
+								: '<main data-id="map"><section data-maket-structured-items="task"></section></main>',
+					},
+				],
+			});
+			const compact = createDocument({
+				name: "SVG compact",
+				canvas: template.canvas,
+				pages: [
+					{
+						name: "Card",
+						elements: [],
+						html: `<style>.card-label { font-weight: 600 }</style><svg viewBox="0 0 240 120" ${destination === "HTML" ? 'data-maket-compact-root data-id="compact"' : ""}><g ${destination === "SVG" ? 'data-maket-compact-root data-id="compact"' : ""}><rect data-id="shape" width="200" height="80" /><text data-id="title" class="card-label" x="10" y="25">{{ state.title }}</text></g></svg>`,
+					},
+				],
+			});
+			for (const document of [board, compact]) {
+				documents.all().set(document.name, document);
+				documents.persist(document.name);
+			}
+			workspaces.updateDefinition({
+				workspace: workspace.name,
+				expectedRevision: 1,
+				representationSchema: {
+					version: 1,
+					collections: {
+						backlog: {
+							name: "Backlog",
+							collectionTemplateDocumentId: board.name,
+							bindings: {
+								task: {
+									schemaPath: "/$defs/task",
+									compactTemplateDocumentId: compact.name,
+									detailTemplateDocumentId: template.name,
+								},
+							},
+						},
+					},
+				},
+			});
+			const item = addTask(workspaces);
+			for (let pass = 0; pass < 2; pass += 1) {
+				const rendered = workspaces.renderCollection(workspace.id, "backlog");
+				const dom = parseHTML(
+					`<html><body>${rendered.pages[0]?.html}</body></html>`,
+				).document;
+				const action = dom.querySelector('[data-maket-action="open-document"]');
+				expect(action?.tagName.toLowerCase()).toBe(
+					destination === "SVG" ? "g" : "article",
+				);
+				expect(action?.namespaceURI).toBe(
+					destination === "SVG"
+						? "http://www.w3.org/2000/svg"
+						: "http://www.w3.org/1999/xhtml",
+				);
+				expect(action?.getAttribute("data-maket-document")).toBe(
+					item.documentName,
+				);
+				expect(action?.getAttribute("role")).toBe("button");
+				expect(action?.getAttribute("tabindex")).toBe("0");
+				expect(action?.querySelector("text")?.textContent).toBe("Ship");
+				expect(dom.querySelectorAll("svg article")).toHaveLength(0);
+				expect(dom.querySelector("style")?.textContent).toContain("card-label");
+				expect(rendered.meta.structuredWorkspace).toMatchObject({
+					role: "collection",
+					workspaceId: workspace.id,
+					collectionId: "backlog",
+				});
+			}
+			if (destination === "SVG") {
+				const page = compact.pages[0];
+				if (!page) throw new Error("SVG compact page missing.");
+				const svgHtml = page.html;
+				page.html =
+					'<article data-id="compact" data-maket-compact-root>HTML card</article>';
+				expect(() =>
+					workspaces.renderCollection(workspace.id, "backlog"),
+				).toThrow("SVG collection slots require an SVG compact root.");
+				page.html = svgHtml;
+				const current = workspaces.get(workspace.name);
+				if (!current) throw new Error("SVG workspace missing.");
+				const representationSchema = structuredClone(
+					current.representationSchema,
+				);
+				const collection = representationSchema.collections.backlog;
+				if (!collection) throw new Error("SVG collection missing.");
+				collection.groupBy = "/kind";
+				const updated = workspaces.updateDefinition({
+					workspace: workspace.name,
+					expectedRevision: current.revision,
+					representationSchema,
+				});
+				expect(updated.integrity).toMatchObject({
+					status: "incomplete",
+					issues: [
+						expect.stringContaining(
+							"explicit SVG groups instead of automatic groupBy",
+						),
+					],
+				});
+				expect(workspaces.get(workspace.id)?.integrity).toEqual(
+					updated.integrity,
+				);
+				expect(updated.collectionDocuments).toEqual([]);
+			} else {
+				const page = compact.pages[0];
+				if (!page) throw new Error("SVG compact page missing.");
+				page.html =
+					'<svg><g data-id="compact" data-maket-compact-root><text>Invalid detached SVG card</text></g></svg>';
+				const view = workspaces.get(workspace.id);
+				expect(view?.integrity).toMatchObject({
+					status: "incomplete",
+					issues: [
+						expect.stringContaining(
+							"HTML collection slots require a complete svg compact root",
+						),
+					],
+				});
+				expect(() =>
+					workspaces.renderCollection(workspace.id, "backlog"),
+				).toThrow("HTML collection slots require a complete svg compact root");
+			}
+			store.close();
+		},
+	);
 
 	it("updates item data with optimistic revisions", () => {
 		const { store, documentStates, workspaces } = fixture();
@@ -804,11 +946,17 @@ describe("StructuredWorkspaces", () => {
 });
 
 describe("StructuredWorkspaces grouped collection pages", () => {
-	function groupedFixture(grouping: {
-		groupBy?: string;
-		groupOrder?: string[];
-		pageSize?: number;
-	}) {
+	function groupedFixture(
+		grouping: {
+			groupBy?: string;
+			groupOrder?: string[];
+			pageSize?: number;
+		},
+		layout: {
+			auto?: boolean;
+			pageFlow?: StructuredWorkspacesDeps["pageFlow"];
+		} = {},
+	) {
 		const store = createSQLiteStore(":memory:");
 		const bus = createBus();
 		const documents = createDocuments({ store });
@@ -839,7 +987,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		});
 		const board = createDocument({
 			name: "Project board",
-			canvas,
+			canvas: layout.auto ? { ...canvas, format: "AUTO", w: 80, h: 1 } : canvas,
 			pages: [
 				{
 					name: "Index",
@@ -858,6 +1006,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			documents,
 			documentStates,
 			bus,
+			pageFlow: layout.pageFlow,
 		});
 		const workspace = workspaces.create({
 			name: "Portfolio",
@@ -1001,6 +1150,45 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			headers: [],
 		});
 		expect(pageSummary(rendered.pages[0]?.html).cards).toHaveLength(30);
+		store.close();
+	});
+
+	it.each([undefined, "/status"])(
+		"keeps all AUTO cards on one continuous page with groupBy=%s",
+		(groupBy) => {
+			const pages = vi.fn(() => [{ "0": [0, 1] as [number, number] }]);
+			const { store, workspaces, workspace } = groupedFixture(
+				groupBy ? { groupBy, pageSize: 2 } : {},
+				{ auto: true, pageFlow: { pages } },
+			);
+			addProjects(workspaces, 13);
+			const rendered = workspaces.renderCollection(workspace.id, "projects");
+			expect(rendered.canvas).toMatchObject({ format: "AUTO", w: 80, h: 1 });
+			expect(rendered.pages).toHaveLength(1);
+			expect(pageSummary(rendered.pages[0]?.html).cards).toHaveLength(13);
+			expect(pageSummary(rendered.pages[0]?.html).headers).toEqual(
+				groupBy ? ["live:6", "paused:5", "dormant:2"] : [],
+			);
+			expect(pages).not.toHaveBeenCalled();
+			store.close();
+		},
+	);
+
+	it("still applies physical page flow to fixed-height collection pages", () => {
+		const pages = vi.fn(() => [
+			{ "0": [0, 1] as [number, number] },
+			{ "0": [1, null] as [number, null] },
+		]);
+		const { store, workspaces, workspace } = groupedFixture(
+			{},
+			{ pageFlow: { pages } },
+		);
+		addProjects(workspaces, 3);
+		const rendered = workspaces.renderCollection(workspace.id, "projects");
+		expect(pages).toHaveBeenCalledTimes(1);
+		expect(
+			rendered.pages.map((page) => pageSummary(page.html).cards.length),
+		).toEqual([1, 2]);
 		store.close();
 	});
 
