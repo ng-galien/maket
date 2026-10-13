@@ -67,7 +67,14 @@
       "name": "maket_image",
       "description": "Manage the asset library: list, view, meta (requires context_token), import, delete."
     },
-    { "name": "maket_preview", "description": "Open the live preview URL or snapshot a page to PNG." },
+    {
+      "name": "maket_preview",
+      "description": "Open the live preview URL, snapshot a page to PNG, or show pages in the Maket reader of MCP Apps hosts."
+    },
+    {
+      "name": "maket_reader",
+      "description": "Page and image calls of the Maket reader view on MCP Apps hosts (app-only, not offered to the model)."
+    },
     {
       "name": "maket_mermaid",
       "description": "Render a durable, charte-aware Mermaid diagram with semantic tokens and safe visual controls."

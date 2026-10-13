@@ -57,11 +57,11 @@ export const READER_PANE_GUTTER = 8;
 
 /** `fill`: the page width equals the pane width less its gutters, enlarging
  * or reducing. `shrink`: same, but a page narrower than the viewport keeps
- * its natural size. */
-export type ReaderFit = "fill" | "shrink";
+ * its natural size. `actual`: the page keeps its real size. */
+export type ReaderFit = "fill" | "shrink" | "actual";
 
 export function readerGutter(viewportWidth: number, fit: ReaderFit): number {
-	if (fit === "fill") return READER_PANE_GUTTER;
+	if (fit !== "shrink") return READER_PANE_GUTTER;
 	return viewportWidth < 640 ? MIN_GUTTER : WIDE_GUTTER;
 }
 
@@ -70,6 +70,7 @@ export function readingScale(
 	canvasWidthMm: number,
 	fit: ReaderFit = "shrink",
 ): number {
+	if (fit === "actual") return 1;
 	const gutter = readerGutter(viewportWidth, fit);
 	const available = Math.max(1, viewportWidth - gutter * 2);
 	const scale = available / (canvasWidthMm * CSS_PX_PER_MM);

@@ -4,6 +4,8 @@
  * Compound dispatch:
  *   open     — launch the live-preview URL in the user's default browser.
  *   snapshot — headless-render a page to PNG at its canvas's mm size.
+ *   show     — open pages of a document in the Maket reader of MCP Apps
+ *              hosts (view ui://maket/page).
  *
  * Deps: `documents` (page lookup + charte CSS), `config` (PORT + EXPORTS_DIR).
  */
@@ -29,13 +31,17 @@ import {
 } from "../lib/inline-capture.js";
 import {
 	MAKET_PAGE_VIEW_URI,
-	type MaketPageForView,
-	pageForView,
-} from "../lib/maket-page-view.js";
+	type MaketReaderOpening,
+	type ReaderDisplay,
+	ReaderLayoutSchema,
+	ReaderPagesSchema,
+	ReaderZoomSchema,
+	readerOpening,
+	selectedPages,
+} from "../lib/maket-reader.js";
 import { documentReadingPath, readingLine } from "../lib/reading-link.js";
 import { buildRenderSurfaceHtml } from "../lib/render-surface-html.js";
 import { resolveSafeOutputPath } from "../lib/safe-output-path.js";
-import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { AssetsService } from "../services/assets.js";
 import type { BrowserPool, RenderPage } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
@@ -61,17 +67,36 @@ function safeFilename(name: string): string {
 	return name.replace(/[/\\:*?"<>|]/g, "_");
 }
 
-const ActionSchema = z.enum(["open", "snapshot"]);
+const ActionSchema = z.enum(["open", "snapshot", "show"]);
 
 const MaketPreviewSchema = z.object({
 	action: ActionSchema.describe(
 		"Operation to run. See the tool description for the action table.",
 	),
-	doc: z.string().optional().describe("Document name. Required for snapshot."),
+	doc: z
+		.string()
+		.optional()
+		.describe("Document name. Required for snapshot and show."),
 	page: z
 		.number()
 		.optional()
 		.describe("1-based page number. Required for snapshot."),
+	pages: ReaderPagesSchema.optional().describe(
+		'For show: "all" (default), a page number, a range such as "3-5", or a list of page numbers.',
+	),
+	layout: ReaderLayoutSchema.optional().describe(
+		"For show: scroll (default) shows the pages one after another; page shows one at a time with previous and next.",
+	),
+	start: z
+		.number()
+		.int()
+		.optional()
+		.describe(
+			"For show: the page number to open at, one of the shown pages (default: the first).",
+		),
+	zoom: ReaderZoomSchema.optional().describe(
+		"For show: fit-width (default) or actual size.",
+	),
 	path: z
 		.string()
 		.optional()
@@ -81,10 +106,11 @@ const MaketPreviewSchema = z.object({
 });
 
 const DESCRIPTION = [
-	"When to use: view documents outside the agent. `open` flips the live preview URL into the user's browser; `snapshot` rasterises a single page to PNG at its true mm size.",
+	"When to use: view documents outside the agent. `open` flips the live preview URL into the user's browser; `snapshot` rasterises a single page to PNG at its true mm size; `show` puts pages in front of the user inside the conversation.",
 	"",
 	"  open     — launch the live preview URL (localhost) in the default browser. No params.",
-	"  snapshot — render a page via headless Chromium. Returns the full-size PNG as a file path on disk, the page's reading path in Maket, and the image inline (at most 1600 px on its longest side and 1 MB of base64, downscaled when larger; beyond a 2:1 ratio, the top or left part of the page). On hosts that render MCP Apps, the page itself shows read-only in the conversation (view ui://maket/page, fed by structuredContent.maketPage).",
+	"  snapshot — render a page via headless Chromium. Returns the full-size PNG as a file path on disk, the page's reading path in Maket, and the image inline (at most 1600 px on its longest side and 1 MB of base64, downscaled when larger; beyond a 2:1 ratio, the top or left part of the page). On hosts that render MCP Apps, the Maket reader also opens on that page.",
+	'  show     — on hosts that render MCP Apps, open the Maket reader in the conversation: doc, pages ("all", 3, "3-5" or [1,4]), layout (scroll | page), start (page to open at), zoom (fit-width | actual). The user can then switch layout, jump through the page list, zoom and open the document in Maket. Other hosts get the reading path. Returns no image: use snapshot to inspect a page yourself.',
 ].join("\n");
 
 export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
@@ -108,6 +134,7 @@ export function createMaketPreviewTool(deps: PreviewDeps): ToolHandler {
 		handler: async (rawArgs) => {
 			const args = MaketPreviewSchema.parse(rawArgs);
 			if (args.action === "open") return runOpen(config);
+			if (args.action === "show") return runShow(args, { documents, config });
 			return runSnapshot(args, {
 				documents,
 				config,
@@ -227,14 +254,16 @@ async function runSnapshot(
 			outPath,
 			label: `"${d.name}" page ${args.page}`,
 			readingPath,
-			view: await pageForView({
-				document: d.name,
-				page: args.page,
-				width: viewport.width,
-				height: viewport.height,
-				readingPath,
-				surface: async (dpi) => surfaceOf(stripActiveHtml(await inlined(dpi))),
-			}),
+			reader: readerOpening(
+				d,
+				{
+					pages: d.pages.map((_, index) => index + 1),
+					layout: "page",
+					start: args.page,
+					zoom: "fit-width",
+				},
+				{ path: readingPath, origin: readingOrigin(config) },
+			),
 		});
 	} finally {
 		await p.close();
@@ -269,8 +298,8 @@ function snapshotAnswer(
 		outPath: string;
 		label: string;
 		readingPath: string;
-		/** The page for the MCP Apps view ui://maket/page. */
-		view: MaketPageForView;
+		/** What opens the Maket reader of MCP Apps hosts on this page. */
+		reader: MaketReaderOpening;
 	},
 ): CallToolResult {
 	const full = `the full-size PNG is the saved file ${target.outPath}`;
@@ -296,8 +325,71 @@ function snapshotAnswer(
 					]
 				: []),
 		],
-		structuredContent: { maketPage: target.view },
+		structuredContent: { maketReader: target.reader },
 	};
+}
+
+/** The origin of this Maket server, as the reader's open link uses it. */
+function readingOrigin(config: Config): string {
+	const host = config.HOST === "0.0.0.0" ? "localhost" : config.HOST;
+	return `http://${host}:${config.PORT}`;
+}
+
+/** The display a show call asks for, or the reason it names no page. */
+function showDisplay(args: Args, pageCount: number): ReaderDisplay | string {
+	const pages = selectedPages(args.pages ?? "all", pageCount);
+	if (typeof pages === "string") return pages;
+	if (args.start != null && !pages.includes(args.start))
+		return `start ${args.start} is not one of the shown pages (${pages.join(", ")})`;
+	return {
+		pages,
+		layout: args.layout ?? "scroll",
+		start: args.start ?? pages[0] ?? 1,
+		zoom: args.zoom ?? "fit-width",
+	};
+}
+
+function runShow(
+	args: Args,
+	{ documents, config }: Pick<PreviewDeps, "documents" | "config">,
+): CallToolResult {
+	if (!args.doc) return text("doc is required for action=show", true);
+	const d = documents.resolveOrLoad(args.doc);
+	if (!d) return text(`Document "${args.doc}" not found`, true);
+	if (d.pages.length === 0)
+		return text(`Document "${d.name}" has no page to show`, true);
+	const display = showDisplay(args, d.pages.length);
+	if (typeof display === "string") return text(display, true);
+	const readingPath = documentReadingPath(d, config.BASE_PATH);
+	return {
+		content: [{ type: "text", text: showLine(d, display, readingPath) }],
+		structuredContent: {
+			maketReader: readerOpening(d, display, {
+				path: readingPath,
+				origin: readingOrigin(config),
+			}),
+		},
+	};
+}
+
+/** What a show call put in front of the user, and where to read it. */
+function showLine(
+	d: Document,
+	display: ReaderDisplay,
+	readingPath: string,
+): string {
+	const shown =
+		display.pages.length === d.pages.length
+			? `all ${d.pages.length} pages`
+			: `page${display.pages.length > 1 ? "s" : ""} ${display.pages.join(", ")}`;
+	const layout =
+		display.layout === "page"
+			? "one page at a time"
+			: "pages one after another";
+	return [
+		`Showing ${shown} of "${d.name}" in the Maket reader (${layout}, opening at page ${display.start}, ${display.zoom}). Hosts that render MCP Apps show it in the conversation.`,
+		readingLine(readingPath),
+	].join("\n");
 }
 
 export const previewPack: ToolPack = {

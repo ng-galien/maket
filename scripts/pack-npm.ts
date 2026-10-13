@@ -79,8 +79,9 @@ function stage(): void {
     writeFileSync(join(DIST, "index.js"), `#!/usr/bin/env node\n${bridge}`);
   }
 
-  log("Copying runtime assets (public/, manifest.json, README, LICENSE)...");
+  log("Copying runtime assets (public/, mcp-views/, manifest.json, README, LICENSE)...");
   cpSync(join(ROOT, "public"), join(DIST, "public"), { recursive: true });
+  cpSync(join(ROOT, "mcp-views"), join(DIST, "mcp-views"), { recursive: true });
   cpSync(join(ROOT, "manifest.json"), join(DIST, "manifest.json"));
   cpSync(join(ROOT, "README.md"), join(DIST, "README.md"));
   cpSync(join(ROOT, "LICENSE"), join(DIST, "LICENSE"));
@@ -104,7 +105,7 @@ function stage(): void {
     type: "module",
     main: "server.js",
     bin: { maket: "index.js" },
-    files: ["index.js", "server.js", "manifest.json", "public/**", "README.md", "LICENSE"],
+    files: ["index.js", "server.js", "manifest.json", "public/**", "mcp-views/**", "README.md", "LICENSE"],
     engines: { node: ">=22.0.0" },
     dependencies: runtimeDeps,
     publishConfig: { access: "public" },

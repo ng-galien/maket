@@ -49,6 +49,7 @@ export default {
     ignore: [/^\/(?:\.desktop-host|assets|node_modules|out|src)(?:\/|$)/, /^\/(?:forge\.config\.mjs|tsconfig\.json)$/],
     extraResource: [
       "../../public",
+      "../../mcp-views",
       "../../manifest.json",
       "../../plugin/codex/skills/maket",
       "assets/icon.png",

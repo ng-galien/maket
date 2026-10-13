@@ -7,7 +7,34 @@ const PORT = process.env.MAKET_PORT ?? "24842";
 const http = `http://localhost:${PORT}`;
 const ws = `ws://localhost:${PORT}`;
 
+/** The Maket reader for MCP Apps hosts: one chunk, inlined afterwards into
+ * mcp-views/maket-reader.html by scripts/build-mcp-view.mjs. */
+const mcpView = defineConfig({
+	base: "./",
+	plugins: [react(), tailwindcss()],
+	resolve: {
+		alias: {
+			"@": path.resolve(import.meta.dirname, "./src"),
+		},
+	},
+	build: {
+		cssMinify: "esbuild",
+		cssCodeSplit: false,
+		assetsInlineLimit: Number.MAX_SAFE_INTEGER,
+		chunkSizeWarningLimit: 2000,
+		outDir: path.resolve(import.meta.dirname, "../../mcp-views/.build"),
+		emptyOutDir: true,
+		rollupOptions: {
+			input: {
+				"mcp-view": path.resolve(import.meta.dirname, "mcp-view.html"),
+			},
+			output: { inlineDynamicImports: true },
+		},
+	},
+});
+
 export default defineConfig(({ mode }) => {
+	if (mode === "mcp-view") return mcpView;
 	const pagesBuild = mode === "pages";
 	const input: Record<string, string> = pagesBuild
 		? {

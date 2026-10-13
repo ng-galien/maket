@@ -22,7 +22,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build:client": "npm run build -w @maket/client",
+    "build:client": "npm run build -w @maket/client && npm run build:mcp-view",
+    "build:mcp-view": "node scripts/build-mcp-view.mjs",
     "starters:build": "tsx scripts/make-starter-bundles.ts",
     "build:pages": "npm run starters:build && npm run build:pages -w @maket/client && node scripts/sync-pages.mjs",
     "pack:npm": "node scripts/pack-npm.ts --pack",

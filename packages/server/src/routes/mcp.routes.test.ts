@@ -1,4 +1,7 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
 	Client,
 	StreamableHTTPClientTransport,
@@ -19,6 +22,10 @@ describe("mcp routes", () => {
 	let closeHandler: () => Promise<void>;
 	let wsRegistry: { broadcast: ReturnType<typeof vi.fn> };
 	let clients: Client[];
+	const viewsDir = mkdtempSync(join(tmpdir(), "maket-mcp-views-"));
+	const BUILT_READER =
+		'<!doctype html><html><head></head><body><div id="root"></div><script type="module">/* reader */</script></body></html>';
+	writeFileSync(join(viewsDir, "maket-reader.html"), BUILT_READER);
 
 	beforeEach(async () => {
 		clients = [];
@@ -58,7 +65,7 @@ describe("mcp routes", () => {
 			config: { VERSION: "9.9.9" } as never,
 			container,
 			wsRegistry: wsRegistry as never,
-			mcpAppViews: createMcpAppViews(),
+			mcpAppViews: createMcpAppViews({ config: { MCP_VIEWS_DIR: viewsDir } }),
 		});
 		closeHandler = () => mcpHttpHandler.close();
 
@@ -120,7 +127,7 @@ describe("mcp routes", () => {
 		]);
 	});
 
-	it("serves the MCP Apps view ui://maket/page over HTTP and keeps the tool _meta.ui", async () => {
+	it("serves the built Maket reader as the MCP Apps view ui://maket/page over HTTP and keeps the tool _meta.ui", async () => {
 		const client = await connectClient();
 		const listed = await client.listTools();
 		expect(
@@ -157,10 +164,7 @@ describe("mcp routes", () => {
 				_meta: { ui },
 			}),
 		]);
-		const html = (read.contents[0] as { text: string }).text;
-		expect(html.startsWith("<!DOCTYPE html>")).toBe(true);
-		expect(html).toContain("ui/initialize");
-		expect(html).not.toMatch(/<script[^>]+src=/);
+		expect((read.contents[0] as { text: string }).text).toBe(BUILT_READER);
 	});
 
 	it("rejects non-JSON MCP posts at the SDK boundary", async () => {

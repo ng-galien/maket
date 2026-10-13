@@ -49,6 +49,7 @@ export const ACTIVITY_KEYS = [
 	"bubble_maket_image_delete",
 	"bubble_maket_preview_open",
 	"bubble_maket_preview_snapshot",
+	"bubble_maket_preview_show",
 	"bubble_maket_mermaid",
 	"bubble_maket_pdf",
 	"bubble_maket_gmail",

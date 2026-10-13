@@ -131,6 +131,7 @@ async function buildClient() {
   const npmCli = process.env.npm_execpath;
   if (!npmCli) throw new Error("Desktop builds must run through npm: npm run desktop -- <action>");
   await run(process.execPath, [npmCli, "run", "build", "-w", "@maket/client"]);
+  await run(process.execPath, [npmCli, "run", "build:mcp-view"]);
 }
 
 async function buildDesktop({ sourcemap = false } = {}) {

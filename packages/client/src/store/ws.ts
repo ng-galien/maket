@@ -65,6 +65,43 @@ export function sendTextEdit(
 	wsSend({ type: "text_edit", docName, pageIndex, elementId, html });
 }
 
+/** A state patch command, as the Maket form sends it. */
+export type StatePatchCommand = Extract<
+	WorkspaceCommand,
+	{ type: "state_patch" }
+>;
+
+/** Where state patches go instead of the WebSocket, for a reader that is
+ * not connected to Maket over it (the reader of MCP Apps hosts). The
+ * transport settles each request with `settleStatePatch`. */
+let statePatchTransport: ((command: StatePatchCommand) => void) | null = null;
+
+export function setStatePatchTransport(
+	transport: ((command: StatePatchCommand) => void) | null,
+): void {
+	statePatchTransport = transport;
+}
+
+/** Hand a state patch to the transport; it stays pending until the
+ * transport settles it or it times out. */
+function sendThroughTransport(
+	transport: (command: StatePatchCommand) => void,
+	command: StatePatchCommand,
+	pointer: string,
+): string {
+	const { docName, requestId } = command;
+	useStore.getState().beginStatePatch(docName, pointer, requestId);
+	transport(command);
+	setTimeout(
+		() =>
+			useStore
+				.getState()
+				.timeoutStatePatch(requestId, translate("state_update_timed_out")),
+		10_000,
+	);
+	return requestId;
+}
+
 export function sendStateValuePatch(
 	docName: string,
 	pointer: string,
@@ -89,13 +126,16 @@ export function sendStateValuePatch(
 		}
 	}
 	const requestId = crypto.randomUUID();
-	const sent = wsSend({
+	const command: StatePatchCommand = {
 		type: "state_patch",
 		requestId,
 		docName,
 		expectedRevision,
 		operation: { op, path: pointer, value },
-	});
+	};
+	if (statePatchTransport)
+		return sendThroughTransport(statePatchTransport, command, pointer);
+	const sent = wsSend(command);
 	if (!sent) {
 		useStore.getState().beginStatePatch(docName, pointer, requestId);
 		useStore

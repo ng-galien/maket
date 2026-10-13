@@ -35,11 +35,11 @@ These aren't style preferences — they're the invariants the codebase depends o
 ### Complete migrations, four-point checklist on tool renames
 Renaming an MCP tool touches four places:
 1. The tool file (incl. `declaresTools`)
-2. `ACTIVITY_ICONS` in `packages/server/src/routes/mcp.routes.ts`
+2. `ACTIVITY_POLICIES` in `packages/server/src/core/activity-contract.ts` (an icon and, per action, an activity key or `null`)
 3. `manifest.json.tools[]`
 4. Skill + doc references under `plugin/claude/**`
 
-Boot asserts (1) ↔ (3) and fails fast on drift. (2) and (4) aren't asserted — verify manually.
+Boot asserts (1) ↔ (3) and (1) ↔ (2) and fails fast on drift. (4) isn't asserted — verify manually.
 
 ### Cross-cutting invariants apply at every entry point
 Gating logic like `lockGuard` must run in MCP tools, `ws-handler` cases, **AND** bulk UI flows. One missed entry = full bypass. Same for escaping user strings inside `<style>` (`escapeCssValue` + `stripStyleClose`, see `ThumbnailService`).

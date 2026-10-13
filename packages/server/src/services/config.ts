@@ -23,6 +23,8 @@ export interface Config {
 	DATA_DIR: string;
 	/** Read-only public/ assets directory. */
 	PUBLIC_DIR: string;
+	/** Read-only directory of the built MCP Apps views (the Maket reader). */
+	MCP_VIEWS_DIR: string;
 	/** Writable user-asset directory. */
 	ASSETS_DIR: string;
 	/** Writable documents directory (exported files). */
@@ -79,6 +81,8 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const DATA_DIR = explicitData ? explicitData : join(homedir(), ".maket");
 
 	const PUBLIC_DIR = env.MAKET_PUBLIC_DIR || join(PACKAGE_DIR, "public");
+	const MCP_VIEWS_DIR =
+		env.MAKET_MCP_VIEWS_DIR || join(PACKAGE_DIR, "mcp-views");
 	const ASSETS_DIR = join(DATA_DIR, "assets");
 	const DOCS_DIR = join(DATA_DIR, "documents");
 	const EXPORTS_DIR = join(DATA_DIR, "exports");
@@ -108,6 +112,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 		PACKAGE_DIR,
 		DATA_DIR,
 		PUBLIC_DIR,
+		MCP_VIEWS_DIR,
 		ASSETS_DIR,
 		DOCS_DIR,
 		EXPORTS_DIR,

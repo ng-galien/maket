@@ -1,6 +1,7 @@
 node_modules/
 dist/
 /public/
+/mcp-views/
 /docs/app/
 /docs/starters/
 coverage/

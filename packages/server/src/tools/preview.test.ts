@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { Collection } from "@maket/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderCollectionDocument } from "../lib/collection-render.js";
-import { pageForView } from "../lib/maket-page-view.js";
+import { selectedPages } from "../lib/maket-reader.js";
 import type { AssetsService } from "../services/assets.js";
 import type { BrowserPool } from "../services/browser-pool.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
@@ -378,7 +378,7 @@ describe("maket_preview — action=snapshot", () => {
 		}
 	});
 
-	it("links the MCP Apps view and carries the page for it, without its active HTML, or only the reading path when too large", async () => {
+	it("opens the Maket reader on the snapshot page, keeping the image and reading path", async () => {
 		const {
 			store,
 			documents,
@@ -389,36 +389,19 @@ describe("maket_preview — action=snapshot", () => {
 			collectionCursors,
 			cleanup,
 		} = fixture();
-		const canvas = {
-			format: "A4" as const,
-			orientation: "portrait" as const,
-			w: 210,
-			h: 297,
-			bg: "#fff",
-		};
 		store.saveDoc(
 			createDocument({
 				name: "small",
-				canvas,
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
 				pages: [
-					{
-						name: "P1",
-						elements: [],
-						html: `<p data-id="x" onclick="alert(1)">Small page</p><script>steal()</script>`,
-					},
-				],
-			}),
-		);
-		store.saveDoc(
-			createDocument({
-				name: "huge",
-				canvas,
-				pages: [
-					{
-						name: "P1",
-						elements: [],
-						html: `<p data-id="x">${"word ".repeat(30_000)}</p>`,
-					},
+					{ name: "Cover", elements: [], html: "<p data-id='x'>One</p>" },
+					{ name: "Back", elements: [], html: "<p data-id='y'>Two</p>" },
 				],
 			}),
 		);
@@ -434,58 +417,129 @@ describe("maket_preview — action=snapshot", () => {
 		expect(tool.metadata._meta).toEqual({
 			ui: { resourceUri: "ui://maket/page", visibility: ["model"] },
 		});
-		const small = await tool.handler(
-			{ action: "snapshot", doc: "small", page: 1 },
+		const snapshot = await tool.handler(
+			{ action: "snapshot", doc: "small", page: 2 },
 			NO_EXTRA,
 		);
-		const smallPage = (small.structuredContent as any).maketPage;
-		expect(smallPage).toMatchObject({
-			document: "small",
-			page: 1,
-			width: 794,
-			height: 1123,
-			reduced: false,
-			note: "",
-			readingPath: `/documents/${documents.resolve("small")?.id}/read`,
+		expect(snapshot.content.map((item) => item.type)).toEqual([
+			"text",
+			"image",
+		]);
+		const id = documents.resolve("small")?.id;
+		expect((snapshot.structuredContent as any).maketReader).toMatchObject({
+			mode: "document",
+			document: {
+				name: "small",
+				pageCount: 2,
+				pages: [
+					{ number: 1, name: "Cover" },
+					{ number: 2, name: "Back" },
+				],
+				canvas: { format: "A4", w: 210, h: 297 },
+			},
+			display: { pages: [1, 2], layout: "page", start: 2, zoom: "fit-width" },
+			readingPath: `/documents/${id}/read`,
 		});
-		expect(smallPage.html).toContain("Small page");
-		expect(smallPage.html).not.toContain("onclick");
-		expect(smallPage.html).not.toContain("steal()");
-		expect(small.content.map((item) => item.type)).toEqual(["text", "image"]);
-		const huge = await tool.handler(
-			{ action: "snapshot", doc: "huge", page: 1 },
-			NO_EXTRA,
-		);
-		const hugePage = (huge.structuredContent as any).maketPage;
-		expect(hugePage).toMatchObject({ html: null, reduced: false });
-		expect(hugePage.note).toBe(
-			`too large to show here; read it in Maket: /documents/${documents.resolve("huge")?.id}/read`,
-		);
-		expect((huge.content[0] as any).text).toMatch(
-			/^Snapshot of "huge" page 1 saved:/,
+		expect(JSON.stringify(snapshot.structuredContent).length).toBeLessThan(
+			2_000,
 		);
 		cleanup();
 	});
 
-	it("reduces the page for the view by downscaling its images when that brings it under 120 000 characters", async () => {
-		const asked: number[] = [];
-		const page = await pageForView({
-			document: "d",
-			page: 2,
-			width: 794,
-			height: 1123,
-			readingPath: "/documents/x/read",
-			surface: async (dpi) => {
-				asked.push(dpi);
-				return dpi === 96 ? "x".repeat(130_000) : "<html>reduced</html>";
+	it("shows pages in the reader with the asked layout, start and zoom, and refuses pages outside the document", async () => {
+		const {
+			store,
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+			cleanup,
+		} = fixture();
+		store.saveDoc(
+			createDocument({
+				name: "book",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: Array.from({ length: 6 }, (_, index) => ({
+					name: `Chapter ${index + 1}`,
+					elements: [],
+					html: `<p data-id="p${index}">${index + 1}</p>`,
+				})),
+			}),
+		);
+		documents.loadAll();
+		const tool = createMaketPreviewTool({
+			documents,
+			config,
+			assets,
+			browserPool,
+			documentRenderer,
+			collectionCursors,
+		});
+		const shown = await tool.handler(
+			{
+				action: "show",
+				doc: "book",
+				pages: "3-5",
+				layout: "page",
+				start: 4,
+				zoom: "actual",
 			},
+			NO_EXTRA,
+		);
+		expect(shown.isError).toBeUndefined();
+		expect(shown.content.map((item) => item.type)).toEqual(["text"]);
+		expect((shown.content[0] as any).text).toContain(
+			'Showing pages 3, 4, 5 of "book" in the Maket reader (one page at a time, opening at page 4, actual).',
+		);
+		expect((shown.content[0] as any).text).toContain("Read it in Maket:");
+		expect((shown.structuredContent as any).maketReader.display).toEqual({
+			pages: [3, 4, 5],
+			layout: "page",
+			start: 4,
+			zoom: "actual",
 		});
-		expect(asked).toEqual([96, 24]);
-		expect(page).toMatchObject({
-			html: "<html>reduced</html>",
-			reduced: true,
-			note: "reduced: images downscaled to fit the view",
+		const all = await tool.handler({ action: "show", doc: "book" }, NO_EXTRA);
+		expect((all.structuredContent as any).maketReader.display).toEqual({
+			pages: [1, 2, 3, 4, 5, 6],
+			layout: "scroll",
+			start: 1,
+			zoom: "fit-width",
 		});
+		const outside = await tool.handler(
+			{ action: "show", doc: "book", pages: [2, 9] },
+			NO_EXTRA,
+		);
+		expect(outside.isError).toBe(true);
+		expect((outside.content[0] as any).text).toBe(
+			"Page 9 not found: the document has 6 pages",
+		);
+		const badStart = await tool.handler(
+			{ action: "show", doc: "book", pages: 2, start: 3 },
+			NO_EXTRA,
+		);
+		expect((badStart.content[0] as any).text).toBe(
+			"start 3 is not one of the shown pages (2)",
+		);
+		cleanup();
+	});
+
+	it("reads every form of the pages argument", () => {
+		expect(selectedPages("all", 3)).toEqual([1, 2, 3]);
+		expect(selectedPages(2, 3)).toEqual([2]);
+		expect(selectedPages("2 - 3", 3)).toEqual([2, 3]);
+		expect(selectedPages([3, 1, 3], 3)).toEqual([3, 1]);
+		expect(selectedPages("3-2", 3)).toBe("Range 3-2 runs backwards");
+		expect(selectedPages(4, 3)).toBe(
+			"Page 4 not found: the document has 3 pages",
+		);
 	});
 
 	it("renders the collection row selected by the shared cursor", async () => {

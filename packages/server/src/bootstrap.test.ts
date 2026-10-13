@@ -24,6 +24,7 @@ import { mermaidPack } from "./tools/mermaid.js";
 import { pagesPack } from "./tools/pages.js";
 import { pdfPack } from "./tools/pdf.js";
 import { previewPack } from "./tools/preview.js";
+import { readerPack } from "./tools/reader.js";
 import { statePack } from "./tools/state.js";
 import { structuredWorkspacesPack } from "./tools/structured-workspaces.js";
 import { workspacePack } from "./tools/workspace.js";
@@ -192,6 +193,7 @@ describe("registerToolPacks", () => {
 		htmlPack,
 		workspacePack,
 		previewPack,
+		readerPack,
 		pdfPack,
 		gmailPack,
 	];
@@ -210,6 +212,7 @@ describe("registerToolPacks", () => {
 		html: {},
 		workspace: {},
 		preview: {},
+		reader: {},
 		pdf: {},
 		gmail: {},
 	};

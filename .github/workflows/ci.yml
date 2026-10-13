@@ -50,6 +50,9 @@ jobs:
           echo "$bin_dir" >> "$GITHUB_PATH"
           "$bin_dir/code-moniker" --version
 
+      - name: Build the Maket reader for MCP Apps
+        run: npm run build:mcp-view
+
       - name: Quality and coverage
         run: npm run quality
 

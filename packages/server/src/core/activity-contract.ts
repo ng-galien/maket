@@ -151,7 +151,12 @@ export const ACTIVITY_POLICIES = {
 		actions: {
 			open: "bubble_maket_preview_open",
 			snapshot: "bubble_maket_preview_snapshot",
+			show: "bubble_maket_preview_show",
 		},
+	},
+	maket_reader: {
+		icon: "book-open",
+		actions: { page: null, image: null, write: null },
 	},
 	maket_mermaid: { icon: "git-branch", key: "bubble_maket_mermaid" },
 	maket_pdf: { icon: "download", key: "bubble_maket_pdf" },
