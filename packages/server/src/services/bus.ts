@@ -36,6 +36,14 @@ export interface BusEvents {
 	"collection:saved": { name: string };
 	"collection:deleted": { name: string };
 	"structured-workspace:changed": { workspaceId: string };
+	/** A workspace and its documents were deleted; its item source is closed. */
+	"structured-workspace:deleted": { workspaceId: string };
+	/** An item source re-read its index or one item. */
+	"structured-workspace:source-changed": {
+		workspaceId: string;
+		scope: "index" | "item";
+		itemId?: string;
+	};
 	/** One item's data changed; its collection projection entry is already aligned. */
 	"structured-workspace:item-changed": { workspaceId: string; itemId: string };
 	"document-state:changed": {

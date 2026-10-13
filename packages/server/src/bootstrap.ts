@@ -35,6 +35,7 @@ import {
 	createGmailClient,
 	type GmailClient,
 } from "./services/gmail-client.js";
+import { createItemSources } from "./services/item-sources/item-sources.js";
 import { createLayoutService } from "./services/layout.js";
 import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
 import { createPageFlow } from "./services/page-flow.js";
@@ -114,6 +115,8 @@ export function createAppContainer(
 		).singleton(),
 
 		structuredWorkspaces: asFunction(createStructuredWorkspaces).singleton(),
+
+		itemSources: asFunction(createItemSources).singleton(),
 
 		pageFlow: asFunction(createPageFlow).singleton(),
 

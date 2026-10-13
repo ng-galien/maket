@@ -21,9 +21,14 @@ import type { DocumentRenderer } from "./document-renderer.js";
 import { createDocumentStateMutations } from "./document-state-mutations.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import { createItemSources } from "./item-sources/item-sources.js";
 import type { SettingsService } from "./settings.js";
 import { createSQLiteStore } from "./store.js";
-import { createStructuredWorkspaces } from "./structured-workspaces.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspaces,
+	type StructuredWorkspacesDeps,
+} from "./structured-workspaces.js";
 import { createWsHandler } from "./ws-handler/index.js";
 import { createWsRegistry } from "./ws-registry.js";
 
@@ -78,7 +83,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 	const documentRenderer = opts.documentRenderer ?? rendererStub();
 	const assetsDir = mkdtempSync(join(tmpdir(), "maket-ws-assets-"));
 	const assets = createAssetsService({ assetsDir });
-	const structuredWorkspaces = createStructuredWorkspaces({
+	const structuredWorkspaces = structuredWorkspacesWithSources({
 		bus,
 		documents,
 		documentStates,
@@ -1824,3 +1829,18 @@ describe("ws-handler — collection cursor", () => {
 		dispose();
 	});
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}

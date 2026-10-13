@@ -16,11 +16,16 @@ import { createCollections } from "./collections.js";
 import { createDocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import { createItemSources } from "./item-sources/item-sources.js";
 import { createLayoutService } from "./layout.js";
 import { createPageFlow } from "./page-flow.js";
 import { createStateRenderer } from "./state-renderer.js";
 import { createSQLiteStore } from "./store.js";
-import { createStructuredWorkspaces } from "./structured-workspaces.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspaces,
+	type StructuredWorkspacesDeps,
+} from "./structured-workspaces.js";
 
 const canvas = {
 	format: "custom" as const,
@@ -238,7 +243,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			documents.all().set(document.name, document);
 			documents.persist(document.name);
 		}
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -419,7 +424,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			documents.all().set(document.name, document);
 			documents.persist(document.name);
 		}
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -482,3 +487,18 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 		}
 	}, 60_000);
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}

@@ -8,6 +8,10 @@ import { type BootstrapInputs, createAppContainer } from "./bootstrap.js";
 import { assertActivityContract } from "./core/activity-contract.js";
 import { registerToolPacks } from "./core/tool-pack-registry.js";
 import { createConfig } from "./services/config.js";
+import { isItemSourceError } from "./services/item-sources/item-source-error.js";
+import type { ItemSources } from "./services/item-sources/item-sources.js";
+import { createSQLiteStore } from "./services/store.js";
+import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
 import { assetsPack } from "./tools/assets.js";
 import { canvasPack } from "./tools/canvas.js";
 import { chartesPack } from "./tools/chartes.js";
@@ -111,6 +115,39 @@ describe("createAppContainer", () => {
 			expect(() => c.resolve(name), `resolve "${name}"`).not.toThrow();
 		}
 		c.dispose();
+	});
+
+	it("serves each Structured Workspace through one item source, closed when the workspace is deleted", async () => {
+		const store = createSQLiteStore(":memory:");
+		const c = createTestContainer({ config: testConfig(), store });
+		const workspaces = c.resolve<StructuredWorkspaces>("structuredWorkspaces");
+		const itemSources = c.resolve<ItemSources>("itemSources");
+		const workspace = workspaces.create({
+			name: "Registry",
+			dataSchema: { type: "object", properties: { title: { type: "string" } } },
+		});
+		workspaces.addItem({
+			workspace: workspace.id,
+			itemId: "one",
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Registry one",
+			data: { title: "One" },
+		});
+		const source = itemSources.sourceFor(workspace.id);
+		expect(itemSources.sourceFor(workspace.id)).toBe(source);
+		expect(source.get("one")?.data).toEqual({ title: "One" });
+		workspaces.delete(workspace.id);
+		let closedCode: string | undefined;
+		try {
+			source.get("one");
+		} catch (error) {
+			closedCode = isItemSourceError(error) ? error.code : String(error);
+		}
+		expect(closedCode).toBe("source_unreachable");
+		expect(itemSources.sourceFor(workspace.id)).not.toBe(source);
+		await c.dispose();
+		store.close();
 	});
 });
 

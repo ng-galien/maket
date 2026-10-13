@@ -1,0 +1,558 @@
+{
+  "verdict": "ready",
+  "findings": 1,
+  "check": "maket_structured_workspace action=check workspace=00000000-0000-4000-8000-000000000008",
+  "id": "00000000-0000-4000-8000-000000000008",
+  "name": "Grouped",
+  "dataSchema": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "todo",
+          "doing",
+          "done"
+        ]
+      },
+      "priority": {
+        "type": "number"
+      },
+      "tags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "address": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string"
+          },
+          "zip": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "required": [
+      "title",
+      "status"
+    ],
+    "additionalProperties": false
+  },
+  "representationSchema": {
+    "version": 1,
+    "collections": {
+      "items": {
+        "groupBy": "/status",
+        "groupOrder": [
+          "doing",
+          "todo"
+        ],
+        "sortBy": "/priority",
+        "sortDirection": "descending",
+        "name": "Items",
+        "collectionTemplateDocumentId": "00000000-0000-4000-8000-000000000007",
+        "bindings": {
+          "item": {
+            "schemaPath": "",
+            "detailTemplateDocumentId": "00000000-0000-4000-8000-000000000003",
+            "compactTemplateDocumentId": "00000000-0000-4000-8000-000000000005"
+          }
+        }
+      }
+    }
+  },
+  "revision": 1,
+  "items": [
+    {
+      "id": "items-1",
+      "position": 0,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000013",
+      "documentName": "Grouped item 1",
+      "data": {
+        "title": "Item 01",
+        "status": "doing",
+        "priority": 7,
+        "tags": [
+          "t1",
+          "u1"
+        ],
+        "address": {
+          "city": "Paris",
+          "zip": "69001"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-2",
+      "position": 1,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000016",
+      "documentName": "Grouped item 2",
+      "data": {
+        "title": "Item 02",
+        "status": "done",
+        "priority": 4,
+        "tags": [
+          "t2",
+          "u0"
+        ],
+        "address": {
+          "city": "Nantes",
+          "zip": "69002"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-3",
+      "position": 2,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000019",
+      "documentName": "Grouped item 3",
+      "data": {
+        "title": "Item 03",
+        "status": "todo",
+        "priority": 1,
+        "tags": [
+          "t3",
+          "u1"
+        ],
+        "address": {
+          "city": "Brest",
+          "zip": "69003"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-4",
+      "position": 3,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000022",
+      "documentName": "Grouped item 4",
+      "data": {
+        "title": "Item 04",
+        "status": "doing",
+        "priority": 8,
+        "tags": [
+          "t0",
+          "u0"
+        ],
+        "address": {
+          "city": "Lyon",
+          "zip": "69004"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-5",
+      "position": 4,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000025",
+      "documentName": "Grouped item 5",
+      "data": {
+        "title": "Item 05",
+        "status": "done",
+        "tags": [
+          "t1",
+          "u1"
+        ],
+        "address": {
+          "city": "Paris",
+          "zip": "69005"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-6",
+      "position": 5,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000028",
+      "documentName": "Grouped item 6",
+      "data": {
+        "title": "Item 06",
+        "status": "todo",
+        "priority": 2,
+        "tags": [
+          "t2",
+          "u0"
+        ],
+        "address": {
+          "city": "Nantes",
+          "zip": "69006"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-7",
+      "position": 6,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000031",
+      "documentName": "Grouped item 7",
+      "data": {
+        "title": "Item 07",
+        "status": "doing",
+        "priority": 9,
+        "tags": [
+          "t3",
+          "u1"
+        ],
+        "address": {
+          "city": "Brest",
+          "zip": "69007"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-8",
+      "position": 7,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000034",
+      "documentName": "Grouped item 8",
+      "data": {
+        "title": "Item 08",
+        "status": "done",
+        "priority": 6,
+        "tags": [
+          "t0",
+          "u0"
+        ],
+        "address": {
+          "city": "Lyon",
+          "zip": "69008"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-9",
+      "position": 8,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000037",
+      "documentName": "Grouped item 9",
+      "data": {
+        "title": "Item 09",
+        "status": "todo",
+        "priority": 3,
+        "tags": [
+          "t1",
+          "u1"
+        ],
+        "address": {
+          "city": "Paris",
+          "zip": "69009"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-10",
+      "position": 9,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000040",
+      "documentName": "Grouped item 10",
+      "data": {
+        "title": "Item 10",
+        "status": "doing",
+        "tags": [
+          "t2",
+          "u0"
+        ],
+        "address": {
+          "city": "Nantes",
+          "zip": "69010"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-11",
+      "position": 10,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000043",
+      "documentName": "Grouped item 11",
+      "data": {
+        "title": "Item 11",
+        "status": "done",
+        "priority": 7,
+        "tags": [
+          "t3",
+          "u1"
+        ],
+        "address": {
+          "city": "Brest",
+          "zip": "69011"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-12",
+      "position": 11,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000046",
+      "documentName": "Grouped item 12",
+      "data": {
+        "title": "Item 12",
+        "status": "todo",
+        "priority": 4,
+        "tags": [
+          "t0",
+          "u0"
+        ],
+        "address": {
+          "city": "Lyon",
+          "zip": "69012"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-13",
+      "position": 12,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000049",
+      "documentName": "Grouped item 13",
+      "data": {
+        "title": "Item 13",
+        "status": "doing",
+        "priority": 1,
+        "tags": [
+          "t1",
+          "u1"
+        ],
+        "address": {
+          "city": "Paris",
+          "zip": "69013"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-14",
+      "position": 13,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000052",
+      "documentName": "Grouped item 14",
+      "data": {
+        "title": "Item 14",
+        "status": "done",
+        "priority": 8,
+        "tags": [
+          "t2",
+          "u0"
+        ],
+        "address": {
+          "city": "Nantes",
+          "zip": "69014"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-15",
+      "position": 14,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000055",
+      "documentName": "Grouped item 15",
+      "data": {
+        "title": "Item 15",
+        "status": "todo",
+        "tags": [
+          "t3",
+          "u1"
+        ],
+        "address": {
+          "city": "Brest",
+          "zip": "69015"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-16",
+      "position": 15,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000058",
+      "documentName": "Grouped item 16",
+      "data": {
+        "title": "Item 16",
+        "status": "doing",
+        "priority": 2,
+        "tags": [
+          "t0",
+          "u0"
+        ],
+        "address": {
+          "city": "Lyon",
+          "zip": "69016"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-17",
+      "position": 16,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000061",
+      "documentName": "Grouped item 17",
+      "data": {
+        "title": "Item 17",
+        "status": "done",
+        "priority": 9,
+        "tags": [
+          "t1",
+          "u1"
+        ],
+        "address": {
+          "city": "Paris",
+          "zip": "69017"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-18",
+      "position": 17,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000064",
+      "documentName": "Grouped item 18",
+      "data": {
+        "title": "Item 18",
+        "status": "todo",
+        "priority": 6,
+        "tags": [
+          "t2",
+          "u0"
+        ],
+        "address": {
+          "city": "Nantes",
+          "zip": "69018"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-19",
+      "position": 18,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000067",
+      "documentName": "Grouped item 19",
+      "data": {
+        "title": "Item 19",
+        "status": "doing",
+        "priority": 3,
+        "tags": [
+          "t3",
+          "u1"
+        ],
+        "address": {
+          "city": "Brest",
+          "zip": "69019"
+        }
+      },
+      "dataRevision": 1
+    },
+    {
+      "id": "items-20",
+      "position": 19,
+      "collectionId": "items",
+      "bindingId": "item",
+      "documentId": "00000000-0000-4000-8000-000000000070",
+      "documentName": "Grouped item 20",
+      "data": {
+        "title": "Item 20",
+        "status": "done",
+        "tags": [
+          "t0",
+          "u0"
+        ],
+        "address": {
+          "city": "Lyon",
+          "zip": "69020"
+        }
+      },
+      "dataRevision": 1
+    }
+  ],
+  "createdAt":"<sqlite-now>",
+  "updatedAt":"<sqlite-now>",
+  "integrity": {
+    "status": "ready",
+    "issues": []
+  },
+  "collectionDocuments": [
+    {
+      "collectionId": "items",
+      "documentId": "00000000-0000-4000-8000-000000000010",
+      "documentName": "Grouped — Items"
+    }
+  ],
+  "templateDocuments": [
+    {
+      "documentId": "00000000-0000-4000-8000-000000000007",
+      "documentName": "Grouped — Items — index template",
+      "roles": [
+        {
+          "role": "collection",
+          "collectionId": "items"
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-4000-8000-000000000003",
+      "documentName": "Grouped — Items — detail template",
+      "roles": [
+        {
+          "role": "detail",
+          "collectionId": "items",
+          "bindingId": "item"
+        }
+      ]
+    },
+    {
+      "documentId": "00000000-0000-4000-8000-000000000005",
+      "documentName": "Grouped — Items — card template",
+      "roles": [
+        {
+          "role": "compact",
+          "collectionId": "items",
+          "bindingId": "item"
+        }
+      ]
+    }
+  ]
+}

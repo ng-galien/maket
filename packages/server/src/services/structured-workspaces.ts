@@ -20,7 +20,6 @@ import {
 	generatedStructuredWorkspaceIndex,
 	generateStructuredWorkspaceTemplates,
 	hasJsonFormSlot,
-	readJsonPointer,
 	renderDocumentStatePage,
 	renderJsonFormsTemplate,
 	structuredWorkspaceBindingSchema,
@@ -43,6 +42,14 @@ import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
 import type { Documents } from "./documents.js";
+import { groupItems, sortItems } from "./item-sources/item-order.js";
+import type {
+	ItemRecord,
+	ItemSource,
+	ItemSummary,
+} from "./item-sources/item-source.js";
+import { isItemSourceError } from "./item-sources/item-source-error.js";
+import type { ItemSources } from "./item-sources/item-sources.js";
 import {
 	type FlowRanges,
 	flowedPageIdentity,
@@ -184,6 +191,7 @@ export interface StructuredWorkspacesDeps {
 	documents: Documents;
 	documentStates: DocumentStates;
 	store: StructuredWorkspaceRepository;
+	itemSources: ItemSources;
 	pageFlow?: Pick<PageFlow, "pages">;
 }
 
@@ -279,7 +287,7 @@ export function createStructuredWorkspaces(
 				?.items.find((candidate) => candidate.id === itemId);
 			if (!item) return null;
 			try {
-				return itemView(deps, item);
+				return presentItem(deps, deps.itemSources.sourceFor(workspaceId), item);
 			} catch {
 				return null;
 			}
@@ -504,9 +512,7 @@ function renderCollection(
 		existing?.dataModel === "state"
 			? existing
 			: requiredCollectionDocument(deps, workspace, collectionId);
-	const items = workspace.items
-		.filter((item) => item.collectionId === collectionId)
-		.map((item) => itemView(deps, item));
+	const items = collectionItems(deps, workspace, collectionId);
 	const collectionState = deps.documentStates.get(collectionDocument.name);
 	if (!collectionState) {
 		throw new Error(
@@ -550,8 +556,55 @@ function renderCollection(
 	};
 }
 
+/** One item as the index composes it: its summary fields as data and the
+ * name of the document its card opens. */
+interface CollectionItem {
+	id: string;
+	bindingId: string;
+	documentName: string;
+	revision: string;
+	data: Record<string, unknown>;
+}
+
+/** The items of a collection in position order, read through the
+ * workspace's item source. */
+function collectionItems(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	collectionId: string,
+): CollectionItem[] {
+	const rows = new Map(workspace.items.map((item) => [item.id, item]));
+	const page = deps.itemSources.sourceFor(workspace.id).list({
+		collectionId,
+		limit: Number.POSITIVE_INFINITY,
+	});
+	return page.items.map((summary) =>
+		collectionItem(deps.documents, summary, rows.get(summary.id)),
+	);
+}
+
+function collectionItem(
+	documents: Documents,
+	summary: ItemSummary,
+	row: StructuredWorkspaceDefinition["items"][number] | undefined,
+): CollectionItem {
+	if (!row) throw new Error(`Item "${summary.id}" is not in its workspace.`);
+	const document = requiredDocument(
+		documents,
+		row.documentId,
+		"instantiated document",
+	);
+	return {
+		id: summary.id,
+		bindingId: summary.bindingId,
+		documentName: document.name,
+		revision: summary.revision,
+		data: summary.fields,
+	};
+}
+
 interface CollectionCardEntry {
-	item: StructuredWorkspaceItemView;
+	item: CollectionItem;
 	cards: Element[];
 	/** Scoped style sheets of the compact templates, by template key. */
 	styles: Map<string, string>;
@@ -580,7 +633,7 @@ interface SlotSegment {
 interface CollectionPageSource {
 	workspace: StructuredWorkspaceDefinition;
 	collection: StructuredWorkspaceCollectionRepresentation;
-	items: StructuredWorkspaceItemView[];
+	items: CollectionItem[];
 	compactCards: CompactCardCache;
 }
 
@@ -813,7 +866,7 @@ function collectionCardEntries(
 				slotIndex,
 				item.id,
 				item.documentName,
-				item.dataRevision,
+				item.revision,
 				options.svgSlot,
 			].join("\u0000");
 			return [
@@ -840,18 +893,10 @@ function groupCollectionCards(
 	groupBy: string,
 	groupOrder: StructuredWorkspaceGroupValue[],
 ): CollectionCardGroup[] {
-	const groups = new Map<string, CollectionCardGroup>();
-	for (const value of groupOrder) {
-		groups.set(groupKey(value), { label: groupLabel(value), entries: [] });
-	}
-	for (const entry of entries) {
-		const value = groupValue(entry.item.data, groupBy);
-		const key = groupKey(value);
-		const group = groups.get(key) ?? { label: groupLabel(value), entries: [] };
-		group.entries.push(entry);
-		groups.set(key, group);
-	}
-	return [...groups.values()].filter((group) => group.entries.length > 0);
+	return groupItems(entries, (entry) => entry.item.data, {
+		groupBy,
+		groupOrder,
+	}).map((group) => ({ label: group.label, entries: group.entries }));
 }
 
 /** Entries ordered by `sortBy`; without it, insertion order. Items without a
@@ -863,60 +908,7 @@ function sortCollectionEntries(
 		"sortBy" | "sortDirection"
 	>,
 ): CollectionCardEntry[] {
-	const { sortBy } = collection;
-	if (sortBy === undefined) return entries;
-	const sign = collection.sortDirection === "descending" ? -1 : 1;
-	return entries
-		.map((entry) => ({ entry, value: groupValue(entry.item.data, sortBy) }))
-		.sort((left, right) => {
-			const leftMissing = left.value === null;
-			const rightMissing = right.value === null;
-			if (leftMissing || rightMissing) {
-				return Number(leftMissing) - Number(rightMissing);
-			}
-			return sign * compareSortValues(left.value, right.value);
-		})
-		.map(({ entry }) => entry);
-}
-
-function compareSortValues(left: unknown, right: unknown): number {
-	const rank = (value: unknown) =>
-		typeof value === "number"
-			? 0
-			: typeof value === "string"
-				? 1
-				: typeof value === "boolean"
-					? 2
-					: 3;
-	const byRank = rank(left) - rank(right);
-	if (byRank !== 0) return byRank;
-	if (typeof left === "number" && typeof right === "number") {
-		return left - right;
-	}
-	if (typeof left === "string" && typeof right === "string") {
-		return left.localeCompare(right, undefined, { numeric: true });
-	}
-	if (typeof left === "boolean" && typeof right === "boolean") {
-		return Number(left) - Number(right);
-	}
-	return JSON.stringify(left).localeCompare(JSON.stringify(right));
-}
-
-function groupValue(data: Record<string, unknown>, groupBy: string): unknown {
-	try {
-		return readJsonPointer(data, groupBy) ?? null;
-	} catch {
-		return null;
-	}
-}
-
-function groupKey(value: unknown): string {
-	return JSON.stringify(value ?? null);
-}
-
-function groupLabel(value: unknown): string {
-	if (value === null || value === undefined || value === "") return "—";
-	return typeof value === "object" ? JSON.stringify(value) : String(value);
+	return sortItems(entries, (entry) => entry.item.data, collection);
 }
 
 /** Pages of at most `pageSize` cards, laid out group by group. */
@@ -988,7 +980,7 @@ function templateSignature(page: Pick<Page, "html" | "jsonForms">): string {
 function renderCompactCard(
 	document: ReturnType<typeof parseHTML>["document"],
 	page: Pick<Page, "html" | "jsonForms">,
-	item: StructuredWorkspaceItemView,
+	item: CollectionItem,
 	schema: StructuredWorkspaceDataSchema,
 	options: { suffix: string; styleKey: string; svgSlot: boolean },
 ): CompactCard {
@@ -1024,7 +1016,7 @@ const compactTemplateAttribute = "data-maket-compact-template";
  * every style element of that page, which the root alone would lose. */
 function renderedCompactRoot(
 	page: Pick<Page, "html" | "jsonForms">,
-	item: StructuredWorkspaceItemView,
+	item: CollectionItem,
 	schema: StructuredWorkspaceDataSchema,
 ): { root: Element; css: string } {
 	const rendered = renderDocumentStatePage(page, item.data, { schema }).html;
@@ -1579,7 +1571,7 @@ function reconcileItemDocumentState(
 			candidate.id === ownership.itemId && candidate.documentId === document.id,
 	);
 	if (!item) return;
-	if (alignCollectionEntry(deps, workspace, item, document) === "rebuilt") {
+	if (alignCollectionEntry(deps, workspace, item) === "rebuilt") {
 		deps.bus.emit("structured-workspace:changed", {
 			workspaceId: workspace.id,
 		});
@@ -1600,7 +1592,6 @@ function alignCollectionEntry(
 	deps: StructuredWorkspacesDeps,
 	workspace: StructuredWorkspaceDefinition,
 	item: StructuredWorkspaceDefinition["items"][number],
-	document: Document,
 ): "entry" | "rebuilt" {
 	const collectionDocument = findCollectionDocument(
 		deps.documents,
@@ -1609,7 +1600,10 @@ function alignCollectionEntry(
 	);
 	const collectionState =
 		collectionDocument && deps.documentStates.get(collectionDocument.name);
-	const itemState = deps.documentStates.get(document.name);
+	const record = sourcedRecord(
+		deps.itemSources.sourceFor(workspace.id),
+		item.id,
+	);
 	const entries = workspace.items
 		.filter((candidate) => candidate.collectionId === item.collectionId)
 		.sort((left, right) => left.position - right.position);
@@ -1618,7 +1612,7 @@ function alignCollectionEntry(
 	if (
 		!collectionDocument ||
 		!collectionState ||
-		!itemState ||
+		!record ||
 		collectionDocument.dataModel !== "state" ||
 		!Array.isArray(projected) ||
 		projected.length !== entries.length ||
@@ -1628,15 +1622,13 @@ function alignCollectionEntry(
 		refreshCollectionDocumentState(deps, workspace, item.collectionId);
 		return "rebuilt";
 	}
-	if (
-		JSON.stringify(projected[index]) === JSON.stringify(itemState.current.data)
-	)
+	if (JSON.stringify(projected[index]) === JSON.stringify(record.data))
 		return "entry";
 	deps.documentStates.replaceProjectionEntry(
 		collectionDocument.name,
 		collectionState.current.revision,
 		`/items/${index}`,
-		itemState.current.data,
+		record.data,
 	);
 	return "entry";
 }
@@ -1767,12 +1759,14 @@ function workspaceView(
 ): StructuredWorkspaceView {
 	reconcileTemplateOwnership(deps, workspace);
 	const integrity = workspaceIntegrity(deps, workspace);
+	const source = deps.itemSources.sourceFor(workspace.id);
 	return {
 		...workspace,
 		integrity,
 		items: workspace.items.flatMap((item) => {
 			try {
-				return [itemView(deps, item)];
+				const view = presentItem(deps, source, item);
+				return view ? [view] : [];
 			} catch {
 				return [];
 			}
@@ -1981,12 +1975,13 @@ function collectionDocumentStateData(
 	collectionId: string,
 	options: { clone: boolean } = { clone: true },
 ): Record<string, unknown> {
+	const source = deps.itemSources.sourceFor(workspace.id);
 	return {
 		items: workspace.items
 			.filter((item) => item.collectionId === collectionId)
 			.sort((left, right) => left.position - right.position)
 			.map((item) => {
-				const data = itemView(deps, item).data;
+				const data = requiredItemRecord(source, item.id).data;
 				return options.clone ? structuredClone(data) : data;
 			}),
 	};
@@ -2002,25 +1997,44 @@ function availableCollectionDocumentName(
 	return `${base} ${suffix}`;
 }
 
-function itemView(
-	deps: StructuredWorkspacesDeps,
+/** An item row as the views show it: the data and revision its source
+ * holds, the document that renders it. Null when the source has no such item. */
+function presentItem(
+	deps: Pick<StructuredWorkspacesDeps, "documents">,
+	source: ItemSource,
 	item: StructuredWorkspaceDefinition["items"][number],
-): StructuredWorkspaceItemView {
+): StructuredWorkspaceItemView | null {
+	const record = source.get(item.id);
+	if (!record) return null;
 	const document = requiredDocument(
 		deps.documents,
 		item.documentId,
 		"instantiated document",
 	);
-	const current = deps.documentStates.current(document.name);
-	if (!current)
-		throw new Error(`Document "${document.name}" has no item data.`);
 	return {
 		...item,
 		documentName: document.name,
 		...(document.pinnedAt ? { pinnedAt: document.pinnedAt } : {}),
-		data: current.data,
-		dataRevision: current.revision,
+		data: record.data,
+		dataRevision: Number(record.revision),
 	};
+}
+
+/** One item's record from its source; null when the source has no such item
+ * or cannot serve it (missing document or state). */
+function sourcedRecord(source: ItemSource, itemId: string): ItemRecord | null {
+	try {
+		return source.get(itemId);
+	} catch (error) {
+		if (isItemSourceError(error)) return null;
+		throw error;
+	}
+}
+
+function requiredItemRecord(source: ItemSource, itemId: string) {
+	const record = source.get(itemId);
+	if (!record) throw new Error(`Item "${itemId}" has no data in its source.`);
+	return record;
 }
 
 function instantiateDocument(
@@ -2199,6 +2213,7 @@ function workspaceIntegrity(
 			);
 		}
 	}
+	const source = deps.itemSources.sourceFor(workspace.id);
 	for (const item of workspace.items) {
 		const document = deps.documents.resolveById(item.documentId);
 		if (!document) {
@@ -2208,7 +2223,7 @@ function workspaceIntegrity(
 		if (document.meta.structuredWorkspace?.workspaceId !== workspace.id) {
 			issues.push(`Item document "${document.name}" has invalid ownership.`);
 		}
-		if (!deps.documentStates.current(document.name)) {
+		if (!sourcedRecord(source, item.id)) {
 			issues.push(`Item document "${document.name}" has no state.`);
 		}
 	}
@@ -2466,6 +2481,7 @@ function publishWorkspaceDeletion(
 		deps.documents.all().delete(document.name);
 		deps.bus.emit("document:deleted", { docName: document.name });
 	}
+	deps.bus.emit("structured-workspace:deleted", { workspaceId });
 	deps.bus.emit("structured-workspace:changed", { workspaceId });
 }
 
@@ -3330,6 +3346,7 @@ function itemFindings(
 			fix: "Add the first item; its data must satisfy the data schema.",
 			next: `maket_structured_workspace action=add_item workspace=${ref} collection=${firstCollectionId ?? "<collection>"} binding=${Object.keys(firstCollection?.bindings ?? {})[0] ?? "<binding>"} document_name=<name> data=<json>`,
 		});
+	const source = deps.itemSources.sourceFor(workspace.id);
 	const unsynced = new Set<string>();
 	for (const item of workspace.items) {
 		const path = `item "${item.id}"`;
@@ -3347,7 +3364,7 @@ function itemFindings(
 			});
 			continue;
 		}
-		const state = deps.documentStates.current(document.name);
+		const state = sourcedRecord(source, item.id);
 		if (!state) {
 			findings.push({
 				severity: "error",

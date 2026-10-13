@@ -20,6 +20,11 @@ export interface StructuredWorkspaceRepository {
 	): StructuredWorkspaceDefinition;
 	loadStructuredWorkspace(name: string): StructuredWorkspaceDefinition | null;
 	loadAllStructuredWorkspaces(): StructuredWorkspaceDefinition[];
+	/** One item row of a workspace, or null when the workspace has no such item. */
+	loadStructuredWorkspaceItem(
+		workspaceId: string,
+		itemId: string,
+	): StructuredWorkspaceItemReference | null;
 	renameStructuredWorkspace(
 		workspaceId: string,
 		newName: string,
@@ -80,6 +85,7 @@ type Statements = {
 	pageRenameDocument: StatementSync;
 	itemInsert: StatementSync;
 	itemSelectByWorkspace: StatementSync;
+	itemSelectOne: StatementSync;
 	itemDelete: StatementSync;
 	itemCompactPositions: StatementSync;
 };
@@ -109,6 +115,12 @@ export function createStructuredWorkspaceRepository(
 			return (
 				statements.workspaceSelectAll.all() as unknown as WorkspaceRow[]
 			).map((row) => workspaceFromRow(statements, row));
+		},
+		loadStructuredWorkspaceItem(workspaceId, itemId) {
+			const row = statements.itemSelectOne.get(workspaceId, itemId) as
+				| ItemRow
+				| undefined;
+			return row ? itemFromRow(row) : null;
 		},
 		updateStructuredWorkspace(
 			reference,
@@ -337,6 +349,9 @@ function prepareStatements(db: DatabaseSync): Statements {
 		itemSelectByWorkspace: db.prepare(
 			"SELECT id, position, collection_id, binding_id, document_id FROM structured_workspace_items WHERE workspace_id = ? ORDER BY collection_id ASC, position ASC",
 		),
+		itemSelectOne: db.prepare(
+			"SELECT id, position, collection_id, binding_id, document_id FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
+		),
 		itemDelete: db.prepare(
 			"DELETE FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
 		),
@@ -380,15 +395,19 @@ function workspaceFromRow(
 		dataSchema: JSON.parse(row.data_schema),
 		representationSchema: JSON.parse(row.representation_schema),
 		revision: row.revision,
-		items: items.map((item) => ({
-			id: item.id,
-			position: item.position,
-			collectionId: item.collection_id,
-			bindingId: item.binding_id,
-			documentId: item.document_id,
-		})),
+		items: items.map(itemFromRow),
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
+	};
+}
+
+function itemFromRow(row: ItemRow): StructuredWorkspaceItemReference {
+	return {
+		id: row.id,
+		position: row.position,
+		collectionId: row.collection_id,
+		bindingId: row.binding_id,
+		documentId: row.document_id,
 	};
 }
 

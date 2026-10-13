@@ -44,12 +44,14 @@ import {
 	type DocumentStates,
 } from "../services/document-states.js";
 import { createDocuments, type Documents } from "../services/documents.js";
+import { createItemSources } from "../services/item-sources/item-sources.js";
 import type { PdfService } from "../services/pdf.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import {
 	createStructuredWorkspaces,
 	type StructuredWorkspaces,
+	type StructuredWorkspacesDeps,
 } from "../services/structured-workspaces.js";
 import { createMaketDocTool } from "../tools/documents.js";
 import { createDocument } from "../types.js";
@@ -99,7 +101,7 @@ describe("export routes — .maket bundle", () => {
 		collections = createCollections({ bus, documents, store });
 		collectionRenderer = createCollectionRenderer({ collections });
 		documentStates = createDocumentStates({ bus, documents, store });
-		structuredWorkspaces = createStructuredWorkspaces({
+		structuredWorkspaces = structuredWorkspacesWithSources({
 			bus,
 			documents,
 			documentStates,
@@ -1263,3 +1265,18 @@ describe("export routes — .maket bundle", () => {
 		expect(saved?.pages[0]?.html).not.toContain("javascript:");
 	});
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}

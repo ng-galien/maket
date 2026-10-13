@@ -11,8 +11,13 @@ import { type Bus, createBus } from "../services/bus.js";
 import { createConfig } from "../services/config.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createItemSources } from "../services/item-sources/item-sources.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
-import { createStructuredWorkspaces } from "../services/structured-workspaces.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspaces,
+	type StructuredWorkspacesDeps,
+} from "../services/structured-workspaces.js";
 import { createDocument } from "../types.js";
 import { text } from "./_helpers.js";
 import { createMaketDocTool, type DocumentsDeps } from "./documents.js";
@@ -37,7 +42,7 @@ describe("maket_structured_workspace", () => {
 		const bus = createBus();
 		const documents = createDocuments({ store });
 		const documentStates = createDocumentStates({ store, bus, documents });
-		const structuredWorkspaces = createStructuredWorkspaces({
+		const structuredWorkspaces = structuredWorkspacesWithSources({
 			store,
 			bus,
 			documents,
@@ -120,7 +125,7 @@ describe("maket_structured_workspace", () => {
 		const bus = createBus();
 		const documents = createDocuments({ store });
 		const documentStates = createDocumentStates({ store, bus, documents });
-		const structuredWorkspaces = createStructuredWorkspaces({
+		const structuredWorkspaces = structuredWorkspacesWithSources({
 			store,
 			bus,
 			documents,
@@ -282,7 +287,7 @@ describe("maket_structured_workspace", () => {
 		documents.all().set(template.name, template);
 		documents.persist(template.name);
 		const documentStates = createDocumentStates({ store, documents, bus });
-		const structuredWorkspaces = createStructuredWorkspaces({
+		const structuredWorkspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -805,7 +810,7 @@ function methodHarness() {
 	const bus = createBus();
 	const documents = createDocuments({ store });
 	const documentStates = createDocumentStates({ store, bus, documents });
-	const structuredWorkspaces = createStructuredWorkspaces({
+	const structuredWorkspaces = structuredWorkspacesWithSources({
 		store,
 		bus,
 		documents,
@@ -1174,7 +1179,7 @@ describe("maket_structured_workspace Mermaid sources", () => {
 		const bus = createBus();
 		const documents = createDocuments({ store });
 		const documentStates = createDocumentStates({ store, bus, documents });
-		const structuredWorkspaces = createStructuredWorkspaces({
+		const structuredWorkspaces = structuredWorkspacesWithSources({
 			store,
 			bus,
 			documents,
@@ -1253,3 +1258,18 @@ describe("maket_structured_workspace Mermaid sources", () => {
 		}
 	});
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}

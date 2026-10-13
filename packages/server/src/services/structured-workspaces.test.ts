@@ -4,10 +4,12 @@ import { createDocument } from "../types.js";
 import { createBus } from "./bus.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
+import { createItemSources } from "./item-sources/item-sources.js";
 import { createSQLiteStore } from "./store.js";
 import {
 	createStructuredWorkspaces,
 	isStructuredWorkspaceRefusal,
+	type StructuredWorkspaces,
 	type StructuredWorkspacesDeps,
 } from "./structured-workspaces.js";
 
@@ -75,7 +77,7 @@ function fixture() {
 		documents.persist(document.name);
 	}
 	const documentStates = createDocumentStates({ store, documents, bus });
-	const workspaces = createStructuredWorkspaces({
+	const workspaces = structuredWorkspacesWithSources({
 		store,
 		documents,
 		documentStates,
@@ -760,7 +762,7 @@ describe("StructuredWorkspaces", () => {
 
 	it("keeps incomplete Workspaces visible while withholding projections", () => {
 		const { store, documents, documentStates, bus } = fixture();
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -1006,7 +1008,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			documents.persist(document.name);
 		}
 		const documentStates = createDocumentStates({ store, documents, bus });
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -1392,7 +1394,7 @@ describe("StructuredWorkspaces compact template styles", () => {
 			documents.all().set(document.name, document);
 			documents.persist(document.name);
 		}
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates: createDocumentStates({ store, documents, bus }),
@@ -1481,7 +1483,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const bus = createBus();
 		const documents = createDocuments({ store });
 		const documentStates = createDocumentStates({ store, documents, bus });
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -2307,3 +2309,18 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}

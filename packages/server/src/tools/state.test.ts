@@ -5,9 +5,14 @@ import { createBus } from "../services/bus.js";
 import { createDocumentStateMutations } from "../services/document-state-mutations.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createItemSources } from "../services/item-sources/item-sources.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
-import { createStructuredWorkspaces } from "../services/structured-workspaces.js";
+import {
+	createStructuredWorkspaces,
+	type StructuredWorkspaces,
+	type StructuredWorkspacesDeps,
+} from "../services/structured-workspaces.js";
 import { createDocument } from "../types.js";
 import { createMaketStateTool, statePack } from "./state.js";
 
@@ -214,7 +219,7 @@ describe("maket_state revision retention on Workspace documents", () => {
 			documents.persist(document.name);
 		}
 		const documentStates = createDocumentStates({ store, documents, bus });
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -463,7 +468,7 @@ describe("maket_state", () => {
 			documents.persist(document.name);
 		}
 		const documentStates = createDocumentStates({ store, documents, bus });
-		const workspaces = createStructuredWorkspaces({
+		const workspaces = structuredWorkspacesWithSources({
 			store,
 			documents,
 			documentStates,
@@ -607,3 +612,18 @@ describe("maket_state drawing from state", () => {
 		store.close();
 	});
 });
+
+function structuredWorkspacesWithSources(
+	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+): StructuredWorkspaces {
+	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+		...deps,
+		itemSources: createItemSources({
+			...deps,
+			get structuredWorkspaces() {
+				return workspaces;
+			},
+		}),
+	});
+	return workspaces;
+}
