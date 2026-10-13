@@ -1685,6 +1685,274 @@ describe("StructuredWorkspaces definition control and check", () => {
 		store.close();
 	});
 
+	const legacyIndexHtml = (title: string) =>
+		`<style>.maket-index{box-sizing:border-box;padding:12mm;font-family:var(--charte-font-body,system-ui,sans-serif)}.maket-index h1{margin:0 0 6mm;font-size:8mm}.maket-index__items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4mm}</style><main data-id="index" class="maket-index"><h1 data-id="index-title">${title}</h1><section data-id="index-items" class="maket-index__items" data-maket-structured-items></section></main>`;
+	const a4 = {
+		format: "A4",
+		orientation: "portrait",
+		w: 210,
+		h: 297,
+		bg: "#ffffff",
+	};
+
+	/** A Workspace as Maket stored it before the narrow index: its generated
+	 * index template and collection document on an A4 page. */
+	function legacyWorkspace(documents: ReturnType<typeof createDocuments>) {
+		const template = documents.resolve("Books — Items — index template");
+		const collection = documents.resolve("Books — Items");
+		if (!template?.pages[0] || !collection) throw new Error("No index.");
+		template.canvas = { ...a4 };
+		template.pages[0].html = legacyIndexHtml("Mes pièces");
+		documents.persist(template.name);
+		collection.canvas = { ...a4 };
+		documents.persist(collection.name);
+		return { template, collection };
+	}
+
+	it("generates the index from the schema alone as a narrow content-height page and keeps the other templates A4", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		workspaces.get(workspace.id);
+		for (const name of ["Books — Items — index template", "Books — Items"])
+			expect(documents.resolve(name)?.canvas).toMatchObject({
+				format: "AUTO",
+				w: 96,
+				h: 1,
+			});
+		for (const name of [
+			"Books — Items — detail template",
+			"Books — Items — card template",
+		])
+			expect(documents.resolve(name)?.canvas).toMatchObject({
+				format: "A4",
+				w: 210,
+				h: 297,
+			});
+		store.close();
+	});
+
+	it("keeps an inline index HTML on its A4 page", () => {
+		const { store, documents, workspaces } = bare();
+		workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+			representationSchema: {
+				collections: {
+					items: {
+						name: "Items",
+						indexTemplateHtml:
+							'<main data-id="shelf"><section data-maket-structured-items></section></main>',
+					},
+				},
+			},
+		});
+		expect(
+			documents.resolve("Books — Items — index template")?.canvas,
+		).toMatchObject({ format: "A4", w: 210 });
+		store.close();
+	});
+
+	it("gives a generated A4 index the narrow page through check's fix, sync_template", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		workspaces.get(workspace.id);
+		const { template, collection } = legacyWorkspace(documents);
+		const finding = workspaces
+			.check(workspace.id)
+			.findings.find(
+				(candidate) =>
+					candidate.object === "index" &&
+					candidate.severity === "warning" &&
+					candidate.next?.includes("action=sync_template"),
+			);
+		expect(finding).toMatchObject({
+			collection: "items",
+			path: 'document "Books — Items — index template"',
+			next: `maket_structured_workspace action=sync_template workspace=${workspace.id} collection=items`,
+		});
+		workspaces.syncTemplates(workspace.id, "items");
+		expect(template.canvas).toMatchObject({ format: "AUTO", w: 96, h: 1 });
+		expect(template.pages[0]?.html).toContain(
+			"grid-template-columns:minmax(0,1fr)",
+		);
+		expect(template.pages[0]?.html).toContain(
+			'<h1 data-id="index-title">Mes pièces</h1>',
+		);
+		expect(collection.canvas).toMatchObject({ format: "AUTO", w: 96, h: 1 });
+		expect(collection.pages[0]?.html).toBe(template.pages[0]?.html);
+		expect(
+			workspaces
+				.check(workspace.id)
+				.findings.some((candidate) =>
+					candidate.message.includes("unreadable in the list pane"),
+				),
+		).toBe(false);
+		store.close();
+	});
+
+	it("gives a generated A4 index the narrow page at the next update_definition", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		workspaces.get(workspace.id);
+		const { template, collection } = legacyWorkspace(documents);
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 1,
+			representationSchema: { collections: { items: { name: "Items" } } },
+		});
+		expect(documents.resolve("Books — Items — index template")?.id).toBe(
+			template.id,
+		);
+		expect(template.canvas).toMatchObject({ format: "AUTO", w: 96 });
+		expect(collection.canvas).toMatchObject({ format: "AUTO", w: 96 });
+		store.close();
+	});
+
+	it("leaves an index the agent wrote inline or edited on its page", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		workspaces.get(workspace.id);
+		const { template, collection } = legacyWorkspace(documents);
+		const edited = legacyIndexHtml("Mes pièces").replace("gap:4mm", "gap:6mm");
+		if (template.pages[0]) template.pages[0].html = edited;
+		documents.persist(template.name);
+		expect(
+			workspaces
+				.check(workspace.id)
+				.findings.some((candidate) =>
+					candidate.message.includes("unreadable in the list pane"),
+				),
+		).toBe(false);
+		workspaces.syncTemplates(workspace.id, "items");
+		expect(template.canvas).toMatchObject({ format: "A4", w: 210 });
+		expect(template.pages[0]?.html).toBe(edited);
+		expect(collection.canvas).toMatchObject({ format: "A4", w: 210 });
+		store.close();
+	});
+
+	const fullPageWarning = (
+		workspaces: ReturnType<typeof bare>["workspaces"],
+		id: string,
+	) =>
+		workspaces
+			.check(id)
+			.findings.filter((candidate) =>
+				candidate.message.includes("unreadable in the list pane"),
+			);
+
+	it("leaves a narrow generated index whose title or canvas alone the agent changed", () => {
+		for (const change of ["title", "canvas"] as const) {
+			const { store, documents, workspaces } = bare();
+			const workspace = workspaces.create({
+				name: "Books",
+				dataSchema: bookSchema,
+			});
+			workspaces.get(workspace.id);
+			const template = documents.resolve("Books — Items — index template");
+			const page = template?.pages[0];
+			if (!template || !page?.html) throw new Error("No index.");
+			if (change === "title")
+				page.html = page.html.replace(">Items</h1>", ">Mes livres</h1>");
+			else template.canvas = { ...template.canvas, w: 120 };
+			documents.persist(template.name);
+			const html = page.html;
+			const canvas = structuredClone(template.canvas);
+			expect(fullPageWarning(workspaces, workspace.id)).toEqual([]);
+			workspaces.syncTemplates(workspace.id, "items");
+			workspaces.updateDefinition({
+				workspace: workspace.id,
+				expectedRevision: 1,
+				representationSchema: { collections: { items: { name: "Items" } } },
+			});
+			expect(page.html).toBe(html);
+			expect(template.canvas).toEqual(canvas);
+			store.close();
+		}
+	});
+
+	it("never treats an inline index HTML as generated, even equal to the former generated markup", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+			representationSchema: {
+				collections: {
+					items: { name: "Items", indexTemplateHtml: legacyIndexHtml("Items") },
+				},
+			},
+		});
+		workspaces.get(workspace.id);
+		const template = documents.resolve("Books — Items — index template");
+		expect(template?.meta.structuredWorkspaceGenerated).toBeUndefined();
+		expect(fullPageWarning(workspaces, workspace.id)).toEqual([]);
+		workspaces.syncTemplates(workspace.id, "items");
+		expect(template?.canvas).toMatchObject({ format: "A4", w: 210 });
+		expect(template?.pages[0]?.html).toBe(legacyIndexHtml("Items"));
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 1,
+			representationSchema: { collections: { items: { name: "Items" } } },
+		});
+		expect(documents.resolveById(template?.id ?? "")).not.toBeNull();
+		workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: 2,
+			representationSchema: {
+				collections: {
+					items: {
+						name: "Items",
+						indexTemplateHtml:
+							'<main data-id="shelf"><section data-maket-structured-items></section></main>',
+					},
+				},
+			},
+		});
+		expect(documents.resolveById(template?.id ?? "")).toBeNull();
+		expect(
+			[...documents.all().keys()].filter((name) => / \d+$/.test(name)),
+		).toEqual([]);
+		store.close();
+	});
+
+	it("tells to unlock a locked generated A4 index, and the warning clears once synchronized", () => {
+		const { store, documents, workspaces } = bare();
+		const workspace = workspaces.create({
+			name: "Books",
+			dataSchema: bookSchema,
+		});
+		workspaces.get(workspace.id);
+		const { template } = legacyWorkspace(documents);
+		template.meta.locked = true;
+		documents.persist(template.name);
+		const [locked] = fullPageWarning(workspaces, workspace.id);
+		expect(locked?.next).toBe(
+			`maket_workspace action=lock doc="Books — Items — index template" locked=false, then maket_structured_workspace action=sync_template workspace=${workspace.id} collection=items`,
+		);
+		workspaces.syncTemplates(workspace.id, "items");
+		expect(template.canvas).toMatchObject({ format: "A4" });
+		template.meta.locked = false;
+		documents.persist(template.name);
+		expect(fullPageWarning(workspaces, workspace.id)[0]?.next).toBe(
+			`maket_structured_workspace action=sync_template workspace=${workspace.id} collection=items`,
+		);
+		workspaces.syncTemplates(workspace.id, "items");
+		expect(template.canvas).toMatchObject({ format: "AUTO", w: 96 });
+		expect(fullPageWarning(workspaces, workspace.id)).toEqual([]);
+		store.close();
+	});
+
 	it("shows Unicode property names and reports every property the generated templates leave out", () => {
 		const { store, documents, workspaces } = bare();
 		const workspace = workspaces.create({

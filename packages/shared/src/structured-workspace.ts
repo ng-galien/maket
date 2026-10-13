@@ -703,9 +703,10 @@ function humanizeFieldName(name: string): string {
 }
 
 /**
- * Default templates for one binding: an index page with one item slot, a
- * detail page with one labelled line per property, a form on its editable
- * properties, and a compact card with the title and the next two properties.
+ * Default templates for one binding: a narrow index page with one item slot
+ * whose cards flow in one column, a detail page with one labelled line per
+ * property, a form on its editable properties, and a compact card with the
+ * title and the next two properties.
  * The title is the first string property, or the collection name.
  */
 export function generateStructuredWorkspaceTemplates(
@@ -760,19 +761,67 @@ export function generateStructuredWorkspaceTemplates(
 		),
 		"</article>",
 	].join("");
-	const indexHtml = [
-		`<style>.maket-index{box-sizing:border-box;padding:12mm;font-family:var(--charte-font-body,system-ui,sans-serif)}.maket-index h1{margin:0 0 6mm;font-size:8mm}.maket-index__items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4mm}</style>`,
-		`<main data-id="index" class="maket-index">`,
-		`<h1 data-id="index-title">${escapeTemplateText(collectionName)}</h1>`,
-		`<section data-id="index-items" class="maket-index__items" data-maket-structured-items></section>`,
-		"</main>",
-	].join("");
+	const indexHtml = generatedIndexHtml(
+		GENERATED_INDEX_STYLE,
+		escapeTemplateText(collectionName),
+	);
 	return {
 		indexHtml,
 		detailHtml,
 		compactHtml,
 		...(detailForm ? { detailForm } : {}),
 	};
+}
+
+/** Width in millimetres of the generated index page: at scale 1 it fills the
+ * default list pane of a 1440 px window (28 % of the 1384 px beside the 56 px
+ * rail, less two 8 px gutters: 371 px, 98 mm), with 2 mm to spare. */
+export const STRUCTURED_WORKSPACE_INDEX_WIDTH_MM = 96;
+
+/** Canvas of the generated index: content height (AUTO), narrow width. */
+export const structuredWorkspaceIndexCanvas = {
+	format: "AUTO",
+	orientation: "portrait",
+	w: STRUCTURED_WORKSPACE_INDEX_WIDTH_MM,
+	h: 1,
+	bg: "#ffffff",
+} as const;
+
+const GENERATED_INDEX_STYLE =
+	"<style>.maket-index{box-sizing:border-box;padding:5mm;font-family:var(--charte-font-body,system-ui,sans-serif);color:var(--charte-color-text,#1f2937)}.maket-index h1{margin:0 0 4mm;font-size:6mm}.maket-index__items{display:grid;grid-template-columns:minmax(0,1fr);gap:2.5mm}.maket-index__items>[data-maket-structured-group]{margin-top:2mm;font-size:3.5mm;font-weight:600;color:var(--charte-color-muted,#64748b)}</style>";
+
+/** Style of the A4 index Maket generated before the narrow index. */
+const LEGACY_GENERATED_INDEX_STYLE =
+	"<style>.maket-index{box-sizing:border-box;padding:12mm;font-family:var(--charte-font-body,system-ui,sans-serif)}.maket-index h1{margin:0 0 6mm;font-size:8mm}.maket-index__items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4mm}</style>";
+
+function generatedIndexHtml(style: string, title: string): string {
+	return [
+		style,
+		`<main data-id="index" class="maket-index">`,
+		`<h1 data-id="index-title">${title}</h1>`,
+		`<section data-id="index-items" class="maket-index__items" data-maket-structured-items></section>`,
+		"</main>",
+	].join("");
+}
+
+/** The index Maket generated that the HTML is, unedited apart from its
+ * title: `current` for the narrow index, `legacy` for the former A4 one, with
+ * its title HTML; null for any other HTML. */
+export function generatedStructuredWorkspaceIndex(
+	html: string,
+): { kind: "current" | "legacy"; title: string } | null {
+	const title = /<h1 data-id="index-title">([^<]*)<\/h1>/.exec(html)?.[1];
+	if (title === undefined) return null;
+	if (html === generatedIndexHtml(GENERATED_INDEX_STYLE, title))
+		return { kind: "current", title };
+	if (html === generatedIndexHtml(LEGACY_GENERATED_INDEX_STYLE, title))
+		return { kind: "legacy", title };
+	return null;
+}
+
+/** The narrow generated index carrying the given title HTML. */
+export function structuredWorkspaceGeneratedIndexHtml(title: string): string {
+	return generatedIndexHtml(GENERATED_INDEX_STYLE, title);
 }
 
 function dataIdToken(name: string): string {

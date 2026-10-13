@@ -1012,7 +1012,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Method",
 			"Three paths, in this order of preference. Every path ends with add_item and check. Each step gives the exact JSON call, every parameter with its type, what the answer contains verbatim, and what to verify before the next step.",
-			"Generated templates: the detail template shows one labelled line per property in schema order with `{{ state.<property> }}` placeholders, titled by the first string property; its second page is a form on every editable property; the card shows the title and the next two properties; the index lists the cards. A property is editable when its type is string, number, integer, boolean or a string enum and it is not marked `readOnly: true` (the JSON Schema keyword the form already honours): mark a property `readOnly: true` to keep it out of the form.",
+			"Generated templates: the detail template shows one labelled line per property in schema order with `{{ state.<property> }}` placeholders, titled by the first string property; its second page is a form on every editable property; the card shows the title and the next two properties; the index is a narrow page of content height (AUTO, 96 mm wide) that lists the cards in one column. A property is editable when its type is string, number, integer, boolean or a string enum and it is not marked `readOnly: true` (the JSON Schema keyword the form already honours): mark a property `readOnly: true` to keep it out of the form.",
 			[
 				"Parameters of `create` (and of `update_definition`, which adds `expected_workspace_revision` (integer)):",
 				"- `workspace` (string): the Workspace name.",

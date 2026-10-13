@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
 	diagnoseStructuredWorkspaceDefinition,
+	generatedStructuredWorkspaceIndex,
 	generateStructuredWorkspaceTemplates,
+	STRUCTURED_WORKSPACE_INDEX_WIDTH_MM,
 	structuredWorkspaceHiddenProperties,
+	structuredWorkspaceIndexCanvas,
 	structuredWorkspaceItemDataIssues,
 	structuredWorkspaceSchemaDeclaresPath,
 	structuredWorkspaceTemplateFields,
@@ -268,5 +271,41 @@ describe("Structured Workspace generated fields", () => {
 				reason: "the binding schema has no direct properties (it uses oneOf)",
 			},
 		]);
+	});
+});
+
+describe("Structured Workspace generated index", () => {
+	it("is a narrow content-height page whose cards flow in one column", () => {
+		expect(STRUCTURED_WORKSPACE_INDEX_WIDTH_MM).toBe(96);
+		expect(structuredWorkspaceIndexCanvas).toMatchObject({
+			format: "AUTO",
+			w: 96,
+			h: 1,
+		});
+		const { indexHtml } = generateStructuredWorkspaceTemplates("Books", {});
+		expect(indexHtml).toContain("grid-template-columns:minmax(0,1fr)");
+		expect(indexHtml).not.toContain("repeat(3");
+		expect(indexHtml).toContain('<h1 data-id="index-title">Books</h1>');
+		expect(generatedStructuredWorkspaceIndex(indexHtml)).toEqual({
+			kind: "current",
+			title: "Books",
+		});
+	});
+
+	it("recognizes the A4 index Maket generated before, and nothing edited", () => {
+		const legacy =
+			'<style>.maket-index{box-sizing:border-box;padding:12mm;font-family:var(--charte-font-body,system-ui,sans-serif)}.maket-index h1{margin:0 0 6mm;font-size:8mm}.maket-index__items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4mm}</style><main data-id="index" class="maket-index"><h1 data-id="index-title">Pièces</h1><section data-id="index-items" class="maket-index__items" data-maket-structured-items></section></main>';
+		expect(generatedStructuredWorkspaceIndex(legacy)).toEqual({
+			kind: "legacy",
+			title: "Pièces",
+		});
+		expect(
+			generatedStructuredWorkspaceIndex(legacy.replace("gap:4mm", "gap:6mm")),
+		).toBeNull();
+		expect(
+			generatedStructuredWorkspaceIndex(
+				'<main data-id="index"><h1 data-id="index-title">Books</h1><section data-maket-structured-items></section></main>',
+			),
+		).toBeNull();
 	});
 });

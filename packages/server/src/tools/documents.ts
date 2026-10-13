@@ -605,6 +605,7 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 		if (cloneData.meta.structuredWorkspace) cloneData.category = "general";
 		delete cloneData.meta.structuredWorkspace;
 		delete cloneData.meta.structuredWorkspaceGenerated;
+		delete cloneData.meta.structuredWorkspaceInline;
 	}
 	const clone = createDocument(cloneData);
 	documents.all().set(clone.name, clone);

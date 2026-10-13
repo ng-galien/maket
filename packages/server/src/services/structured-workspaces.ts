@@ -17,6 +17,7 @@ import type {
 import {
 	diagnoseStructuredWorkspaceDefinition,
 	documentStateTemplateReferenceIssues,
+	generatedStructuredWorkspaceIndex,
 	generateStructuredWorkspaceTemplates,
 	hasJsonFormSlot,
 	readJsonPointer,
@@ -24,7 +25,9 @@ import {
 	renderJsonFormsTemplate,
 	structuredWorkspaceBindingSchema,
 	structuredWorkspaceDefaultPageSize,
+	structuredWorkspaceGeneratedIndexHtml,
 	structuredWorkspaceHiddenProperties,
+	structuredWorkspaceIndexCanvas,
 	structuredWorkspaceItemDataIssues,
 	structuredWorkspaceSchemaDeclaresPath,
 	structuredWorkspaceTemplateFields,
@@ -1211,7 +1214,9 @@ function updateDefinition(
 		});
 		adoptPreferredNames(deps, materialized);
 		announceCreatedTemplates(deps, materialized.created);
-		return workspaceView(deps, requiredWorkspace(deps.store, workspace.id));
+		const updated = requiredWorkspace(deps.store, workspace.id);
+		reformatGeneratedIndexes(deps, updated);
+		return workspaceView(deps, updated);
 	} catch (error) {
 		const persisted = deps.store.loadStructuredWorkspace(workspace.id);
 		if (persisted?.revision === workspace.revision)
@@ -1676,6 +1681,7 @@ function syncTemplates(
 		);
 	});
 	for (const document of affected) assertDocumentUnlocked(document);
+	reformatGeneratedIndexes(deps, workspace, collectionId);
 	let updated = 0;
 	for (const collectionDocument of ensureCollectionDocuments(deps, workspace)) {
 		if (collectionId && collectionDocument.collectionId !== collectionId)
@@ -2250,9 +2256,11 @@ function workspaceIntegrity(
 /** A template's meta for a document instantiated from it: never the marker
  * of a Maket-written template, so only templates are ever retired. */
 function templateMeta(template: Document): Document["meta"] {
-	const { structuredWorkspaceGenerated: _generated, ...meta } = structuredClone(
-		template.meta,
-	);
+	const {
+		structuredWorkspaceGenerated: _generated,
+		structuredWorkspaceInline: _inline,
+		...meta
+	} = structuredClone(template.meta);
 	return meta;
 }
 
@@ -2484,6 +2492,78 @@ const templateCanvas = {
 	bg: "#ffffff",
 };
 
+/** Whether the index template is one Maket generated from the schema alone
+ * (not written inline nor named by the agent), unedited apart from its title,
+ * that still has the former A4 canvas or the former A4 markup. A narrow index
+ * whose title or canvas the agent changed is current. */
+function outdatedGeneratedIndex(template: Document): boolean {
+	const [page, ...rest] = template.pages;
+	if (
+		template.meta.structuredWorkspaceGenerated !== true ||
+		!page?.html ||
+		rest.length > 0
+	)
+		return false;
+	const generated = generatedStructuredWorkspaceIndex(page.html);
+	return (
+		generated !== null &&
+		(generated.kind === "legacy" ||
+			template.canvas.format !== structuredWorkspaceIndexCanvas.format)
+	);
+}
+
+/** Give the outdated index templates Maket generated (see
+ * outdatedGeneratedIndex) the narrow markup with their own title and, when
+ * not already AUTO, the narrow content-height canvas; their collection
+ * documents follow. Locked templates stay as they are. */
+function reformatGeneratedIndexes(
+	deps: StructuredWorkspacesDeps,
+	workspace: StructuredWorkspaceDefinition,
+	onlyCollectionId?: string,
+): void {
+	for (const [collectionId, collection] of Object.entries(
+		workspace.representationSchema.collections ?? {},
+	)) {
+		if (onlyCollectionId && collectionId !== onlyCollectionId) continue;
+		const template = deps.documents.resolveById(
+			collection.collectionTemplateDocumentId,
+		);
+		if (
+			!template ||
+			template.meta.locked === true ||
+			!outdatedGeneratedIndex(template)
+		)
+			continue;
+		const [page] = template.pages;
+		const generated = page?.html
+			? generatedStructuredWorkspaceIndex(page.html)
+			: null;
+		if (!page || !generated) continue;
+		if (template.canvas.format !== structuredWorkspaceIndexCanvas.format)
+			template.canvas = {
+				...structuredClone(structuredWorkspaceIndexCanvas),
+				bg: template.canvas.bg,
+			};
+		page.html = structuredWorkspaceGeneratedIndexHtml(generated.title);
+		deps.documents.persist(template.name);
+		deps.bus.emit("document:loaded", { docName: template.name });
+		const document = findCollectionDocument(
+			deps.documents,
+			workspace.id,
+			collectionId,
+		);
+		if (!document || document.meta.locked === true) continue;
+		document.canvas = structuredClone(template.canvas);
+		document.pages = synchronizedPages(workspace.id, template, document.pages);
+		document.activePage = Math.min(
+			document.activePage,
+			Math.max(0, document.pages.length - 1),
+		);
+		deps.documents.persist(document.name);
+		deps.bus.emit("document:loaded", { docName: document.name });
+	}
+}
+
 interface MaterializeRequest {
 	workspaceName: string;
 	dataSchema: StructuredWorkspaceDataSchema;
@@ -2522,12 +2602,18 @@ function materializeRepresentation(
 	const live = (id: string | undefined) => (resolve(id) ? id : undefined);
 	const generatedTemplate = (id: string | undefined) =>
 		resolve(id)?.meta.structuredWorkspaceGenerated === true;
-	const write = (name: string, html: string, form?: JsonFormsTemplate) => {
+	const write = (
+		name: string,
+		html: string,
+		form?: JsonFormsTemplate,
+		canvas: Document["canvas"] = templateCanvas,
+		meta: Document["meta"] = { structuredWorkspaceGenerated: true },
+	) => {
 		const document = createDocument({
 			name: availableCollectionDocumentName(deps.documents, name),
 			category: `Structured Workspaces/${workspaceName}`,
-			canvas: structuredClone(templateCanvas),
-			meta: { structuredWorkspaceGenerated: true },
+			canvas: structuredClone(canvas),
+			meta,
 			pages: [
 				{ name: "Template", elements: [], html },
 				...(form ? [{ name: "Form", elements: [], jsonForms: form }] : []),
@@ -2628,11 +2714,20 @@ function materializeRepresentation(
 				(indexTemplateHtml === undefined
 					? live(previous?.collectionTemplateDocumentId)
 					: undefined) ??
-				write(
-					`${label} — index template`,
-					indexTemplateHtml ??
-						generateStructuredWorkspaceTemplates(name, {}).indexHtml,
-				);
+				(indexTemplateHtml === undefined
+					? write(
+							`${label} — index template`,
+							generateStructuredWorkspaceTemplates(name, {}).indexHtml,
+							undefined,
+							structuredWorkspaceIndexCanvas,
+						)
+					: write(
+							`${label} — index template`,
+							indexTemplateHtml,
+							undefined,
+							templateCanvas,
+							{ structuredWorkspaceInline: true },
+						));
 			collections[collectionId] = {
 				...layout,
 				name,
@@ -2685,7 +2780,8 @@ function retireReplacedTemplates(
 	for (const document of [...deps.documents.all().values()]) {
 		const owner = document.meta.structuredWorkspace;
 		if (
-			document.meta.structuredWorkspaceGenerated !== true ||
+			(document.meta.structuredWorkspaceGenerated !== true &&
+				document.meta.structuredWorkspaceInline !== true) ||
 			owner?.role !== "template" ||
 			owner.workspaceId !== workspace.id ||
 			referenced.has(document.id)
@@ -2814,6 +2910,23 @@ function diagnoseWorkspace(
 						next,
 					}),
 				);
+		}
+		if (index && outdatedGeneratedIndex(index)) {
+			const sync = `maket_structured_workspace action=sync_template workspace=${workspace.id} collection=${collectionId}`;
+			const locked = index.meta.locked === true;
+			findings.push({
+				severity: "warning",
+				object: "index",
+				collection: collectionId,
+				path: `document "${index.name}"`,
+				message: `The index template "${index.name}" that Maket generated is a full page, unreadable in the list pane${locked ? "; it is locked" : ""}.`,
+				fix: locked
+					? "Unlock the index template, then synchronize the collection: Maket gives its generated index a narrow page of content height."
+					: "Synchronize the collection: Maket gives its generated index a narrow page of content height.",
+				next: locked
+					? `maket_workspace action=lock doc="${index.name}" locked=false, then ${sync}`
+					: sync,
+			});
 		}
 		if (index) {
 			findings.push(

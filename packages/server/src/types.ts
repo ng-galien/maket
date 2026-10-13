@@ -83,6 +83,10 @@ export interface DocMeta {
 	/** Set on a template document Maket wrote for a Structured Workspace
 	 * definition; Maket deletes it once no definition references it. */
 	structuredWorkspaceGenerated?: boolean;
+	/** Set on a template document Maket wrote from HTML the agent gave inline
+	 * for a Structured Workspace definition; Maket deletes it once no
+	 * definition references it. */
+	structuredWorkspaceInline?: boolean;
 	structuredWorkspace?:
 		| {
 				role: "template";
