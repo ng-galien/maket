@@ -51,6 +51,8 @@ const MESSAGES = {
     dialog_renderer_gone_title: "Maket stopped unexpectedly",
     dialog_renderer_gone_detail: "The application window stopped responding and Maket will now quit.",
     dialog_start_failed_title: "Maket could not start",
+    dialog_print_pdf_fallback:
+      "The system print dialog cannot be used on this computer, so Maket opened the document as a PDF for you to print from your PDF viewer.",
   },
   fr: {
     menu_about: "À propos de Maket",
@@ -91,6 +93,8 @@ const MESSAGES = {
     dialog_renderer_gone_title: "Maket s’est arrêté de façon inattendue",
     dialog_renderer_gone_detail: "La fenêtre de l’application ne répond plus et Maket va se fermer.",
     dialog_start_failed_title: "Maket n’a pas pu démarrer",
+    dialog_print_pdf_fallback:
+      "La boîte d’impression du système est inutilisable sur cet ordinateur : Maket a ouvert le document en PDF pour que vous l’imprimiez depuis votre lecteur PDF.",
   },
 } satisfies Record<SettingsLanguage, Record<string, string>>;
 

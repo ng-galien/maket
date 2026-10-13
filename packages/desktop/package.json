@@ -34,7 +34,7 @@
     "@electron-forge/publisher-github": "^7.11.2",
     "@electron/asar": "^3.4.1",
     "@types/node": "^26.1.2",
-    "electron": "^43.4.1",
+    "electron": "^43.7.9",
     "typescript": "^7.0.2"
   }
 }

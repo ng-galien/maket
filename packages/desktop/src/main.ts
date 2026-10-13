@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { type AgentClient, type AgentSetupService, createAgentSetupService } from "@maket/agent-setup";
@@ -17,6 +17,7 @@ import {
   app,
   BrowserWindow,
   clipboard,
+  crashReporter,
   dialog,
   type Event as ElectronEvent,
   type IpcMainInvokeEvent,
@@ -29,7 +30,7 @@ import { applyDesktopOnboarding, validateOnboardingSelection } from "./configura
 import { createElectronBrowserPool } from "./electron-browser-pool.js";
 import { type DesktopTranslate, desktopMessage, watchDesktopLanguage } from "./i18n.js";
 import { buildApplicationMenuTemplate } from "./menu.js";
-import { printWithNativeDialog } from "./native-print.js";
+import { linuxDialogUnusableReason, type PendingDialogMarker, printWithNativeDialog } from "./native-print.js";
 import { isTrustedIpcSender, isTrustedRendererUrl, shouldOpenInExternalBrowser } from "./renderer-security.js";
 import { DesktopSetupPreferences } from "./setup-preferences.js";
 import { handleSquirrelStartup } from "./squirrel-startup.js";
@@ -64,6 +65,7 @@ app.setAboutPanelOptions({
   version: app.getVersion(),
   website: "https://github.com/ng-galien/maket",
 });
+crashReporter.start({ uploadToServer: false });
 
 let mainWindow: BrowserWindow | null = null;
 let quitting = false;
@@ -92,7 +94,15 @@ const updates = new UpdateController({
 const setupPreferences = new DesktopSetupPreferences(join(app.getPath("userData"), "desktop-setup.json"));
 
 function logStartup(message: string): void {
-  process.stderr.write(`[desktop] ${message}\n`);
+  const line = `[desktop] ${message}\n`;
+  process.stderr.write(line);
+  try {
+    const logsPath = app.getPath("logs");
+    mkdirSync(logsPath, { recursive: true });
+    appendFileSync(join(logsPath, "desktop.log"), `${new Date().toISOString()} ${line}`);
+  } catch {
+    // stderr already carries the line
+  }
 }
 
 async function logRendererDiagnostics(window: BrowserWindow, stage: "load" | "hydrated" | "settled"): Promise<void> {
@@ -188,11 +198,24 @@ async function exportDocumentPdf(name: string): Promise<void> {
   }
 }
 
+const nativePrintPendingPath = () => join(app.getPath("userData"), "native-print-pending.json");
+
+function currentPrintVersions(): PendingDialogMarker {
+  return { app: app.getVersion(), electron: process.versions.electron };
+}
+
+function readPendingNativePrint(): PendingDialogMarker | null {
+  try {
+    return JSON.parse(readFileSync(nativePrintPendingPath(), "utf8")) as PendingDialogMarker;
+  } catch {
+    return null;
+  }
+}
+
 async function printDocument(name: string): Promise<void> {
-  await printWithNativeDialog(
-    runtime.state().url,
-    name,
-    () =>
+  const outcome = await printWithNativeDialog(runtime.state().url, name, {
+    platform: process.platform,
+    createWindow: () =>
       new BrowserWindow({
         show: false,
         parent: mainWindow ?? undefined,
@@ -202,7 +225,33 @@ async function printDocument(name: string): Promise<void> {
           sandbox: true,
         },
       }),
-  );
+    unusableDialogReason: () =>
+      linuxDialogUnusableReason(process.env, readPendingNativePrint(), currentPrintVersions()),
+    markDialogPending: () => writeFileSync(nativePrintPendingPath(), JSON.stringify(currentPrintVersions())),
+    clearDialogPending: () => rmSync(nativePrintPendingPath(), { force: true }),
+    openPdf: async (documentName, data) => {
+      const directory = join(app.getPath("temp"), "maket-print");
+      await mkdir(directory, { recursive: true });
+      const path = join(directory, `${documentName.replace(/[\\/:*?"<>|]/g, "_")}.pdf`);
+      await writeFile(path, data);
+      const error = await shell.openPath(path);
+      if (error) throw new Error(error);
+      return path;
+    },
+    defer: (task) => setTimeout(task, 0),
+    log: logStartup,
+  });
+  if (outcome.status === "failed") {
+    dialog.showErrorBox(translate("menu_print"), outcome.message);
+  } else if (outcome.status === "pdf-fallback") {
+    const options: Electron.MessageBoxOptions = {
+      type: "info",
+      message: translate("dialog_print_pdf_fallback"),
+      detail: outcome.path,
+    };
+    if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options);
+    else await dialog.showMessageBox(options);
+  }
 }
 
 function sendRendererCommand(command: DesktopCommand): void {
@@ -301,7 +350,9 @@ function registerIpc(): void {
     try {
       await printDocument(name);
     } catch (error) {
-      dialog.showErrorBox(translate("menu_print"), error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      logStartup(`print failed: ${message}`);
+      dialog.showErrorBox(translate("menu_print"), message);
     }
   });
   handleTrustedIpc(DESKTOP_CHANNELS.mcpDiagnose, (): McpConfigurationFinding[] => {
@@ -520,6 +571,7 @@ async function createWindow(url: string): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  logStartup(`crash dumps (kept locally, never uploaded) are written to ${app.getPath("crashDumps")}`);
   logStartup("waiting for Electron readiness");
   await app.whenReady();
   installApplicationIcon();
@@ -584,6 +636,16 @@ if (
     app.on("second-instance", showWindow);
     app.on("activate", showWindow);
     app.on("window-all-closed", () => app.quit());
+    app.on("render-process-gone", (_event, contents, details) => {
+      logStartup(
+        `render process gone: ${details.reason} (exit code ${details.exitCode}) for ${contents.isDestroyed() ? "a closed window" : contents.getURL()}`,
+      );
+    });
+    app.on("child-process-gone", (_event, details) => {
+      logStartup(
+        `child process gone: ${details.type}${details.serviceName ? ` ${details.serviceName}` : ""}${details.name ? ` (${details.name})` : ""} ${details.reason} (exit code ${details.exitCode})`,
+      );
+    });
     app.on("before-quit", (event) => {
       quitting = true;
       stopWatchingLanguage?.();
