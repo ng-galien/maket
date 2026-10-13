@@ -18,6 +18,17 @@ describe("maket_learn", () => {
 		expect(body).toContain("1. Read the Learn topics");
 	});
 
+	it("returns invalid arguments as an error whose structured content is an object", async () => {
+		const result = await createMaketLearnTool().handler(
+			{ action: "bogus" },
+			{} as never,
+		);
+		const body =
+			result.content[0]?.type === "text" ? result.content[0].text : "";
+		expect(result.isError).toBe(true);
+		expect(result.structuredContent).toEqual({ issues: JSON.parse(body) });
+	});
+
 	it("lists topics and reads one topic", async () => {
 		const tool = createMaketLearnTool();
 		const topics = await tool.handler({ action: "topics" }, {} as never);

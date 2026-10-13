@@ -98,14 +98,16 @@ describe("maket_state revision retention", () => {
 
 		const history = await call({ action: "history" });
 		expect(historyRevisions(textOf(history))).toEqual([6, 5, 4, 3]);
-		const state = JSON.parse(textOf(await call({ action: "get" })));
+		const got = await call({ action: "get" });
+		const state = JSON.parse(textOf(got));
+		expect(got.structuredContent).toEqual(state);
 		expect(state.retention).toBe(3);
 		expect(state.current).toMatchObject({ revision: 6, data: { count: 5 } });
 		const pruned = await call({ action: "revision", revision: 2 });
 		expect(pruned.isError).toBe(true);
-		const kept = JSON.parse(
-			textOf(await call({ action: "revision", revision: 3 })),
-		);
+		const revision = await call({ action: "revision", revision: 3 });
+		const kept = JSON.parse(textOf(revision));
+		expect(revision.structuredContent).toEqual(kept);
 		expect(kept.data).toEqual({ count: 2 });
 		store.close();
 	});

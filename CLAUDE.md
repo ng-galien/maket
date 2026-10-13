@@ -46,6 +46,7 @@ Gating logic like `lockGuard` must run in MCP tools, `ws-handler` cases, **AND**
 
 ### Tool output
 Always use `text(t, { isError?, next? })` from `packages/server/src/tools/_helpers.ts`. Never build the MCP content envelope inline. Use the `next: string[]` option on business-flow hinges so the agent sees what call to make next.
+A handler returning a JSON value uses `json(value, { key?, indent?, text?, isError? })` from the same file, never `text(JSON.stringify(...))`: `structuredContent` carries the value, an array or scalar under a named `key`. `text()` wraps a body that parses as a JSON array or scalar in `structuredContent: { text }` on its own.
 
 ### Client mirrors server state over WS
 - **Zustand = single source of truth.** No Context, no prop-drilled server state. Selectors + `useShallow` for derived shapes.

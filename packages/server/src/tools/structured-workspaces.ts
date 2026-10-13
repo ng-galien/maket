@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import type { StructuredWorkspaces } from "../services/structured-workspaces.js";
-import { text } from "./_helpers.js";
+import { json, text } from "./_helpers.js";
 
 export interface StructuredWorkspacesToolDeps {
 	structuredWorkspaces: StructuredWorkspaces;
@@ -164,7 +164,7 @@ function runView(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = workspaces.get(name);
 	if (!workspace)
 		return text(`Structured Workspace "${name}" not found.`, true);
-	return text(JSON.stringify(workspace, null, 2));
+	return json(workspace, { indent: 2 });
 }
 
 function runCreate(args: Args, workspaces: StructuredWorkspaces) {

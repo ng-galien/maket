@@ -286,6 +286,7 @@ describe("maket_doc — action=link", () => {
 			documentId: doc.id,
 			path: `/mobile/apps/maket/documents/${doc.id}/read?workspace=workspace-1&collection=decisions`,
 		});
+		expect(result.structuredContent).toEqual(JSON.parse(body));
 		expect(focused).not.toHaveBeenCalled();
 		store.close();
 	});
@@ -324,6 +325,7 @@ describe("maket_doc — action=lookup", () => {
 			return {
 				isError: result.isError,
 				body: result.content[0]?.type === "text" ? result.content[0].text : "",
+				structuredContent: result.structuredContent,
 			};
 		};
 		return { ...context, synthesis, board, emitted, lookup };
@@ -337,6 +339,7 @@ describe("maket_doc — action=lookup", () => {
 		const staticDoc = await lookup("Synthesis");
 
 		expect(stateful.isError).toBeUndefined();
+		expect(stateful.structuredContent).toEqual(JSON.parse(stateful.body));
 		expect(JSON.parse(stateful.body)).toEqual({
 			name: "Topic board",
 			id: board.id,

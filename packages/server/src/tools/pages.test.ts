@@ -272,6 +272,9 @@ describe("maket_page — action=add", () => {
 			NO_EXTRA,
 		);
 		expect((read.content[0] as any).text).toContain('"#/properties/title"');
+		expect(read.structuredContent).toEqual(
+			JSON.parse((read.content[0] as any).text),
+		);
 		expect(store.loadOne("d")?.pages[1]?.jsonForms).toBeTruthy();
 		store.close();
 	});

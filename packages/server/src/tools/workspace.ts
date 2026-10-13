@@ -23,7 +23,7 @@ import type {
 } from "../services/collection-cursor.js";
 import type { Documents } from "../services/documents.js";
 import type { Page } from "../types.js";
-import { text } from "./_helpers.js";
+import { json, text } from "./_helpers.js";
 
 export interface WorkspaceDeps {
 	documents: Documents;
@@ -211,8 +211,11 @@ function runFitView(bus: Bus) {
 
 function runListMessages(args: Args, pending: Annotations) {
 	const list = args.doc ? pending.forDoc(args.doc) : pending.all();
-	if (list.length === 0) return text("No pending messages");
-	return text(JSON.stringify(list, null, 2));
+	return json(list, {
+		key: "messages",
+		indent: 2,
+		...(list.length === 0 ? { text: "No pending messages" } : {}),
+	});
 }
 
 function runAckMessages(args: Args, pending: Annotations) {

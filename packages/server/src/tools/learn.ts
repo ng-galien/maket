@@ -9,7 +9,7 @@ import {
 	learnText,
 	learnTopicTitle,
 } from "../lib/learn-content.js";
-import { text } from "./_helpers.js";
+import { json, text } from "./_helpers.js";
 
 const ActionSchema = z.enum(["overview", "topics", "topic"]);
 const TopicSchema = z.enum(LEARN_TOPICS);
@@ -48,7 +48,12 @@ type Args = z.infer<typeof MaketLearnSchema>;
 
 function runLearn(rawArgs: unknown) {
 	const parsed = MaketLearnSchema.safeParse(rawArgs);
-	if (!parsed.success) return text(parsed.error.message, true);
+	if (!parsed.success)
+		return json(parsed.error.issues, {
+			key: "issues",
+			indent: 2,
+			isError: true,
+		});
 	const args = parsed.data;
 	if ((args.action ?? "overview") === "topics") return runTopics();
 	if ((args.action ?? "overview") === "topic") return runTopic(args);

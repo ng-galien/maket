@@ -284,6 +284,16 @@ describe("maket_workspace — action=list_messages", () => {
 				pageIndex: 0,
 			}),
 		]);
+		expect(result.structuredContent).toEqual({
+			messages: [
+				expect.objectContaining({
+					id: "mine",
+					docName: "alpha",
+					elementId: "text",
+					pageIndex: 0,
+				}),
+			],
+		});
 		expect(pending.all()).toHaveLength(3);
 		store.close();
 	});
@@ -297,6 +307,7 @@ describe("maket_workspace — action=list_messages", () => {
 		});
 		const res = await tool.handler({ action: "list_messages" }, NO_EXTRA);
 		expect((res.content[0] as any).text).toMatch(/No pending messages/);
+		expect(res.structuredContent).toEqual({ messages: [] });
 		store.close();
 	});
 

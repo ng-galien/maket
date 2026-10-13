@@ -10,7 +10,7 @@ import type { ToolPack } from "../core/tool-pack.js";
 import type { DocumentStateMutations } from "../services/document-state-mutations.js";
 import type { DocumentStates } from "../services/document-states.js";
 import type { Documents } from "../services/documents.js";
-import { lockGuard, text } from "./_helpers.js";
+import { json, lockGuard, text } from "./_helpers.js";
 
 export interface StateToolDeps {
 	documentStates: DocumentStates;
@@ -192,17 +192,14 @@ function runStateAction(
 		case "get": {
 			const state = states.get(args.doc);
 			if (!state) return text(`Document "${args.doc}" has no state.`, true);
-			return text(
-				JSON.stringify(
-					{
-						doc: args.doc,
-						schema: state.definition.schema,
-						retention: state.definition.retention,
-						current: state.current,
-					},
-					null,
-					2,
-				),
+			return json(
+				{
+					doc: args.doc,
+					schema: state.definition.schema,
+					retention: state.definition.retention,
+					current: state.current,
+				},
+				{ indent: 2 },
 			);
 		}
 		case "update": {
@@ -257,7 +254,7 @@ function runStateAction(
 			if (!revision) {
 				return text(`Revision ${number} not found for "${args.doc}".`, true);
 			}
-			return text(JSON.stringify(revision, null, 2));
+			return json(revision, { indent: 2 });
 		}
 		case "restore": {
 			const revision = mutations.restore(

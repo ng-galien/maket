@@ -24,7 +24,7 @@ import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
 import type { Document, Page } from "../types.js";
-import { lockGuard, templatePageGuard, text } from "./_helpers.js";
+import { json, lockGuard, templatePageGuard, text } from "./_helpers.js";
 import { normalizeImageSrc } from "./html.js";
 
 export interface PagesDeps {
@@ -262,7 +262,7 @@ function runGetForm(args: Args, d: Document) {
 	if (!page) return text(`Page "${args.page}" not found`, true);
 	if (!page.jsonForms)
 		return text("This page uses HTML, not JSON Forms.", true);
-	return text(JSON.stringify(page.jsonForms, null, 2));
+	return json(page.jsonForms, { indent: 2 });
 }
 
 function runRemove(args: Args, d: Document, documents: Documents, bus: Bus) {

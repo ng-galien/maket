@@ -34,7 +34,7 @@ import {
 	type Document,
 	type Page,
 } from "../types.js";
-import { lockGuard, text } from "./_helpers.js";
+import { json, lockGuard, text } from "./_helpers.js";
 
 export interface DocumentsDeps {
 	documents: Documents;
@@ -405,19 +405,17 @@ function runLookup(args: Args, documents: Documents, store: Store) {
 			},
 		);
 	}
-	return text(
-		JSON.stringify({
-			name: doc.name,
-			id: doc.id,
-			revision: timestamps.get(doc.name) ?? null,
-			pageCount: doc.pages.length,
-			dataModel: doc.dataModel,
-			stateRevision:
-				doc.dataModel === "state"
-					? (store.loadCurrentDocumentState(doc.id)?.revision ?? null)
-					: null,
-		}),
-	);
+	return json({
+		name: doc.name,
+		id: doc.id,
+		revision: timestamps.get(doc.name) ?? null,
+		pageCount: doc.pages.length,
+		dataModel: doc.dataModel,
+		stateRevision:
+			doc.dataModel === "state"
+				? (store.loadCurrentDocumentState(doc.id)?.revision ?? null)
+				: null,
+	});
 }
 
 const NEAR_MATCH_LIMIT = 5;
@@ -482,7 +480,7 @@ function runLink(args: Args, documents: Documents, config: Config) {
 					: ""
 			}`
 		: "";
-	return text(JSON.stringify({ documentId: doc.id, path: `${path}${query}` }));
+	return json({ documentId: doc.id, path: `${path}${query}` });
 }
 
 type ListedDocument = ReturnType<Documents["list"]>[number];

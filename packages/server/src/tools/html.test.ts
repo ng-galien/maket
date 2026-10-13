@@ -548,6 +548,21 @@ describe("maket_html — action=get", () => {
 			NO_EXTRA,
 		);
 		expect((res.content[0] as any).text).toBe("Hello world");
+		expect(res.structuredContent).toBeUndefined();
+		store.close();
+	});
+
+	it("wraps a text format that parses as a JSON scalar", async () => {
+		const { store, documents, layout, assets } = fixture();
+		store.saveDoc(makeDoc("d", `<p>2026</p>`));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+		const res = await tool.handler(
+			{ action: "get", doc: "d", page: 1, format: "text" },
+			NO_EXTRA,
+		);
+		expect((res.content[0] as any).text).toBe("2026");
+		expect(res.structuredContent).toEqual({ text: "2026" });
 		store.close();
 	});
 });

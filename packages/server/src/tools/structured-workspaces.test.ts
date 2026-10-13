@@ -188,6 +188,7 @@ describe("maket_structured_workspace", () => {
 				{ action: "view", workspace: "Grouped" },
 				{} as never,
 			);
+			expect(view.structuredContent).toEqual(JSON.parse(textOf(view)));
 			expect(
 				JSON.parse(textOf(view)).representationSchema.collections.items,
 			).toMatchObject({
