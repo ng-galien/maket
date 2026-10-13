@@ -231,6 +231,11 @@ async function handleMaketExport(
 			"Content-Disposition",
 			`attachment; filename="${result.filename}"`,
 		);
+		if (result.itemsLeftOut.length > 0)
+			res.setHeader(
+				"X-Maket-Items-Left-Out",
+				String(result.itemsLeftOut.length),
+			);
 		res.send(result.buffer);
 	} catch (e: any) {
 		res.status(500).json({ error: e.message });

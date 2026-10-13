@@ -224,14 +224,12 @@ function assertDataMutationAllowed(
 			"msg_state_invalid",
 		);
 	}
-	const workspace = deps.store
-		.loadAllStructuredWorkspaces()
-		.find((candidate) => candidate.id === owner.workspaceId);
-	const item = workspace?.items.find(
-		(candidate) =>
-			candidate.id === owner.itemId && candidate.documentId === document.id,
-	);
-	if (!workspace || !item) {
+	const workspace = deps.store.loadStructuredWorkspace(owner.workspaceId);
+	const item =
+		workspace?.id === owner.workspaceId
+			? deps.store.loadStructuredWorkspaceItem(workspace.id, owner.itemId)
+			: null;
+	if (!workspace || item?.documentId !== document.id) {
 		throw new MessageError(
 			`Document "${document.name}" is marked as a Structured Workspace item but its membership is missing.`,
 			"msg_state_invalid",

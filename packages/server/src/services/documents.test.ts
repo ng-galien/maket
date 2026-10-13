@@ -136,7 +136,7 @@ describe("documents service", () => {
 		docs.loadAll();
 
 		expect(docs.delete("instance")).toBe(false);
-		expect(docs.resolve("instance")).not.toBeNull();
+		expect(docs.resolveOrLoad("instance")).not.toBeNull();
 		expect(docs.delete("instance", { allowStructuredWorkspace: true })).toBe(
 			true,
 		);
@@ -213,7 +213,7 @@ describe("documents service", () => {
 		store.close();
 	});
 
-	it("keeps item documents out of the library listing and resolves them by id and name", () => {
+	it("keeps item documents out of the boot load and the library listing, and loads them by id and name on demand", () => {
 		const store = createSQLiteStore(":memory:");
 		const item = makeDoc("Item one", "Structured Workspaces/W");
 		item.meta.structuredWorkspace = {
@@ -234,14 +234,18 @@ describe("documents service", () => {
 		docs.loadAll();
 
 		expect(docs.list().map((summary) => summary.name)).toEqual(["Plain"]);
-		expect(
+		expect(docs.resolve("Item one")).toBeNull();
+		const workspaceListing = () =>
 			docs
 				.list({ includeWorkspaceDocuments: true })
 				.map((summary) => summary.name)
-				.sort(),
-		).toEqual(["Item one", "Plain", "W — Items"]);
+				.sort();
+		expect(workspaceListing()).toEqual(["Plain", "W — Items"]);
 		expect(docs.resolveById(item.id)?.name).toBe("Item one");
 		expect(docs.resolveOrLoad("Item one")?.id).toBe(item.id);
+		expect(docs.resolve("Item one")?.id).toBe(item.id);
+		expect(workspaceListing()).toEqual(["Item one", "Plain", "W — Items"]);
+		expect(docs.list().map((summary) => summary.name)).toEqual(["Plain"]);
 		store.close();
 	});
 

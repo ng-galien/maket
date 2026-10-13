@@ -39,7 +39,9 @@ const PAGE_UPSERT_SQL = `
 export interface DocumentRepository {
 	saveDoc(d: Document): void;
 	saveDocs(docs: Document[]): void;
-	loadAll(): Document[];
+	/** Every document, or every document but the Structured Workspace item
+	 * documents, which are loaded on demand. */
+	loadAll(options?: { withoutItemDocuments?: boolean }): Document[];
 	loadOne(name: string): Document | null;
 	loadById(id: string): Document | null;
 	renameDoc(name: string, newName: string): void;
@@ -105,8 +107,12 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 				throw e;
 			}
 		},
-		loadAll() {
-			const rows = statements.docSelectAll.all() as any[];
+		loadAll(options) {
+			const rows = (
+				options?.withoutItemDocuments
+					? statements.docSelectAllButItems
+					: statements.docSelectAll
+			).all() as any[];
 			return rows.map((row) => rowToDoc(row, statements.pageSelectByDoc));
 		},
 		loadOne(name) {
@@ -164,6 +170,7 @@ export function createDocumentRepository(db: DatabaseSync): DocumentRepository {
 function prepareDocumentStatements(db: DatabaseSync): {
 	docUpsert: StatementSync;
 	docSelectAll: StatementSync;
+	docSelectAllButItems: StatementSync;
 	docSelectOne: StatementSync;
 	docDelete: StatementSync;
 	docRename: StatementSync;
@@ -176,6 +183,9 @@ function prepareDocumentStatements(db: DatabaseSync): {
 	return {
 		docUpsert: db.prepare(DOC_UPSERT_SQL),
 		docSelectAll: db.prepare("SELECT * FROM documents ORDER BY updated_at ASC"),
+		docSelectAllButItems: db.prepare(
+			"SELECT * FROM documents WHERE json_extract(meta, '$.structuredWorkspace.role') IS NOT 'item' ORDER BY updated_at ASC",
+		),
 		docSelectOne: db.prepare("SELECT * FROM documents WHERE name = $name"),
 		docDelete: db.prepare("DELETE FROM documents WHERE name = $name"),
 		docRename: db.prepare(

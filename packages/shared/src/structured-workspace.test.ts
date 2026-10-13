@@ -4,7 +4,9 @@ import {
 	generatedStructuredWorkspaceIndex,
 	generateStructuredWorkspaceTemplates,
 	STRUCTURED_WORKSPACE_INDEX_WIDTH_MM,
+	structuredWorkspaceDefaultIdentity,
 	structuredWorkspaceHiddenProperties,
+	structuredWorkspaceIdentityValue,
 	structuredWorkspaceIndexCanvas,
 	structuredWorkspaceItemDataIssues,
 	structuredWorkspaceSchemaDeclaresPath,
@@ -19,14 +21,22 @@ const dataSchema = {
 	$defs: {
 		task: {
 			type: "object",
-			properties: { kind: { const: "task" }, title: { type: "string" } },
-			required: ["kind", "title"],
+			properties: {
+				kind: { const: "task" },
+				title: { type: "string" },
+				id: { type: "string" },
+			},
+			required: ["kind", "title", "id"],
 			additionalProperties: false,
 		},
 		decision: {
 			type: "object",
-			properties: { kind: { const: "decision" }, title: { type: "string" } },
-			required: ["kind", "title"],
+			properties: {
+				kind: { const: "decision" },
+				title: { type: "string" },
+				id: { type: "string" },
+			},
+			required: ["kind", "title", "id"],
 			additionalProperties: false,
 		},
 	},
@@ -40,6 +50,7 @@ describe("Structured Workspace contracts", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: "board",
 						bindings: {
 							task: {
@@ -64,6 +75,7 @@ describe("Structured Workspace contracts", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: "board",
 						bindings: {
 							missing: {
@@ -88,6 +100,7 @@ describe("Structured Workspace contracts", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: "board",
 						bindings: {
 							"": {
@@ -106,14 +119,138 @@ describe("Structured Workspace contracts", () => {
 			validateStructuredWorkspaceItemData(dataSchema, {
 				kind: "task",
 				title: "Ship the first slice",
+				id: "ship",
 			}),
 		).toEqual([]);
 		expect(
 			validateStructuredWorkspaceItemData(dataSchema, {
 				kind: "task",
 				title: 42,
+				id: "ship",
 			}),
 		).not.toEqual([]);
+	});
+});
+
+describe("Structured Workspace identity", () => {
+	const books = {
+		type: "object",
+		properties: {
+			title: { type: "string" },
+			isbn: { type: "string" },
+			year: { type: "integer" },
+			tags: { type: "array", items: { type: "string" } },
+		},
+		required: ["title", "year", "tags"],
+	};
+	const findingsOf = (identity: string | undefined) =>
+		diagnoseStructuredWorkspaceDefinition(books, {
+			version: 1,
+			collections: {
+				books: {
+					name: "Books",
+					...(identity === undefined ? {} : { identity }),
+					collectionTemplateDocumentId: "index",
+					bindings: {
+						book: { schemaPath: "", detailTemplateDocumentId: "detail" },
+					},
+				},
+			},
+		});
+
+	it("refuses a collection without identity or whose identity is not a required string or number, each with one fix", () => {
+		expect(findingsOf("/year")).toEqual([]);
+		expect(findingsOf("/title")).toEqual([]);
+		for (const [identity, message] of [
+			[undefined, 'Collection "books" declares no identity'],
+			["isbn", "identity must be a JSON Pointer"],
+			["/isbn", 'identity "/isbn" names an optional property'],
+			[
+				"/tags",
+				'identity "/tags" names a property that is neither a string nor a number',
+			],
+			["/code", 'identity "/code" names no property of the data schema'],
+		] as const) {
+			const findings = findingsOf(identity);
+			expect(findings, String(identity)).toEqual([
+				expect.objectContaining({
+					severity: "error",
+					collection: "books",
+					path: "representation_schema.collections.books.identity",
+					message: expect.stringContaining(message),
+					fix: expect.any(String),
+				}),
+			]);
+		}
+		for (const identity of [undefined, "isbn", "/isbn", "/tags", "/code"]) {
+			const fix = findingsOf(identity)[0]?.fix ?? "";
+			expect(fix, String(identity)).toContain(
+				'Add a required property "id" of type string to data_schema and give each item its own value, unique across the whole Workspace and never changed',
+			);
+			expect(fix, String(identity)).not.toContain("/title");
+		}
+	});
+
+	it("takes /id as the default identity only when every binding schema requires an id string or number", () => {
+		const withId = (type: string, required: string[]) => ({
+			type: "object",
+			properties: { id: { type }, title: { type: "string" } },
+			required,
+		});
+		expect(
+			structuredWorkspaceDefaultIdentity([withId("string", ["id", "title"])]),
+		).toBe("/id");
+		expect(
+			structuredWorkspaceDefaultIdentity([withId("integer", ["id"])]),
+		).toBe("/id");
+		expect(structuredWorkspaceDefaultIdentity([withId("number", ["id"])])).toBe(
+			"/id",
+		);
+		expect(
+			structuredWorkspaceDefaultIdentity([withId("string", ["title"])]),
+		).toBeUndefined();
+		expect(
+			structuredWorkspaceDefaultIdentity([withId("boolean", ["id"])]),
+		).toBeUndefined();
+		expect(
+			structuredWorkspaceDefaultIdentity([
+				withId("string", ["id"]),
+				withId("string", ["title"]),
+			]),
+		).toBeUndefined();
+		expect(structuredWorkspaceDefaultIdentity([books])).toBeUndefined();
+	});
+
+	it("reads the item id under the identity: a non-empty string or a finite number, as a string", () => {
+		expect(structuredWorkspaceIdentityValue({ code: "A-1" }, "/code")).toBe(
+			"A-1",
+		);
+		expect(structuredWorkspaceIdentityValue({ code: 42 }, "/code")).toBe("42");
+		expect(
+			structuredWorkspaceIdentityValue({ ref: { code: "x" } }, "/ref/code"),
+		).toBe("x");
+		for (const data of [{}, { code: "" }, { code: null }, { code: true }])
+			expect(structuredWorkspaceIdentityValue(data, "/code")).toBeNull();
+	});
+
+	it("shows the identity read-only in the generated form", () => {
+		const generated = generateStructuredWorkspaceTemplates(
+			"Books",
+			{
+				type: "object",
+				properties: { title: { type: "string" }, code: { type: "string" } },
+				required: ["title", "code"],
+			},
+			"/code",
+		);
+		expect(generated.detailForm?.uischema.elements).toEqual([
+			{ type: "Control", scope: "#/properties/title" },
+			{
+				type: "Control",
+				scope: "#/properties/code",
+				options: { readonly: true },
+			},
+		]);
 	});
 });
 
@@ -125,6 +262,7 @@ describe("Structured Workspace diagnosis", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: "",
 						bindings: {},
 						sortBy: "place",

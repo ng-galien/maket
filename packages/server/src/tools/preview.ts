@@ -149,7 +149,7 @@ async function runSnapshot(
 	if (!args.doc) return text("doc is required for action=snapshot", true);
 	if (args.page == null)
 		return text("page is required for action=snapshot", true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	const rendered = await renderSnapshotDocument(d, {
 		documentRenderer,

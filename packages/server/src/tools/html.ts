@@ -243,7 +243,7 @@ function resolveDocPage(
 	docName: string,
 	page1based: number,
 ): { doc: Document; page: Page; pageIdx: number } | string {
-	const doc = documents.resolve(docName);
+	const doc = documents.resolveOrLoad(docName);
 	if (!doc) return `Document "${docName}" not found`;
 	const pageIdx = page1based - 1;
 	const page = doc.pages[pageIdx];

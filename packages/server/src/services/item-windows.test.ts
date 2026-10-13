@@ -15,8 +15,9 @@ const dataSchema = {
 	properties: {
 		title: { type: "string" },
 		status: { type: "string" },
+		id: { type: "string" },
 	},
-	required: ["title", "status"],
+	required: ["title", "status", "id"],
 	additionalProperties: false,
 };
 
@@ -44,7 +45,9 @@ async function setup() {
 		dataSchema,
 		representationSchema: {
 			version: 1,
-			collections: { items: { name: "Items", indexPageSize: 3 } },
+			collections: {
+				items: { name: "Items", identity: "/id", indexPageSize: 3 },
+			},
 		},
 	});
 	for (let index = 1; index <= 7; index += 1)
@@ -55,6 +58,7 @@ async function setup() {
 			bindingId: "item",
 			documentName: `Task ${index}`,
 			data: {
+				id: `task-${index}`,
 				title: `Task ${index}`,
 				status: index % 2 ? "open" : "closed",
 			},
@@ -142,6 +146,7 @@ describe("ItemWindows", () => {
 		});
 		current.changes.length = 0;
 		await current.workspaces.updateItem(current.workspace.id, "task-2", 1, {
+			id: "task-2",
 			title: "Task 2 renamed",
 			status: "closed",
 		});

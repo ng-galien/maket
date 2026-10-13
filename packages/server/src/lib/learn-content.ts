@@ -91,9 +91,20 @@ const READING_SCHEMA = {
 		author: { type: "string" },
 		year: { type: "integer" },
 		status: { type: "string", enum: ["to read", "reading", "done"] },
+		id: { type: "string" },
+	},
+	required: ["title", "status", "id"],
+	additionalProperties: false,
+};
+
+/** The reading list schema without an id property, so without identity. */
+const READING_SCHEMA_WITHOUT_ID = {
+	...READING_SCHEMA,
+	properties: {
+		title: { type: "string" },
+		status: { type: "string", enum: ["to read", "reading", "done"] },
 	},
 	required: ["title", "status"],
-	additionalProperties: false,
 };
 
 const RECIPE_SCHEMA = {
@@ -102,8 +113,9 @@ const RECIPE_SCHEMA = {
 		title: { type: "string" },
 		minutes: { type: "integer" },
 		vegetarian: { type: "boolean" },
+		id: { type: "string" },
 	},
-	required: ["title", "minutes"],
+	required: ["title", "minutes", "id"],
 	additionalProperties: false,
 };
 
@@ -112,8 +124,9 @@ const TEAM_SCHEMA = {
 	properties: {
 		name: { type: "string" },
 		role: { type: "string" },
+		id: { type: "string" },
 	},
-	required: ["name", "role"],
+	required: ["name", "role", "id"],
 	additionalProperties: false,
 };
 
@@ -135,11 +148,12 @@ const TEAM_TEMPLATES = [
 export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 	{
 		title: "Path 1 — data schema alone (use it by default)",
-		when: "Use it whenever no template design is imposed: Maket writes the index, detail, card templates and the detail form from the data schema.",
+		when: "Use it whenever no template design is imposed: Maket writes the index, detail, card templates and the detail form from the data schema. Give the schema a required `id` property (string): its value identifies each item across the whole Workspace and never changes.",
 		steps: [
 			{
 				tool: "maket_structured_workspace",
-				purpose: "Create the Workspace from its data schema only.",
+				purpose:
+					"Create the Workspace from its data schema only; its required `id` property identifies each book.",
 				args: {
 					action: "create",
 					workspace: "Reading list",
@@ -150,13 +164,15 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 					"Verdict: ready.",
 					"Collections: items (bindings: item).",
 					'Template documents in category "Structured Workspaces/Reading list": "Reading list — Items — index template", "Reading list — Items — detail template", "Reading list — Items — card template".',
+					'its items are identified by "/id"',
 				],
 				verify:
 					"The answer says `Verdict: ready.` and is not an error. Note the collection id (`items`) and the binding id (`item`): add_item needs both.",
 			},
 			{
 				tool: "maket_structured_workspace",
-				purpose: "Add the first item; its data must satisfy the data schema.",
+				purpose:
+					"Add the first item; its data must satisfy the data schema and hold its identity, which becomes the item id.",
 				args: {
 					action: "add_item",
 					workspace: "Reading list",
@@ -168,11 +184,15 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 						author: "Frank Herbert",
 						year: 1965,
 						status: "reading",
+						id: "dune",
 					},
 				},
-				answer: ['at data revision 1; it opens as document "Dune".'],
+				answer: [
+					'Item "dune" added',
+					'at data revision 1; it opens as document "Dune".',
+				],
 				verify:
-					"The answer names the item document. An answer starting with `Item data breaks the schema` lists each wrong path with its fix: correct `data` and call add_item again.",
+					"The answer names the item id (its `id`) and the item document. An answer starting with `Item data breaks the schema` lists each wrong path with its fix; one starting with `invalid_record` names a missing identity or the item that already bears it: correct `data` and call add_item again.",
 			},
 			{
 				tool: "maket_structured_workspace",
@@ -239,7 +259,12 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 					collection: "recipes",
 					binding: "item",
 					document_name: "Pancakes",
-					data: { title: "Pancakes", minutes: 20, vegetarian: true },
+					data: {
+						title: "Pancakes",
+						minutes: 20,
+						vegetarian: true,
+						id: "pancakes",
+					},
 				},
 				answer: ['at data revision 1; it opens as document "Pancakes".'],
 				verify: "The answer names the item document.",
@@ -323,7 +348,7 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 					collection: "people",
 					binding: "member",
 					document_name: "Ada",
-					data: { name: "Ada", role: "Engineer" },
+					data: { name: "Ada", role: "Engineer", id: "ada" },
 				},
 				answer: ['at data revision 1; it opens as document "Ada".'],
 				verify: "The answer names the item document.",
@@ -339,15 +364,21 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 	},
 ];
 
-const createReading = (representation?: unknown) => ({
+/** The create call of the Reading list, its collection `items` given the
+ * fields of `collection` when there are any. */
+const createReading = (collection?: Record<string, unknown>) => ({
 	tool: "maket_structured_workspace" as const,
 	args: {
 		action: "create",
 		workspace: "Reading list",
 		data_schema: READING_SCHEMA,
-		...(representation === undefined
+		...(collection === undefined
 			? {}
-			: { representation_schema: representation }),
+			: {
+					representation_schema: {
+						collections: { items: { name: "Items", ...collection } },
+					},
+				}),
 	},
 });
 
@@ -359,7 +390,7 @@ const addDune = {
 		collection: "items",
 		binding: "item",
 		document_name: "Dune",
-		data: { title: "Dune", status: "reading" },
+		data: { title: "Dune", status: "reading", id: "dune" },
 	},
 };
 
@@ -373,12 +404,8 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		title: "A named template document does not exist",
 		steps: [
 			createReading({
-				collections: {
-					items: {
-						name: "Items",
-						collectionTemplateDocumentId: "Reading index",
-					},
-				},
+				name: "Items",
+				collectionTemplateDocumentId: "Reading index",
 			}),
 		],
 		seen: 'No document is named or identified "Reading index".',
@@ -387,11 +414,7 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 	},
 	{
 		title: "A collection without binding",
-		steps: [
-			createReading({
-				collections: { items: { name: "Items", bindings: {} } },
-			}),
-		],
+		steps: [createReading({ name: "Items", bindings: {} })],
 		seen: 'Collection "items" must declare at least one binding.',
 		why: "`bindings` is present but empty, so no item can be added.",
 		fix: "Call create again without `bindings` (Maket binds the whole schema as `item`).",
@@ -400,12 +423,8 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		title: "A placeholder names a path absent from the schema",
 		steps: [
 			createReading({
-				collections: {
-					items: {
-						name: "Items",
-						detailTemplateHtml: '<h1 data-id="title">{{ state.titel }}</h1>',
-					},
-				},
+				name: "Items",
+				detailTemplateHtml: '<h1 data-id="title">{{ state.titel }}</h1>',
 			}),
 		],
 		seen: 'Placeholder "state.titel" names a path the state schema does not declare.',
@@ -416,20 +435,16 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		title: "A form field on a missing path",
 		steps: [
 			createReading({
-				collections: {
-					items: {
-						name: "Items",
-						detailForm: {
-							uischema: {
-								type: "VerticalLayout",
-								elements: [{ type: "Control", scope: "#/properties/isbn" }],
-							},
-						},
+				name: "Items",
+				detailForm: {
+					uischema: {
+						type: "VerticalLayout",
+						elements: [{ type: "Control", scope: "#/properties/pages" }],
 					},
 				},
 			}),
 		],
-		seen: 'JSON Pointer target does not exist: "/properties/isbn".',
+		seen: 'JSON Pointer target does not exist: "/properties/pages".',
 		why: "Every form Control `scope` must point at a property of the data schema.",
 		fix: 'Call create again with scopes of declared properties, such as "#/properties/status".',
 	},
@@ -437,13 +452,9 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		title: "A form slot in the detail HTML",
 		steps: [
 			createReading({
-				collections: {
-					items: {
-						name: "Items",
-						detailTemplateHtml:
-							'<article data-id="book"><h1 data-id="title">{{ state.title }}</h1><!--maket-json-form--></article>',
-					},
-				},
+				name: "Items",
+				detailTemplateHtml:
+					'<article data-id="book"><h1 data-id="title">{{ state.title }}</h1><!--maket-json-form--></article>',
 			}),
 		],
 		seen: "The page has a <!--maket-json-form--> slot but no form definition.",
@@ -452,11 +463,7 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 	},
 	{
 		title: "groupBy or sortBy names no property",
-		steps: [
-			createReading({
-				collections: { items: { name: "Items", groupBy: "/genre" } },
-			}),
-		],
+		steps: [createReading({ name: "Items", groupBy: "/genre" })],
 		seen: 'Collection "items" groupBy "/genre" names no property of the data schema.',
 		why: "The index groups and sorts by item data; `/genre` is not declared.",
 		fix: 'Call create again with groupBy "/status" (a declared property), or declare genre in data_schema.',
@@ -478,6 +485,43 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 		fix: 'Call create again with data_schema {"type":"object","properties":{…}}.',
 	},
 	{
+		title: "A collection without identity",
+		steps: [
+			{
+				tool: "maket_structured_workspace",
+				args: {
+					action: "create",
+					workspace: "Reading list",
+					data_schema: READING_SCHEMA_WITHOUT_ID,
+				},
+			},
+		],
+		seen: 'Collection "items" declares no identity: every item needs a required string or number property whose value identifies it.',
+		why: "The data schema has no required `id` property and no identity was given; Maket never invents an item id.",
+		fix: 'Add a required property "id" of type string to data_schema and give each item its own value, then call create again: Maket identifies the items by "/id". Never take a descriptive property such as the title as identity: it repeats and changes.',
+	},
+	{
+		title: "An item without its identity, or with one another item bears",
+		steps: [
+			createReading(),
+			addDune,
+			{
+				tool: "maket_structured_workspace",
+				args: {
+					action: "add_item",
+					workspace: "Reading list",
+					collection: "items",
+					binding: "item",
+					document_name: "Dune again",
+					data: { title: "Dune", status: "done", id: "dune" },
+				},
+			},
+		],
+		seen: 'invalid_record: Item "dune" already exists in collection "items" of "Reading list" (document "Dune"): an identity value is unique across the whole Workspace.',
+		why: 'The identity value is the item id, unique across the whole Workspace, all collections included; two items cannot share it. Without it, add_item answers `invalid_record: Item data has no identity: add "/id" to data…`.',
+		fix: "Call add_item with the identity of the new item, or update_item on the existing one. An identity never changes: update_item refuses a new value; delete the item and add it again instead.",
+	},
+	{
 		title: "An item breaks the schema",
 		steps: [
 			createReading(),
@@ -489,7 +533,12 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 					collection: "items",
 					binding: "item",
 					document_name: "Dune",
-					data: { title: "Dune", status: "reading", year: "1965" },
+					data: {
+						title: "Dune",
+						status: "reading",
+						year: "1965",
+						id: "dune",
+					},
 				},
 			},
 		],
@@ -517,7 +566,7 @@ export const STRUCTURED_WORKSPACE_FAILURES: WorkspaceFailure[] = [
 			checkReading,
 		],
 		seen: 'Template-controlled pages of collection "items" differ from their templates.',
-		why: "A template document was edited after an item was opened, which instantiated its document.",
+		why: "A template document was edited after an item was opened, which created its document from the template.",
 		fix: "Call sync_template with the workspace and collection given as `next`.",
 	},
 	{
@@ -623,9 +672,9 @@ function failureSection(): LearnSection {
 /** The first path of the Structured Workspace method in five lines, repeated
  * by the gemini topic and the plugin skills. */
 export const STRUCTURED_WORKSPACE_FIRST_PATH = [
-	'1. maket_structured_workspace {"action":"create","workspace":"<name>","data_schema":<JSON Schema object>}',
+	'1. maket_structured_workspace {"action":"create","workspace":"<name>","data_schema":<JSON Schema object with a required "id" string property>}',
 	"2. Read the answer: `Verdict: ready.`, the collection id `items` and the binding id `item`.",
-	'3. maket_structured_workspace {"action":"add_item","workspace":"<name>","collection":"items","binding":"item","document_name":"<item name>","data":<item JSON>}',
+	'3. maket_structured_workspace {"action":"add_item","workspace":"<name>","collection":"items","binding":"item","document_name":"<item name>","data":<item JSON with its own "id">}',
 	'4. maket_structured_workspace {"action":"check","workspace":"<name>"} must answer "verdict": "ready".',
 	"5. On an error answer, apply every `Fix:` line and call again; the full method: maket_learn action=topic topic=structured-workspaces.",
 ].join("\n");
@@ -711,7 +760,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"| `maket_mermaid` | Charte-aware Mermaid diagrams rendered as inline SVG |",
 				"| `maket_collection` | JSON-Schema-backed mail-merge rows and page bindings |",
 				"| `maket_state` | Document-owned current data, immutable revisions, and revision retention |",
-				"| `maket_structured_workspace` | Schema-driven collections of persistent instantiated documents |",
+				"| `maket_structured_workspace` | Schema-driven collections of items, held by a data source and opened as documents |",
 				"| `maket_image` | Asset import, inspection, metadata, and deletion |",
 				"| `maket_preview` | Live preview URL and PNG snapshots |",
 				"| `maket_pdf` | PDF export at the real canvas size |",
@@ -1013,16 +1062,18 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		'A Workspace is the aggregate root for its schemas, templates, collection projections, items, instantiated documents, state history, and annotations. Build one with the method below: follow its steps in order, read every answer, and do not tell the user the Workspace works before `check` answers `"verdict": "ready"`.',
+		'A Workspace is the aggregate root for its schemas, templates, collections and their index documents, and item documents. Its items live in its data source (Maket\'s internal source today), one row per item with its data and a revision; an item document only renders an item and exists once the item is opened, pinned, annotated or exported. Build one with the method below: follow its steps in order, read every answer, and do not tell the user the Workspace works before `check` answers `"verdict": "ready"`.',
 		section(
 			"Method",
 			"Three paths, in this order of preference. Every path ends with add_item and check. Each step gives the exact JSON call, every parameter with its type, what the answer contains verbatim, and what to verify before the next step.",
+			"Identity: every collection has an `identity`, a JSON Pointer to a required string or number property of every binding schema. Without one, Maket takes `/id` when the data schema requires an `id` property of type string, number or integer, and the answer says so; that is the default to follow: give the schema a required `id` and each item its own value. Declare `identity` (for example `/isbn`) only for another property that is unique and never changes, never for a descriptive one such as a title. The value of that property, as a string, is the item id everywhere: the `item` argument, the item document, annotations, pins and cursors; it is unique across the whole Workspace, all collections included. Maket never generates an item id. add_item refuses data without the identity (`invalid_record`, naming the field) and a value another item of the Workspace already bears (`invalid_record`, naming that item); update_item refuses a change of the value: delete the item and add it again, which loses its annotations and pins. update_definition refuses to change the identity of a collection that holds items. The generated form shows the identity read-only. A Workspace read from a bundle written before identities gets one at import, as stored Workspaces did at migration.",
+
 			"Generated templates: the detail template shows one labelled line per property in schema order with `{{ state.<property> }}` placeholders, titled by the first string property; its second page is a form on every editable property; the card shows the title and the next two properties; the index is a narrow page of content height (AUTO, 96 mm wide) that lists the cards in one column. A property is editable when its type is string, number, integer, boolean or a string enum and it is not marked `readOnly: true` (the JSON Schema keyword the form already honours): mark a property `readOnly: true` to keep it out of the form.",
 			[
 				"Parameters of `create` (and of `update_definition`, which adds `expected_workspace_revision` (integer)):",
 				"- `workspace` (string): the Workspace name.",
 				"- `data_schema` (object): JSON Schema of one item.",
-				'- `representation_schema` (object, optional; omit it on path 1): `version` (integer 1, optional) and `collections` (object keyed by collection id). Each collection: `name` (string), `indexTemplateHtml`, `detailTemplateHtml`, `compactTemplateHtml` (string, inline HTML with `{{ state.<property> }}` placeholders), `detailForm` (object `{uischema}` in JSON Forms, Controls with `scope` `#/properties/<property>`), `collectionTemplateDocumentId` (string, exact name of an existing document, path 3), `groupBy`, `sortBy` (string JSON Pointer such as `/status`), `sortDirection` (`ascending` or `descending`), `groupOrder` (array), `pageSize` (integer), `indexPageSize` (integer, items per index batch, default 50, at most 500), `searchFields` (array of JSON Pointers searched by the index text query; default every string property of the binding schema at depth one), `bindings` (object keyed by binding id; omitted, one binding `item` covers the whole schema). Each binding: `schemaPath` (string, `""` for the whole schema), `detailTemplateDocumentId`, `compactTemplateDocumentId` (string names, path 3), and the same inline fields as the collection.',
+				'- `representation_schema` (object): `version` (integer 1, optional) and `collections` (object keyed by collection id; omit it on path 1). Each collection: `identity` (string JSON Pointer; by default `/id` when the schema requires an `id`), `name` (string), `indexTemplateHtml`, `detailTemplateHtml`, `compactTemplateHtml` (string, inline HTML with `{{ state.<property> }}` placeholders), `detailForm` (object `{uischema}` in JSON Forms, Controls with `scope` `#/properties/<property>`), `collectionTemplateDocumentId` (string, exact name of an existing document, path 3), `groupBy`, `sortBy` (string JSON Pointer such as `/status`), `sortDirection` (`ascending` or `descending`), `groupOrder` (array), `pageSize` (integer), `indexPageSize` (integer, items per index batch, default 50, at most 500), `searchFields` (array of JSON Pointers searched by the index text query; default every string property of the binding schema at depth one), `bindings` (object keyed by binding id; omitted, one binding `item` covers the whole schema). Each binding: `schemaPath` (string, `""` for the whole schema), `detailTemplateDocumentId`, `compactTemplateDocumentId` (string names, path 3), and the same inline fields as the collection.',
 				"- `allow_incomplete` (boolean, optional): persist a definition with errors instead of refusing it; reserved for deliberate drafts.",
 			].join("\n"),
 		),
@@ -1031,6 +1082,8 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Where things live",
 			[
 				"- A Workspace owns its template documents, its index documents (one per collection, named `<workspace> — <collection>`) and its item documents. All of them live under the category `Structured Workspaces/<workspace name>`, never in the Documents library.",
+				"- An item document is created from the detail template, with an id derived from the Workspace and the item id, when the item is opened, pinned, annotated or exported; it is never listed in the library and is loaded when an item is opened, not when Maket starts. Its detail form writes to the item source. Items keep no revision history: the source keeps the current data and its revision, which a write must expect.",
+				"- An export (`.maket` bundle) carries the Workspace definition and every item row (identity, data, revision), and the item documents it holds rendered; an import rebuilds the rows. The export names every item whose document it leaves out, for example because another document bears its name.",
 				"- On paths 1 and 2 Maket creates and names the templates (`<workspace> — <collection> — index template`, `… — detail template`, `… — card template`); the agent never places or names a template document.",
 				"- On path 3, a template document created in the library must be bound by `create` or `update_definition` in the same session: binding moves it into the Workspace category. An unbound template left in the library is an error of method.",
 				"- Template references may be exact document names or stable ids; Maket stores ids. A template belongs to exactly one Workspace.",
@@ -1042,8 +1095,8 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Reading items by cursor",
 			[
 				"- The items live in the Workspace's item source, never in the index document. `view` answers the definition, `itemCounts` per collection, `pinnedItems`, the owned documents, and `window`: one batch of item summaries of one collection (`collection`, default the first) with `items[]` (`id`, `documentName`, `revision`, `fields`, `issues`), `next`, `total` and `groups` (count per group value over the whole query).",
-				'- A query is `text` (searched in `searchFields`, ignoring case), `filters` (`[{"field":"/status","op":"eq","value":"todo"}]`, `op` `in` with a list of values), `sort` (`{"field":"/title","direction":"descending"}`; the collection `sortBy` otherwise) and `batch` (the collection `indexPageSize` otherwise, at most 500). Any of them starts a new query from the first item.',
-				"- `next` is an opaque cursor: pass it back unchanged as `cursor=<next>` with the same workspace, collection and query arguments (the answer gives that call in `more`) to read the following batch, straight from the source; it is absent once the listing is exhausted. Paging by cursor is complete and without duplicates whatever the index or other clients do between two calls. There is no page number and no previous batch; to go back, start the query again.",
+				'- A query is `text` (searched in `searchFields`, ignoring case and accents: `eleve` finds `Élève`), `filters` (`[{"field":"/status","op":"eq","value":"todo"}]`, `op` `in` with a list of values), `sort` (`{"field":"/title","direction":"descending"}`; the collection `sortBy` otherwise) and `batch` (the collection `indexPageSize` otherwise, at most 500). Any of them starts a new query from the first item.',
+				"- `next` is an opaque cursor: pass it back unchanged as `cursor=<next>` with the same workspace, collection and query arguments (the answer gives that call in `more`) to read the following batch, straight from the source; it is absent once the listing is exhausted. The cursor is the position after the last item read: its sort value then its id under a sort, its insertion sequence then its id otherwise. Between two calls, no item that existed before the first call and kept its sort value is skipped or read twice, whatever is added or deleted; an item added after the start is read when it sorts after the cursor (always in insertion order, since a sequence is never reused); an item whose sort value changes during paging may move across the cursor, so it may be missed or read twice. A new query sees every item in place. There is no page number and no previous batch; to go back, start the query again.",
 				"- A query without cursor also becomes the window every client sees: the index document renders the batches read so far, its group headers count the whole query. `view` with neither query nor cursor answers the first batch of the collection's own order.",
 				"```text\nmaket_structured_workspace action=view workspace=<id-or-name> collection=<collection> text=<words> filters=<json> sort=<json> batch=<n>\nmaket_structured_workspace action=view workspace=<id-or-name> collection=<collection> cursor=<next>\n```",
 			].join("\n"),
@@ -1055,15 +1108,15 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- The data schema is a JSON Schema for every item and may use `oneOf`.",
 				"- The representation schema gives each collection a global template and binds each concrete schema path to compact and detail template documents.",
 				"- A collection may group its cards: `groupBy` is a JSON Pointer into the item data (for example `/status`), `groupOrder` lists the group values to place first (other groups follow in order of first appearance), and `pageSize` (default 24, at most 500) caps the compact cards per fixed-height collection page. AUTO collection pages retain all compact cards on one continuous page.",
-				'- A collection may sort its cards: `sortBy` is a JSON Pointer into the item data (for example `/place`) and `sortDirection` is `"ascending"` (default) or `"descending"`; cards follow that value inside each group (or across the slot without `groupBy`), items without a value last and ties in insertion order, re-sorted when an item or the definition changes; without `sortBy`, insertion order stays.',
-				"- A binding points to the concrete schema used by its instantiated document, so templates do not resolve `oneOf` themselves.",
+				'- A collection may sort its cards: `sortBy` is a JSON Pointer into the item data (for example `/place`) and `sortDirection` is `"ascending"` (default) or `"descending"`; cards follow that value inside each group (or across the slot without `groupBy`), items without a value last and ties in item id order, re-sorted when an item or the definition changes; without `sortBy`, insertion order stays.',
+				"- A binding points to the concrete schema used by the documents of its items, so templates do not resolve `oneOf` themselves.",
 				'- A compact template renders its `[data-maket-compact-root]` element as the card and keeps the `<style>` elements of its page: they are emitted once per collection page, every selector prefixed with the card\'s `[data-maket-compact-template="<key>"]` wrapper (`body`, `html`, `:root` and `:scope` stand for the card itself), so card CSS belongs in the compact template and cannot style the rest of the page. Card `data-id` values are prefixed per item, so style cards by class or element, not by `data-id`.',
 			].join("\n"),
 		),
 		section(
 			"Grouped, flowing collection pages",
 			[
-				"- On fixed-height canvases, without `groupBy`, each collection template page holds every card of its item slots; the cards that do not fit the laid-out page continue on further pages of the collection document (`<page id>~2`, `~3`, …), the template repeating on each.",
+				"- On fixed-height canvases, without `groupBy`, each collection template page holds every card of the batches read so far for its item slots; the cards that do not fit the laid-out page continue on further pages of the collection document (`<page id>~2`, `~3`, …), the template repeating on each.",
 				'- With `groupBy`, every `data-maket-structured-items` slot receives, group by group, a `<header data-maket-structured-group="<value>">` with `[data-maket-structured-group-label]` and `[data-maket-structured-group-count]` children, followed by that group\'s compact cards.',
 				"- On fixed-height canvases, when a slot exceeds `pageSize` cards, or when its cards do not fit the laid-out page, the template page repeats on further pages of the collection document (`<page id>~2`, `~3`, …); a group continued from the previous page repeats its header with `data-maket-structured-group-continued`. Static template content repeats on every flowed page.",
 				"- Headers carry `grid-column: 1 / -1` and `flex: 0 0 100%`, so they span a grid or wrapping flex slot. Choose `pageSize` so that many cards plus their headers fit the page, then check a snapshot.",
@@ -1077,7 +1130,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 		section(
 			"Clickable SVG cards",
-			'HTML and SVG cards use the same native document action: data-maket-action="open-document" plus data-maket-document="<exact instantiated document name>". Enter and Space activate focusable cards. An SVG items slot must use SVG compact roots; its wrappers are SVG <g> elements. An HTML slot accepts an HTML compact root or a complete <svg> root, never a bare <g>. SVG slots cannot use automatic groupBy: author explicit SVG groups instead. Incompatible roots or grouping make Workspace integrity incomplete; fix the definition/templates before opening projections. Use explicit SVG positions for SVG cards.',
+			'HTML and SVG cards use the same native document action: data-maket-action="open-document" plus data-maket-document="<exact item document name>". Enter and Space activate focusable cards. An SVG items slot must use SVG compact roots; its wrappers are SVG <g> elements. An HTML slot accepts an HTML compact root or a complete <svg> root, never a bare <g>. SVG slots cannot use automatic groupBy: author explicit SVG groups instead. Incompatible roots or grouping make Workspace integrity incomplete; fix the definition/templates before opening projections. Use explicit SVG positions for SVG cards.',
 		),
 		section(
 			"Instantiated documents",
@@ -1226,19 +1279,19 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		"A Workspace is a typed list: you describe the fields of one item, and every item becomes a real document with its own page, gathered on an index page. Your assistant builds it in three steps and tells you it works only once Maket's check says ready.",
+		"A Workspace is a typed list: you describe the fields of one item, and each item opens as a real document with its own page, listed on an index page. Your assistant builds it in three steps and tells you it works only once Maket's check says ready.",
 		section(
 			"How a Workspace is built",
 			[
-				"1. The assistant describes the fields of one item (for example title, author, year, status). From that alone, Maket writes the index page, the detail page of an item, its card on the index, and a form to edit the item.",
-				"2. The assistant adds the first item. Maket checks its values against the fields and creates its document.",
+				"1. The assistant describes the fields of one item (for example title, author, year, status) with an id field: each item gets its own id, unique in the whole Workspace, which tells the items apart and never changes. From that, Maket writes the index page, the detail page of an item, its card on the index, and a form to edit the item, where the identifying field cannot be edited.",
+				"2. The assistant adds the first item. Maket checks its values against the fields and refuses an item without its id or with an id another item of the Workspace already has. The item's document is created when you open it.",
 				"3. The assistant runs Maket's check, which answers ready or lists, for each problem, what is wrong and how to correct it.",
 				"When you want a particular look, the assistant gives the page designs in the same first step instead, and Maket files them for you. Only when you already have template documents does it name them; it then attaches them right away.",
 			].join("\n"),
 		),
 		section(
 			"Where things live",
-			"A Workspace keeps its templates, its index pages and its item documents together under its own name, in the Workspace tree. They never appear in the Documents library, except template documents prepared beforehand by name: those sit in the Documents library until the assistant attaches them to the Workspace, which moves them under its name. Template pages stay synchronized for every item, while pages added to one item document remain specific to it. Renaming a Workspace does not recreate those documents; deleting it removes them all.",
+			"A Workspace keeps its templates, its index pages and its item documents together under its own name, in the Workspace tree. They never appear in the Documents library, except template documents prepared beforehand by name: those sit in the Documents library until the assistant attaches them to the Workspace, which moves them under its name. Template pages stay synchronized for every item, while pages added to one item document remain specific to it. The index shows the first items and loads more on demand; its search ignores case and accents. Renaming a Workspace does not recreate those documents; deleting it removes them all.",
 		),
 		section(
 			"When it fails",

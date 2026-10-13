@@ -9,6 +9,8 @@ import {
 	queryStoredItems,
 	type StoredItemQuery,
 	type StoredItemQueryResult,
+	searchText,
+	searchTextFunction,
 	sortText,
 	sortTextFunction,
 } from "./structured-workspace-item-query.js";
@@ -31,8 +33,23 @@ export interface StoredStructuredWorkspaceItem
 
 export type NewStructuredWorkspaceItem = Omit<
 	StoredStructuredWorkspaceItem,
-	"position" | "revision" | "data"
+	"sequence" | "revision" | "data"
 > & { data: Record<string, unknown>; revision?: number };
+
+/** An item whose document exists, with what that document says of itself. */
+export interface OpenedStructuredWorkspaceItem
+	extends StructuredWorkspaceItemReference {
+	pinnedAt: string | null;
+	locked: boolean;
+	/** The workspace and item the document's own meta names. */
+	owner: { workspaceId: string | null; itemId: string | null };
+}
+
+/** An item whose reserved document name another document bears. */
+export interface StructuredWorkspaceItemNameConflict {
+	item: StructuredWorkspaceItemReference;
+	holder: string;
+}
 
 /** A write at an expected revision: the written item, or the current one
  * (null when the item is gone) when the revision did not match. */
@@ -44,8 +61,19 @@ export interface StructuredWorkspaceRepository {
 	createStructuredWorkspace(
 		workspace: NewStructuredWorkspace,
 	): StructuredWorkspaceDefinition;
+	/** The definition with its item count per collection; no item row. */
 	loadStructuredWorkspace(name: string): StructuredWorkspaceDefinition | null;
 	loadAllStructuredWorkspaces(): StructuredWorkspaceDefinition[];
+	/** The items of a workspace whose document exists. */
+	loadOpenedStructuredWorkspaceItems(
+		workspaceId: string,
+	): OpenedStructuredWorkspaceItem[];
+	/** The items of a workspace whose document name another document bears. */
+	loadStructuredWorkspaceItemNameConflicts(
+		workspaceId: string,
+	): StructuredWorkspaceItemNameConflict[];
+	/** The name of a locked document the workspace owns, or null. */
+	loadLockedStructuredWorkspaceDocument(workspaceId: string): string | null;
 	/** One item row of a workspace with its data, or null when the workspace
 	 * has no such item. */
 	loadStructuredWorkspaceItem(
@@ -79,9 +107,10 @@ export interface StructuredWorkspaceRepository {
 		dataSchema: StructuredWorkspaceDataSchema,
 		representationSchema: StructuredWorkspaceRepresentationSchema,
 	): StructuredWorkspaceDefinition;
-	/** Insert an item last in its collection, at the position after the
-	 * highest one, at revision 1 unless given. Positions are never renumbered:
-	 * they stay sparse and increasing, so a cursor keyed on them stays valid. */
+	/** Insert an item last in its collection under the next value of the
+	 * collection's sequence counter, at revision 1 unless given. A sequence is
+	 * never given twice, even after deletes, so a cursor keyed on it stays
+	 * valid. */
 	addStructuredWorkspaceItem(
 		workspaceId: string,
 		item: NewStructuredWorkspaceItem,
@@ -94,7 +123,7 @@ export interface StructuredWorkspaceRepository {
 		data: Record<string, unknown>,
 	): StructuredWorkspaceItemWrite;
 	/** Delete an item, only at `expectedRevision` when given, leaving the
-	 * other positions as they are; false when no row matched. */
+	 * other sequences as they are; false when no row matched. */
 	deleteStructuredWorkspaceItem(
 		workspaceId: string,
 		itemId: string,
@@ -115,7 +144,7 @@ interface WorkspaceRow {
 
 interface ItemRow {
 	id: string;
-	position: number;
+	sequence: number;
 	collection_id: string;
 	binding_id: string;
 	document_id: string;
@@ -142,10 +171,13 @@ type Statements = {
 	documentRenameById: StatementSync;
 	pageRenameDocument: StatementSync;
 	itemInsert: StatementSync;
-	itemSelectByWorkspace: StatementSync;
+	itemCounts: StatementSync;
+	itemsOpened: StatementSync;
+	itemNameConflicts: StatementSync;
+	lockedDocument: StatementSync;
 	itemSelectOne: StatementSync;
 	itemSelectByDocumentName: StatementSync;
-	itemNextPosition: StatementSync;
+	itemNextSequence: StatementSync;
 	itemUpdate: StatementSync;
 	itemDelete: StatementSync;
 };
@@ -155,6 +187,9 @@ export function createStructuredWorkspaceRepository(
 ): StructuredWorkspaceRepository {
 	db.function(sortTextFunction, { deterministic: true }, (value) =>
 		value === null ? null : sortText(value),
+	);
+	db.function(searchTextFunction, { deterministic: true }, (value) =>
+		value === null ? null : searchText(value),
 	);
 	const statements = prepareStatements(db);
 	return {
@@ -178,6 +213,36 @@ export function createStructuredWorkspaceRepository(
 			return (
 				statements.workspaceSelectAll.all() as unknown as WorkspaceRow[]
 			).map((row) => workspaceFromRow(statements, row));
+		},
+		loadOpenedStructuredWorkspaceItems(workspaceId) {
+			return (
+				statements.itemsOpened.all(workspaceId) as unknown as Array<
+					ItemRow & {
+						pinned_at: string | null;
+						locked: number | null;
+						owner_workspace: string | null;
+						owner_item: string | null;
+					}
+				>
+			).map((row) => ({
+				...itemFromRow(row),
+				pinnedAt: row.pinned_at,
+				locked: row.locked === 1,
+				owner: { workspaceId: row.owner_workspace, itemId: row.owner_item },
+			}));
+		},
+		loadStructuredWorkspaceItemNameConflicts(workspaceId) {
+			return (
+				statements.itemNameConflicts.all(workspaceId) as unknown as Array<
+					ItemRow & { holder: string }
+				>
+			).map((row) => ({ item: itemFromRow(row), holder: row.holder }));
+		},
+		loadLockedStructuredWorkspaceDocument(workspaceId) {
+			const row = statements.lockedDocument.get(workspaceId) as
+				| { name: string }
+				| undefined;
+			return row?.name ?? null;
 		},
 		loadStructuredWorkspaceItem(workspaceId, itemId) {
 			const row = statements.itemSelectOne.get(workspaceId, itemId) as
@@ -251,11 +316,11 @@ export function createStructuredWorkspaceRepository(
 			}
 		},
 		addStructuredWorkspaceItem(workspaceId, item) {
-			const position = nextPosition(statements, workspaceId, item.collectionId);
+			const sequence = nextSequence(statements, workspaceId, item.collectionId);
 			statements.itemInsert.run({
 				workspace_id: workspaceId,
 				id: item.id,
-				position,
+				sequence,
 				collection_id: item.collectionId,
 				binding_id: item.bindingId,
 				document_id: item.documentId,
@@ -437,24 +502,53 @@ function prepareStatements(db: DatabaseSync): Statements {
 		),
 		itemInsert: db.prepare(`
 			INSERT INTO structured_workspace_items
-				(workspace_id, id, position, collection_id, binding_id, document_id,
+				(workspace_id, id, sequence, collection_id, binding_id, document_id,
 				 document_name, data, revision)
 			VALUES
-				($workspace_id, $id, $position, $collection_id, $binding_id, $document_id,
+				($workspace_id, $id, $sequence, $collection_id, $binding_id, $document_id,
 				 $document_name, $data, $revision)
 		`),
-		itemSelectByWorkspace: db.prepare(
-			"SELECT id, position, collection_id, binding_id, document_id, document_name FROM structured_workspace_items WHERE workspace_id = ? ORDER BY collection_id ASC, position ASC",
+		itemCounts: db.prepare(
+			"SELECT collection_id, count(*) AS count FROM structured_workspace_items WHERE workspace_id = ? GROUP BY collection_id",
 		),
+		itemsOpened: db.prepare(`
+			SELECT item.id, item.sequence, item.collection_id, item.binding_id,
+				item.document_id, item.document_name, document.pinned_at,
+				json_extract(document.meta, '$.locked') AS locked,
+				json_extract(document.meta, '$.structuredWorkspace.workspaceId') AS owner_workspace,
+				json_extract(document.meta, '$.structuredWorkspace.itemId') AS owner_item
+			FROM structured_workspace_items AS item
+			JOIN documents AS document ON document.id = item.document_id
+			WHERE item.workspace_id = ?
+			ORDER BY item.collection_id ASC, item.sequence ASC
+		`),
+		itemNameConflicts: db.prepare(`
+			SELECT item.id, item.sequence, item.collection_id, item.binding_id,
+				item.document_id, item.document_name, document.name AS holder
+			FROM structured_workspace_items AS item
+			JOIN documents AS document
+				ON document.name = item.document_name AND document.id <> item.document_id
+			WHERE item.workspace_id = ?
+			ORDER BY item.collection_id ASC, item.sequence ASC
+		`),
+		lockedDocument: db.prepare(`
+			SELECT name FROM documents
+			WHERE json_extract(meta, '$.structuredWorkspace.workspaceId') = ?
+				AND json_extract(meta, '$.locked') = 1
+			LIMIT 1
+		`),
 		itemSelectOne: db.prepare(
-			"SELECT id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
+			"SELECT id, sequence, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
 		),
 		itemSelectByDocumentName: db.prepare(
-			"SELECT workspace_id, id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE document_name = ? LIMIT 1",
+			"SELECT workspace_id, id, sequence, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE document_name = ? LIMIT 1",
 		),
-		itemNextPosition: db.prepare(
-			"SELECT coalesce(max(position), -1) + 1 AS position FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ?",
-		),
+		itemNextSequence: db.prepare(`
+			INSERT INTO structured_workspace_sequences (workspace_id, collection_id, last)
+			VALUES (?, ?, 1)
+			ON CONFLICT (workspace_id, collection_id) DO UPDATE SET last = last + 1
+			RETURNING last
+		`),
 		itemUpdate: db.prepare(`
 			UPDATE structured_workspace_items
 			SET data = $data, revision = revision + 1
@@ -484,17 +578,25 @@ function workspaceFromRow(
 	statements: Statements,
 	row: WorkspaceRow,
 ): StructuredWorkspaceDefinition {
-	const items = statements.itemSelectByWorkspace.all(
-		row.id,
-	) as unknown as ItemRow[];
+	const representationSchema = JSON.parse(
+		row.representation_schema,
+	) as StructuredWorkspaceRepresentationSchema;
+	const itemCounts: Record<string, number> = Object.fromEntries(
+		Object.keys(representationSchema.collections ?? {}).map((id) => [id, 0]),
+	);
+	for (const count of statements.itemCounts.all(row.id) as Array<{
+		collection_id: string;
+		count: number;
+	}>)
+		itemCounts[count.collection_id] = Number(count.count);
 	return {
 		id: row.id,
 		name: row.name,
 		description: row.description ?? undefined,
 		dataSchema: JSON.parse(row.data_schema),
-		representationSchema: JSON.parse(row.representation_schema),
+		representationSchema,
 		revision: row.revision,
-		items: items.map(itemFromRow),
+		itemCounts,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};
@@ -503,7 +605,7 @@ function workspaceFromRow(
 function itemFromRow(row: ItemRow): StructuredWorkspaceItemReference {
 	return {
 		id: row.id,
-		position: row.position,
+		sequence: Number(row.sequence),
 		collectionId: row.collection_id,
 		bindingId: row.binding_id,
 		documentId: row.document_id,
@@ -531,13 +633,15 @@ function requiredItem(
 	return storedItemFromRow(row);
 }
 
-function nextPosition(
+/** The next value of a collection's sequence counter, which it consumes. */
+function nextSequence(
 	statements: Statements,
 	workspaceId: string,
 	collectionId: string,
 ): number {
-	const row = statements.itemNextPosition.get(workspaceId, collectionId) as
-		| { position: number }
+	const row = statements.itemNextSequence.get(workspaceId, collectionId) as
+		| { last: number }
 		| undefined;
-	return Number(row?.position ?? 0);
+	if (!row) throw new Error(`No sequence for collection "${collectionId}".`);
+	return Number(row.last);
 }

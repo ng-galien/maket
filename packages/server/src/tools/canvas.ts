@@ -90,7 +90,7 @@ function runCanvasSetup(
 	documents: Documents,
 	bus: Bus,
 ): ReturnType<typeof text> {
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	const locked = lockGuard(d);
 	if (locked) return locked;

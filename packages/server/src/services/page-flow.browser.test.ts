@@ -255,13 +255,14 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			name: "Portfolio",
 			dataSchema: {
 				type: "object",
-				properties: { title: { type: "string" } },
-				required: ["title"],
+				properties: { id: { type: "string" }, title: { type: "string" } },
+				required: ["id", "title"],
 			},
 			representationSchema: {
 				version: 1,
 				collections: {
 					projects: {
+						identity: "/id",
 						name: "Projects",
 						collectionTemplateDocumentId: board.name,
 						bindings: {
@@ -282,7 +283,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 				collectionId: "projects",
 				bindingId: "project",
 				documentName: `Project ${index + 1}`,
-				data: { title: `Project ${index + 1}` },
+				data: { id: `project-${index}`, title: `Project ${index + 1}` },
 			});
 		}
 		try {
@@ -436,13 +437,18 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 			name: "Tall cards",
 			dataSchema: {
 				type: "object",
-				properties: { title: { type: "string" }, h: { type: "number" } },
-				required: ["title", "h"],
+				properties: {
+					id: { type: "string" },
+					title: { type: "string" },
+					h: { type: "number" },
+				},
+				required: ["id", "title", "h"],
 			},
 			representationSchema: {
 				version: 1,
 				collections: {
 					cards: {
+						identity: "/id",
 						name: "Cards",
 						collectionTemplateDocumentId: board.name,
 						bindings: {
@@ -463,7 +469,7 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 				collectionId: "cards",
 				bindingId: "card",
 				documentName: `Card ${index + 1}`,
-				data: { title: `Card ${index + 1}`, h },
+				data: { id: `card-${index}`, title: `Card ${index + 1}`, h },
 			});
 		}
 		try {

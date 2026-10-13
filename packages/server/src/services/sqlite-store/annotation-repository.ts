@@ -3,7 +3,9 @@ import type { PendingMessage } from "@maket/shared";
 import { MessageError } from "../../lib/message-error.js";
 
 export interface AnnotationRepository {
-	saveAnnotation(annotation: PendingMessage): void;
+	/** Save an annotation; answers the id of its document, null for a
+	 * workspace-wide note. */
+	saveAnnotation(annotation: PendingMessage): string | null;
 	loadAnnotations(): PendingMessage[];
 	deleteAnnotations(ids: string[]): string[];
 	updateAnnotationText(id: string, text: string, editedAt: number): boolean;
@@ -70,6 +72,7 @@ export function createAnnotationRepository(
 				position: annotation.position ?? null,
 				ts: annotation.ts ?? Date.now(),
 			});
+			return documentId;
 		},
 		loadAnnotations() {
 			return (selectAll.all() as Array<Record<string, unknown>>).map((row) => ({

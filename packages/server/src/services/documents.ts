@@ -18,7 +18,9 @@ import { validateStateTemplateUpdate } from "./document-states.js";
 import type { Store } from "./store.js";
 
 export interface Documents {
-	/** Populate the in-memory registry from the store (idempotent). */
+	/** Populate the in-memory registry from the store (idempotent), without
+	 * the Structured Workspace item documents: those are loaded on demand by
+	 * resolveOrLoad and resolveById, and stay cached once loaded. */
 	loadAll(): void;
 	/** Lookup by name. Returns null if unknown. No fallback to store. */
 	resolve(name: string): Document | null;
@@ -223,7 +225,7 @@ export function createDocuments({ store }: DocumentsDeps): Documents {
 
 	return {
 		loadAll() {
-			for (const d of store.loadAll()) {
+			for (const d of store.loadAll({ withoutItemDocuments: true })) {
 				normalizeCanvas(d.canvas);
 				cache.set(d.name, d);
 			}

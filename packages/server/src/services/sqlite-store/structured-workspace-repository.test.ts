@@ -30,7 +30,7 @@ describe("Structured Workspace item rows", () => {
 	it("inserts last in the collection at revision 1 and reads one row with its data", () => {
 		expect(store.loadStructuredWorkspaceItem("ws", "two")).toEqual({
 			id: "two",
-			position: 1,
+			sequence: 2,
 			collectionId: "items",
 			bindingId: "item",
 			documentId: "doc-two",
@@ -73,20 +73,26 @@ describe("Structured Workspace item rows", () => {
 		});
 	});
 
-	it("deletes at the expected revision when given and never renumbers positions", () => {
+	it("deletes at the expected revision when given and never gives a sequence twice", () => {
+		const add = (id: string) =>
+			store.addStructuredWorkspaceItem("ws", {
+				id,
+				collectionId: "items",
+				bindingId: "item",
+				documentId: `doc-${id}`,
+				documentName: `Row ${id}`,
+				data: { title: id },
+			});
 		expect(store.deleteStructuredWorkspaceItem("ws", "one", 5)).toBe(false);
 		expect(store.deleteStructuredWorkspaceItem("ws", "one", 1)).toBe(true);
-		expect(store.loadStructuredWorkspaceItem("ws", "two")?.position).toBe(1);
-		store.addStructuredWorkspaceItem("ws", {
-			id: "three",
-			collectionId: "items",
-			bindingId: "item",
-			documentId: "doc-three",
-			documentName: "Row three",
-			data: { title: "three" },
-		});
-		expect(store.loadStructuredWorkspaceItem("ws", "three")?.position).toBe(2);
+		expect(store.loadStructuredWorkspaceItem("ws", "two")?.sequence).toBe(2);
+		expect(add("three").sequence).toBe(3);
+		expect(store.deleteStructuredWorkspaceItem("ws", "three")).toBe(true);
 		expect(store.deleteStructuredWorkspaceItem("ws", "two")).toBe(true);
 		expect(store.deleteStructuredWorkspaceItem("ws", "two")).toBe(false);
+		expect(add("four").sequence).toBe(4);
+		expect(store.loadStructuredWorkspace("ws")?.itemCounts).toEqual({
+			items: 1,
+		});
 	});
 });

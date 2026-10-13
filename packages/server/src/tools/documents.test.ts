@@ -531,7 +531,7 @@ describe("maket_doc — action=delete", () => {
 			NO_EXTRA,
 		);
 		expect(instanceResult.isError).toBe(true);
-		expect(documents.resolve("instance")).not.toBeNull();
+		expect(documents.resolveOrLoad("instance")).not.toBeNull();
 		for (const mutation of [
 			{ action: "rename", doc: "template", name: "renamed-template" },
 			{ action: "meta", doc: "instance", category: "other" },
@@ -543,7 +543,7 @@ describe("maket_doc — action=delete", () => {
 			);
 		}
 		expect(documents.resolve("template")?.name).toBe("template");
-		expect(documents.resolve("instance")?.category).not.toBe("other");
+		expect(documents.resolveOrLoad("instance")?.category).toBe("general");
 		store.close();
 	});
 });

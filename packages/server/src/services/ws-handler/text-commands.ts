@@ -85,7 +85,7 @@ export function handleTextEdit(
 		);
 		return;
 	}
-	const d = ctx.documents.resolve(msg.docName);
+	const d = ctx.documents.resolveOrLoad(msg.docName);
 	if (!d) {
 		log(`[text_edit] FAIL: doc not found: ${msg.docName}`);
 		return;

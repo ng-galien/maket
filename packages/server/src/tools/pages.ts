@@ -112,7 +112,7 @@ async function handleMaketPageTool(
 ): Promise<ReturnType<typeof text>> {
 	const { documents, bus } = deps;
 	const args = MaketPageSchema.parse(rawArgs);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (args.action !== "list" && args.action !== "get_form") {
 		const locked = lockGuard(d);

@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,7 +123,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
@@ -175,12 +175,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(22);
+		const db = historicalDatabaseWithoutIds(23);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v22 is newer than supported v21/,
+			/schema v23 is newer than supported v22/,
 		);
-		expect(schemaVersion(db)).toBe(22);
+		expect(schemaVersion(db)).toBe(23);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -208,7 +208,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -234,7 +234,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(
 			db
 				.prepare(
@@ -266,7 +266,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(
 			db
 				.prepare(
@@ -299,7 +299,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		expect(
 			db.prepare("SELECT text, edited_at AS editedAt FROM annotations").get(),
 		).toEqual({ text: "Keep", editedAt: null });
@@ -371,27 +371,27 @@ describe("SQLite schema migrations", () => {
 				{ role: "detail", collectionId: "backlog", bindingId: "task" },
 			],
 		});
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		db.close();
 	});
 
-	it("moves each item's current document state into its row, once, for every workspace, with a unique indexed name per workspace", () => {
+	it("moves each item's current document state into its row, once, for every workspace, with a unique indexed name per workspace, its position becoming its sequence", () => {
 		const db = v20DatabaseWithTwoWorkspaces();
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(21);
+		expect(schemaVersion(db)).toBe(22);
 		const items = () =>
 			rows(
 				db,
-				"SELECT workspace_id, id, position, collection_id, binding_id, document_id, document_name, json(data) AS data, revision FROM structured_workspace_items ORDER BY workspace_id, position",
+				"SELECT workspace_id, id, sequence, collection_id, binding_id, document_id, document_name, json(data) AS data, revision FROM structured_workspace_items ORDER BY workspace_id, sequence",
 			);
 		const migrated = items();
 		expect(migrated).toEqual([
 			{
 				workspace_id: "ws-a",
 				id: "a-1",
-				position: 0,
+				sequence: 1,
 				collection_id: "items",
 				binding_id: "item",
 				document_id: "doc-a-1",
@@ -402,7 +402,7 @@ describe("SQLite schema migrations", () => {
 			{
 				workspace_id: "ws-a",
 				id: "a-2",
-				position: 1,
+				sequence: 2,
 				collection_id: "items",
 				binding_id: "item",
 				document_id: "doc-a-2",
@@ -413,7 +413,7 @@ describe("SQLite schema migrations", () => {
 			{
 				workspace_id: "ws-b",
 				id: "b-1",
-				position: 0,
+				sequence: 1,
 				collection_id: "board",
 				binding_id: "card",
 				document_id: "doc-b-1",
@@ -424,7 +424,7 @@ describe("SQLite schema migrations", () => {
 			{
 				workspace_id: "ws-b",
 				id: "b-2",
-				position: 1,
+				sequence: 2,
 				collection_id: "board",
 				binding_id: "card",
 				document_id: "doc-b-2",
@@ -446,18 +446,18 @@ describe("SQLite schema migrations", () => {
 			),
 		).toHaveLength(1);
 		const insertNamed = db.prepare(
-			"INSERT INTO structured_workspace_items (workspace_id, id, position, collection_id, binding_id, document_id, document_name, data, revision) VALUES (?, ?, ?, 'items', 'item', ?, ?, '{}', 1)",
+			"INSERT INTO structured_workspace_items (workspace_id, id, sequence, collection_id, binding_id, document_id, document_name, data, revision) VALUES (?, ?, ?, 'items', 'item', ?, ?, '{}', 1)",
 		);
-		expect(() => insertNamed.run("ws-a", "a-3", 2, "doc-a-3", "A one")).toThrow(
+		expect(() => insertNamed.run("ws-a", "a-3", 3, "doc-a-3", "A one")).toThrow(
 			/UNIQUE constraint failed/,
 		);
-		insertNamed.run("ws-b", "b-3", 2, "doc-b-3", "A one");
+		insertNamed.run("ws-b", "b-3", 3, "doc-b-3", "A one");
 
 		db.prepare("DELETE FROM documents WHERE id = ?").run("doc-a-2");
 		expect(
 			rows(
 				db,
-				"SELECT id FROM structured_workspace_items WHERE workspace_id = 'ws-a' ORDER BY position",
+				"SELECT id FROM structured_workspace_items WHERE workspace_id = 'ws-a' ORDER BY sequence",
 			),
 		).toEqual([{ id: "a-1" }, { id: "a-2" }]);
 		expect(integrityCheck(db)).toEqual(["ok"]);

@@ -41,6 +41,8 @@ export interface ItemQuery {
 	/** Opaque position returned as `next` by the previous batch of the same
 	 * query; never read by callers. */
 	cursor?: string;
+	/** Summaries carry the whole item data, for a reader that validates it. */
+	whole?: boolean;
 	/** Most items in the batch; the source may answer fewer and caps it. */
 	limit: number;
 }
@@ -51,6 +53,8 @@ export interface ItemSummary {
 	id: string;
 	revision: string;
 	bindingId: string;
+	/** The name of the document that renders the item. */
+	documentName: string;
 	fields: Record<string, unknown>;
 	issues?: StructuredWorkspaceItemDataIssue[];
 }
@@ -78,7 +82,8 @@ export interface ItemCreation {
 	collectionId: string;
 	bindingId: string;
 	data: Record<string, unknown>;
-	id?: string;
+	/** The value of the collection identity in `data`: the item id. */
+	id: string;
 	/** The document that will render the item, for a source that records it. */
 	document?: { id: string; name: string };
 }

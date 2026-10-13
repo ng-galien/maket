@@ -59,9 +59,12 @@ test.describe("Structured Workspace", () => {
 			workspace: workspaceName,
 			data_schema: {
 				type: "object",
-				properties: { title: { type: "string" } },
-				required: ["title"],
+				properties: { title: { type: "string" }, id: { type: "string" } },
+				required: ["title", "id"],
 				additionalProperties: false,
+			},
+			representation_schema: {
+				collections: { items: { name: "Items", identity: "/id" } },
 			},
 		});
 		for (let index = 1; index <= 120; index += 1)
@@ -72,7 +75,7 @@ test.describe("Structured Workspace", () => {
 				collection: "items",
 				binding: "item",
 				document_name: title(index),
-				data: { title: title(index) },
+				data: { title: title(index), id: `task-${index}` },
 			});
 
 		const library = await openLibraryView(page, "structured-workspaces");
@@ -160,8 +163,9 @@ test.describe("Structured Workspace", () => {
 						properties: {
 							kind: { const: "task" },
 							title: { type: "string" },
+							id: { type: "string" },
 						},
-						required: ["kind", "title"],
+						required: ["kind", "title", "id"],
 						additionalProperties: false,
 					},
 				},
@@ -172,6 +176,7 @@ test.describe("Structured Workspace", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: collectionTemplate,
 						bindings: {
 							task: {
@@ -191,7 +196,7 @@ test.describe("Structured Workspace", () => {
 			collection: "backlog",
 			binding: "task",
 			document_name: itemDocument,
-			data: { kind: "task", title: "Ship the release" },
+			data: { kind: "task", title: "Ship the release", id: "release" },
 		});
 
 		await mcp.call("maket_structured_workspace", {
@@ -201,7 +206,7 @@ test.describe("Structured Workspace", () => {
 			collection: "backlog",
 			binding: "task",
 			document_name: "Review the release",
-			data: { kind: "task", title: "Review the release" },
+			data: { kind: "task", title: "Review the release", id: "review" },
 		});
 
 		const library = await openLibraryView(page, "structured-workspaces");

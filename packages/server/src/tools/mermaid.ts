@@ -229,7 +229,7 @@ interface MermaidToolDeps {
 // MCP Mermaid insertion is an adapter workflow over rendering, HTML parsing, document persistence, and bus notification.
 async function handleMaketMermaidTool(rawArgs: unknown, deps: MermaidToolDeps) {
 	const args = MermaidSchema.parse(rawArgs);
-	const doc = deps.documents.resolve(args.doc);
+	const doc = deps.documents.resolveOrLoad(args.doc);
 	if (!doc) return text(`Document "${args.doc}" not found`, true);
 	const locked = lockGuard(doc);
 	if (locked) return locked;

@@ -265,7 +265,7 @@ describe("export routes — .maket bundle", () => {
 		);
 	});
 
-	it("exports Structured Workspace documents as detached portable documents that can be deleted after import", async () => {
+	it("exports a Structured Workspace item document rendered, without state, as a detached portable document that can be deleted after import", async () => {
 		const doc = makeDoc("workspace-item");
 		doc.meta.structuredWorkspace = {
 			role: "item",
@@ -303,6 +303,8 @@ describe("export routes — .maket bundle", () => {
 		const bundle = await decodeBundle(bytes);
 		expect(bundle.documents[0]?.meta?.structuredWorkspace).toBeUndefined();
 		expect(bundle.documents[0]?.pages[0]?.provenance).toBeUndefined();
+		expect(bundle.documents[0]?.pages[0]?.html).toContain("Portable");
+		expect(bundle.documentStates).toEqual([]);
 
 		const importResponse = await fetch(`${baseUrl}/api/import-maket`, {
 			method: "POST",
@@ -314,13 +316,12 @@ describe("export routes — .maket bundle", () => {
 		const imported = documents.resolveOrLoad(importedName);
 		expect(imported).toMatchObject({
 			name: importedName,
-			dataModel: "state",
+			dataModel: "static",
 		});
 		expect(imported?.meta.structuredWorkspace).toBeUndefined();
 		expect(imported?.pages[0]?.provenance).toBeUndefined();
-		expect(documentStates.get(importedName)?.current.data).toEqual({
-			title: "Portable",
-		});
+		expect(imported?.pages[0]?.html).toContain("Portable");
+		expect(documentStates.get(importedName)).toBeNull();
 
 		const tool = createMaketDocTool({
 			documents,
@@ -372,8 +373,9 @@ describe("export routes — .maket bundle", () => {
 						properties: {
 							kind: { const: "task" },
 							title: { type: "string" },
+							id: { type: "string" },
 						},
-						required: ["kind", "title"],
+						required: ["kind", "title", "id"],
 						additionalProperties: false,
 					},
 				},
@@ -384,6 +386,7 @@ describe("export routes — .maket bundle", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: collectionTemplate.name,
 						bindings: {
 							task: {
@@ -402,7 +405,7 @@ describe("export routes — .maket bundle", () => {
 			collectionId: "backlog",
 			bindingId: "task",
 			documentName: "Ship the release",
-			data: { kind: "task", title: "Ship the release" },
+			data: { id: "task-1", kind: "task", title: "Ship the release" },
 		});
 		expect(documents.resolveOrLoad("Ship the release")).toBeNull();
 		const collectionName = "Delivery — Backlog";
@@ -493,12 +496,19 @@ describe("export routes — .maket bundle", () => {
 		if (!aggregate.ok) throw new Error(aggregate.message);
 		const aggregateBundle = await decodeBundle(aggregate.buffer);
 		expect(aggregateBundle.structuredWorkspaces).toHaveLength(1);
-		expect(aggregateBundle.structuredWorkspaces[0]?.workspace.items).toEqual([
+		expect(aggregateBundle.structuredWorkspaces[0]?.items).toEqual([
 			expect.objectContaining({
 				id: "task-1",
 				documentName: "Ship the release",
+				data: { id: "task-1", kind: "task", title: "Ship the release" },
+				revision: 1,
 			}),
 		]);
+		expect(
+			aggregateBundle.documentStates.map(({ documentId }) => documentId),
+		).not.toContain(
+			aggregateBundle.structuredWorkspaces[0]?.items[0]?.documentId,
+		);
 		expect(aggregateBundle.documents.map(({ name }) => name)).toContain(
 			collectionName,
 		);
@@ -572,15 +582,10 @@ describe("export routes — .maket bundle", () => {
 		).toEqual(before);
 		expect([...documents.all().keys()].sort()).toEqual(cacheBefore);
 		expect(created).not.toHaveBeenCalled();
-		const [restoredItem] =
-			structuredWorkspaces
-				.list()
-				.find((workspace) => workspace.id === restoredWorkspace.id)?.items ??
-			[];
 		expect(
-			structuredWorkspaces.getItem(restoredWorkspace.id, restoredItem?.id ?? "")
-				?.data,
+			structuredWorkspaces.getItem(restoredWorkspace.id, "task-1")?.data,
 		).toEqual({
+			id: "task-1",
 			kind: "task",
 			title: "Ship the release",
 		});
@@ -689,10 +694,18 @@ describe("export routes — .maket bundle", () => {
 	it("allocates the names the engine makes around reserved item names, so items still open and an export succeeds", async () => {
 		const dataSchema = {
 			type: "object",
-			properties: { title: { type: "string" } },
-			required: ["title"],
+			properties: { title: { type: "string" }, id: { type: "string" } },
+			required: ["title", "id"],
 		};
-		const holder = structuredWorkspaces.create({ name: "Holder", dataSchema });
+		const representationSchema = {
+			version: 1 as const,
+			collections: { items: { name: "Items", identity: "/id" } },
+		};
+		const holder = structuredWorkspaces.create({
+			name: "Holder",
+			dataSchema,
+			representationSchema,
+		});
 		for (const [itemId, documentName] of [
 			["i7", "Other — Items"],
 			["i8", "Res — Other — detail template"],
@@ -703,20 +716,28 @@ describe("export routes — .maket bundle", () => {
 				collectionId: "items",
 				bindingId: "item",
 				documentName,
-				data: { title: itemId },
+				data: { id: itemId, title: itemId },
 			});
-		const oth = structuredWorkspaces.create({ name: "Oth", dataSchema });
+		const oth = structuredWorkspaces.create({
+			name: "Oth",
+			dataSchema,
+			representationSchema,
+		});
 		const renamed = structuredWorkspaces.rename(oth.id, "Other", oth.revision);
 		expect(renamed.collectionDocuments.map((d) => d.documentName)).toEqual([
 			"Other — Items 2",
 		]);
-		const res = structuredWorkspaces.create({ name: "Res", dataSchema });
+		const res = structuredWorkspaces.create({
+			name: "Res",
+			dataSchema,
+			representationSchema,
+		});
 		const updated = structuredWorkspaces.updateDefinition({
 			workspace: res.id,
 			expectedRevision: res.revision,
 			representationSchema: {
 				version: 1,
-				collections: { other: { name: "Other" } },
+				collections: { other: { name: "Other", identity: "/id" } },
 			},
 		});
 		const templateNames = updated.templateDocuments.map((d) => d.documentName);
@@ -740,10 +761,18 @@ describe("export routes — .maket bundle", () => {
 	it("keeps an item document the user opens and pins while an export is in flight, and its edit succeeds", async () => {
 		const dataSchema = {
 			type: "object",
-			properties: { title: { type: "string" } },
-			required: ["title"],
+			properties: { title: { type: "string" }, id: { type: "string" } },
+			required: ["title", "id"],
 		};
-		const workspace = structuredWorkspaces.create({ name: "Exp", dataSchema });
+		const representationSchema = {
+			version: 1 as const,
+			collections: { items: { name: "Items", identity: "/id" } },
+		};
+		const workspace = structuredWorkspaces.create({
+			name: "Exp",
+			dataSchema,
+			representationSchema,
+		});
 		for (const index of [1, 2, 3])
 			await structuredWorkspaces.addItem({
 				workspace: workspace.id,
@@ -751,7 +780,7 @@ describe("export routes — .maket bundle", () => {
 				collectionId: "items",
 				bindingId: "item",
 				documentName: `Exp ${index}`,
-				data: { title: `Item ${index}` },
+				data: { id: `exp-${index}`, title: `Item ${index}` },
 			});
 		const pending = bundleExportService.build({
 			names: ["Exp 1", "Exp 2", "Exp 3"],
@@ -774,10 +803,14 @@ describe("export routes — .maket bundle", () => {
 			documentStates,
 			structuredWorkspaces,
 		});
-		const revision = await mutations.update("Exp 2", 1, { title: "Edited" });
+		const revision = await mutations.update("Exp 2", 1, {
+			id: "exp-2",
+			title: "Edited",
+		});
 		expect(revision).toMatchObject({ revision: 2, data: { title: "Edited" } });
 		expect(documents.resolve("Exp 2")?.pinnedAt).toBeTruthy();
 		expect(structuredWorkspaces.getItem(workspace.id, "exp-2")?.data).toEqual({
+			id: "exp-2",
 			title: "Edited",
 		});
 	});
@@ -833,7 +866,7 @@ describe("export routes — .maket bundle", () => {
 		structuredWorkspaces.create({
 			name: "Draft",
 			allowIncomplete: true,
-			dataSchema: {},
+			dataSchema: { properties: { id: { type: "string" } }, required: ["id"] },
 			representationSchema: { version: 1, collections: {} },
 		});
 		const exported = await fetch(`${baseUrl}/api/export-maket`);

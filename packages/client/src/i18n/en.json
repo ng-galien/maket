@@ -386,6 +386,7 @@
 	"msg_row_not_found": "Row \"{row}\" was not found in collection \"{collection}\" ({rows} rows).",
 	"msg_annotation_not_saved": "The note could not be saved.",
 	"msg_state_revision_conflict": "This document changed elsewhere (revision {current}, you had {expected}). The latest version is loaded; try your edit again.",
+	"msg_item_identity_kept": "{field} identifies this item and cannot change; it stays {item}. To give it another value, delete the item and add it again.",
 	"msg_state_no_revision": "Document \"{name}\" has no saved state yet.",
 	"msg_state_invalid": "The value does not match the document state schema.",
 	"msg_state_not_object": "The document state must stay a JSON object.",

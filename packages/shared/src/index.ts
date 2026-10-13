@@ -26,5 +26,6 @@ export * from "./settings.js";
 export * from "./state-control-layout.js";
 export * from "./strip-active-policy.js";
 export * from "./structured-workspace.js";
+export * from "./structured-workspace-identity.js";
 export * from "./toast.js";
 export * from "./ws.js";

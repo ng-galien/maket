@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import {
+	declareItemIdentities,
+	migrateItemsToSequence,
+} from "./structured-workspace-migration.js";
 
-const SCHEMA_VERSION = 21;
+const SCHEMA_VERSION = 22;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -106,7 +110,7 @@ const SCHEMA_SQL = `
   CREATE TABLE structured_workspace_items (
 		workspace_id TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
 		id           TEXT NOT NULL,
-		position     INTEGER NOT NULL,
+		sequence     INTEGER NOT NULL,
 		collection_id TEXT NOT NULL,
 		binding_id   TEXT NOT NULL,
 		document_id  TEXT NOT NULL UNIQUE,
@@ -115,11 +119,17 @@ const SCHEMA_SQL = `
 		revision     INTEGER NOT NULL CHECK (revision > 0),
 		created_at   TEXT NOT NULL DEFAULT (datetime('now')),
 		PRIMARY KEY (workspace_id, id),
-		UNIQUE (workspace_id, collection_id, position),
+		UNIQUE (workspace_id, collection_id, sequence),
 		UNIQUE (workspace_id, document_name)
 	);
   CREATE INDEX structured_workspace_items_document_name_idx
     ON structured_workspace_items(document_name);
+  CREATE TABLE structured_workspace_sequences (
+		workspace_id  TEXT NOT NULL REFERENCES structured_workspaces(id) ON DELETE CASCADE,
+		collection_id TEXT NOT NULL,
+		last          INTEGER NOT NULL,
+		PRIMARY KEY (workspace_id, collection_id)
+	);
   CREATE TABLE annotations (
     id          TEXT PRIMARY KEY,
     document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
@@ -155,6 +165,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 19, up: migrateToV19 },
 	{ version: 20, up: migrateToV20 },
 	{ version: 21, up: migrateToV21 },
+	{ version: 22, up: migrateToV22 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -212,6 +223,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV19(db);
 	migrateToV20(db);
 	migrateToV21(db);
+	migrateToV22(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -511,6 +523,17 @@ function migrateToV21(db: DatabaseSync): void {
 	`);
 }
 
+/** Items keep their insertion order in a never-reused sequence instead of a
+ * position, and every collection declares its identity. */
+function migrateToV22(db: DatabaseSync): void {
+	migrateToV21(db);
+	migrateItemsToSequence(db);
+	for (const declared of declareItemIdentities(db))
+		log(
+			`SQLite: Structured Workspace "${declared.workspace}" collection "${declared.collectionId}" identifies its items by "/${declared.property}"${declared.kept ? " (its existing id property)" : " (row ids copied there)"}`,
+		);
+}
+
 function rebuildItemsWithData(db: DatabaseSync): void {
 	db.exec(`
 		CREATE TABLE structured_workspace_items_v21 (
@@ -670,7 +693,17 @@ function assertStructuredWorkspaceSchema(db: DatabaseSync): void {
 	if (!hasColumn(db, "pages", "json_forms")) {
 		throw new Error("SQLite migration failed: pages.json_forms is missing");
 	}
-	for (const column of ["collection_id", "document_name", "data", "revision"]) {
+	if (!hasTable(db, "structured_workspace_sequences"))
+		throw new Error(
+			"SQLite migration failed: structured_workspace_sequences table is missing",
+		);
+	for (const column of [
+		"collection_id",
+		"document_name",
+		"data",
+		"revision",
+		"sequence",
+	]) {
 		if (!hasColumn(db, "structured_workspace_items", column)) {
 			throw new Error(
 				`SQLite migration failed: structured_workspace_items.${column} is missing`,

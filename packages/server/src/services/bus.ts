@@ -66,7 +66,8 @@ export interface BusEvents {
 	 * full snapshot (`collectionCursors.snapshot()`). */
 	"collection-cursor:changed": Record<string, never>;
 	"messages:acked": { ids: string[] };
-	"annotations:changed": Record<string, never>;
+	/** `documentId`: the document a new annotation was placed on. */
+	"annotations:changed": { documentId?: string };
 	"settings:changed": Settings;
 	toast: {
 		key: ToastKey;

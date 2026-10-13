@@ -358,7 +358,7 @@ function documentLine(document: ListedDocument): string {
 function runPin(args: Args, documents: Documents, bus: Bus, pinned: boolean) {
 	const action = pinned ? "pin" : "unpin";
 	if (!args.doc) return text(`doc is required for action=${action}`, true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (
 		d.meta.structuredWorkspace &&
@@ -399,7 +399,9 @@ function runLookup(args: Args, documents: Documents, store: Store) {
 			args.doc,
 			[...timestamps.keys()].filter((name) => {
 				const candidate = documents.resolve(name);
-				return !candidate || !isStructuredWorkspaceItem(candidate);
+				return candidate
+					? !isStructuredWorkspaceItem(candidate)
+					: store.loadStructuredWorkspaceItemByDocumentName(name) === null;
 			}),
 		);
 		return text(
@@ -588,7 +590,7 @@ function structuredWorkspaceDocumentGuard(d: Document) {
 function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=duplicate", true);
 	if (!args.name) return text("name is required for action=duplicate", true);
-	const sourceDoc = documents.resolve(args.doc);
+	const sourceDoc = documents.resolveOrLoad(args.doc);
 	if (!sourceDoc) return text(`Document "${args.doc}" not found`, true);
 	if (sourceDoc.dataModel === "state") {
 		return text(
@@ -636,7 +638,7 @@ function runDuplicate(args: Args, documents: Documents, bus: Bus) {
 // and the server-authored propagation event.
 function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=meta", true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (d.meta.structuredWorkspace) {
 		return text(
@@ -665,7 +667,7 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 function runRename(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=rename", true);
 	if (!args.name) return text("name is required for action=rename", true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (d.meta.structuredWorkspace) {
 		return text(
@@ -734,8 +736,12 @@ async function runExport(
 	if (result.missingAssets.length > 0) {
 		assetReport += ` (${result.missingAssets.length} missing: ${result.missingAssets.slice(0, 3).join(", ")}${result.missingAssets.length > 3 ? "…" : ""})`;
 	}
+	const leftOut = result.itemsLeftOut.map(
+		(item) =>
+			`\n  item "${item.item}" of "${item.workspace}" travels without its document "${item.documentName}": ${item.reason}`,
+	);
 	return text(
-		`Exported ${result.documents.length} document(s)${charteLabel}${assetReport} → ${outPath} (${Math.round(result.buffer.length / 1024)} KB)\n  ${docLabel}`,
+		`Exported ${result.documents.length} document(s)${charteLabel}${assetReport} → ${outPath} (${Math.round(result.buffer.length / 1024)} KB)\n  ${docLabel}${leftOut.join("")}`,
 	);
 }
 

@@ -22,8 +22,9 @@ const dataSchema = {
 			type: "object",
 			properties: { city: { type: "string" } },
 		},
+		id: { type: "string" },
 	},
-	required: ["title", "status"],
+	required: ["title", "status", "id"],
 	additionalProperties: false,
 };
 
@@ -53,7 +54,12 @@ async function setup() {
 		representationSchema: {
 			version: 1,
 			collections: {
-				items: { name: "Items", groupBy: "/status", groupOrder: ["doing"] },
+				items: {
+					name: "Items",
+					identity: "/id",
+					groupBy: "/status",
+					groupOrder: ["doing"],
+				},
 			},
 		},
 	});
@@ -64,7 +70,7 @@ async function setup() {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: `Tracker ${row.title}`,
-			data: { ...row, address: { city: "Lyon" } },
+			data: { id: `item-${index + 1}`, ...row, address: { city: "Lyon" } },
 		});
 	}
 	return {
@@ -142,11 +148,13 @@ describe("createLocalItemSource", () => {
 	it("keeps in summaries only the fields the index reads", () => {
 		const [first] = source.list({ collectionId: "items", limit: 1 }).items;
 		expect(first?.fields).toEqual({
+			id: "item-1",
 			title: "Alpha",
 			status: "todo",
 			priority: 2,
 		});
 		expect(source.get("item-1")?.data).toEqual({
+			id: "item-1",
 			title: "Alpha",
 			status: "todo",
 			priority: 2,
@@ -324,7 +332,7 @@ describe("createLocalItemSource", () => {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Tracker Aaron",
-			data: { title: "Aaron", status: "todo" },
+			data: { id: "item-6", title: "Aaron", status: "todo" },
 		});
 		await current.workspaces.addItem({
 			workspace: current.workspace.id,
@@ -332,7 +340,7 @@ describe("createLocalItemSource", () => {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Tracker Zulu",
-			data: { title: "Zulu", status: "todo" },
+			data: { id: "item-7", title: "Zulu", status: "todo" },
 		});
 		await current.workspaces.deleteItem(current.workspace.id, "item-4");
 		const second = source.list({ ...query, cursor: first.next });
@@ -371,7 +379,7 @@ describe("createLocalItemSource", () => {
 					collectionId: "items",
 					bindingId: "item",
 					documentName: `Tracker z${String(100 - index).padStart(3, "0")}`,
-					data: { title: `Item ${index}`, status: "todo" },
+					data: { id: `item-${index}`, title: `Item ${index}`, status: "todo" },
 				});
 			const query = {
 				collectionId: "items",
@@ -431,6 +439,7 @@ describe("createLocalItemSource", () => {
 			revision: "1",
 			bindingId: "item",
 			data: {
+				id: "item-2",
 				title: "Bravo",
 				status: "done",
 				priority: 9,
@@ -498,7 +507,7 @@ describe("createLocalItemSource", () => {
 			"invalid_record",
 		);
 		expect((duplicate as Error).message).toBe(
-			'Item "item-2" already exists in "Tracker".',
+			'Item "item-2" already exists in collection "items" of "Tracker" (document "Tracker Bravo"): an identity value is unique across the whole Workspace.',
 		);
 		expect(
 			await rejectionCode(
@@ -525,7 +534,10 @@ describe("createLocalItemSource", () => {
 		expect(page.total).toBe(5);
 		const bravo = page.items.find((item) => item.id === "item-2");
 		expect(bravo?.fields).toEqual({ status: "done" });
-		expect(bravo?.issues?.map((issue) => issue.rule)).toEqual(["required"]);
+		expect(bravo?.issues?.map((issue) => issue.message)).toEqual([
+			"Invalid item data: must have required property 'title'",
+			"Invalid item data: must have required property 'id'",
+		]);
 		expect(
 			page.items
 				.filter((item) => item.issues !== undefined)
@@ -553,12 +565,75 @@ describe("createLocalItemSource", () => {
 		expect(page.total).toBe(6);
 		expect(page.items.at(-1)?.id).toBe("item-6");
 		expect(
-			current.store.loadStructuredWorkspace(current.workspace.id)?.items.at(-1),
+			current.store.loadStructuredWorkspaceItem(current.workspace.id, "item-6"),
 		).toMatchObject({
-			position: 5,
+			sequence: 6,
 			documentId: "doc-6",
 			documentName: "Tracker Foxtrot",
 		});
+		expect(
+			current.store.loadStructuredWorkspace(current.workspace.id)?.itemCounts,
+		).toEqual({ items: 6 });
+	});
+
+	it("searches ignoring accents as well as case, on both sides", async () => {
+		await current.workspaces.addItem({
+			workspace: current.workspace.id,
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Tracker Élève",
+			data: { id: "item-6", title: "Élève déjà vu", status: "todo" },
+		});
+		const titles = (text: string) =>
+			source
+				.list({ collectionId: "items", text, limit: 10 })
+				.items.map((item) => item.fields.title);
+		expect(titles("eleve")).toEqual(["Élève déjà vu"]);
+		expect(titles("DÉJA")).toEqual(["Élève déjà vu"]);
+		expect(titles("ÉCHO")).toEqual(["Echo"]);
+	});
+
+	it("keys the cursor on the never-reused sequence: a new item after deleting the cursor row and every later row is read by that cursor", async () => {
+		const first = source.list({ collectionId: "items", limit: 3 });
+		expect(first.items.map((item) => item.id)).toEqual([
+			"item-1",
+			"item-2",
+			"item-3",
+		]);
+		for (const id of ["item-4", "item-5", "item-3"])
+			await current.workspaces.deleteItem(current.workspace.id, id);
+		await current.workspaces.addItem({
+			workspace: current.workspace.id,
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Tracker Aaron",
+			data: { id: "a-new", title: "Aaron", status: "todo" },
+		});
+		expect(
+			current.store.loadStructuredWorkspaceItem(current.workspace.id, "a-new")
+				?.sequence,
+		).toBe(6);
+		const rest = source.list({
+			collectionId: "items",
+			limit: 3,
+			cursor: first.next,
+		});
+		expect(rest.items.map((item) => item.id)).toEqual(["a-new"]);
+		expect(rest.next).toBeUndefined();
+	});
+
+	it("keys the cursor on the sort value then the id under a sort, ties by id", () => {
+		const query = {
+			collectionId: "items",
+			sort: { field: "/status", direction: "ascending" as const },
+			limit: 2,
+		};
+		const first = source.list(query);
+		const second = source.list({ ...query, cursor: first.next });
+		const third = source.list({ ...query, cursor: second.next });
+		expect(
+			[...first.items, ...second.items, ...third.items].map((item) => item.id),
+		).toEqual(["item-4", "item-2", "item-5", "item-1", "item-3"]);
 	});
 
 	it("deletes an item, at the expected revision when given", async () => {

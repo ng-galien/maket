@@ -313,26 +313,17 @@ function listBatch(
 		),
 	};
 	const page = deps.itemSources.sourceFor(workspace.id).list(request);
-	const names = new Map(
-		workspace.items.map((item) => [item.id, item.documentName]),
-	);
 	return {
-		items: page.items.map((summary) => windowItem(summary, names)),
+		items: page.items.map(windowItem),
 		...pageTail(page),
 	};
 }
 
-function windowItem(
-	summary: ItemSummary,
-	names: ReadonlyMap<string, string>,
-): StructuredCollectionWindowItem {
-	const documentName = names.get(summary.id);
-	if (documentName === undefined)
-		throw new Error(`Item "${summary.id}" is not in its workspace.`);
+function windowItem(summary: ItemSummary): StructuredCollectionWindowItem {
 	return {
 		id: summary.id,
 		bindingId: summary.bindingId,
-		documentName,
+		documentName: summary.documentName,
 		revision: summary.revision,
 		fields: summary.fields,
 		...(summary.issues ? { issues: summary.issues } : {}),

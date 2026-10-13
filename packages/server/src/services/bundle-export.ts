@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import {
 	type BundleAnnotationSnapshot,
 	type BundleDocumentStateSnapshot,
+	type BundleStructuredWorkspaceItem,
 	type BundleStructuredWorkspaceSnapshot,
 	type Collection,
 	type DocumentStateRevision,
@@ -28,7 +29,10 @@ import {
 import type { Documents } from "./documents.js";
 import type { StateRenderSlots } from "./state-render-slots.js";
 import type { Store } from "./store.js";
-import type { StructuredWorkspaces } from "./structured-workspaces.js";
+import type {
+	ItemLeftOut,
+	StructuredWorkspaces,
+} from "./structured-workspaces.js";
 
 export interface BundleExportOptions {
 	names?: readonly string[];
@@ -51,6 +55,8 @@ export interface BundleExportSuccess {
 	documentStates: BundleDocumentStateSnapshot[];
 	annotations: BundleAnnotationSnapshot[];
 	structuredWorkspaces: BundleStructuredWorkspaceSnapshot[];
+	/** Items whose document the bundle could not hold; their rows travel. */
+	itemsLeftOut: ItemLeftOut[];
 	assets: BundleAsset[];
 	missingAssets: string[];
 }
@@ -69,7 +75,10 @@ export interface BundleExportServiceDeps {
 	config: Config;
 	structuredWorkspaces?: Pick<
 		StructuredWorkspaces,
-		"list" | "materializeItemDocuments" | "releaseItemDocuments"
+		| "list"
+		| "materializeItemDocuments"
+		| "releaseItemDocuments"
+		| "portableItems"
 	>;
 	stateRenderSlots?: Pick<StateRenderSlots, "forDocument">;
 }
@@ -83,17 +92,22 @@ export function createBundleExportService(
 }
 
 /** A bundle built with the item documents it needs: the missing ones are
- * created for it and removed once it is written. */
+ * created for it and removed once it is written; the items whose document
+ * it cannot hold are reported. */
 async function buildWithItemDocuments(
 	deps: BundleExportServiceDeps,
 	options: BundleExportOptions = {},
 ): Promise<BundleExportResult> {
-	const created =
-		deps.structuredWorkspaces?.materializeItemDocuments(options.names) ?? [];
+	const materialized = deps.structuredWorkspaces?.materializeItemDocuments(
+		options.names,
+	) ?? { held: [], leftOut: [] };
 	try {
-		return await buildBundle(deps, options);
+		const result = await buildBundle(deps, options);
+		return result.ok
+			? { ...result, itemsLeftOut: materialized.leftOut }
+			: result;
 	} finally {
-		deps.structuredWorkspaces?.releaseItemDocuments(created);
+		deps.structuredWorkspaces?.releaseItemDocuments(materialized.held);
 	}
 }
 
@@ -102,7 +116,7 @@ async function buildWithItemDocuments(
 async function buildBundle(
 	deps: BundleExportServiceDeps,
 	options: BundleExportOptions = {},
-): Promise<BundleExportResult> {
+): Promise<BundleExportFailure | Omit<BundleExportSuccess, "itemsLeftOut">> {
 	const names = options.names ?? [...deps.documents.all().keys()];
 	if (
 		names.length === 0 &&
@@ -193,22 +207,30 @@ async function buildBundle(
 
 function portableStructuredWorkspaces(
 	documents: Document[],
-	service?: Pick<StructuredWorkspaces, "list">,
+	service?: Pick<StructuredWorkspaces, "list" | "portableItems">,
 ): BundleStructuredWorkspaceSnapshot[] {
 	if (!service) return [];
 	const selectedIds = new Set(documents.map(({ id }) => id));
-	return service
-		.list()
-		.flatMap((workspace) =>
-			portableWorkspaceSnapshot(workspace, documents, selectedIds),
-		);
+	return service.list().flatMap((workspace) =>
+		portableWorkspaceSnapshot(workspace, documents, {
+			selectedIds,
+			items: () => service.portableItems(workspace.id),
+		}),
+	);
 }
 
+/** The snapshot of a workspace whose templates the export holds: its
+ * definition, every item row (with the bundled document of the item when
+ * the export holds it) and the page provenance of its documents. */
 function portableWorkspaceSnapshot(
 	workspace: StructuredWorkspaceDefinition,
 	documents: Document[],
-	selectedIds: ReadonlySet<string>,
+	selection: {
+		selectedIds: ReadonlySet<string>;
+		items: () => BundleStructuredWorkspaceItem[];
+	},
 ): BundleStructuredWorkspaceSnapshot[] {
+	const { selectedIds } = selection;
 	const templateIds = new Set<string>();
 	for (const collection of Object.values(
 		workspace.representationSchema.collections,
@@ -220,17 +242,21 @@ function portableWorkspaceSnapshot(
 				templateIds.add(binding.compactTemplateDocumentId);
 		}
 	}
-	const requiredIds = [
-		...templateIds,
-		...workspace.items.map(({ documentId }) => documentId),
-	];
-	if (!requiredIds.every((id) => selectedIds.has(id))) return [];
+	if (![...templateIds].every((id) => selectedIds.has(id))) return [];
+	const items: BundleStructuredWorkspaceItem[] = selection
+		.items()
+		.map(({ documentId, ...item }) =>
+			documentId !== undefined && selectedIds.has(documentId)
+				? { ...item, documentId }
+				: item,
+		);
 	const collectionDocuments = collectionDocumentReferences(
 		workspace.id,
 		documents,
 	);
 	const requiredIdSet = new Set([
-		...requiredIds,
+		...templateIds,
+		...items.flatMap(({ documentId }) => (documentId ? [documentId] : [])),
 		...collectionDocuments.map(({ documentId }) => documentId),
 	]);
 	const pageProvenance = documents
@@ -251,19 +277,22 @@ function portableWorkspaceSnapshot(
 	return [
 		{
 			workspace: structuredClone(workspace),
+			items,
 			pageProvenance,
 			collectionDocuments,
 		},
 	];
 }
 
-/** A Workspace collection document as a static copy of its rendered pages;
- * a generated continuation page becomes an authored page with its own id. */
+/** A Workspace collection or item document as a static copy of its
+ * rendered pages, its data in the pages and not in a state; a generated
+ * continuation page becomes an authored page with its own id. */
 async function portableDocument(
 	documentRenderer: SettlingDocumentRenderer,
 	document: Document,
 ): Promise<Document> {
-	if (document.meta.structuredWorkspace?.role !== "collection") return document;
+	const role = document.meta.structuredWorkspace?.role;
+	if (role !== "collection" && role !== "item") return document;
 	const rendered = await renderDocumentSettled(documentRenderer, document);
 	const meta = { ...rendered.meta };
 	delete meta.structuredWorkspace;

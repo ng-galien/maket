@@ -47,6 +47,7 @@ const BindingSchema = z.object({
 
 const CollectionRepresentationSchema = z.object({
 	name: z.string().optional(),
+	identity: z.string().optional(),
 	collectionTemplateDocumentId: z.string().optional(),
 	indexTemplateHtml: z.string().optional(),
 	...InlineTemplates,
@@ -122,19 +123,20 @@ const StructuredWorkspaceSchema = z.object({
 const DESCRIPTION = [
 	"When to use: create and operate a Structured Workspace — a schema-driven collection of items, listed in an index and opened as Maket documents built from templates.",
 	"",
-	"Method (full recipe: maket_learn action=topic topic=structured-workspaces): 1) create with a data_schema alone — Maket writes the index, detail, card templates and the detail form itself, in the Workspace category; 2) add_item; 3) check, which must answer verdict ready. Inline template HTML (detailTemplateHtml, compactTemplateHtml, indexTemplateHtml, detailForm) or names of existing template documents are the optional second and third paths.",
+	'Method (full recipe: maket_learn action=topic topic=structured-workspaces): 1) create with a data_schema alone that has a required "id" property (string), one value per item: Maket identifies the items by "/id" — or declare another identity per collection, e.g. representation_schema={"collections":{"items":{"name":"Items","identity":"/code"}}} — and Maket writes the index, detail, card templates and the detail form itself, in the Workspace category; 2) add_item; 3) check, which must answer verdict ready. Inline template HTML (detailTemplateHtml, compactTemplateHtml, indexTemplateHtml, detailForm) or names of existing template documents are the optional second and third paths.',
+	'Identity: every collection has an `identity`, a JSON Pointer to a required string or number property of its items (e.g. "/code"); without one, "/id" when the schema requires an id property. Its value, as a string, is the item id used everywhere (item=, documents, cursors) and is unique across the whole Workspace, all collections included; Maket never generates one. add_item refuses data without it, or a value another item of the Workspace already bears (invalid_record, naming that item); update_item refuses a change of it: delete and add the item again instead. The identity of a collection holding items cannot be changed.',
 	"create and update_definition refuse a definition with errors (isError, one line per error with collection, path and fix) and keep the previous definition; allow_incomplete=true persists it anyway. add_item and update_item refuse data that breaks the schema with its path, rule and fix.",
 	"",
 	"The data schema validates every item. The representation schema declares one or more collections; each collection owns its global template and binds concrete schema paths to compact and detail templates. The item source holds the item data; an item's document is created from its detail template when the item is opened or exported. Template-controlled pages are synchronized from the template; instance-owned pages remain in the same document.",
-	'Reading items is a cursor query: view answers one batch of item summaries for one collection (collection, default the first) with `next` (an opaque cursor, absent once the listing is exhausted), `total` and the group counts. Pass text (searches `searchFields`, by default every text property), filters ([{"field":"/status","op":"eq","value":"todo"}], op in for a list), sort ({"field":"/title","direction":"descending"}) and batch (default `indexPageSize`, 50; at most 500) to start a new query, which also becomes the window every client sees in the index. To read the next batch, pass cursor=<next> with the same query arguments (the answer gives the call in `more`): it reads the source directly and never depends on the shared window, so paging is complete whatever clients do meanwhile. There is no page number and no previous: a new query restarts from the first item. view with neither query nor cursor answers the first batch of the collection\'s own order.',
+	'Reading items is a cursor query: view answers one batch of item summaries for one collection (collection, default the first) with `next` (an opaque cursor, absent once the listing is exhausted), `total` and the group counts. Pass text (searches `searchFields`, by default every text property, ignoring case and accents), filters ([{"field":"/status","op":"eq","value":"todo"}], op in for a list), sort ({"field":"/title","direction":"descending"}) and batch (default `indexPageSize`, 50; at most 500) to start a new query, which also becomes the window every client sees in the index. To read the next batch, pass cursor=<next> with the same query arguments (the answer gives the call in `more`): it reads the source directly and never depends on the shared window: no item that existed before and kept its sort value is skipped or read twice, while an item whose sort value changes during paging may move across the cursor. There is no page number and no previous: a new query restarts from the first item. view with neither query nor cursor answers the first batch of the collection\'s own order.',
 	'Optional collection grouping: `groupBy` is a JSON Pointer into item data (e.g. "/status"), `groupOrder` lists group values to place first, and `pageSize` (default 24) caps the compact cards per collection page. With `groupBy`, each item slot receives a group header followed by its cards and the collection document flows onto as many pages as needed; without it, the collection stays one page.',
-	'Optional collection sort: `sortBy` is a JSON Pointer into item data (e.g. "/place") and `sortDirection` is "ascending" (default) or "descending"; cards are ordered by that value inside each group, or across the slot without `groupBy`, items without a value last and ties in insertion order; without `sortBy`, insertion order stays.',
+	'Optional collection sort: `sortBy` is a JSON Pointer into item data (e.g. "/place") and `sortDirection` is "ascending" (default) or "descending"; cards are ordered by that value inside each group, or across the slot without `groupBy`, items without a value last and ties in item id order; without `sortBy`, insertion order stays.',
 	"  list          — list Structured Workspaces, each prefixed with ready or incomplete.",
 	"  view          — verdict and finding count first, then the definition, item counts, pinned items, owned documents, and one batch of the collection window (see the cursor query above).",
 	"  check         — the doctor: verdict ready or not ready and every finding with severity, object, sentence, fix and next call. Never writes.",
 	"  create        — create a workspace from a data schema, with an optional representation schema; refuses errors unless allow_incomplete=true.",
-	"  update_definition — validate and replace the data and/or representation contract, then update instantiated documents; an erroneous definition is refused and the previous one kept unless allow_incomplete=true.",
-	"  add_item      — validate data and write the item to its source; its document is created when the item is opened.",
+	"  update_definition — validate and replace the data and/or representation contract, then update the item and index documents that exist; an erroneous definition is refused and the previous one kept unless allow_incomplete=true.",
+	"  add_item      — validate data and write the item to its source under the id its identity property holds; its document is created when the item is opened.",
 	"  update_item   — replace item data with optimistic revision control.",
 	"  delete_item   — delete the item from its source, with its document when it was opened.",
 	"  sync_template — propagate current detail-template pages while preserving instance-owned pages.",
@@ -189,6 +191,7 @@ const queryRefusals: ReadonlySet<string> = new Set([
 	"unknown_workspace",
 	"unknown_collection",
 	"query_unsupported",
+	"invalid_record",
 ]);
 
 /** The answer to a failed call: a refused definition with its findings, a
@@ -241,7 +244,7 @@ function refusalNext(
 	];
 	if (args.action === "create")
 		calls.push(
-			`maket_structured_workspace action=create workspace=${args.workspace ?? "<name>"} data_schema=<schema>  (no representation_schema: Maket generates every template)`,
+			`maket_structured_workspace action=create workspace=${args.workspace ?? "<name>"} data_schema=<schema with a required "id" property of type string>  (Maket identifies the items by "/id" and generates every template)`,
 		);
 	calls.push(LEARN_CALL);
 	return calls;
@@ -275,6 +278,7 @@ function definitionReport(
 	headline: string,
 	workspaces: StructuredWorkspaces,
 	workspace: Pick<StructuredWorkspaceDefinition, "id" | "name">,
+	defaulted: readonly string[] = [],
 ) {
 	const view = workspaces.get(workspace.id);
 	const check = workspaces.check(workspace.id);
@@ -294,6 +298,13 @@ function definitionReport(
 				)
 				.join("; ")}.`,
 			`Template documents in category "Structured Workspaces/${view.name}": ${view.templateDocuments.map((document) => `"${document.documentName}"`).join(", ")}.`,
+			...defaulted.flatMap((collectionId) =>
+				view.representationSchema.collections[collectionId]?.identity === "/id"
+					? [
+							`Identity: no identity was given for collection "${collectionId}"; its items are identified by "/id", the required id property of the data schema (unique across the whole Workspace, never changed).`,
+						]
+					: [],
+			),
 		);
 	}
 	const [collectionId, collection] =
@@ -312,7 +323,25 @@ function definitionReport(
 	});
 }
 
+/** The collections of a create or update_definition call that gave no
+ * identity and had none before: they take the default identity, if any. */
+function undeclaredIdentities(
+	args: Args,
+	before: StructuredWorkspaceView | null,
+): string[] {
+	const collections = args.representation_schema?.collections ?? {
+		items: {},
+	};
+	return Object.entries(collections).flatMap(([collectionId, collection]) =>
+		collection.identity === undefined &&
+		!before?.representationSchema.collections[collectionId]?.identity
+			? [collectionId]
+			: [],
+	);
+}
+
 function runUpdateDefinition(args: Args, workspaces: StructuredWorkspaces) {
+	const before = workspaces.get(required(args.workspace, "workspace"));
 	const workspace = workspaces.updateDefinition({
 		workspace: required(args.workspace, "workspace"),
 		expectedRevision: requiredValue(
@@ -329,6 +358,7 @@ function runUpdateDefinition(args: Args, workspaces: StructuredWorkspaces) {
 		`Structured Workspace "${workspace.name}" updated to revision ${workspace.revision}.`,
 		workspaces,
 		workspace,
+		args.representation_schema ? undeclaredIdentities(args, before) : [],
 	);
 }
 
@@ -345,7 +375,11 @@ function runList(workspaces: StructuredWorkspaces) {
 		list
 			.map((workspace) => {
 				const verdict = workspaces.check(workspace.id).verdict;
-				return `- [${verdict === "ready" ? "ready" : "incomplete"}] ${workspace.name} (${workspace.id}): ${workspace.items.length} item(s), revision ${workspace.revision}`;
+				const items = Object.values(workspace.itemCounts).reduce(
+					(sum, count) => sum + count,
+					0,
+				);
+				return `- [${verdict === "ready" ? "ready" : "incomplete"}] ${workspace.name} (${workspace.id}): ${items} item(s), revision ${workspace.revision}`;
 			})
 			.join("\n"),
 	);
@@ -482,6 +516,7 @@ function runCreate(args: Args, workspaces: StructuredWorkspaces) {
 		`Structured Workspace "${workspace.name}" created (id ${workspace.id}).`,
 		workspaces,
 		workspace,
+		undeclaredIdentities(args, null),
 	);
 }
 

@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type {
+	BundleStructuredWorkspaceItem,
 	BundleStructuredWorkspaceSnapshot,
 	JsonFormsTemplate,
 	StructuredWorkspaceCheck,
@@ -8,12 +9,14 @@ import type {
 	StructuredWorkspaceDataSchema,
 	StructuredWorkspaceDefinition,
 	StructuredWorkspaceFinding,
+	StructuredWorkspaceItemReference,
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceRepresentationSchema,
 	StructuredWorkspaceTemplateDocumentView,
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
+	declareMissingIdentities,
 	diagnoseStructuredWorkspaceDefinition,
 	documentStateTemplateReferenceIssues,
 	generatedStructuredWorkspaceIndex,
@@ -22,11 +25,14 @@ import {
 	renderDocumentStatePage,
 	renderJsonFormsTemplate,
 	structuredWorkspaceBindingSchema,
+	structuredWorkspaceDefaultIdentity,
 	structuredWorkspaceDefaultPageSize,
 	structuredWorkspaceGeneratedIndexHtml,
 	structuredWorkspaceHiddenProperties,
+	structuredWorkspaceIdentityValue,
 	structuredWorkspaceIndexCanvas,
 	structuredWorkspaceItemDataIssues,
+	structuredWorkspaceMaxBatch,
 	structuredWorkspaceSchemaDeclaresPath,
 	structuredWorkspaceTemplateFields,
 	validateDocumentStatePageTemplate,
@@ -46,7 +52,11 @@ import {
 	itemGroupLabel,
 	itemValue,
 } from "./item-sources/item-order.js";
-import type { ItemRecord, ItemSource } from "./item-sources/item-source.js";
+import type {
+	ItemRecord,
+	ItemSource,
+	ItemSummary,
+} from "./item-sources/item-source.js";
 import {
 	isItemSourceError,
 	itemSourceError,
@@ -60,6 +70,7 @@ import {
 	type PageFlow,
 	remapPageLinkNumbers,
 } from "./page-flow.js";
+import type { StoredItemQueryRow } from "./sqlite-store/structured-workspace-item-query.js";
 import type { StructuredWorkspaceRepository } from "./sqlite-store/structured-workspace-repository.js";
 
 /** One binding as an agent writes it: template documents by name or id, or
@@ -110,6 +121,7 @@ export interface CreateStructuredWorkspaceInput {
 
 export interface AddStructuredWorkspaceItemInput {
 	workspace: string;
+	/** When given, must equal the identity value the data holds. */
 	itemId?: string;
 	collectionId: string;
 	bindingId: string;
@@ -190,13 +202,18 @@ export interface StructuredWorkspaces {
 	openItem(workspaceId: string, documentName: string): Document | null;
 	/** Create, without announcing them, the missing documents of the named
 	 * items, or of every item of the ready workspaces, and refresh their
-	 * mirrors; an item whose name another document holds is left out (check
-	 * reports it). Answers the names of the documents this export holds. */
-	materializeItemDocuments(documentNames?: readonly string[]): string[];
+	 * mirrors. Answers the names of the documents this export holds, and the
+	 * items whose document it cannot create: their name is held by another
+	 * document, or their Workspace is incomplete. */
+	materializeItemDocuments(
+		documentNames?: readonly string[],
+	): MaterializedItemDocuments;
 	/** Remove, without announcing it, item documents created by
 	 * materializeItemDocuments once their export is written, unless the user
 	 * opened, pinned, locked, annotated or changed them meanwhile. */
 	releaseItemDocuments(documentNames: readonly string[]): void;
+	/** Every item row of a workspace in insertion order, for a bundle. */
+	portableItems(workspaceId: string): BundleStructuredWorkspaceItem[];
 	syncTemplates(
 		workspaceName: string,
 		collectionId?: string,
@@ -212,6 +229,20 @@ export interface StructuredWorkspaces {
 		snapshot: BundleStructuredWorkspaceSnapshot,
 		documentsBySourceId: ReadonlyMap<string, Document>,
 	): StructuredWorkspaceView;
+}
+
+/** An item an export leaves without its document, and why. */
+export interface ItemLeftOut {
+	workspace: string;
+	item: string;
+	documentName: string;
+	reason: string;
+}
+
+export interface MaterializedItemDocuments {
+	/** Names of the item documents the export holds until released. */
+	held: string[];
+	leftOut: ItemLeftOut[];
 }
 
 export interface StructuredWorkspacesDeps {
@@ -234,8 +265,9 @@ interface EngineDeps extends StructuredWorkspacesDeps {
 const MAX_CACHED_DEFINITIONS = 100;
 
 /** Item documents created for exports in flight, by document id, with the
- * number of exports holding each. A user open (StructuredWorkspaces.openItem)
- * or any change to the document removes its entry, so the export keeps it. */
+ * number of exports holding each. A user open (StructuredWorkspaces.openItem),
+ * an annotation placed on the document or any change to it removes its
+ * entry, so the export keeps it. */
 function exportHeldDocuments(
 	injected: Pick<StructuredWorkspacesDeps, "bus" | "documents">,
 ): Map<string, number> {
@@ -255,7 +287,9 @@ function exportHeldDocuments(
 		"element:updated",
 	] as const)
 		injected.bus.on(event, touched);
-	injected.bus.on("annotations:changed", () => held.clear());
+	injected.bus.on("annotations:changed", ({ documentId }) => {
+		if (documentId) held.delete(documentId);
+	});
 	return held;
 }
 
@@ -383,6 +417,24 @@ export function createStructuredWorkspaces(
 		releaseItemDocuments(documentNames) {
 			releaseItemDocuments(deps, documentNames, exportOnly);
 		},
+		portableItems(workspaceId) {
+			const workspace = loadedWorkspace(deps.store, workspaceId);
+			const items: BundleStructuredWorkspaceItem[] = [];
+			if (!workspace) return items;
+			forEachItemRow(deps.store, workspace, (row) => {
+				if (row.data === null) return;
+				items.push({
+					id: row.id,
+					collectionId: row.collectionId,
+					bindingId: row.bindingId,
+					documentName: row.documentName,
+					data: row.data,
+					revision: row.revision,
+					documentId: row.documentId,
+				});
+			});
+			return items;
+		},
 		syncTemplates(workspaceName, collectionId, bindingId) {
 			const workspace = requiredWorkspace(deps.store, workspaceName);
 			const count = syncTemplates(deps, workspaceName, collectionId, bindingId);
@@ -398,10 +450,11 @@ export function createStructuredWorkspaces(
 			});
 		},
 		getItem(workspaceId, itemId) {
-			const item = loadedWorkspace(deps.store, workspaceId)?.items.find(
-				(candidate) => candidate.id === itemId,
-			);
-			if (!item) return null;
+			const row = loadedWorkspace(deps.store, workspaceId)
+				? deps.store.loadStructuredWorkspaceItem(workspaceId, itemId)
+				: null;
+			if (!row) return null;
+			const item = itemReference(row);
 			try {
 				return presentItem(deps, deps.itemSources.sourceFor(workspaceId), item);
 			} catch {
@@ -447,19 +500,23 @@ function restorePortableWorkspace(
 				);
 		}
 	}
-	for (const item of source.items) {
-		const document = documentsBySourceId.get(item.documentId);
-		if (!document || !deps.documentStates.get(document.name))
-			throw new Error(
-				`Portable workspace item "${item.id}" has no imported state-backed document.`,
-			);
-	}
+	const identities = declareMissingIdentities(
+		source.dataSchema,
+		representationSchema,
+		(collectionId) =>
+			snapshot.items.filter((item) => item.collectionId === collectionId),
+	);
+	const copiedIdentity = new Map(
+		identities.declared.flatMap((identity) =>
+			identity.kept ? [] : [[identity.collectionId, identity.property]],
+		),
+	);
 	const workspace = deps.store.createStructuredWorkspace({
 		id: crypto.randomUUID(),
 		name,
 		description: source.description,
-		dataSchema: structuredClone(source.dataSchema),
-		representationSchema,
+		dataSchema: identities.dataSchema,
+		representationSchema: identities.representationSchema,
 	});
 	reconcileTemplateOwnership(deps, workspace);
 	const provenanceByPage = new Map(
@@ -468,44 +525,35 @@ function restorePortableWorkspace(
 			entry.provenance,
 		]),
 	);
-	for (const item of [...source.items].sort(
-		(a, b) => a.position - b.position,
-	)) {
-		const document = documentsBySourceId.get(item.documentId);
-		if (!document)
-			throw new Error(
-				`Portable workspace item document "${item.documentId}" is missing.`,
-			);
-		document.category = `Structured Workspaces/${name}`;
-		document.meta.structuredWorkspace = {
-			role: "item",
-			workspaceId: workspace.id,
-			collectionId: item.collectionId,
-			itemId: item.id,
-			bindingId: item.bindingId,
-		};
-		restorePageProvenance(
-			document,
-			item.documentId,
-			workspace.id,
-			provenanceByPage,
-			resolveId,
-		);
-		deps.documents.persist(document.name);
-		const imported = deps.documentStates.get(document.name)?.current;
-		if (!imported)
-			throw new Error(
-				`Portable workspace item "${item.id}" has no imported state-backed document.`,
-			);
-		deps.store.addStructuredWorkspaceItem(workspace.id, {
+	for (const item of snapshot.items) {
+		const document =
+			item.documentId === undefined
+				? undefined
+				: documentsBySourceId.get(item.documentId);
+		const reference = deps.store.addStructuredWorkspaceItem(workspace.id, {
 			id: item.id,
 			collectionId: item.collectionId,
 			bindingId: item.bindingId,
-			documentId: document.id,
-			documentName: document.name,
-			data: imported.data,
-			revision: imported.revision,
+			documentId: document?.id ?? itemDocumentId(workspace.id, item.id),
+			documentName:
+				document?.name ??
+				allocatedDocumentName(deps.documents, item.documentName),
+			data: identifiedData(item, copiedIdentity.get(item.collectionId)),
+			revision: item.revision,
 		});
+		if (document)
+			reconnectItemDocument(deps, workspace, {
+				document,
+				item: itemReference(reference),
+				restore: (target) =>
+					restorePageProvenance(
+						target,
+						item.documentId ?? "",
+						workspace.id,
+						provenanceByPage,
+						resolveId,
+					),
+			});
 	}
 	for (const entry of snapshot.collectionDocuments) {
 		const document = documentsBySourceId.get(entry.documentId);
@@ -545,6 +593,52 @@ function restorePortableWorkspace(
 		ensureCollectionDocuments(deps, restored);
 	deps.bus.emit("structured-workspace:changed", { workspaceId: workspace.id });
 	return workspaceView(deps, restored);
+}
+
+/** The data of a bundled item, its id copied under the identity property
+ * the import declared for its collection, if any. */
+function identifiedData(
+	item: BundleStructuredWorkspaceItem,
+	property: string | undefined,
+): Record<string, unknown> {
+	const data = structuredClone(item.data);
+	if (property !== undefined) data[property] = item.id;
+	return data;
+}
+
+/** A bundled item document, imported as a static copy, made the item's
+ * document again: its ownership, its page provenance, its template pages
+ * from the detail template and its state mirrored from the item row. */
+function reconnectItemDocument(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	target: {
+		document: Document;
+		item: StructuredWorkspaceItemReference;
+		restore: (document: Document) => void;
+	},
+): void {
+	const { document, item } = target;
+	document.category = `Structured Workspaces/${workspace.name}`;
+	document.meta.structuredWorkspace = {
+		role: "item",
+		workspaceId: workspace.id,
+		collectionId: item.collectionId,
+		itemId: item.id,
+		bindingId: item.bindingId,
+	};
+	target.restore(document);
+	const binding =
+		workspace.representationSchema.collections[item.collectionId]?.bindings[
+			item.bindingId
+		];
+	const template = binding
+		? deps.documents.resolveById(binding.detailTemplateDocumentId)
+		: null;
+	if (template)
+		document.pages = synchronizedPages(workspace.id, template, document.pages);
+	deps.documents.persist(document.name);
+	refreshItemMirror(deps, workspace, item, false);
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -1334,11 +1428,14 @@ function replaceDefinition(
 	const { dataSchema, representationSchema } = next;
 	assertTemplatesUnlocked(deps.documents, representationSchema);
 	const candidate = { ...workspace, dataSchema, representationSchema };
-	const errors = definitionErrors(
-		deps,
-		candidate,
-		`maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} representation_schema=<corrected>`,
-	);
+	const call = `maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} representation_schema=<corrected>`;
+	const repointed = identityChanges(workspace, representationSchema, call);
+	if (repointed.length > 0)
+		throw refusal(
+			`Structured Workspace "${workspace.name}" keeps its definition at revision ${workspace.revision}: a collection holding items keeps its identity.`,
+			repointed,
+		);
+	const errors = definitionErrors(deps, candidate, call);
 	if (errors.length > 0) {
 		if (!input.allowIncomplete) {
 			throw refusal(
@@ -1385,49 +1482,48 @@ function replaceDefinition(
 		(document) => !representationSchema.collections[document.collectionId],
 	);
 
-	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
-	const plans = workspace.items.flatMap((item) => {
-		const collection = representationSchema.collections[item.collectionId];
-		if (!collection) {
-			throw new Error(
-				`Representation collection "${item.collectionId}" is required by item "${item.id}".`,
-			);
-		}
-		const binding = collection.bindings[item.bindingId];
-		if (!binding) {
-			throw new Error(
-				`Representation binding "${item.collectionId}.${item.bindingId}" is required by item "${item.id}".`,
-			);
-		}
-		const record = reads.record(item.id);
-		if (!record) return [];
-		assertValidItemData(dataSchema, record.data);
-		const concreteSchema = structuredWorkspaceBindingSchema(
-			dataSchema,
-			binding,
+	const breaches = itemBreaches(deps, workspace, next, call);
+	if (breaches.length > 0)
+		throw refusal(
+			`Structured Workspace "${workspace.name}" keeps its definition at revision ${workspace.revision}: ${breaches.length}${breaches.length === MAX_REPORTED_BREACHES ? " or more" : ""} item breach(es) of the new definition, first: ${breaches[0]?.message}`,
+			breaches,
 		);
-		assertValidItemData(concreteSchema, record.data);
-		const document = itemDocument(deps.documents, item);
-		if (!document) return [];
-		const template = requiredDocument(
-			deps.documents,
-			binding.detailTemplateDocumentId,
-			"detail template",
-		);
-		const pages = synchronizedPages(workspace.id, template, document.pages);
-		const previousPages = document.pages;
-		document.pages = pages;
-		try {
-			deps.documentStates.validateSchema(
-				document.name,
-				concreteSchema,
-				record.data,
+	const source = deps.itemSources.sourceFor(workspace.id);
+	const plans = deps.store
+		.loadOpenedStructuredWorkspaceItems(workspace.id)
+		.flatMap((item) => {
+			const binding =
+				representationSchema.collections[item.collectionId]?.bindings[
+					item.bindingId
+				];
+			if (!binding) return [];
+			const record = sourcedRecord(source, item.id);
+			if (!record) return [];
+			const concreteSchema = structuredWorkspaceBindingSchema(
+				dataSchema,
+				binding,
 			);
-		} finally {
-			document.pages = previousPages;
-		}
-		return [{ document, record, concreteSchema, pages }];
-	});
+			const document = itemDocument(deps.documents, item);
+			if (!document) return [];
+			const template = requiredDocument(
+				deps.documents,
+				binding.detailTemplateDocumentId,
+				"detail template",
+			);
+			const pages = synchronizedPages(workspace.id, template, document.pages);
+			const previousPages = document.pages;
+			document.pages = pages;
+			try {
+				deps.documentStates.validateSchema(
+					document.name,
+					concreteSchema,
+					record.data,
+				);
+			} finally {
+				document.pages = previousPages;
+			}
+			return [{ document, record, concreteSchema, pages }];
+		});
 
 	const updated = deps.store.updateStructuredWorkspace(
 		workspace.id,
@@ -1466,6 +1562,171 @@ function replaceDefinition(
 	return workspaceView(deps, updated);
 }
 
+/** A collection holding items keeps its identity pointer: its items are
+ * known by the values under it. */
+function identityChanges(
+	workspace: StructuredWorkspaceDefinition,
+	next: StructuredWorkspaceRepresentationSchema,
+	call: string,
+): StructuredWorkspaceFinding[] {
+	return Object.entries(next.collections).flatMap(
+		([collectionId, collection]) => {
+			const before = workspace.representationSchema.collections[collectionId];
+			if (
+				!before?.identity ||
+				collection.identity === before.identity ||
+				(workspace.itemCounts[collectionId] ?? 0) === 0
+			)
+				return [];
+			return [
+				{
+					severity: "error" as const,
+					object: "schema" as const,
+					collection: collectionId,
+					path: `representation_schema.collections.${collectionId}.identity`,
+					message: `Collection "${collectionId}" holds ${workspace.itemCounts[collectionId]} item(s) known by "${before.identity}"; its identity cannot change.`,
+					fix: `Keep identity "${before.identity}", or delete the items and add them again under the new identity.`,
+					next: call,
+				},
+			];
+		},
+	);
+}
+
+/** Breaches of a definition reported at most, by update_definition. */
+const MAX_REPORTED_BREACHES = 20;
+
+/** The items a new definition refuses, read by batches through the source:
+ * an item of a removed collection or binding, data that breaks the new
+ * schemas, an identity value that is not the item id. The first
+ * MAX_REPORTED_BREACHES are answered; the read stops there. */
+function itemBreaches(
+	deps: EngineDeps,
+	workspace: StructuredWorkspaceDefinition,
+	next: {
+		dataSchema: StructuredWorkspaceDataSchema;
+		representationSchema: StructuredWorkspaceRepresentationSchema;
+	},
+	call: string,
+): StructuredWorkspaceFinding[] {
+	const findings: StructuredWorkspaceFinding[] = [];
+	const breach = (
+		collection: string,
+		path: string,
+		message: string,
+		fix: string,
+	) =>
+		findings.push({
+			severity: "error",
+			object: "item",
+			collection,
+			path,
+			message,
+			fix,
+			next: call,
+		});
+	const source = deps.itemSources.sourceFor(workspace.id);
+	for (const [collectionId, count] of Object.entries(workspace.itemCounts)) {
+		if (count === 0 || findings.length >= MAX_REPORTED_BREACHES) continue;
+		const collection = next.representationSchema.collections[collectionId];
+		if (!collection) {
+			breach(
+				collectionId,
+				`representation_schema.collections.${collectionId}`,
+				`Representation collection "${collectionId}" is required by its ${count} item(s).`,
+				`Keep collection "${collectionId}", or delete its items first.`,
+			);
+			continue;
+		}
+		forEachSourceBatch(source, collectionId, (items) => {
+			for (const item of items) {
+				if (item.issues?.some((issue) => issue.rule === "missing")) continue;
+				itemBreach(next, { collectionId, collection, item }, breach);
+				if (findings.length >= MAX_REPORTED_BREACHES) return false;
+			}
+			return true;
+		});
+	}
+	return findings.slice(0, MAX_REPORTED_BREACHES);
+}
+
+/** The breaches of one item under a new definition. */
+function itemBreach(
+	next: { dataSchema: StructuredWorkspaceDataSchema },
+	target: {
+		collectionId: string;
+		collection: StructuredWorkspaceCollectionRepresentation;
+		item: ItemSummary;
+	},
+	breach: (
+		collection: string,
+		path: string,
+		message: string,
+		fix: string,
+	) => void,
+): void {
+	const { collectionId, collection, item } = target;
+	const binding = collection.bindings[item.bindingId];
+	if (!binding) {
+		breach(
+			collectionId,
+			`item "${item.id}"`,
+			`Representation binding "${collectionId}.${item.bindingId}" is required by item "${item.id}".`,
+			`Keep binding "${item.bindingId}" in collection "${collectionId}", or delete the item first.`,
+		);
+		return;
+	}
+	const seen = new Set<string>();
+	for (const schema of [
+		next.dataSchema,
+		bindingSchemaOrEmpty(next.dataSchema, binding.schemaPath),
+	])
+		for (const issue of structuredWorkspaceItemDataIssues(
+			schema,
+			item.fields,
+		)) {
+			if (seen.has(issue.message)) continue;
+			seen.add(issue.message);
+			breach(
+				collectionId,
+				`item "${item.id}" ${issue.path}`,
+				`Item "${item.id}": ${issue.message} (rule ${issue.rule}).`,
+				issue.fix,
+			);
+		}
+	if (
+		collection.identity !== undefined &&
+		structuredWorkspaceIdentityValue(item.fields, collection.identity) !==
+			item.id
+	)
+		breach(
+			collectionId,
+			`item "${item.id}" ${collection.identity}`,
+			`Item "${item.id}" does not hold its id at the identity "${collection.identity}".`,
+			`Point identity at the property holding the item ids, or give every item its id under "${collection.identity}".`,
+		);
+}
+
+/** Visit every item of a collection, whole data included, batch after
+ * batch, until the visitor answers false. */
+function forEachSourceBatch(
+	source: ItemSource,
+	collectionId: string,
+	visit: (items: ItemSummary[]) => boolean,
+): void {
+	let cursor: string | undefined;
+	do {
+		const page = source.list({
+			collectionId,
+			limit: structuredWorkspaceMaxBatch,
+			whole: true,
+			...(cursor === undefined ? {} : { cursor }),
+		});
+		if (!visit(page.items)) return;
+		cursor = page.next;
+	} while (cursor !== undefined);
+}
+
 function createWorkspace(
 	deps: EngineDeps,
 	input: CreateStructuredWorkspaceInput,
@@ -1495,7 +1756,7 @@ function createWorkspace(
 			dataSchema: input.dataSchema,
 			representationSchema,
 			revision: 0,
-			items: [],
+			itemCounts: {},
 			createdAt: "",
 			updatedAt: "",
 		};
@@ -1542,6 +1803,7 @@ async function addItem(
 			`Representation binding "${input.collectionId}.${input.bindingId}" is not defined in "${workspace.name}".`,
 		);
 	}
+	const itemId = identifiedItemId(workspace, input);
 	assertValidItemData(workspace.dataSchema, input.data);
 	const bindingSchema = structuredWorkspaceBindingSchema(
 		workspace.dataSchema,
@@ -1560,10 +1822,6 @@ async function addItem(
 		binding.detailTemplateDocumentId,
 		"detail template",
 	);
-	const itemId = input.itemId ?? crypto.randomUUID();
-	if (workspace.items.some((item) => item.id === itemId)) {
-		throw new Error(`Item "${itemId}" already exists in "${workspace.name}".`);
-	}
 	const source = deps.itemSources.sourceFor(workspace.id);
 	await sourceWrite(
 		source,
@@ -1580,7 +1838,11 @@ async function addItem(
 	});
 	const updated = requiredWorkspace(deps.store, workspace.id);
 	await source.refresh({ scope: "index" });
-	const view = presentItem(deps, source, requiredItem(updated, itemId));
+	const view = presentItem(
+		deps,
+		source,
+		requiredItem(deps.store, updated, itemId),
+	);
 	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
 	return view;
 }
@@ -1593,7 +1855,8 @@ async function updateItem(
 	data: Record<string, unknown>,
 ): Promise<StructuredWorkspaceItemView> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
-	const item = requiredItem(workspace, itemId);
+	const item = requiredItem(deps.store, workspace, itemId);
+	assertIdentityKept(workspace, item, data);
 	assertValidItemData(workspace.dataSchema, data);
 	const schema = itemSchema(workspace, item);
 	if (schema !== workspace.dataSchema) assertValidItemData(schema, data);
@@ -1615,6 +1878,61 @@ async function updateItem(
 	const view = presentItem(deps, source, item);
 	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
 	return view;
+}
+
+/** The identity pointer of a collection of a ready workspace. */
+function collectionIdentity(
+	workspace: StructuredWorkspaceDefinition,
+	collectionId: string,
+): string {
+	const identity = requiredCollection(workspace, collectionId).identity;
+	if (identity === undefined)
+		throw new Error(
+			`Collection "${collectionId}" of "${workspace.name}" declares no identity.`,
+		);
+	return identity;
+}
+
+/** The id of an item to add: the value of its collection identity in its
+ * data, refused when absent, when another item already bears it, or when it
+ * differs from the id the caller gave. */
+function identifiedItemId(
+	workspace: StructuredWorkspaceDefinition,
+	input: AddStructuredWorkspaceItemInput,
+): string {
+	const identity = collectionIdentity(workspace, input.collectionId);
+	const itemId = structuredWorkspaceIdentityValue(input.data, identity);
+	if (itemId === null)
+		throw itemSourceError(
+			"invalid_record",
+			`Item data has no identity: add "${identity}" to data, a non-empty string or a number that identifies the item in collection "${input.collectionId}".`,
+		);
+	if (input.itemId !== undefined && input.itemId !== itemId)
+		throw itemSourceError(
+			"invalid_record",
+			`Item id "${input.itemId}" differs from the identity "${identity}" of the data, "${itemId}": the item id is the identity value.`,
+		);
+	return itemId;
+}
+
+/** Refuse data whose identity value is not the item's id: an item keeps its
+ * identity for its whole life. */
+function assertIdentityKept(
+	workspace: StructuredWorkspaceDefinition,
+	item: StructuredWorkspaceItemReference,
+	data: Record<string, unknown>,
+): void {
+	const identity = collectionIdentity(workspace, item.collectionId);
+	const value = structuredWorkspaceIdentityValue(data, identity);
+	if (value !== item.id)
+		throw Object.assign(
+			new MessageError(
+				`Item "${item.id}" keeps its identity: "${identity}" must stay ${JSON.stringify(item.id)}${value === null ? " and is missing" : `, not ${JSON.stringify(value)}`}. To change it, delete the item and add a new one.`,
+				"msg_item_identity_kept",
+				{ item: item.id, field: identity },
+			),
+			{ code: "invalid_record" as const },
+		);
 }
 
 /** The refusal of a write at a revision the item no longer has, worded as
@@ -1639,7 +1957,7 @@ async function deleteItem(
 	itemId: string,
 ): Promise<boolean> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
-	const item = requiredItem(workspace, itemId);
+	const item = requiredItem(deps.store, workspace, itemId);
 	const document = itemDocument(deps.documents, item);
 	if (document) assertDocumentUnlocked(document);
 	assertCollectionUnlocked(deps, workspace, item.collectionId);
@@ -1699,7 +2017,9 @@ function syncTemplates(
 		deps.bus.emit("document:loaded", { docName: document.name });
 		updated += 1;
 	}
-	for (const item of workspace.items) {
+	for (const item of deps.store.loadOpenedStructuredWorkspaceItems(
+		workspace.id,
+	)) {
 		if (collectionId && item.collectionId !== collectionId) continue;
 		if (bindingId && item.bindingId !== bindingId) continue;
 		const collection = requiredCollection(workspace, item.collectionId);
@@ -1749,32 +2069,25 @@ function workspaceView(
 ): StructuredWorkspaceView {
 	reconcileTemplateOwnership(deps, workspace);
 	const integrity = workspaceIntegrity(deps, workspace);
-	const { items, ...definition } = workspace;
-	const itemCounts: Record<string, number> = Object.fromEntries(
-		Object.keys(workspace.representationSchema.collections).map((id) => [
-			id,
-			0,
-		]),
-	);
-	for (const item of items)
-		itemCounts[item.collectionId] = (itemCounts[item.collectionId] ?? 0) + 1;
+	const { itemCounts, ...definition } = workspace;
 	return {
 		...definition,
 		integrity,
 		itemCounts,
-		pinnedItems: items.flatMap((item) => {
-			const pinnedAt = itemDocument(deps.documents, item)?.pinnedAt;
-			return pinnedAt
-				? [
-						{
-							id: item.id,
-							collectionId: item.collectionId,
-							documentName: item.documentName,
-							pinnedAt,
-						},
-					]
-				: [];
-		}),
+		pinnedItems: deps.store
+			.loadOpenedStructuredWorkspaceItems(workspace.id)
+			.flatMap((item) =>
+				item.pinnedAt
+					? [
+							{
+								id: item.id,
+								collectionId: item.collectionId,
+								documentName: item.documentName,
+								pinnedAt: item.pinnedAt,
+							},
+						]
+					: [],
+			),
 		collectionDocuments:
 			integrity.status === "ready"
 				? ensureCollectionDocuments(deps, workspace)
@@ -1976,11 +2289,10 @@ function allocatedDocumentName(
  * holds, the document that renders it. Null when the source has no such item. */
 function presentItem(
 	deps: Pick<StructuredWorkspacesDeps, "documents">,
-	source: ItemSource | ItemReads,
-	item: StructuredWorkspaceDefinition["items"][number],
+	source: ItemSource,
+	item: StructuredWorkspaceItemReference,
 ): StructuredWorkspaceItemView | null {
-	const record =
-		"record" in source ? source.record(item.id) : source.get(item.id);
+	const record = source.get(item.id);
 	if (!record) return null;
 	const pinnedAt = itemDocument(deps.documents, item)?.pinnedAt;
 	return {
@@ -1988,23 +2300,6 @@ function presentItem(
 		...(pinnedAt ? { pinnedAt } : {}),
 		data: record.data,
 		dataRevision: Number(record.revision),
-	};
-}
-
-/** Item records read once per caller: a view, an integrity check and a
- * projection share one source read per item. */
-interface ItemReads {
-	record(itemId: string): ItemRecord | null;
-}
-
-function itemReads(source: ItemSource): ItemReads {
-	const records = new Map<string, ItemRecord | null>();
-	return {
-		record(itemId) {
-			if (!records.has(itemId))
-				records.set(itemId, sourcedRecord(source, itemId));
-			return records.get(itemId) ?? null;
-		},
 	};
 }
 
@@ -2048,18 +2343,19 @@ function itemDocumentId(workspaceId: string, itemId: string): string {
 	return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-${variant}${hex.slice(18, 20)}-${hex.slice(20, 32)}`;
 }
 
-/** The existing document of an item, or null before it is opened. */
+/** The existing document of an item, loaded on demand (item documents are
+ * not loaded at boot), or null before it is opened. */
 function itemDocument(
 	documents: Documents,
-	item: StructuredWorkspaceDefinition["items"][number],
+	item: StructuredWorkspaceItemReference,
 ): Document | null {
-	const document = documents.resolve(item.documentName);
+	const document = documents.resolveOrLoad(item.documentName);
 	return document?.id === item.documentId ? document : null;
 }
 
 function itemSchema(
 	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
+	item: StructuredWorkspaceItemReference,
 ): StructuredWorkspaceDataSchema {
 	const binding =
 		workspace.representationSchema.collections[item.collectionId]?.bindings[
@@ -2075,7 +2371,7 @@ function itemSchema(
 function refreshItemMirror(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
+	item: StructuredWorkspaceItemReference,
 	announce = true,
 ): void {
 	const document = itemDocument(deps.documents, item);
@@ -2127,37 +2423,81 @@ function openItem(
 	const workspace = loadedWorkspace(deps.store, workspaceId);
 	if (!workspace || workspaceIntegrity(deps, workspace).status !== "ready")
 		return null;
-	return openedItemDocument(
-		deps,
-		workspace,
-		requiredItem(workspace, found.item.id),
-	).document;
+	return openedItemDocument(deps, workspace, itemReference(found.item))
+		.document;
 }
 
 function materializeItemDocuments(
 	deps: EngineDeps,
 	documentNames: readonly string[] | undefined,
 	exportOnly: Map<string, number>,
-): string[] {
-	const wanted = documentNames ? new Set(documentNames) : null;
+): MaterializedItemDocuments {
 	const held: string[] = [];
+	const leftOut: ItemLeftOut[] = [];
 	for (const workspace of deps.store.loadAllStructuredWorkspaces()) {
-		const items = workspace.items.filter(
-			(item) => !wanted || wanted.has(item.documentName),
-		);
-		if (items.length === 0) continue;
-		if (workspaceIntegrity(deps, workspace).status !== "ready") continue;
-		for (const item of items) {
+		const ready = workspaceIntegrity(deps, workspace).status === "ready";
+		forEachExportedItem(deps.store, workspace, documentNames, (item) => {
+			const left = (reason: string) =>
+				leftOut.push({
+					workspace: workspace.name,
+					item: item.id,
+					documentName: item.documentName,
+					reason,
+				});
+			if (!ready) return left("its Workspace is incomplete");
 			const holder = deps.documents.resolveOrLoad(item.documentName);
-			if (holder && holder.id !== item.documentId) continue;
+			if (holder && holder.id !== item.documentId)
+				return left(`another document bears the name "${item.documentName}"`);
 			const opened = openedItemDocument(deps, workspace, item, false);
 			const holding = exportOnly.get(opened.document.id);
-			if (!opened.created && holding === undefined) continue;
+			if (!opened.created && holding === undefined) return;
 			exportOnly.set(opened.document.id, (holding ?? 0) + 1);
 			held.push(opened.document.name);
+		});
+	}
+	return { held, leftOut };
+}
+
+/** Visit the items an export covers: the named ones, or every item of the
+ * workspace, batch after batch. */
+function forEachExportedItem(
+	store: StructuredWorkspaceRepository,
+	workspace: StructuredWorkspaceDefinition,
+	documentNames: readonly string[] | undefined,
+	visit: (item: StructuredWorkspaceItemReference) => void,
+): void {
+	if (documentNames) {
+		for (const name of documentNames) {
+			const found = store.loadStructuredWorkspaceItemByDocumentName(name);
+			if (found?.workspaceId === workspace.id) visit(itemReference(found.item));
+		}
+		return;
+	}
+	forEachItemRow(store, workspace, (row) => visit(itemReference(row)));
+}
+
+/** Every item row of a workspace, collection after collection, in batches
+ * of at most structuredWorkspaceMaxBatch rows. */
+function forEachItemRow(
+	store: StructuredWorkspaceRepository,
+	workspace: StructuredWorkspaceDefinition,
+	visit: (row: StoredItemQueryRow) => void,
+): void {
+	for (const [collectionId, count] of Object.entries(workspace.itemCounts)) {
+		if (count === 0) continue;
+		let after: StoredItemQueryRow["key"] | undefined;
+		for (;;) {
+			const { rows } = store.loadStructuredWorkspaceItemBatch({
+				workspaceId: workspace.id,
+				collectionId,
+				limit: structuredWorkspaceMaxBatch,
+				...(after ? { after } : {}),
+			});
+			for (const row of rows) visit(row);
+			if (rows.length < structuredWorkspaceMaxBatch) break;
+			after = rows.at(-1)?.key;
 		}
 	}
-	return held;
 }
 
 /** Remove the item documents an export created, unless the last export
@@ -2187,7 +2527,7 @@ function releaseItemDocuments(
 function openedItemDocument(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
+	item: StructuredWorkspaceItemReference,
 	announce = true,
 ): { document: Document; created: boolean } {
 	const existing = deps.documents.resolveOrLoad(item.documentName);
@@ -2229,7 +2569,7 @@ function openedItemDocument(
 
 function instantiateDocument(
 	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
+	item: StructuredWorkspaceItemReference,
 	template: Document,
 ): Document {
 	return createDocument({
@@ -2398,14 +2738,13 @@ function workspaceIntegrity(
 			);
 		}
 	}
-	for (const item of workspace.items) {
-		const document = itemDocument(deps.documents, item);
-		if (
-			document &&
-			document.meta.structuredWorkspace?.workspaceId !== workspace.id
-		) {
-			issues.push(`Item document "${document.name}" has invalid ownership.`);
-		}
+	for (const item of deps.store.loadOpenedStructuredWorkspaceItems(
+		workspace.id,
+	)) {
+		if (item.owner.workspaceId !== workspace.id)
+			issues.push(
+				`Item document "${item.documentName}" has invalid ownership.`,
+			);
 	}
 	if (issues.length === 0) {
 		for (const [collectionId, collection] of Object.entries(
@@ -2545,16 +2884,31 @@ function requiredReadyWorkspace(
 }
 
 function requiredItem(
+	store: StructuredWorkspaceRepository,
 	workspace: StructuredWorkspaceDefinition,
 	itemId: string,
-) {
-	const item = workspace.items.find((candidate) => candidate.id === itemId);
-	if (!item) {
+): StructuredWorkspaceItemReference {
+	const row = store.loadStructuredWorkspaceItem(workspace.id, itemId);
+	if (!row) {
 		throw new Error(
 			`Item "${itemId}" not found in Structured Workspace "${workspace.name}".`,
 		);
 	}
-	return item;
+	return itemReference(row);
+}
+
+/** The reference part of an item row, without its data. */
+function itemReference(
+	row: StructuredWorkspaceItemReference,
+): StructuredWorkspaceItemReference {
+	return {
+		id: row.id,
+		sequence: row.sequence,
+		collectionId: row.collectionId,
+		bindingId: row.bindingId,
+		documentId: row.documentId,
+		documentName: row.documentName,
+	};
 }
 
 function requiredCollection(
@@ -2632,6 +2986,11 @@ function assertWorkspaceUnlocked(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
 ): void {
+	const locked = deps.store.loadLockedStructuredWorkspaceDocument(workspace.id);
+	if (locked) {
+		const document = deps.documents.resolveOrLoad(locked);
+		if (document) assertDocumentUnlocked(document);
+	}
 	for (const document of deps.documents.all().values()) {
 		if (
 			document.meta.structuredWorkspace?.workspaceId === workspace.id ||
@@ -2829,6 +3188,8 @@ interface BindingMaterialization {
 	dataSchema: StructuredWorkspaceDataSchema;
 	collection: StructuredWorkspaceCollectionInput;
 	name: string;
+	/** The collection identity, read-only in the generated form. */
+	identity: string | undefined;
 	/** Prefix of the names of the template documents written for the binding. */
 	label: string;
 	before:
@@ -2849,6 +3210,7 @@ function materializeBinding(
 	const generated = generateStructuredWorkspaceTemplates(
 		name,
 		bindingSchemaOrEmpty(dataSchema, schemaPath),
+		context.identity,
 	);
 	const detailHtml =
 		binding.detailTemplateHtml ?? collection.detailTemplateHtml;
@@ -2932,6 +3294,17 @@ function materializeRepresentation(
 							Object.keys(previous.bindings).map((id) => [id, {}]),
 						)
 					: { item: {} });
+			const identity =
+				collection.identity ??
+				previous?.identity ??
+				structuredWorkspaceDefaultIdentity(
+					Object.entries(bindingsInput).map(([id, binding]) =>
+						bindingSchemaOrEmpty(
+							dataSchema,
+							binding.schemaPath ?? previous?.bindings[id]?.schemaPath ?? "",
+						),
+					),
+				);
 			const bindingIds = Object.keys(bindingsInput);
 			const bindings: StructuredWorkspaceCollectionRepresentation["bindings"] =
 				{};
@@ -2940,6 +3313,7 @@ function materializeRepresentation(
 					dataSchema,
 					collection,
 					name,
+					identity,
 					label: `${label}${bindingIds.length > 1 ? ` (${bindingId})` : ""}`,
 					before: previous?.bindings[bindingId],
 					references,
@@ -2978,6 +3352,7 @@ function materializeRepresentation(
 			collections[collectionId] = {
 				...layout,
 				name,
+				...(identity === undefined ? {} : { identity }),
 				collectionTemplateDocumentId: collectionTemplateId,
 				bindings,
 			};
@@ -3504,7 +3879,7 @@ function errorMessage(error: unknown): string {
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-// Item diagnosis: reads each item's document, state and template provenance.
+// Item diagnosis: reads the items by batches through their source, and the item documents that exist.
 function itemFindings(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
@@ -3513,7 +3888,7 @@ function itemFindings(
 	const ref = workspace.id;
 	const [firstCollectionId, firstCollection] =
 		Object.entries(workspace.representationSchema.collections ?? {})[0] ?? [];
-	if (workspace.items.length === 0)
+	if (Object.values(workspace.itemCounts).every((count) => count === 0))
 		findings.push({
 			severity: "hint",
 			object: "item",
@@ -3522,68 +3897,50 @@ function itemFindings(
 			fix: "Add the first item; its data must satisfy the data schema.",
 			next: `maket_structured_workspace action=add_item workspace=${ref} collection=${firstCollectionId ?? "<collection>"} binding=${Object.keys(firstCollection?.bindings ?? {})[0] ?? "<binding>"} document_name=<name> data=<json>`,
 		});
-	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
+	const conflicts = new Map(
+		deps.store
+			.loadStructuredWorkspaceItemNameConflicts(workspace.id)
+			.map((conflict) => [conflict.item.id, conflict.holder]),
+	);
+	const source = deps.itemSources.sourceFor(workspace.id);
+	for (const [collectionId, collection] of Object.entries(
+		workspace.representationSchema.collections ?? {},
+	)) {
+		if ((workspace.itemCounts[collectionId] ?? 0) === 0) continue;
+		forEachSourceBatch(source, collectionId, (items) => {
+			for (const item of items)
+				findings.push(
+					...recordFindings(
+						workspace,
+						{ collectionId, collection, item },
+						conflicts.get(item.id),
+					),
+				);
+			return true;
+		});
+	}
 	const unsynced = new Set<string>();
-	for (const item of workspace.items) {
-		const path = `item "${item.id}"`;
-		const document = itemDocument(deps.documents, item);
-		const holder = document ? null : deps.documents.resolve(item.documentName);
-		if (holder)
+	for (const item of deps.store.loadOpenedStructuredWorkspaceItems(
+		workspace.id,
+	)) {
+		if (item.owner.itemId !== item.id)
 			findings.push({
 				severity: "error",
 				object: "item",
 				collection: item.collectionId,
-				path,
-				message: `Document "${holder.name}" holds the name reserved for the document of item "${item.id}", so the item can be neither opened nor exported.`,
-				fix: `Rename the document "${holder.name}"; the name stays reserved for the item.`,
-				next: `maket_doc action=rename doc=${holder.name} name=<new name>`,
+				path: `document "${item.documentName}"`,
+				message: `Document "${item.documentName}" renders item "${item.id}" but names item "${item.owner.itemId ?? ""}".`,
+				fix: "Delete the document; it is created again from the item when the item is opened.",
+				next: `maket_doc action=delete doc=${item.documentName}`,
 			});
-		const state = reads.record(item.id);
-		if (!state) {
-			findings.push({
-				severity: "error",
-				object: "item",
-				collection: item.collectionId,
-				path,
-				message: `Item "${item.id}" has no data in its source.`,
-				fix: "Write the item data with update_item; it keeps the item id and position.",
-				next: `maket_structured_workspace action=update_item workspace=${ref} item=${item.id} expected_revision=${deps.store.loadStructuredWorkspaceItem(workspace.id, item.id)?.revision ?? 1} data=<item data>`,
-			});
-			continue;
-		}
 		const binding =
 			workspace.representationSchema.collections[item.collectionId]?.bindings[
 				item.bindingId
 			];
-		if (!binding) continue;
-		const schemas = [workspace.dataSchema];
-		try {
-			schemas.push(
-				structuredWorkspaceBindingSchema(workspace.dataSchema, binding),
-			);
-		} catch {}
-		const seen = new Set<string>();
-		for (const schema of schemas) {
-			for (const issue of structuredWorkspaceItemDataIssues(
-				schema,
-				state.data,
-			)) {
-				if (seen.has(issue.message)) continue;
-				seen.add(issue.message);
-				findings.push({
-					severity: "error",
-					object: "item",
-					collection: item.collectionId,
-					path: `${path} ${issue.path}`,
-					message: `${issue.message} (rule ${issue.rule}).`,
-					fix: issue.fix,
-					next: `maket_structured_workspace action=update_item workspace=${ref} item=${item.id} expected_revision=${state.revision} data=<corrected>`,
-				});
-			}
-		}
-		const template = deps.documents.resolveById(
-			binding.detailTemplateDocumentId,
-		);
+		const template = binding
+			? deps.documents.resolveById(binding.detailTemplateDocumentId)
+			: null;
+		const document = itemDocument(deps.documents, item);
 		if (document && template && !pagesInSync(template, document.pages))
 			unsynced.add(item.collectionId);
 	}
@@ -3611,6 +3968,83 @@ function itemFindings(
 			fix: "Synchronize the instantiated documents with their templates.",
 			next: `maket_structured_workspace action=sync_template workspace=${ref} collection=${collectionId}`,
 		});
+	return findings;
+}
+
+/** The findings of one item record: its reserved name held by another
+ * document, missing data, schema issues, an identity value that is not its
+ * id. */
+function recordFindings(
+	workspace: StructuredWorkspaceDefinition,
+	target: {
+		collectionId: string;
+		collection: StructuredWorkspaceCollectionRepresentation;
+		item: ItemSummary;
+	},
+	holder: string | undefined,
+): StructuredWorkspaceFinding[] {
+	const { collectionId, collection, item } = target;
+	const ref = workspace.id;
+	const path = `item "${item.id}"`;
+	const findings: StructuredWorkspaceFinding[] = [];
+	const error = (at: string, message: string, fix: string, next: string) =>
+		findings.push({
+			severity: "error",
+			object: "item",
+			collection: collectionId,
+			path: at,
+			message,
+			fix,
+			next,
+		});
+	if (holder)
+		error(
+			path,
+			`Document "${holder}" holds the name reserved for the document of item "${item.id}", so the item can be neither opened nor exported.`,
+			`Rename the document "${holder}"; the name stays reserved for the item.`,
+			`maket_doc action=rename doc=${holder} name=<new name>`,
+		);
+	const update = `maket_structured_workspace action=update_item workspace=${ref} item=${item.id} expected_revision=${item.revision}`;
+	if (item.issues?.some((issue) => issue.rule === "missing")) {
+		error(
+			path,
+			`Item "${item.id}" has no data in its source.`,
+			"Write the item data with update_item; it keeps the item id and position.",
+			`${update} data=<item data>`,
+		);
+		return findings;
+	}
+	const binding = collection.bindings[item.bindingId];
+	if (!binding) return findings;
+	const seen = new Set<string>();
+	for (const schema of [
+		workspace.dataSchema,
+		bindingSchemaOrEmpty(workspace.dataSchema, binding.schemaPath),
+	])
+		for (const issue of structuredWorkspaceItemDataIssues(
+			schema,
+			item.fields,
+		)) {
+			if (seen.has(issue.message)) continue;
+			seen.add(issue.message);
+			error(
+				`${path} ${issue.path}`,
+				`${issue.message} (rule ${issue.rule}).`,
+				issue.fix,
+				`${update} data=<corrected>`,
+			);
+		}
+	if (
+		collection.identity !== undefined &&
+		structuredWorkspaceIdentityValue(item.fields, collection.identity) !==
+			item.id
+	)
+		error(
+			`${path} ${collection.identity}`,
+			`Item "${item.id}" does not hold its id at the identity "${collection.identity}".`,
+			`Give "${collection.identity}" the value ${JSON.stringify(item.id)}.`,
+			`${update} data=<data with ${collection.identity} = ${JSON.stringify(item.id)}>`,
+		);
 	return findings;
 }
 

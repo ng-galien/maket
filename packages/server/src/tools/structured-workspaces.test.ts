@@ -80,13 +80,15 @@ describe("maket_structured_workspace", () => {
 				action: "create",
 				workspace: "Incomplete",
 				data_schema: {
+					required: ["id"],
 					type: "object",
-					properties: { title: { type: "string" } },
+					properties: { id: { type: "string" }, title: { type: "string" } },
 				},
 				representation_schema: {
 					version: 1,
 					collections: {
 						backlog: {
+							identity: "/id",
 							name: "Backlog",
 							collectionTemplateDocumentId: template.id,
 							bindings: {
@@ -174,6 +176,7 @@ describe("maket_structured_workspace", () => {
 			}
 			const collection = {
 				name: "Items",
+				identity: "/id",
 				collectionTemplateDocumentId: board.id,
 				bindings: {
 					item: { schemaPath: "", detailTemplateDocumentId: detail.id },
@@ -181,7 +184,12 @@ describe("maket_structured_workspace", () => {
 			};
 			const dataSchema = {
 				type: "object",
-				properties: { title: { type: "string" }, status: { type: "string" } },
+				properties: {
+					title: { type: "string" },
+					status: { type: "string" },
+					id: { type: "string" },
+				},
+				required: ["id"],
 			};
 			await tool.handler(
 				{
@@ -314,6 +322,8 @@ describe("maket_structured_workspace", () => {
 			action: "create",
 			workspace: "Invalid delivery",
 			data_schema: {
+				properties: { id: { type: "string" } },
+				required: ["id"],
 				$defs: {
 					task: {
 						type: "object",
@@ -326,6 +336,7 @@ describe("maket_structured_workspace", () => {
 				version: 1,
 				collections: {
 					backlog: {
+						identity: "/id",
 						name: "Backlog",
 						collectionTemplateDocumentId: "Invalid template",
 						bindings: {
@@ -372,8 +383,9 @@ describe("maket_structured_workspace", () => {
 							properties: {
 								kind: { const: "task" },
 								title: { type: "string" },
+								id: { type: "string" },
 							},
-							required: ["kind", "title"],
+							required: ["kind", "title", "id"],
 							additionalProperties: false,
 						},
 					},
@@ -383,6 +395,7 @@ describe("maket_structured_workspace", () => {
 					version: 1,
 					collections: {
 						backlog: {
+							identity: "/id",
 							name: "Backlog",
 							collectionTemplateDocumentId: "Task template",
 							bindings: {
@@ -410,7 +423,7 @@ describe("maket_structured_workspace", () => {
 				collection: "backlog",
 				binding: "task",
 				document_name: "Release task",
-				data: { kind: "task", title: "Ship" },
+				data: { id: "task-1", kind: "task", title: "Ship" },
 			},
 			{} as never,
 		);
@@ -449,7 +462,7 @@ describe("maket_structured_workspace", () => {
 				workspace: "Delivery",
 				item: "task-1",
 				expected_revision: 1,
-				data: { kind: "task", title: "Ship now" },
+				data: { id: "task-1", kind: "task", title: "Ship now" },
 			},
 			{} as never,
 		);
@@ -469,7 +482,7 @@ describe("maket_structured_workspace", () => {
 				workspace: "Delivery",
 				item: "task-1",
 				expected_revision: 2,
-				data: { kind: "task", title: "Forbidden" },
+				data: { id: "task-1", kind: "task", title: "Forbidden" },
 			},
 			{ action: "delete_item", workspace: "Delivery", item: "task-1" },
 			{ action: "delete", workspace: "Delivery" },
@@ -516,7 +529,7 @@ describe("maket_structured_workspace", () => {
 					collection: "backlog",
 					binding: "task",
 					document_name: documentName,
-					data: { kind: "task", title: documentName },
+					data: { id: item, kind: "task", title: documentName },
 				},
 				{} as never,
 			);
@@ -539,21 +552,22 @@ describe("maket_structured_workspace", () => {
 				collection: "backlog",
 				binding: "task",
 				document_name: "Fourth task",
-				data: { kind: "task", title: "Fourth task" },
+				data: { id: "task-4", kind: "task", title: "Fourth task" },
 			},
 			{} as never,
 		);
 		expect(addedAfterDelete.isError).toBeUndefined();
 		const compacted = structuredWorkspaces.get("Delivery");
 		expect(
-			structuredWorkspaces
-				.list()
-				.find((workspace) => workspace.id === compacted?.id)
-				?.items.map(({ id, position }) => ({ id, position })),
+			["task-1", "task-3", "task-4"].map((id) => ({
+				id,
+				sequence: structuredWorkspaces.getItem(compacted?.id ?? "", id)
+					?.sequence,
+			})),
 		).toEqual([
-			{ id: "task-1", position: 0 },
-			{ id: "task-3", position: 2 },
-			{ id: "task-4", position: 3 },
+			{ id: "task-1", sequence: 1 },
+			{ id: "task-3", sequence: 3 },
+			{ id: "task-4", sequence: 4 },
 		]);
 		const renamed = await tool.handler(
 			{
@@ -708,8 +722,9 @@ describe("maket_structured_workspace update_item propagation", () => {
 							properties: {
 								title: { type: "string" },
 								status: { type: "string" },
+								id: { type: "string" },
 							},
-							required: ["title", "status"],
+							required: ["title", "status", "id"],
 						},
 					},
 				},
@@ -717,6 +732,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 					version: 1,
 					collections: {
 						topics: {
+							identity: "/id",
 							name: "Topics",
 							collectionTemplateDocumentId: "Topic board",
 							bindings: {
@@ -742,7 +758,11 @@ describe("maket_structured_workspace update_item propagation", () => {
 					collection: "topics",
 					binding: "topic",
 					document_name: `Topic ${index}`,
-					data: { title: `Topic ${index}`, status: "open" },
+					data: {
+						id: `topic-${index}`,
+						title: `Topic ${index}`,
+						status: "open",
+					},
 				},
 				{} as never,
 			);
@@ -764,7 +784,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 				workspace: "Graph",
 				item: "topic-30",
 				expected_revision: 1,
-				data: { title: "Topic 30", status: "closed" },
+				data: { id: "topic-30", title: "Topic 30", status: "closed" },
 			},
 			{} as never,
 		);
@@ -816,7 +836,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 				workspace: "Graph",
 				item: "topic-31",
 				expected_revision: 1,
-				data: { title: "Topic 31", status: "open" },
+				data: { id: "topic-31", title: "Topic 31", status: "open" },
 			},
 			{} as never,
 		);
@@ -905,9 +925,16 @@ describe("maket_structured_workspace view by cursor", () => {
 			name: "Pages",
 			dataSchema: {
 				type: "object",
-				properties: { title: { type: "string" }, priority: { type: "number" } },
-				required: ["title"],
+				properties: {
+					id: { type: "string" },
+					title: { type: "string" },
+					priority: { type: "number" },
+				},
+				required: ["id", "title"],
 				additionalProperties: false,
+			},
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
 			},
 		});
 		for (let index = 1; index <= 25; index += 1)
@@ -917,7 +944,10 @@ describe("maket_structured_workspace view by cursor", () => {
 				collectionId: "items",
 				bindingId: "item",
 				documentName: `Page ${String(index).padStart(3, "0")}`,
-				data: { title: `Item ${String(index).padStart(3, "0")}` },
+				data: {
+					id: `items-${String(index).padStart(3, "0")}`,
+					title: `Item ${String(index).padStart(3, "0")}`,
+				},
 			});
 		const workspaceId = structuredWorkspaces.get("Pages")?.id ?? "";
 		const view = async (args: Record<string, unknown>) => {
@@ -1013,7 +1043,7 @@ describe("maket_structured_workspace view by cursor", () => {
 			const refused = await view(args);
 			expect(refused.result.isError).toBe(true);
 			expect(textOf(refused.result)).toMatch(
-				/^query_unsupported: Field .* is not a declared property of the items; declared: \/title, \/priority\./,
+				/^query_unsupported: Field .* is not a declared property of the items; declared: \/id, \/title, \/priority\./,
 			);
 		}
 		const unknownCollection = await view({ collection: "gone" });
@@ -1080,8 +1110,9 @@ describe("maket_structured_workspace documented method", () => {
 						isbn: { type: "string", readOnly: true },
 						pages: { type: "integer" },
 						tags: { type: "array", items: { type: "string" } },
+						id: { type: "string" },
 					},
-					required: ["title"],
+					required: ["title", "id"],
 				},
 			});
 			const detail = documents.resolve(
@@ -1100,6 +1131,11 @@ describe("maket_structured_workspace documented method", () => {
 					elements: [
 						{ type: "Control", scope: "#/properties/title" },
 						{ type: "Control", scope: "#/properties/pages" },
+						{
+							type: "Control",
+							scope: "#/properties/id",
+							options: { readonly: true },
+						},
 					],
 				},
 			});
@@ -1113,7 +1149,13 @@ describe("maket_structured_workspace documented method", () => {
 				collection: "items",
 				binding: "item",
 				document_name: "Dune",
-				data: { title: "Dune", isbn: "978", pages: 412, tags: ["sf"] },
+				data: {
+					title: "Dune",
+					isbn: "978",
+					pages: 412,
+					tags: ["sf"],
+					id: "dune",
+				},
 			});
 			expect(added.isError).toBeUndefined();
 			expect(documents.resolve("Dune")).toBeNull();
@@ -1137,14 +1179,13 @@ describe("maket_structured_workspace documented method", () => {
 			let last: CallToolResult | null = null;
 			for (const step of failure.steps) {
 				if ("manual" in step && step.manual === "open-item") {
-					const workspace = structuredWorkspaces
-						.list()
-						.find((candidate) =>
-							candidate.items.some(
-								(item) => item.documentName === step.document,
-							),
-						);
-					structuredWorkspaces.openItem(workspace?.id ?? "", step.document);
+					const owner = store.loadStructuredWorkspaceItemByDocumentName(
+						step.document,
+					);
+					structuredWorkspaces.openItem(
+						owner?.workspaceId ?? "",
+						step.document,
+					);
 					continue;
 				}
 				if ("manual" in step) {
@@ -1186,8 +1227,12 @@ describe("maket_structured_workspace documented method", () => {
 				action: "create",
 				workspace: "Reading list",
 				data_schema: {
+					required: ["id"],
 					type: "object",
-					properties: { title: { type: "string" } },
+					properties: { id: { type: "string" }, title: { type: "string" } },
+				},
+				representation_schema: {
+					collections: { items: { name: "Items", identity: "/id" } },
 				},
 			});
 			const card = documents.resolve("Reading list — Items — card template");
@@ -1357,7 +1402,7 @@ describe("maket_structured_workspace documented method", () => {
 				workspace: "Reading list",
 				item: itemId,
 				expected_revision: 1,
-				data: { title: "Dune", status: "lost" },
+				data: { id: itemId, title: "Dune", status: "lost" },
 			});
 			expect(refused.isError).toBe(true);
 			expect(textOf(refused)).toContain(
@@ -1393,10 +1438,14 @@ describe("maket_structured_workspace Mermaid sources", () => {
 					data_schema: {
 						type: "object",
 						properties: {
+							id: { type: "string" },
 							title: { type: "string" },
 							flow: { type: "string", format: "maket-mermaid" },
 						},
-						required: ["title"],
+						required: ["id", "title"],
+					},
+					representation_schema: {
+						collections: { items: { name: "Items", identity: "/id" } },
 					},
 				},
 				{} as never,
@@ -1416,7 +1465,7 @@ describe("maket_structured_workspace Mermaid sources", () => {
 						collection: collectionId,
 						binding: bindingId,
 						document_name: documentName,
-						data: { title: documentName, flow },
+						data: { id: documentName, title: documentName, flow },
 					},
 					{} as never,
 				);
@@ -1440,6 +1489,7 @@ describe("maket_structured_workspace Mermaid sources", () => {
 					item: "Release",
 					expected_revision: 1,
 					data: {
+						id: "Release",
 						title: "Release",
 						flow: "flowchart LR\n  classDef hot fill:#f00",
 					},

@@ -193,7 +193,7 @@ export function handleDeleteDocument(
 	msg: Extract<WorkspaceCommand, { type: "delete_document" }>,
 ): void {
 	const name = msg.name;
-	const d = ctx.documents.resolve(name ?? "");
+	const d = ctx.documents.resolveOrLoad(name ?? "");
 	if (!name || !d || ctx.documents.all().size <= 1) return;
 	if (d.meta?.locked === true) {
 		ctx.bus.emit("toast", {
@@ -220,7 +220,7 @@ export function handleRenameDocument(
 ): void {
 	const { name, newName } = msg;
 	if (!name || !newName || name === newName) return;
-	const d = ctx.documents.resolve(name);
+	const d = ctx.documents.resolveOrLoad(name);
 	if (!d) return;
 	if (d.meta.structuredWorkspace) {
 		ctx.bus.emit("toast", {
@@ -261,7 +261,7 @@ export function handleDuplicateDocument(
 ): void {
 	const { name, newName } = msg;
 	if (!name || !newName) return;
-	const src = ctx.documents.resolve(name);
+	const src = ctx.documents.resolveOrLoad(name);
 	if (!src) return;
 	const blocked = documentDuplicationBlockMessage(src);
 	if (blocked) {
@@ -307,7 +307,7 @@ export function handleLockDocument(
 ): void {
 	const { name, locked } = msg;
 	if (!name) return;
-	const d = ctx.documents.resolve(name);
+	const d = ctx.documents.resolveOrLoad(name);
 	if (!d) return;
 	if (!d.meta) d.meta = {};
 	d.meta.locked = locked === true;
@@ -324,7 +324,7 @@ export function handlePinDocument(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "pin_document" }>,
 ): void {
-	const d = ctx.documents.resolve(msg.name);
+	const d = ctx.documents.resolveOrLoad(msg.name);
 	if (
 		!d ||
 		(d.meta.structuredWorkspace && d.meta.structuredWorkspace.role !== "item")

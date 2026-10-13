@@ -72,16 +72,32 @@ export interface BundleManifestData {
 	structuredWorkspaces: BundleStructuredWorkspaceSnapshot[];
 }
 
-/** Portable aggregate metadata. Documents and state snapshots remain in their
- * normal manifest sections; this snapshot reconnects them on import. */
+/** Portable aggregate metadata: the definition and the item rows. Documents
+ * remain in their manifest section; an item document travels rendered, with
+ * no state, and this snapshot reconnects it to its row on import. */
 export interface BundleStructuredWorkspaceSnapshot {
 	workspace: StructuredWorkspaceDefinition;
+	/** Item rows in insertion order: the data and revision the source holds. */
+	items: BundleStructuredWorkspaceItem[];
 	collectionDocuments: Array<{ documentId: string; collectionId: string }>;
 	pageProvenance: Array<{
 		documentId: string;
 		pageId: string;
 		provenance: StructuredWorkspacePageProvenance;
 	}>;
+}
+
+/** One item row of a portable workspace. */
+export interface BundleStructuredWorkspaceItem {
+	/** The identity value of the item. */
+	id: string;
+	collectionId: string;
+	bindingId: string;
+	documentName: string;
+	data: Record<string, unknown>;
+	revision: number;
+	/** The bundled document that renders the item, when the export holds it. */
+	documentId?: string;
 }
 
 /** Current portable snapshot for one state-backed document. Revision history
@@ -448,9 +464,15 @@ export function validateBundleManifest(
 	const validatedAnnotations = annotations.map((annotation, index) =>
 		validateBundleAnnotation(annotation, index, docsById),
 	);
+	const statesById = new Map(
+		validatedStates.map((state) => [state.documentId, state]),
+	);
 	const validatedStructuredWorkspaces = structuredWorkspaces.map(
 		(snapshot, index) =>
-			validateBundleStructuredWorkspace(snapshot, index, docsById),
+			validateBundleStructuredWorkspace(snapshot, index, {
+				docsById,
+				statesById,
+			}),
 	);
 
 	return {
@@ -468,8 +490,12 @@ export function validateBundleManifest(
 function validateBundleStructuredWorkspace(
 	value: unknown,
 	index: number,
-	docsById: BundleDocumentStateValidationContext["docsById"],
+	context: {
+		docsById: BundleDocumentStateValidationContext["docsById"];
+		statesById: ReadonlyMap<string, BundleDocumentStateSnapshot>;
+	},
 ): BundleStructuredWorkspaceSnapshot {
+	const { docsById } = context;
 	if (
 		!isPlainRecord(value) ||
 		!isPlainRecord(value.workspace) ||
@@ -477,7 +503,6 @@ function validateBundleStructuredWorkspace(
 		typeof value.workspace.name !== "string" ||
 		!isPlainRecord(value.workspace.dataSchema) ||
 		!isPlainRecord(value.workspace.representationSchema) ||
-		!Array.isArray(value.workspace.items) ||
 		!Array.isArray(value.collectionDocuments) ||
 		!Array.isArray(value.pageProvenance)
 	) {
@@ -500,14 +525,24 @@ function validateBundleStructuredWorkspace(
 		}
 		collectionIds.add(entry.collectionId);
 	}
-	for (const item of value.workspace.items) {
+	const items = Array.isArray(value.items)
+		? value.items
+		: bundledStateItems(value.workspace.items, index, context);
+	for (const item of items) {
 		if (
 			!isPlainRecord(item) ||
-			typeof item.documentId !== "string" ||
-			!docsById.has(item.documentId)
+			typeof item.id !== "string" ||
+			typeof item.collectionId !== "string" ||
+			typeof item.bindingId !== "string" ||
+			typeof item.documentName !== "string" ||
+			!isPlainRecord(item.data) ||
+			!Number.isInteger(item.revision) ||
+			(item.revision as number) < 1 ||
+			(item.documentId !== undefined &&
+				(typeof item.documentId !== "string" || !docsById.has(item.documentId)))
 		) {
 			throw new Error(
-				`Invalid .maket file: structuredWorkspaces[${index}] references a missing item document`,
+				`Invalid .maket file: structuredWorkspaces[${index}] has a malformed item row`,
 			);
 		}
 	}
@@ -524,7 +559,55 @@ function validateBundleStructuredWorkspace(
 			);
 		}
 	}
-	return value as unknown as BundleStructuredWorkspaceSnapshot;
+	return { ...value, items } as unknown as BundleStructuredWorkspaceSnapshot;
+}
+
+/** The item rows of a bundle written before workspaces carried them: each
+ * item reference of the definition, its data taken from the bundled state of
+ * its document, in position order. */
+function bundledStateItems(
+	references: unknown,
+	index: number,
+	context: {
+		docsById: BundleDocumentStateValidationContext["docsById"];
+		statesById: ReadonlyMap<string, BundleDocumentStateSnapshot>;
+	},
+): BundleStructuredWorkspaceItem[] {
+	if (!Array.isArray(references))
+		throw new Error(
+			`Invalid .maket file: structuredWorkspaces[${index}] is malformed`,
+		);
+	return references
+		.map((reference) => {
+			const state =
+				isPlainRecord(reference) && typeof reference.documentId === "string"
+					? context.statesById.get(reference.documentId)
+					: undefined;
+			if (
+				!isPlainRecord(reference) ||
+				typeof reference.documentId !== "string" ||
+				!context.docsById.has(reference.documentId) ||
+				!state ||
+				!isPlainRecord(state.data)
+			)
+				throw new Error(
+					`Invalid .maket file: structuredWorkspaces[${index}] references a missing item document`,
+				);
+			return {
+				position: Number(reference.position ?? 0),
+				item: {
+					id: String(reference.id),
+					collectionId: String(reference.collectionId),
+					bindingId: String(reference.bindingId),
+					documentName: String(reference.documentName),
+					data: state.data as Record<string, unknown>,
+					revision: 1,
+					documentId: reference.documentId,
+				},
+			};
+		})
+		.sort((left, right) => left.position - right.position)
+		.map(({ item }) => item);
 }
 
 // ── Encoding side ────────────────────────────────────────────────────────────

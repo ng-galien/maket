@@ -216,8 +216,11 @@ describe("ws-handler — collection window queries", () => {
 				name: "Queries",
 				dataSchema: {
 					type: "object",
-					properties: { title: { type: "string" } },
-					required: ["title"],
+					properties: { id: { type: "string" }, title: { type: "string" } },
+					required: ["id", "title"],
+				},
+				representationSchema: {
+					collections: { items: { name: "Items", identity: "/id" } },
 				},
 			});
 			await f.structuredWorkspaces.addItem({
@@ -226,7 +229,7 @@ describe("ws-handler — collection window queries", () => {
 				collectionId: "items",
 				bindingId: "item",
 				documentName: "Query one",
-				data: { title: "One" },
+				data: { id: "one", title: "One" },
 			});
 			const toasts: Array<{ key: string; params?: unknown }> = [];
 			f.bus.on("toast", (toast) => toasts.push(toast));
@@ -874,6 +877,8 @@ describe("ws-handler — lock guards", () => {
 		};
 		store.saveDocs([instance, makeDoc("other")]);
 		documents.loadAll();
+		expect(documents.resolve("instance")).toBeNull();
+		documents.resolveOrLoad("instance");
 		const toast = vi.fn();
 		bus.on("toast", toast);
 
@@ -975,7 +980,7 @@ describe("ws-handler — document and canvas flows", () => {
 		const workspace = structuredWorkspaces.create({
 			name: "Draft",
 			allowIncomplete: true,
-			dataSchema: {},
+			dataSchema: { properties: { id: { type: "string" } }, required: ["id"] },
 			representationSchema: { version: 1, collections: {} },
 		});
 
@@ -1009,11 +1014,12 @@ describe("ws-handler — document and canvas flows", () => {
 		const workspace = structuredWorkspaces.create({
 			name: "Incomplete",
 			allowIncomplete: true,
-			dataSchema: {},
+			dataSchema: { properties: { id: { type: "string" } }, required: ["id"] },
 			representationSchema: {
 				version: 1,
 				collections: {
 					backlog: {
+						identity: "/id",
 						name: "Backlog",
 						collectionTemplateDocumentId: "missing",
 						bindings: {
@@ -1427,6 +1433,7 @@ describe("ws-handler — file and document mutations", () => {
 			}
 			store.saveDoc(src);
 			documents.loadAll();
+			documents.resolveOrLoad("source");
 			const toast = vi.fn();
 			bus.on("toast", toast);
 
@@ -1823,16 +1830,17 @@ describe("ws-handler — item document form", () => {
 			name: "Form",
 			dataSchema: {
 				type: "object",
-				properties: { title: { type: "string" } },
-				required: ["title"],
+				properties: { id: { type: "string" }, title: { type: "string" } },
+				required: ["id", "title"],
 			},
 			representationSchema: {
 				version: 1,
 				collections: {
 					items: {
+						identity: "/id",
 						name: "Items",
 						detailTemplateHtml:
-							'<input data-id="title" type="text" data-maket-bind="state.title">',
+							'<input data-id="title" type="text" data-maket-bind="state.title"><input data-id="id" type="text" data-maket-bind="state.id">',
 					},
 				},
 			},
@@ -1843,7 +1851,7 @@ describe("ws-handler — item document form", () => {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Form one",
-			data: { title: "First" },
+			data: { id: "one", title: "First" },
 		});
 		expect(current.documents.resolve("Form one")).toBeNull();
 		const events: string[] = [];
@@ -1868,7 +1876,11 @@ describe("ws-handler — item document form", () => {
 			throw new Error("The open path did not create the item document.");
 		const row = () =>
 			current.store.loadStructuredWorkspaceItem(workspace.id, "one");
-		const patch = (expectedRevision: number, title: string) => {
+		const patch = (
+			expectedRevision: number,
+			title: string,
+			path = "/title",
+		) => {
 			ws.send.mockClear();
 			current.handler(
 				{
@@ -1876,7 +1888,7 @@ describe("ws-handler — item document form", () => {
 					requestId: `request-${expectedRevision}-${title}`,
 					docName: "Form one",
 					expectedRevision,
-					operation: { op: "replace", path: "/title", value: title },
+					operation: { op: "replace", path, value: title },
 				},
 				ws,
 			);
@@ -1944,8 +1956,34 @@ describe("ws-handler — item document form", () => {
 		expect(events).toContain("document:saved");
 		expect(row()).toMatchObject({ revision: 2, data: { title: "Second" } });
 		expect(documentStates.get("Form one")?.current.data).toEqual({
+			id: "one",
 			title: "Second",
 		});
+		dispose();
+	});
+
+	it("refuses a patch of the identity with the localized message naming the identity field", async () => {
+		const { patch, answer, row, documentStates, dispose } = await openedItem();
+		patch(1, "two", "/id");
+		await settled();
+		expect(answer()).toMatchObject({
+			ok: false,
+			message: {
+				key: "msg_item_identity_kept",
+				params: { item: "one", field: "/id" },
+			},
+		});
+		expect(row()).toMatchObject({
+			revision: 1,
+			data: { id: "one", title: "First" },
+		});
+		expect(documentStates.get("Form one")?.current.data).toEqual({
+			id: "one",
+			title: "First",
+		});
+		patch(1, "Second");
+		await settled();
+		expect(answer()).toMatchObject({ ok: true, revision: 2 });
 		dispose();
 	});
 
@@ -1957,7 +1995,7 @@ describe("ws-handler — item document form", () => {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Form two",
-			data: { title: "Second" },
+			data: { id: "two", title: "Second" },
 		});
 		current.store.saveDoc(makeDoc("Scratch"));
 		current.documents.loadAll();

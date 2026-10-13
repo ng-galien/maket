@@ -213,7 +213,7 @@ function listItems(
 	);
 	const last = batch.at(-1);
 	return {
-		items: batch.map((row) => listedSummary(row, reads)),
+		items: batch.map((row) => listedSummary(row, reads, query.whole === true)),
 		...(result.rows.length > batch.length && last
 			? { next: encodeCursor(signature, last.key) }
 			: {}),
@@ -232,6 +232,7 @@ function listItems(
 function listedSummary(
 	row: StoredItemQueryRow,
 	reads: ReadonlyMap<string, BindingRead>,
+	whole: boolean,
 ): ItemSummary {
 	const read = reads.get(row.bindingId);
 	const data = row.data ?? {};
@@ -245,7 +246,8 @@ function listedSummary(
 		id: row.id,
 		revision: String(row.revision),
 		bindingId: row.bindingId,
-		fields: read ? summaryFields(data, read.rule) : data,
+		documentName: row.documentName,
+		fields: read && !whole ? summaryFields(data, read.rule) : data,
 		...(issues.length > 0 ? { issues } : {}),
 	};
 }
@@ -463,16 +465,17 @@ function createItem(
 	input: ItemCreation,
 ): ItemRecord {
 	const workspace = requiredWorkspace(deps, workspaceId);
-	const id = input.id ?? crypto.randomUUID();
+	const { id } = input;
 	if (!input.document)
 		throw itemSourceError(
 			"invalid_record",
 			`Item "${id}" needs the document that renders it.`,
 		);
-	if (deps.store.loadStructuredWorkspaceItem(workspace.id, id))
+	const existing = deps.store.loadStructuredWorkspaceItem(workspace.id, id);
+	if (existing)
 		throw itemSourceError(
 			"invalid_record",
-			`Item "${id}" already exists in "${workspace.name}".`,
+			`Item "${id}" already exists in collection "${existing.collectionId}" of "${workspace.name}" (document "${existing.documentName}"): an identity value is unique across the whole Workspace.`,
 		);
 	return writtenRecord(
 		deps.store.addStructuredWorkspaceItem(workspace.id, {

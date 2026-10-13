@@ -386,6 +386,7 @@
 	"msg_row_not_found": "La ligne « {row} » est introuvable dans la collection « {collection} » ({rows} lignes).",
 	"msg_annotation_not_saved": "La note n’a pas pu être enregistrée.",
 	"msg_state_revision_conflict": "Ce document a changé ailleurs (révision {current}, vous aviez {expected}). La dernière version est chargée ; réessayez votre modification.",
+	"msg_item_identity_kept": "{field} identifie cet élément et ne peut pas changer ; il reste {item}. Pour lui donner une autre valeur, supprimez l’élément et ajoutez-le à nouveau.",
 	"msg_state_no_revision": "Le document « {name} » n’a pas encore d’état enregistré.",
 	"msg_state_invalid": "La valeur ne correspond pas au schéma de l’état du document.",
 	"msg_state_not_object": "L’état du document doit rester un objet JSON.",

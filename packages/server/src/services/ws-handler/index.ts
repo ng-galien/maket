@@ -92,7 +92,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		store,
 		structuredWorkspaces,
 		wsRegistry,
-		wsDoc: (msg) => (msg.docName ? documents.resolve(msg.docName) : null),
+		wsDoc: (msg) => (msg.docName ? documents.resolveOrLoad(msg.docName) : null),
 		broadcastState: (d) => {
 			if (!d) return;
 			bus.emit("document:saved", { docName: d.name });

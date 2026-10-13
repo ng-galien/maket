@@ -14,6 +14,11 @@ export type StructuredWorkspaceGroupValue = string | number | boolean | null;
 
 export interface StructuredWorkspaceCollectionRepresentation {
 	name: string;
+	/** JSON Pointer to the property of the item data that identifies an item:
+	 * a required string or number property of every binding schema. Its value,
+	 * as a string, is the item id; it never changes once the item exists. A
+	 * collection without identity leaves its Workspace incomplete. */
+	identity?: string;
 	collectionTemplateDocumentId: string;
 	bindings: Record<string, StructuredWorkspaceTemplateBinding>;
 	/** JSON Pointer into item data; cards are laid out group by group and
@@ -26,7 +31,7 @@ export interface StructuredWorkspaceCollectionRepresentation {
 	pageSize?: number;
 	/** JSON Pointer into item data; cards are ordered by this value inside each
 	 * group (or the whole slot without grouping). Items without a value come
-	 * last; equal values keep insertion order. */
+	 * last; equal values follow the item id (the cursor key). */
 	sortBy?: string;
 	/** Direction of `sortBy` (default ascending). */
 	sortDirection?: StructuredWorkspaceSortDirection;
@@ -51,8 +56,10 @@ export interface StructuredWorkspaceRepresentationSchema {
 }
 
 export interface StructuredWorkspaceItemReference {
+	/** The value of the collection identity in the item data. */
 	id: string;
-	position: number;
+	/** Insertion order in the collection: strictly increasing, never reused. */
+	sequence: number;
 	collectionId: string;
 	bindingId: string;
 	/** The document that renders the item; it exists once the item has been
@@ -68,7 +75,8 @@ export interface StructuredWorkspaceDefinition {
 	dataSchema: StructuredWorkspaceDataSchema;
 	representationSchema: StructuredWorkspaceRepresentationSchema;
 	revision: number;
-	items: StructuredWorkspaceItemReference[];
+	/** Number of items per collection id. */
+	itemCounts: Record<string, number>;
 	createdAt: string;
 	updatedAt: string;
 }
@@ -110,11 +118,8 @@ export interface StructuredWorkspacePinnedItem {
 
 /** A workspace as clients and the agent see it: its definition, item counts
  * and pinned items, never the item data. */
-export interface StructuredWorkspaceView
-	extends Omit<StructuredWorkspaceDefinition, "items"> {
+export interface StructuredWorkspaceView extends StructuredWorkspaceDefinition {
 	integrity: StructuredWorkspaceIntegrity;
-	/** Number of items per collection id. */
-	itemCounts: Record<string, number>;
 	pinnedItems: StructuredWorkspacePinnedItem[];
 	collectionDocuments: StructuredWorkspaceCollectionDocumentView[];
 	templateDocuments: StructuredWorkspaceTemplateDocumentView[];
@@ -329,8 +334,127 @@ function validateCollectionRepresentations(
 				...validateBinding(dataSchema, collectionId, bindingId, binding),
 			);
 		}
+		findings.push(
+			...validateCollectionIdentity(dataSchema, collectionId, collection),
+		);
 	}
 	return findings;
+}
+
+/** The identity of a collection: a pointer to a property every binding
+ * schema declares, requires, and types as a string or a number. */
+function validateCollectionIdentity(
+	dataSchema: StructuredWorkspaceDataSchema,
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): StructuredWorkspaceFinding[] {
+	const path = `representation_schema.collections.${collectionId}.identity`;
+	const schemas = Object.values(collection.bindings ?? {}).flatMap(
+		(binding) => {
+			try {
+				return [structuredWorkspaceBindingSchema(dataSchema, binding)];
+			} catch {
+				return [];
+			}
+		},
+	);
+	const suggestion = `Add a required property "id" of type string to data_schema and give each item its own value, unique across the whole Workspace and never changed: Maket then identifies the items by "/id". Or set ${path} to a property that already holds such a value.`;
+	const identity = collection.identity;
+	if (identity === undefined)
+		return [
+			definitionError(
+				collectionId,
+				path,
+				`Collection "${collectionId}" declares no identity: every item needs a required string or number property whose value identifies it.`,
+				suggestion,
+				"schema",
+			),
+		];
+	if (!isItemPointer(identity))
+		return [
+			definitionError(
+				collectionId,
+				path,
+				`Collection "${collectionId}" identity must be a JSON Pointer to a property of the items, for example "/id".`,
+				suggestion,
+				"schema",
+			),
+		];
+	for (const schema of schemas) {
+		const problem = identityProblem(schema, identity);
+		if (problem)
+			return [
+				definitionError(
+					collectionId,
+					path,
+					`Collection "${collectionId}" identity "${identity}" ${problem}.`,
+					`Declare "${identity}" in data_schema as a required property of type string or number, or follow the default: ${suggestion}`,
+					"schema",
+				),
+			];
+	}
+	return [];
+}
+
+/** Why `pointer` cannot identify items of `schema`, or null when it can:
+ * every segment is a declared and required property, and the last one is a
+ * string or a number. */
+function identityProblem(
+	schema: StructuredWorkspaceDataSchema,
+	pointer: string,
+): string | null {
+	let node: Record<string, unknown> | null = resolveLocalReference(
+		schema,
+		schema,
+	);
+	const segments = parseJsonPointer(pointer);
+	for (const segment of segments) {
+		const properties = node?.properties;
+		if (!node || !isRecord(properties) || !Object.hasOwn(properties, segment))
+			return "names no property of the data schema";
+		const required = Array.isArray(node.required) ? node.required : [];
+		if (!required.includes(segment)) return "names an optional property";
+		const property = properties[segment];
+		node = isRecord(property) ? resolveLocalReference(schema, property) : null;
+	}
+	const type = node?.type;
+	const types = Array.isArray(type) ? type : [type];
+	return types.length > 0 &&
+		types.every(
+			(entry) =>
+				entry === "string" || entry === "number" || entry === "integer",
+		)
+		? null
+		: "names a property that is neither a string nor a number";
+}
+
+/** The identity a collection takes when none is declared: "/id" when every
+ * binding schema requires an `id` property of type string, number or
+ * integer; otherwise none, and the definition stays incomplete. */
+export function structuredWorkspaceDefaultIdentity(
+	bindingSchemas: StructuredWorkspaceDataSchema[],
+): string | undefined {
+	return bindingSchemas.length > 0 &&
+		bindingSchemas.every((schema) => identityProblem(schema, "/id") === null)
+		? "/id"
+		: undefined;
+}
+
+/** The item id held by `data` under the identity pointer: a non-empty string
+ * or a finite number, as a string; null when absent or of another type. */
+export function structuredWorkspaceIdentityValue(
+	data: Record<string, unknown>,
+	identity: string,
+): string | null {
+	let value: unknown;
+	try {
+		value = readJsonPointer(data, identity);
+	} catch {
+		return null;
+	}
+	if (typeof value === "string") return value.length > 0 ? value : null;
+	if (typeof value === "number" && Number.isFinite(value)) return String(value);
+	return null;
 }
 
 function groupingFinding(
@@ -868,13 +992,14 @@ function humanizeFieldName(name: string): string {
 /**
  * Default templates for one binding: a narrow index page with one item slot
  * whose cards flow in one column, a detail page with one labelled line per
- * property, a form on its editable properties, and a compact card with the
- * title and the next two properties.
+ * property, a form on its editable properties (the identity property shown
+ * read-only), and a compact card with the title and the next two properties.
  * The title is the first string property, or the collection name.
  */
 export function generateStructuredWorkspaceTemplates(
 	collectionName: string,
 	bindingSchema: StructuredWorkspaceDataSchema,
+	identity?: string,
 ): StructuredWorkspaceGeneratedTemplates {
 	const fields = structuredWorkspaceTemplateFields(bindingSchema);
 	const root = resolveLocalReference(bindingSchema, bindingSchema);
@@ -900,6 +1025,9 @@ export function generateStructuredWorkspaceTemplates(
 					elements: editable.map((field) => ({
 						type: "Control",
 						scope: `#/properties/${field.name}`,
+						...(identity === `/${field.name}`
+							? { options: { readonly: true } }
+							: {}),
 					})),
 				},
 			}

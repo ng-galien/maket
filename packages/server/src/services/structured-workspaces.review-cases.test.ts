@@ -172,9 +172,19 @@ const schema = {
 			properties: { city: { type: "string" } },
 			additionalProperties: false,
 		},
+		id: { type: "string" },
 	},
-	required: ["title", "status"],
+	required: ["title", "status", "id"],
 	additionalProperties: false,
+};
+
+/** Every collection identifies its items by the `id` property. */
+const identity = "/id";
+
+/** The default collection, as Maket generated it, with its identity. */
+const itemsCollection = {
+	version: 1 as const,
+	collections: { items: { name: "Items", identity } },
 };
 
 async function add(
@@ -198,7 +208,7 @@ async function add(
 				collectionId,
 				bindingId: "item",
 				documentName: `${workspace} ${collectionId} ${i + 1}`,
-				data: data(i + 1),
+				data: { id: `${collectionId}-${i + 1}`, ...data(i + 1) },
 			}),
 		);
 	return added;
@@ -216,6 +226,7 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Empty",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			return capture(current, ws.id, ["items"]);
 		},
@@ -229,9 +240,10 @@ const cases: Case[] = [
 				representationSchema: {
 					version: 1,
 					collections: {
-						open: { name: "Open" },
+						open: { name: "Open", identity },
 						board: {
 							name: "Board",
+							identity,
 							groupBy: "/address/city",
 							sortBy: "/priority",
 							sortDirection: "descending",
@@ -250,9 +262,11 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Broken",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			const [first] = await add(current, ws.name, "items", 3);
 			current.store.putStructuredWorkspaceItem(ws.id, first?.id ?? "", 1, {
+				id: first?.id,
 				status: "todo",
 			});
 			return {
@@ -270,6 +284,7 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Deleted",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			await add(current, ws.name, "items", 4);
 			await current.workspaces.deleteItem(ws.name, "items-2");
@@ -282,6 +297,7 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Orphan",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			const [first] = await add(current, ws.name, "items", 3);
 			current.workspaces.openItem(ws.id, first?.documentName ?? "");
@@ -295,6 +311,7 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Stale",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			await add(current, ws.name, "items", 3);
 			const refused = await call(current, {
@@ -302,14 +319,14 @@ const cases: Case[] = [
 				workspace: ws.name,
 				item: "items-2",
 				expected_revision: 7,
-				data: { title: "New", status: "done" },
+				data: { id: "items-2", title: "New", status: "done" },
 			});
 			const accepted = await call(current, {
 				action: "update_item",
 				workspace: ws.name,
 				item: "items-3",
 				expected_revision: 1,
-				data: { title: "New", status: "done" },
+				data: { id: "items-3", title: "New", status: "done" },
 			});
 			return {
 				refused,
@@ -324,6 +341,7 @@ const cases: Case[] = [
 			const ws = current.workspaces.create({
 				name: "Locked",
 				dataSchema: schema,
+				representationSchema: itemsCollection,
 			});
 			const [first] = await add(current, ws.name, "items", 3);
 			const document = current.workspaces.openItem(
@@ -336,7 +354,7 @@ const cases: Case[] = [
 				workspace: ws.name,
 				item: "items-1",
 				expected_revision: 1,
-				data: { title: "New", status: "done" },
+				data: { id: "items-1", title: "New", status: "done" },
 			});
 			const deleteRefused = await call(current, {
 				action: "delete_item",
@@ -366,6 +384,7 @@ const cases: Case[] = [
 					collections: {
 						items: {
 							name: "Items",
+							identity,
 							compactTemplateHtml:
 								'<article data-maket-compact-root data-id="c"><h3 data-id="t">{{ state.title }}</h3>{{#state.address}}<p data-id="a">{{ state.address.city }}</p>{{/state.address}}<i data-id="n">{{ state.notes }}</i></article>',
 							detailTemplateHtml: '<h1 data-id="t">{{ state.title }}</h1>',
@@ -422,15 +441,36 @@ interface HeadItem {
 
 type HeadView = Record<string, unknown> & { items: HeadItem[] };
 
+/** A HEAD definition with the identity the cases declare: the `id`
+ * property required by the data schema, `identity` on every collection. */
+function withIdentity(definition: Record<string, unknown>) {
+	const schema = structuredClone(definition.dataSchema) as {
+		properties: Record<string, unknown>;
+		required: string[];
+	};
+	schema.properties.id = { type: "string" };
+	schema.required.push("id");
+	const representation = structuredClone(definition.representationSchema) as {
+		collections: Record<string, Record<string, unknown>>;
+	};
+	for (const collection of Object.values(representation.collections))
+		collection.identity = identity;
+	return {
+		...definition,
+		dataSchema: schema,
+		representationSchema: representation,
+	};
+}
+
 /** The HEAD view under the new contract: no item data, the item count of
- * each collection and no pinned item instead. */
+ * each collection and no pinned item instead, and the declared identity. */
 function lightView(head: HeadView) {
 	const { items, ...definition } = head;
 	const collections = Object.keys(
 		(definition.representationSchema as { collections: object }).collections,
 	);
 	return {
-		...definition,
+		...withIdentity(definition),
 		itemCounts: Object.fromEntries(
 			collections.map((id) => [
 				id,
@@ -508,8 +548,27 @@ function expectNewViewContract(
 	for (const item of window.items) {
 		const headItem = headItems.find((candidate) => candidate.id === item.id);
 		expect(item.revision, key).toBe(headItem?.dataRevision);
-		expect(headItem?.data, key).toMatchObject(item.fields);
+		const { id, ...fields } = item.fields as Record<string, unknown>;
+		expect(id, key).toBe(item.id);
+		expect(headItem?.data, key).toMatchObject(fields);
 	}
+}
+
+/** An item view against its HEAD capture: the data holds the item id under
+ * the identity, and the insertion sequence (1 for the first item added to
+ * its collection, never reused) replaces the HEAD position. */
+function expectItemView(key: string, output: string, head: string): void {
+	if (output === "null" || head === "null") {
+		expect(output, key).toBe(head);
+		return;
+	}
+	const { sequence, data, ...rest } = JSON.parse(output);
+	const { position: _position, data: headData, ...headRest } = JSON.parse(head);
+	const { id, ...headless } = data;
+	expect(rest, key).toEqual(headRest);
+	expect(headless, key).toEqual(headData);
+	expect(id, key).toBe(rest.id);
+	expect(sequence, key).toBe(Number(String(rest.id).split("-").at(-1)));
 }
 
 describe("Structured Workspaces on the review cases: HEAD index and answers, views under the window contract", () => {
@@ -525,17 +584,12 @@ describe("Structured Workspaces on the review cases: HEAD index and answers, vie
 		for (const [key, value] of Object.entries(output)) {
 			if (changedKeys.has(key))
 				expectNewViewContract(key, value, head[key] ?? "");
-			else if (
-				name === "deleted-item" &&
-				key.startsWith("getItem:") &&
-				value !== "null"
-			) {
-				const { position, ...rest } = JSON.parse(value);
-				const { position: _headPosition, ...headRest } = JSON.parse(
-					head[key] ?? "{}",
-				);
-				expect(rest, key).toEqual(headRest);
-				expect(position, key).toBe(2);
+			else if (key.startsWith("getItem:"))
+				expectItemView(key, value, head[key] ?? "null");
+			else if (key === "current") {
+				const { id, ...data } = JSON.parse(value);
+				expect(id, key).toBe("items-1");
+				expect(data, key).toEqual(JSON.parse(head[key] ?? "{}"));
 			} else expect(value, key).toBe(head[key]);
 		}
 	});
@@ -545,7 +599,11 @@ describe("the local item source writes rows at a revision", () => {
 	it("answers stale, unknown and duplicate refusals with their code, the engine answers lock and invalid data, and closes on deletion", async () => {
 		const current = scenario();
 		const sources = createItemSources(current);
-		const ws = current.workspaces.create({ name: "Src", dataSchema: schema });
+		const ws = current.workspaces.create({
+			name: "Src",
+			dataSchema: schema,
+			representationSchema: itemsCollection,
+		});
 		await add(current, ws.name, "items", 2);
 		const source = sources.sourceFor(ws.id);
 		const codeOf = async (run: () => Promise<unknown>) => {
@@ -560,6 +618,7 @@ describe("the local item source writes rows at a revision", () => {
 		if (document) document.meta.locked = true;
 		const lockedUpdate = await codeOf(async () =>
 			current.workspaces.updateItem(ws.name, "items-1", 1, {
+				id: "items-1",
 				title: "x",
 				status: "todo",
 			}),
@@ -574,12 +633,14 @@ describe("the local item source writes rows at a revision", () => {
 			invalidData: (
 				await codeOf(async () =>
 					current.workspaces.updateItem(ws.name, "items-2", 1, {
+						id: "items-2",
 						status: "todo",
 					}),
 				)
 			).split("\n")[0],
 			engineStale: await codeOf(async () =>
 				current.workspaces.updateItem(ws.name, "items-2", 9, {
+					id: "items-2",
 					title: "x",
 					status: "todo",
 				}),

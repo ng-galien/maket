@@ -17,6 +17,7 @@ export const MESSAGE_KEYS = [
 	"msg_state_path_not_bound",
 	"msg_state_revision_not_found",
 	"msg_state_revision_conflict",
+	"msg_item_identity_kept",
 	"msg_state_no_revision",
 	"msg_state_invalid",
 	"msg_state_not_object",

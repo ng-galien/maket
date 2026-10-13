@@ -225,6 +225,15 @@ describe("maket_learn structured-workspaces method", () => {
 		expect(STRUCTURED_WORKSPACE_METHOD[0]?.title).toContain(
 			"data schema alone",
 		);
+		const [create] = STRUCTURED_WORKSPACE_METHOD[0]?.steps ?? [];
+		expect(create?.args).not.toHaveProperty("representation_schema");
+		expect(create?.args.data_schema).toMatchObject({
+			properties: { id: { type: "string" } },
+			required: expect.arrayContaining(["id"]),
+		});
+		for (const failure of STRUCTURED_WORKSPACE_FAILURES)
+			expect(failure.fix).not.toMatch(/identity[^.]*\/title/);
+		expect(agent).toContain("unique across the whole Workspace");
 		expect(STRUCTURED_WORKSPACE_METHOD[1]?.title).toContain("inline");
 		expect(STRUCTURED_WORKSPACE_METHOD[2]?.title).toContain("named");
 		for (const step of STRUCTURED_WORKSPACE_METHOD.flatMap(

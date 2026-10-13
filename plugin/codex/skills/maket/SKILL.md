@@ -13,9 +13,9 @@ Start with `maket_learn action=overview audience=agent`, then ask for focused to
 
 Build a Structured Workspace with the method of `maket_learn action=topic topic=structured-workspaces`. Its first path, from a data schema alone:
 
-1. maket_structured_workspace {"action":"create","workspace":"<name>","data_schema":<JSON Schema object>}
+1. maket_structured_workspace {"action":"create","workspace":"<name>","data_schema":<JSON Schema object with a required "id" string property>}
 2. Read the answer: `Verdict: ready.`, the collection id `items` and the binding id `item`.
-3. maket_structured_workspace {"action":"add_item","workspace":"<name>","collection":"items","binding":"item","document_name":"<item name>","data":<item JSON>}
+3. maket_structured_workspace {"action":"add_item","workspace":"<name>","collection":"items","binding":"item","document_name":"<item name>","data":<item JSON with its own "id">}
 4. maket_structured_workspace {"action":"check","workspace":"<name>"} must answer "verdict": "ready".
 5. On an error answer, apply every `Fix:` line and call again; the full method: maket_learn action=topic topic=structured-workspaces.
 

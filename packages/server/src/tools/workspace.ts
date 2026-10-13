@@ -148,7 +148,7 @@ function runState(
 	collectionCursors: CollectionCursors,
 ) {
 	if (!args.doc) return text("doc is required for action=state", true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	const pendingCount = pending.forDoc(d.name).length;
 	const displayed = d._displayed === true;
@@ -185,7 +185,7 @@ function cursorLine(view: CollectionCursorView): string {
 
 function runLock(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=lock", true);
-	const d = documents.resolve(args.doc);
+	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
 	if (!d.meta) d.meta = {};
 	const next = args.locked ?? !(d.meta.locked === true);

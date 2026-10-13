@@ -22,8 +22,9 @@ const taskSchema = {
 		kind: { const: "task" },
 		title: { type: "string" },
 		done: { type: "boolean" },
+		id: { type: "string" },
 	},
-	required: ["kind", "title", "done"],
+	required: ["kind", "title", "done", "id"],
 	additionalProperties: false,
 };
 
@@ -33,8 +34,9 @@ const decisionSchema = {
 		kind: { const: "decision" },
 		title: { type: "string" },
 		outcome: { type: "string" },
+		id: { type: "string" },
 	},
-	required: ["kind", "title", "outcome"],
+	required: ["kind", "title", "outcome", "id"],
 	additionalProperties: false,
 };
 
@@ -94,6 +96,7 @@ function fixture(path = ":memory:") {
 			collections: {
 				backlog: {
 					name: "Backlog",
+					identity: "/id",
 					collectionTemplateDocumentId: collectionTemplate.name,
 					bindings: {
 						task: {
@@ -126,7 +129,7 @@ async function addTask(
 		collectionId: "backlog",
 		bindingId: "task",
 		documentName: "Ship the release",
-		data: { kind: "task", title: "Ship", done: false },
+		data: { id: "task-1", kind: "task", title: "Ship", done: false },
 	});
 }
 
@@ -177,7 +180,7 @@ describe("StructuredWorkspaces item names and missing data", () => {
 			collectionId: "backlog",
 			bindingId: "task",
 			documentName: "Write the notes",
-			data: { kind: "task", title: "Notes", done: false },
+			data: { id: "task-2", kind: "task", title: "Notes", done: false },
 		});
 		raw.exec(
 			"UPDATE structured_workspace_items SET data = NULL WHERE id = 'task-1'",
@@ -211,6 +214,7 @@ describe("StructuredWorkspaces item names and missing data", () => {
 		);
 
 		await workspaces.updateItem("Delivery", "task-1", 1, {
+			id: "task-1",
 			kind: "task",
 			title: "Ship again",
 			done: false,
@@ -299,7 +303,7 @@ describe("StructuredWorkspaces", () => {
 			schema: taskSchema,
 			data: { kind: "task", title: "Ship", done: false },
 		});
-		expect(store.loadStructuredWorkspace("Delivery")?.items).toEqual([
+		expect(store.loadOpenedStructuredWorkspaceItems(workspace.id)).toEqual([
 			expect.objectContaining({
 				id: "task-1",
 				collectionId: "backlog",
@@ -318,7 +322,12 @@ describe("StructuredWorkspaces", () => {
 				collectionId: "backlog",
 				bindingId: "task",
 				documentName: "Wrong binding",
-				data: { kind: "decision", title: "Choose", outcome: "Go" },
+				data: {
+					id: "choice",
+					kind: "decision",
+					title: "Choose",
+					outcome: "Go",
+				},
 			}),
 		).rejects.toThrow(/Invalid item data/);
 		expect(workspaces.get("Delivery")?.itemCounts.backlog).toBe(0);
@@ -540,9 +549,12 @@ describe("StructuredWorkspaces", () => {
 			windowsOf(workspaces)
 				.current(workspace.id, "backlog")
 				.items.map((item) => [item.revision, item.fields]);
-		expect(fieldsOf()).toEqual([["1", { title: "Ship", done: false }]]);
+		expect(fieldsOf()).toEqual([
+			["1", { id: "task-1", title: "Ship", done: false }],
+		]);
 		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
+				id: "task-1",
 				kind: "task",
 				title: "Ship now",
 				done: true,
@@ -557,9 +569,12 @@ describe("StructuredWorkspaces", () => {
 			revision: 2,
 			data: { kind: "task", title: "Ship now", done: true },
 		});
-		expect(fieldsOf()).toEqual([["2", { title: "Ship now", done: true }]]);
+		expect(fieldsOf()).toEqual([
+			["2", { id: "task-1", title: "Ship now", done: true }],
+		]);
 		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
+				id: "task-1",
 				kind: "task",
 				title: "Stale",
 				done: false,
@@ -593,6 +608,7 @@ describe("StructuredWorkspaces", () => {
 
 		await expect(
 			mutations.update(item.documentName, 1, {
+				id: "task-1",
 				kind: "task",
 				title: "Ship from live controls",
 				done: true,
@@ -627,7 +643,12 @@ describe("StructuredWorkspaces", () => {
 		expect(documentStates.history(item.documentName)).toEqual([
 			expect.objectContaining({
 				revision: 2,
-				data: { kind: "task", title: "Ship from live controls", done: true },
+				data: {
+					id: "task-1",
+					kind: "task",
+					title: "Ship from live controls",
+					done: true,
+				},
 			}),
 		]);
 		store.close();
@@ -911,11 +932,12 @@ describe("StructuredWorkspaces", () => {
 		const incomplete = workspaces.create({
 			name: "Needs templates",
 			allowIncomplete: true,
-			dataSchema: {},
+			dataSchema: { properties: { id: { type: "string" } }, required: ["id"] },
 			representationSchema: {
 				version: 1,
 				collections: {
 					missing: {
+						identity: "/id",
 						name: "Missing",
 						collectionTemplateDocumentId: "missing-collection",
 						bindings: {
@@ -1165,15 +1187,17 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			dataSchema: {
 				type: "object",
 				properties: {
+					id: { type: "string" },
 					title: { type: "string" },
 					status: { type: "string", enum: ["live", "paused", "dormant"] },
 				},
-				required: ["title", "status"],
+				required: ["id", "title", "status"],
 			},
 			representationSchema: {
 				version: 1,
 				collections: {
 					projects: {
+						identity: "/id",
 						name: "Projects",
 						collectionTemplateDocumentId: board.name,
 						bindings: {
@@ -1207,7 +1231,11 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 				collectionId: "projects",
 				bindingId: "project",
 				documentName: `Project ${index}`,
-				data: { title: `Project ${index}`, status: statusOf(index) },
+				data: {
+					id: `project-${index}`,
+					title: `Project ${index}`,
+					status: statusOf(index),
+				},
 			});
 		}
 	}
@@ -1297,7 +1325,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			collectionId: "projects",
 			bindingId: "project",
 			documentName: "Project extra",
-			data: { title: "Extra", status: "dormant" },
+			data: { id: "project-extra", title: "Extra", status: "dormant" },
 		});
 		expect(
 			workspaces
@@ -1370,6 +1398,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 				bindingId: "project",
 				documentName: name,
 				data: {
+					id: name,
 					title: name,
 					status,
 					...(place === undefined ? {} : { place }),
@@ -1411,6 +1440,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		const item = workspaces.getItem(workspace.id, "L-a");
 		if (!item) throw new Error("Item L-a missing.");
 		await workspaces.updateItem("Portfolio", "L-a", item.dataRevision, {
+			id: "L-a",
 			title: "L-a",
 			status: "live",
 			place: 0,
@@ -1560,13 +1590,14 @@ describe("StructuredWorkspaces compact template styles", () => {
 			name: "Topics",
 			dataSchema: {
 				type: "object",
-				properties: { title: { type: "string" } },
-				required: ["title"],
+				properties: { id: { type: "string" }, title: { type: "string" } },
+				required: ["id", "title"],
 			},
 			representationSchema: {
 				version: 1,
 				collections: {
 					topics: {
+						identity: "/id",
 						name: "Topics",
 						collectionTemplateDocumentId: index.name,
 						bindings: {
@@ -1586,7 +1617,7 @@ describe("StructuredWorkspaces compact template styles", () => {
 				collectionId: "topics",
 				bindingId: "topic",
 				documentName: `Topic ${title}`,
-				data: { title },
+				data: { id: title, title },
 			});
 		}
 
@@ -1629,8 +1660,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		properties: {
 			title: { type: "string" },
 			status: { type: "string", enum: ["open", "done"] },
+			id: { type: "string" },
 		},
-		required: ["title", "status"],
+		required: ["title", "status", "id"],
 		additionalProperties: false,
 	};
 
@@ -1653,6 +1685,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		const view = workspaces.get(workspace.id);
 		expect(view?.integrity.status).toBe("ready");
@@ -1686,6 +1721,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 				representationSchema: {
 					collections: {
 						shelf: {
+							identity: "/id",
 							name: "Shelf",
 							groupBy: "/genre",
 							bindings: { book: { detailTemplateDocumentId: "Book page" } },
@@ -1726,7 +1762,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
-			representationSchema: { collections: { shelf: { groupBy: "/genre" } } },
+			representationSchema: {
+				collections: { shelf: { identity: "/id", groupBy: "/genre" } },
+			},
 			allowIncomplete: true,
 		});
 		expect(workspaces.check(workspace.id)).toMatchObject({
@@ -1743,6 +1781,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		const before = workspaces.get(workspace.id);
 		expect(() =>
@@ -1768,6 +1809,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		for (const name of [
 			"Books — Items — index template",
@@ -1810,6 +1854,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		const oldDetail = documents.resolve("Books — Items — detail template");
 		workspaces.updateDefinition({
@@ -1872,6 +1919,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		workspaces.get(workspace.id);
 		for (const name of ["Books — Items — index template", "Books — Items"])
@@ -1900,6 +1950,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 			representationSchema: {
 				collections: {
 					items: {
+						identity: "/id",
 						name: "Items",
 						indexTemplateHtml:
 							'<main data-id="shelf"><section data-maket-structured-items></section></main>',
@@ -1918,6 +1969,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		workspaces.get(workspace.id);
 		const { template, collection } = legacyWorkspace(documents);
@@ -1959,6 +2013,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		workspaces.get(workspace.id);
 		const { template, collection } = legacyWorkspace(documents);
@@ -1980,6 +2037,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		workspaces.get(workspace.id);
 		const { template, collection } = legacyWorkspace(documents);
@@ -2016,6 +2076,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 			const workspace = workspaces.create({
 				name: "Books",
 				dataSchema: bookSchema,
+				representationSchema: {
+					collections: { items: { name: "Items", identity: "/id" } },
+				},
 			});
 			workspaces.get(workspace.id);
 			const template = documents.resolve("Books — Items — index template");
@@ -2047,7 +2110,11 @@ describe("StructuredWorkspaces definition control and check", () => {
 			dataSchema: bookSchema,
 			representationSchema: {
 				collections: {
-					items: { name: "Items", indexTemplateHtml: legacyIndexHtml("Items") },
+					items: {
+						identity: "/id",
+						name: "Items",
+						indexTemplateHtml: legacyIndexHtml("Items"),
+					},
 				},
 			},
 		});
@@ -2089,6 +2156,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		workspaces.get(workspace.id);
 		const { template } = legacyWorkspace(documents);
@@ -2116,8 +2186,10 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Livres",
 			dataSchema: {
+				required: ["id"],
 				type: "object",
 				properties: {
+					id: { type: "string" },
 					titre: { type: "string" },
 					année: { type: "integer" },
 					adresse: {
@@ -2130,6 +2202,9 @@ describe("StructuredWorkspaces definition control and check", () => {
 					},
 					"a b": { type: "string" },
 				},
+			},
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
 			},
 		});
 		expect(
@@ -2151,7 +2226,14 @@ describe("StructuredWorkspaces definition control and check", () => {
 
 	it("points a oneOf binding at a concrete branch", async () => {
 		const { store, documents, workspaces } = bare();
-		const generated = workspaces.create({ name: "Delivery", dataSchema });
+		const generated = workspaces.create({
+			name: "Delivery",
+			dataSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
+			allowIncomplete: true,
+		});
 		expect(workspaces.check(generated.id).findings).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -2171,7 +2253,10 @@ describe("StructuredWorkspaces definition control and check", () => {
 				dataSchema,
 				representationSchema: {
 					collections: {
-						items: { detailTemplateHtml: "<h1>{{ state.title }}</h1>" },
+						items: {
+							identity: "/id",
+							detailTemplateHtml: "<h1>{{ state.title }}</h1>",
+						},
 					},
 				},
 			});
@@ -2208,7 +2293,12 @@ describe("StructuredWorkspaces definition control and check", () => {
 				name: "Books",
 				dataSchema: bookSchema,
 				representationSchema: {
-					collections: { items: { collectionTemplateDocumentId: "Bok index" } },
+					collections: {
+						items: {
+							identity: "/id",
+							collectionTemplateDocumentId: "Bok index",
+						},
+					},
 				},
 			}),
 		).toThrow();
@@ -2217,7 +2307,12 @@ describe("StructuredWorkspaces definition control and check", () => {
 				name: "Books",
 				dataSchema: bookSchema,
 				representationSchema: {
-					collections: { items: { collectionTemplateDocumentId: "Bok index" } },
+					collections: {
+						items: {
+							identity: "/id",
+							collectionTemplateDocumentId: "Bok index",
+						},
+					},
 				},
 			});
 		} catch (error) {
@@ -2235,8 +2330,8 @@ describe("StructuredWorkspaces definition control and check", () => {
 			oneOf: [
 				{
 					type: "object",
-					properties: { title: { type: "string" } },
-					required: ["title"],
+					properties: { title: { type: "string" }, id: { type: "string" } },
+					required: ["title", "id"],
 				},
 				{ type: "object", properties: { name: { type: "string" } } },
 			],
@@ -2244,6 +2339,10 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Alternatives",
 			dataSchema: alternatives,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
+			allowIncomplete: true,
 		});
 		const hint = workspaces
 			.check(workspace.id)
@@ -2286,13 +2385,18 @@ describe("StructuredWorkspaces definition control and check", () => {
 			refusal = error;
 		}
 		if (!isStructuredWorkspaceRefusal(refusal)) throw new Error("No refusal.");
-		expect(refusal.findings[0]?.fix).toContain('"/oneOf/0"');
+		expect(
+			refusal.findings.some((finding) => finding.fix.includes('"/oneOf/0"')),
+		).toBe(true);
 		const fixed = workspaces.create({
 			name: "Inline alternatives",
 			dataSchema: alternatives,
 			representationSchema: {
 				collections: {
-					items: { bindings: { item: { schemaPath: "/oneOf/0", ...inline } } },
+					items: {
+						identity: "/id",
+						bindings: { item: { schemaPath: "/oneOf/0", ...inline } },
+					},
 				},
 			},
 		});
@@ -2344,6 +2448,7 @@ describe("StructuredWorkspaces definition control and check", () => {
 			representationSchema: {
 				collections: {
 					items: {
+						identity: "/id",
 						name: "Items",
 						collectionTemplateDocumentId: "Shelf index",
 						bindings: { item: { detailTemplateDocumentId: "Shelf detail" } },
@@ -2393,20 +2498,23 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const workspace = workspaces.create({
 			name: "Books",
 			dataSchema: bookSchema,
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		const first = await workspaces.addItem({
 			workspace: workspace.id,
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Dune",
-			data: { title: "Dune", status: "open" },
+			data: { id: "dune", title: "Dune", status: "open" },
 		});
 		const second = await workspaces.addItem({
 			workspace: workspace.id,
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Emma",
-			data: { title: "Emma", status: "done" },
+			data: { id: "emma", title: "Emma", status: "done" },
 		});
 		expect(workspaces.check(workspace.id)).toEqual({
 			workspace: "Books",
@@ -2440,10 +2548,17 @@ describe("StructuredWorkspaces definition control and check", () => {
 		const detail = documents.resolve("Books — Items — detail template");
 		if (!detail?.pages[0]) throw new Error("Detail missing.");
 		detail.pages[0].html = `${detail.pages[0].html}<p data-id="note">Note</p>`;
-		const loadItem = store.loadStructuredWorkspaceItem.bind(store);
-		vi.spyOn(store, "loadStructuredWorkspaceItem").mockImplementation(
-			(workspaceId, itemId) =>
-				itemId === first.id ? null : loadItem(workspaceId, itemId),
+		const loadBatch = store.loadStructuredWorkspaceItemBatch.bind(store);
+		vi.spyOn(store, "loadStructuredWorkspaceItemBatch").mockImplementation(
+			(query) => {
+				const result = loadBatch(query);
+				return {
+					...result,
+					rows: result.rows.map((row) =>
+						row.id === first.id ? { ...row, data: null } : row,
+					),
+				};
+			},
 		);
 		const check = workspaces.check(workspace.id);
 		expect(check.verdict).toBe("not ready");

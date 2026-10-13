@@ -124,7 +124,14 @@ describe("createAppContainer", () => {
 		const itemSources = c.resolve<ItemSources>("itemSources");
 		const workspace = workspaces.create({
 			name: "Registry",
-			dataSchema: { type: "object", properties: { title: { type: "string" } } },
+			dataSchema: {
+				required: ["id"],
+				type: "object",
+				properties: { id: { type: "string" }, title: { type: "string" } },
+			},
+			representationSchema: {
+				collections: { items: { name: "Items", identity: "/id" } },
+			},
 		});
 		await workspaces.addItem({
 			workspace: workspace.id,
@@ -132,11 +139,11 @@ describe("createAppContainer", () => {
 			collectionId: "items",
 			bindingId: "item",
 			documentName: "Registry one",
-			data: { title: "One" },
+			data: { id: "one", title: "One" },
 		});
 		const source = itemSources.sourceFor(workspace.id);
 		expect(itemSources.sourceFor(workspace.id)).toBe(source);
-		expect(source.get("one")?.data).toEqual({ title: "One" });
+		expect(source.get("one")?.data).toEqual({ id: "one", title: "One" });
 		workspaces.delete(workspace.id);
 		let closedCode: string | undefined;
 		try {

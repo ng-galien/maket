@@ -30,10 +30,14 @@ const dataSchema = {
 			properties: { city: { type: "string" }, zip: { type: "string" } },
 			additionalProperties: false,
 		},
+		id: { type: "string" },
 	},
-	required: ["title", "status"],
+	required: ["title", "status", "id"],
 	additionalProperties: false,
 };
+
+/** Every collection identifies its items by the `id` property. */
+const identity = "/id";
 
 const cities = ["Lyon", "Paris", "Nantes", "Brest"];
 const statuses = ["todo", "doing", "done"];
@@ -111,7 +115,7 @@ async function fill(
 			collectionId,
 			bindingId: "item",
 			documentName: `${workspace} item ${index}`,
-			data: itemData(index),
+			data: { id: `${collectionId}-${index}`, ...itemData(index) },
 		});
 	}
 }
@@ -119,7 +123,14 @@ async function fill(
 async function buildUngrouped(
 	workspaces: Scenario["workspaces"],
 ): Promise<string> {
-	const workspace = workspaces.create({ name: "Ungrouped", dataSchema });
+	const workspace = workspaces.create({
+		name: "Ungrouped",
+		dataSchema,
+		representationSchema: {
+			version: 1,
+			collections: { items: { name: "Items", identity } },
+		},
+	});
 	await fill(workspaces, workspace.name, "items");
 	return workspace.id;
 }
@@ -135,6 +146,7 @@ async function buildGroupedSorted(
 			collections: {
 				items: {
 					name: "Items",
+					identity,
 					groupBy: "/status",
 					groupOrder: ["doing", "todo"],
 					sortBy: "/priority",
@@ -158,6 +170,7 @@ async function buildPagedA4(
 			collections: {
 				board: {
 					name: "Board",
+					identity,
 					groupBy: "/status",
 					sortBy: "/title",
 					pageSize: 6,
@@ -243,14 +256,15 @@ function headCapture(file: string): unknown {
 }
 
 /** The HEAD view under the new contract: no item data, the item count of
- * each collection and no pinned item instead. */
+ * each collection and no pinned item instead; the data schema declares the
+ * `id` property and every collection identifies its items by it. */
 function lightView(head: HeadView) {
 	const { items, ...definition } = head;
 	const collections = Object.keys(
 		(definition.representationSchema as { collections: object }).collections,
 	);
 	return {
-		...definition,
+		...withIdentity(definition),
 		itemCounts: Object.fromEntries(
 			collections.map((id) => [
 				id,
@@ -258,6 +272,27 @@ function lightView(head: HeadView) {
 			]),
 		),
 		pinnedItems: [],
+	};
+}
+
+/** A HEAD definition with the identity this test declares: the `id`
+ * property required by the data schema, `identity` on every collection. */
+function withIdentity(definition: Record<string, unknown>) {
+	const schema = structuredClone(definition.dataSchema) as {
+		properties: Record<string, unknown>;
+		required: string[];
+	};
+	schema.properties.id = { type: "string" };
+	schema.required.push("id");
+	const representation = structuredClone(definition.representationSchema) as {
+		collections: Record<string, Record<string, unknown>>;
+	};
+	for (const collection of Object.values(representation.collections))
+		collection.identity = identity;
+	return {
+		...definition,
+		dataSchema: schema,
+		representationSchema: representation,
 	};
 }
 
@@ -354,7 +389,7 @@ describe("Structured Workspaces composition from the collection window", () => {
 				expect(item.documentName).toBe(headItem?.documentName);
 				expect(item.revision).toBe(headItem?.dataRevision);
 				for (const [key, value] of Object.entries(item.fields))
-					expect(headItem?.data[key]).toEqual(value);
+					expect(key === "id" ? item.id : headItem?.data[key]).toEqual(value);
 			}
 			expect(new Set(window.items.map((item) => item.id))).toEqual(
 				new Set(headItems.keys()),
@@ -366,7 +401,14 @@ describe("Structured Workspaces composition from the collection window", () => {
 describe("Structured Workspaces read cost", () => {
 	it("lists ten items without reading an item row and with at most the increment (a) HEAD resolveById count", async () => {
 		const current = scenario();
-		const workspace = current.workspaces.create({ name: "Cost", dataSchema });
+		const workspace = current.workspaces.create({
+			name: "Cost",
+			dataSchema,
+			representationSchema: {
+				version: 1,
+				collections: { items: { name: "Items", identity } },
+			},
+		});
 		for (let index = 1; index <= 10; index += 1)
 			await current.workspaces.addItem({
 				workspace: workspace.name,
@@ -374,7 +416,7 @@ describe("Structured Workspaces read cost", () => {
 				collectionId: "items",
 				bindingId: "item",
 				documentName: `Cost ${index}`,
-				data: itemData(index),
+				data: { id: `cost-${index}`, ...itemData(index) },
 			});
 		const resolveById = vi.spyOn(current.documents, "resolveById");
 		const itemRows = vi.spyOn(current.store, "loadStructuredWorkspaceItem");

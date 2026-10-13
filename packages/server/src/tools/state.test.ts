@@ -238,8 +238,8 @@ describe("maket_state revision retention on Workspace documents", () => {
 				$defs: {
 					topic: {
 						type: "object",
-						properties: { title: { type: "string" } },
-						required: ["title"],
+						properties: { title: { type: "string" }, id: { type: "string" } },
+						required: ["title", "id"],
 					},
 				},
 			},
@@ -248,6 +248,7 @@ describe("maket_state revision retention on Workspace documents", () => {
 				collections: {
 					topics: {
 						name: "Topics",
+						identity: "/id",
 						collectionTemplateDocumentId: "Topic board",
 						bindings: {
 							topic: {
@@ -265,7 +266,7 @@ describe("maket_state revision retention on Workspace documents", () => {
 			collectionId: "topics",
 			bindingId: "topic",
 			documentName: "Topic one",
-			data: { title: "v0" },
+			data: { id: "topic-1", title: "v0" },
 		});
 		const workspaceId = workspaces.get("Graph")?.id;
 		if (!workspaceId) throw new Error("Workspace missing.");
@@ -293,13 +294,14 @@ describe("maket_state revision retention on Workspace documents", () => {
 
 		for (let step = 1; step <= 4; step += 1) {
 			await workspaces.updateItem("Graph", "topic-1", step, {
+				id: "topic-1",
 				title: `v${step}`,
 			});
 		}
 
 		const itemHistory = documentStates.history(item.documentName);
 		expect(itemHistory.map(({ revision }) => revision)).toEqual([5]);
-		expect(itemHistory[0]?.data).toEqual({ title: "v4" });
+		expect(itemHistory[0]?.data).toEqual({ id: "topic-1", title: "v4" });
 		expect(
 			store.loadStructuredWorkspaceItem(workspaceId, "topic-1"),
 		).toMatchObject({ revision: 5, data: { title: "v4" } });
@@ -503,8 +505,9 @@ describe("maket_state", () => {
 				properties: {
 					kind: { const: "task" },
 					title: { type: "string" },
+					id: { type: "string" },
 				},
-				required: ["kind", "title"],
+				required: ["kind", "title", "id"],
 				additionalProperties: false,
 				$defs: {
 					item: {
@@ -512,8 +515,9 @@ describe("maket_state", () => {
 						properties: {
 							kind: { type: "string" },
 							title: { type: "string" },
+							id: { type: "string" },
 						},
-						required: ["kind", "title"],
+						required: ["kind", "title", "id"],
 						additionalProperties: false,
 					},
 				},
@@ -523,6 +527,7 @@ describe("maket_state", () => {
 				collections: {
 					backlog: {
 						name: "Backlog",
+						identity: "/id",
 						collectionTemplateDocumentId: collectionTemplate.name,
 						bindings: {
 							task: {
@@ -540,7 +545,7 @@ describe("maket_state", () => {
 			collectionId: "backlog",
 			bindingId: "task",
 			documentName: "Ship",
-			data: { kind: "task", title: "Ship" },
+			data: { id: "task-1", kind: "task", title: "Ship" },
 		});
 		const collectionName =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;

@@ -32,8 +32,8 @@ export function createAnnotations({
 	return {
 		create(annotation) {
 			const { edited: _edited, editedAt: _editedAt, ...fresh } = annotation;
-			store.saveAnnotation(fresh);
-			bus.emit("annotations:changed", {});
+			const documentId = store.saveAnnotation(fresh);
+			bus.emit("annotations:changed", documentId ? { documentId } : {});
 		},
 		forDoc(docName) {
 			return store

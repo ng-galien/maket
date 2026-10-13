@@ -3,9 +3,11 @@
  * pushed down to SQLite, keyset pagination after the last row's key.
  *
  * Index order: group rank (the `group.order` values first, then the other
- * values by first position), then the sort value (items without one last in
- * both directions; numbers, then text, then booleans), then position, then id.
- * Group keys and filter values compare as JSON text, so "1" and 1 differ.
+ * values by first sequence), then, under a sort, the sort value (items
+ * without one last in both directions; numbers, then text, then booleans)
+ * and the id, else the insertion sequence and the id. The cursor key holds
+ * exactly these columns. Group keys and filter values compare as JSON text,
+ * so "1" and 1 differ. Text search folds case and accents on both sides.
  */
 
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
@@ -14,7 +16,8 @@ import type { StructuredWorkspaceGroupValue } from "@maket/shared";
 export interface StoredItemQuery {
 	workspaceId: string;
 	collectionId: string;
-	/** Rows whose value at one of `paths` contains `value`, ignoring ASCII case. */
+	/** Rows whose value at one of `paths` contains `value`, ignoring case and
+	 * accents. */
 	text?: { value: string; paths: string[] };
 	/** Rows whose value at `path` is one of `values`. */
 	filters?: Array<{ path: string; values: StructuredWorkspaceGroupValue[] }>;
@@ -28,14 +31,16 @@ export interface StoredItemQuery {
 /** Where a row sits in index order. */
 export interface StoredItemKey {
 	group?: { key: string; rank: number };
+	/** Under a sort: the sort value, then the id. */
 	sort?: { missing: number; type: number; value: string | number };
-	position: number;
+	/** Without a sort: the insertion sequence, then the id. */
+	sequence?: number;
 	id: string;
 }
 
 export interface StoredItemQueryRow {
 	id: string;
-	position: number;
+	sequence: number;
 	collectionId: string;
 	bindingId: string;
 	documentId: string;
@@ -53,6 +58,15 @@ export interface StoredItemQueryResult {
 }
 
 export const sortTextFunction = "maket_sort_text";
+export const searchTextFunction = "maket_search_text";
+
+/** Text as search compares it: lower case, accents removed. */
+export function searchText(value: unknown): string {
+	return String(value)
+		.normalize("NFD")
+		.replace(/\p{M}+/gu, "")
+		.toLowerCase();
+}
 
 /** Text as the index orders it: case folded, digit runs compared by value. */
 export function sortText(value: unknown): string {
@@ -134,12 +148,12 @@ function baseClause(query: StoredItemQuery): Clause {
 	};
 	const where = ["workspace_id = $workspace", "collection_id = $collection"];
 	if (query.text && query.text.paths.length > 0) {
-		params.$pattern = `%${query.text.value.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+		params.$pattern = `%${searchText(query.text.value).replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
 		where.push(
 			`(${query.text.paths
 				.map((path, index) => {
 					params[`$text${index}`] = jsonPath(path);
-					return `json_extract(data, $text${index}) LIKE $pattern ESCAPE '\\'`;
+					return `${searchTextFunction}(json_extract(data, $text${index})) LIKE $pattern ESCAPE '\\'`;
 				})
 				.join(" OR ")})`,
 		);
@@ -147,7 +161,7 @@ function baseClause(query: StoredItemQuery): Clause {
 	where.push(...filterClauses(query.filters ?? [], params));
 	const columns = [
 		"id",
-		"position",
+		"sequence",
 		"collection_id",
 		"binding_id",
 		"document_id",
@@ -191,8 +205,8 @@ function filterClauses(
 	});
 }
 
-/** Rows and first position per group key, ranked: the ordered values first,
- * the others by first position. */
+/** Rows and first sequence per group key, ranked: the ordered values first,
+ * the others by first sequence. */
 function groupClause(query: StoredItemQuery): Clause | null {
 	if (!query.group) return null;
 	const params: Record<string, SQLInputValue> = {};
@@ -204,7 +218,7 @@ function groupClause(query: StoredItemQuery): Clause | null {
 		? `CASE gkey ${ordered.join(" ")} ELSE NULL END`
 		: "NULL";
 	return {
-		sql: `counted AS (SELECT gkey, count(*) AS gcount, min(position) AS first, ${rank} AS ordered FROM base GROUP BY gkey), groups AS (SELECT gkey, gcount, coalesce(ordered, ${ordered.length} + row_number() OVER (PARTITION BY ordered IS NULL ORDER BY first)) AS grank FROM counted)`,
+		sql: `counted AS (SELECT gkey, count(*) AS gcount, min(sequence) AS first, ${rank} AS ordered FROM base GROUP BY gkey), groups AS (SELECT gkey, gcount, coalesce(ordered, ${ordered.length} + row_number() OVER (PARTITION BY ordered IS NULL ORDER BY first)) AS grank FROM counted)`,
 		params,
 	};
 }
@@ -246,12 +260,13 @@ function orderColumns(query: StoredItemQuery): OrderColumn[] {
 						value: (key: StoredItemKey) => key.sort?.value ?? 0,
 					},
 				]
-			: []),
-		{
-			expr: "position",
-			direction: "ASC",
-			value: (key) => key.position,
-		},
+			: [
+					{
+						expr: "sequence",
+						direction: "ASC" as const,
+						value: (key: StoredItemKey) => key.sequence ?? 0,
+					},
+				]),
 		{ expr: "id", direction: "ASC", value: (key) => key.id },
 	];
 }
@@ -291,7 +306,7 @@ function afterClause(query: StoredItemQuery): Clause | null {
 
 interface RawRow {
 	id: string;
-	position: number;
+	sequence: number;
 	collection_id: string;
 	binding_id: string;
 	document_id: string;
@@ -308,7 +323,7 @@ interface RawRow {
 function queryRow(row: RawRow, query: StoredItemQuery): StoredItemQueryRow {
 	return {
 		id: row.id,
-		position: Number(row.position),
+		sequence: Number(row.sequence),
 		collectionId: row.collection_id,
 		bindingId: row.binding_id,
 		documentId: row.document_id,
@@ -333,8 +348,7 @@ function queryRow(row: RawRow, query: StoredItemQuery): StoredItemQueryRow {
 								typeof row.sval === "string" ? row.sval : Number(row.sval ?? 0),
 						},
 					}
-				: {}),
-			position: Number(row.position),
+				: { sequence: Number(row.sequence) }),
 			id: row.id,
 		},
 	};
