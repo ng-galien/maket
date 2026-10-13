@@ -439,10 +439,11 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					{showPageLabels && (pageViews.length > 1 || view.generatedLabel) && (
 						<span
 							data-reader-page-title={surface === "reader" ? "" : undefined}
+							title={surface === "reader" ? undefined : pageLabel(doc, view)}
 							className={
 								surface === "reader"
 									? "order-first mb-2 w-full break-words text-sm font-medium text-text-2"
-									: "text-text-3 mt-1"
+									: "text-text-3 mt-1 block overflow-hidden text-ellipsis whitespace-nowrap"
 							}
 							style={{
 								fontSize:
@@ -453,9 +454,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 								transformOrigin: "top center",
 							}}
 						>
-							{view.generatedLabel ??
-								doc.pages[view.pageIndex]?.name ??
-								`${view.pageIndex + 1} / ${doc.pages.length}`}
+							{pageLabel(doc, view)}
 						</span>
 					)}
 				</div>
@@ -535,3 +534,16 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 		</div>
 	);
 });
+
+/** The label shown between the pages of a document: the generated label,
+ * else the page name, else its number. */
+function pageLabel(
+	doc: Pick<Document, "pages">,
+	view: { pageIndex: number; generatedLabel?: string },
+): string {
+	return (
+		view.generatedLabel ??
+		doc.pages[view.pageIndex]?.name ??
+		`${view.pageIndex + 1} / ${doc.pages.length}`
+	);
+}

@@ -58,6 +58,34 @@ describe("WorkspaceDoc zoom rendering", () => {
 
 		expect(pageCanvasRender).toHaveBeenCalledOnce();
 	});
+
+	it("keeps a long page name on one truncated line at a far zoom, the full name in its title", () => {
+		const name =
+			"Quarterly results for every region, with the notes of the board meeting";
+		const paged: Document = {
+			...doc,
+			pages: [
+				{ id: "page-1", name, elements: [], html: "<p>One</p>" },
+				{ id: "page-2", name: "Page 2", elements: [], html: "<p>Two</p>" },
+			],
+		};
+		useStore.setState({ docs: new Map([[paged.name, paged]]) });
+		const view = render(<WorkspaceDoc docName={paged.name} zoomK={0.1} />);
+		const label = [...view.container.querySelectorAll("span")].find(
+			(span) => span.textContent === name,
+		);
+		expect(label?.getAttribute("title")).toBe(name);
+		expect(label?.className.split(" ")).toEqual(
+			expect.arrayContaining([
+				"block",
+				"overflow-hidden",
+				"text-ellipsis",
+				"whitespace-nowrap",
+			]),
+		);
+		expect(label?.style.fontSize).toBe("110px");
+		expect(label?.style.maxWidth).not.toBe("");
+	});
 });
 
 function assertLabelGeometry(container: HTMLElement, zoomK: number): void {
