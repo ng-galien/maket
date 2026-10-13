@@ -584,7 +584,9 @@ function renderCollectionPage(
 						groupIndex: 0,
 						count: 0,
 						continued: false,
-						cards: entries.flatMap((entry) => entry.cards),
+						cards: sortCollectionEntries(entries, collection).flatMap(
+							(entry) => entry.cards,
+						),
 					},
 				],
 			];
@@ -594,7 +596,10 @@ function renderCollectionPage(
 				entries,
 				collection.groupBy,
 				collection.groupOrder ?? [],
-			),
+			).map((group) => ({
+				...group,
+				entries: sortCollectionEntries(group.entries, collection),
+			})),
 			owner.doc.canvas.format === "AUTO"
 				? Number.POSITIVE_INFINITY
 				: (collection.pageSize ?? structuredWorkspaceDefaultPageSize),
@@ -762,6 +767,54 @@ function groupCollectionCards(
 		groups.set(key, group);
 	}
 	return [...groups.values()].filter((group) => group.entries.length > 0);
+}
+
+/** Entries ordered by `sortBy`; without it, insertion order. Items without a
+ * value come last in both directions; equal values keep insertion order. */
+function sortCollectionEntries(
+	entries: CollectionCardEntry[],
+	collection: Pick<
+		StructuredWorkspaceCollectionRepresentation,
+		"sortBy" | "sortDirection"
+	>,
+): CollectionCardEntry[] {
+	const { sortBy } = collection;
+	if (sortBy === undefined) return entries;
+	const sign = collection.sortDirection === "descending" ? -1 : 1;
+	return entries
+		.map((entry) => ({ entry, value: groupValue(entry.item.data, sortBy) }))
+		.sort((left, right) => {
+			const leftMissing = left.value === null;
+			const rightMissing = right.value === null;
+			if (leftMissing || rightMissing) {
+				return Number(leftMissing) - Number(rightMissing);
+			}
+			return sign * compareSortValues(left.value, right.value);
+		})
+		.map(({ entry }) => entry);
+}
+
+function compareSortValues(left: unknown, right: unknown): number {
+	const rank = (value: unknown) =>
+		typeof value === "number"
+			? 0
+			: typeof value === "string"
+				? 1
+				: typeof value === "boolean"
+					? 2
+					: 3;
+	const byRank = rank(left) - rank(right);
+	if (byRank !== 0) return byRank;
+	if (typeof left === "number" && typeof right === "number") {
+		return left - right;
+	}
+	if (typeof left === "string" && typeof right === "string") {
+		return left.localeCompare(right, undefined, { numeric: true });
+	}
+	if (typeof left === "boolean" && typeof right === "boolean") {
+		return Number(left) - Number(right);
+	}
+	return JSON.stringify(left).localeCompare(JSON.stringify(right));
 }
 
 function groupValue(data: Record<string, unknown>, groupBy: string): unknown {

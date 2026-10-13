@@ -951,6 +951,8 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			groupBy?: string;
 			groupOrder?: string[];
 			pageSize?: number;
+			sortBy?: string;
+			sortDirection?: "ascending" | "descending";
 		},
 		layout: {
 			auto?: boolean;
@@ -1189,6 +1191,139 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		expect(
 			rendered.pages.map((page) => pageSummary(page.html).cards.length),
 		).toEqual([1, 2]);
+		store.close();
+	});
+
+	function addPlacedProjects(
+		workspaces: ReturnType<typeof createStructuredWorkspaces>,
+		projects: Array<[string, string, number | undefined]>,
+	) {
+		for (const [name, status, place] of projects) {
+			workspaces.addItem({
+				workspace: "Portfolio",
+				itemId: name,
+				collectionId: "projects",
+				bindingId: "project",
+				documentName: name,
+				data: {
+					title: name,
+					status,
+					...(place === undefined ? {} : { place }),
+				},
+			});
+		}
+	}
+
+	function renderedCards(
+		workspaces: ReturnType<typeof createStructuredWorkspaces>,
+		workspaceId: string,
+	) {
+		return workspaces
+			.renderCollection(workspaceId, "projects")
+			.pages.map((page) => pageSummary(page.html));
+	}
+
+	it("sorts the cards of each group by sortBy, re-evaluated on item and definition changes", () => {
+		const { store, workspaces, workspace } = groupedFixture({
+			groupBy: "/status",
+			groupOrder: ["live", "paused"],
+			sortBy: "/place",
+		});
+		addPlacedProjects(workspaces, [
+			["P-a", "paused", 2],
+			["L-a", "live", 3],
+			["L-b", "live", undefined],
+			["L-c", "live", 1],
+			["P-b", "paused", 1],
+			["L-d", "live", 2],
+		]);
+		expect(renderedCards(workspaces, workspace.id)).toMatchObject([
+			{
+				headers: ["live:4", "paused:2"],
+				cards: ["L-c", "L-d", "L-a", "L-b", "P-b", "P-a"],
+			},
+		]);
+
+		const item = workspaces
+			.get(workspace.id)
+			?.items.find((candidate) => candidate.id === "L-a");
+		if (!item) throw new Error("Item L-a missing.");
+		workspaces.updateItem("Portfolio", "L-a", item.dataRevision, {
+			title: "L-a",
+			status: "live",
+			place: 0,
+		});
+		expect(renderedCards(workspaces, workspace.id)[0]?.cards).toEqual([
+			"L-a",
+			"L-c",
+			"L-d",
+			"L-b",
+			"P-b",
+			"P-a",
+		]);
+
+		const current = workspaces.get(workspace.id);
+		if (!current) throw new Error("Workspace missing.");
+		const representationSchema = structuredClone(current.representationSchema);
+		const collection = representationSchema.collections.projects;
+		if (!collection) throw new Error("Collection missing.");
+		collection.sortDirection = "descending";
+		const updated = workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: current.revision,
+			representationSchema,
+		});
+		expect(updated.representationSchema.collections.projects).toMatchObject({
+			sortBy: "/place",
+			sortDirection: "descending",
+		});
+		expect(renderedCards(workspaces, workspace.id)[0]?.cards).toEqual([
+			"L-d",
+			"L-c",
+			"L-a",
+			"L-b",
+			"P-a",
+			"P-b",
+		]);
+		store.close();
+	});
+
+	it("sorts the whole slot by sortBy without groupBy and keeps insertion order without sortBy", () => {
+		const sorted = groupedFixture({ sortBy: "/place" });
+		addPlacedProjects(sorted.workspaces, [
+			["A", "live", 3],
+			["B", "paused", 1],
+			["C", "dormant", 2],
+		]);
+		expect(
+			renderedCards(sorted.workspaces, sorted.workspace.id)[0]?.cards,
+		).toEqual(["B", "C", "A"]);
+		sorted.store.close();
+
+		const unsorted = groupedFixture({ groupBy: "/status" });
+		addPlacedProjects(unsorted.workspaces, [
+			["A", "live", 3],
+			["B", "live", 1],
+			["C", "live", 2],
+		]);
+		expect(
+			renderedCards(unsorted.workspaces, unsorted.workspace.id)[0]?.cards,
+		).toEqual(["A", "B", "C"]);
+		unsorted.store.close();
+	});
+
+	it("reports an invalid sort as an incomplete definition", () => {
+		const { store, workspaces } = groupedFixture({
+			sortBy: "place",
+			sortDirection: "upward" as "ascending",
+		});
+		expect(workspaces.get("Portfolio")?.integrity).toMatchObject({
+			status: "incomplete",
+			issues: expect.arrayContaining([
+				expect.stringContaining("sortBy must be a JSON Pointer"),
+				expect.stringContaining('sortDirection must be "ascending"'),
+			]),
+		});
 		store.close();
 	});
 

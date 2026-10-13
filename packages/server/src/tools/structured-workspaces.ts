@@ -28,6 +28,8 @@ const CollectionRepresentationSchema = z.object({
 		.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
 		.optional(),
 	pageSize: z.number().int().positive().optional(),
+	sortBy: z.string().optional(),
+	sortDirection: z.enum(["ascending", "descending"]).optional(),
 });
 
 const RepresentationSchema = z.object({
@@ -67,6 +69,7 @@ const DESCRIPTION = [
 	"",
 	"The data schema validates every item. The representation schema declares one or more collections; each collection owns its global template and binds concrete schema paths to compact and detail templates. Adding an item instantiates the detail template as a persistent state-backed document. Template-controlled pages are synchronized from the template; instance-owned pages remain in the same document.",
 	'Optional collection grouping: `groupBy` is a JSON Pointer into item data (e.g. "/status"), `groupOrder` lists group values to place first, and `pageSize` (default 24) caps the compact cards per collection page. With `groupBy`, each item slot receives a group header followed by its cards and the collection document flows onto as many pages as needed; without it, the collection stays one page.',
+	'Optional collection sort: `sortBy` is a JSON Pointer into item data (e.g. "/place") and `sortDirection` is "ascending" (default) or "descending"; cards are ordered by that value inside each group, or across the slot without `groupBy`, items without a value last and ties in insertion order; without `sortBy`, insertion order stays.',
 	"  list          — list Structured Workspaces.",
 	"  view          — read schemas, items, current data revisions, and instantiated documents.",
 	"  create        — create a workspace from data and representation schemas.",

@@ -177,6 +177,8 @@ describe("maket_structured_workspace", () => {
 								groupBy: "/status",
 								groupOrder: ["live", "dormant"],
 								pageSize: 12,
+								sortBy: "/place",
+								sortDirection: "descending",
 							},
 						},
 					},
@@ -195,6 +197,8 @@ describe("maket_structured_workspace", () => {
 				groupBy: "/status",
 				groupOrder: ["live", "dormant"],
 				pageSize: 12,
+				sortBy: "/place",
+				sortDirection: "descending",
 			});
 			const refused = await tool.handler(
 				{
@@ -210,6 +214,22 @@ describe("maket_structured_workspace", () => {
 			);
 			expect(refused.isError).toBe(true);
 			expect(textOf(refused)).toContain("pageSize");
+			const refusedSort = await tool.handler(
+				{
+					action: "update_definition",
+					workspace: "Grouped",
+					expected_workspace_revision: 2,
+					representation_schema: {
+						version: 1,
+						collections: {
+							items: { ...collection, sortBy: "/place", sortDirection: "up" },
+						},
+					},
+				},
+				{} as never,
+			);
+			expect(refusedSort.isError).toBe(true);
+			expect(textOf(refusedSort)).toContain("sortDirection");
 		} finally {
 			store.close();
 		}

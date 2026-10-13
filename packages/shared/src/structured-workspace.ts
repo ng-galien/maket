@@ -24,7 +24,15 @@ export interface StructuredWorkspaceCollectionRepresentation {
 	groupOrder?: StructuredWorkspaceGroupValue[];
 	/** Cards per collection page when grouping (default 24). */
 	pageSize?: number;
+	/** JSON Pointer into item data; cards are ordered by this value inside each
+	 * group (or the whole slot without grouping). Items without a value come
+	 * last; equal values keep insertion order. */
+	sortBy?: string;
+	/** Direction of `sortBy` (default ascending). */
+	sortDirection?: StructuredWorkspaceSortDirection;
 }
+
+export type StructuredWorkspaceSortDirection = "ascending" | "descending";
 
 export const structuredWorkspaceDefaultPageSize = 24;
 export const structuredWorkspaceMaxPageSize = 500;
@@ -176,6 +184,7 @@ function validateCollectionGrouping(
 			);
 		}
 	}
+	issues.push(...validateCollectionSort(collectionId, collection));
 	if (collection.groupOrder !== undefined) {
 		if (collection.groupBy === undefined) {
 			issues.push(`Collection "${collectionId}" groupOrder requires groupBy.`);
@@ -200,6 +209,42 @@ function validateCollectionGrouping(
 		) {
 			issues.push(
 				`Collection "${collectionId}" pageSize must be an integer from 1 to ${structuredWorkspaceMaxPageSize}.`,
+			);
+		}
+	}
+	return issues;
+}
+
+function validateCollectionSort(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): string[] {
+	const issues: string[] = [];
+	if (collection.sortBy !== undefined) {
+		try {
+			if (parseJsonPointer(collection.sortBy).length === 0) {
+				issues.push(
+					`Collection "${collectionId}" sortBy must point inside the item data, for example "/place".`,
+				);
+			}
+		} catch {
+			issues.push(
+				`Collection "${collectionId}" sortBy must be a JSON Pointer into the item data, for example "/place".`,
+			);
+		}
+	}
+	if (collection.sortDirection !== undefined) {
+		if (collection.sortBy === undefined) {
+			issues.push(
+				`Collection "${collectionId}" sortDirection requires sortBy.`,
+			);
+		}
+		if (
+			collection.sortDirection !== "ascending" &&
+			collection.sortDirection !== "descending"
+		) {
+			issues.push(
+				`Collection "${collectionId}" sortDirection must be "ascending" or "descending".`,
 			);
 		}
 	}
