@@ -284,3 +284,58 @@ describe("Annotation tool in Reader", () => {
 		},
 	);
 });
+
+describe("Annotate button pending count", () => {
+	it("shows the pending messages of the displayed document as they are left, edited, deleted and acknowledged", () => {
+		const doc = documentFixture("Électricité");
+		const message = (id: string, docName = doc.name) => ({
+			id,
+			type: "note" as const,
+			docName,
+			pageIndex: 0,
+			elementId: "body",
+			text: id,
+			ts: 0,
+		});
+		render(<AnnotationToggle doc={doc} />);
+		const toggle = screen.getByRole("button", { name: "Annotate" });
+		const badge = () =>
+			toggle.querySelector<HTMLElement>("[data-annotation-pending-count]");
+		expect(badge()).toBeNull();
+
+		act(() =>
+			useStore.setState({
+				pending: [message("title"), message("other", "Plomberie")],
+			}),
+		);
+		expect(badge()).toHaveTextContent("1");
+		act(() =>
+			useStore.setState({
+				pending: [
+					message("title"),
+					message("devis"),
+					message("other", "Plomberie"),
+				],
+			}),
+		);
+		expect(badge()).toHaveTextContent("2");
+		expect(toggle).toHaveAttribute(
+			"title",
+			"Leave messages · click an element or a page — 2 pending",
+		);
+
+		act(() =>
+			useStore.setState({
+				pending: [
+					{ ...message("title"), text: "changed", edited: true },
+					message("devis"),
+				],
+			}),
+		);
+		expect(badge()).toHaveTextContent("2");
+		act(() => useStore.setState({ pending: [message("devis")] }));
+		expect(badge()).toHaveTextContent("1");
+		act(() => useStore.setState({ pending: [] }));
+		expect(badge()).toBeNull();
+	});
+});

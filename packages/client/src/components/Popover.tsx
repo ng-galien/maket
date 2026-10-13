@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import { elementBox } from "../lib/annotationMarkers";
 import type { MessageAnchor } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { randomId } from "../utils";
@@ -39,7 +40,9 @@ function anchorElement(anchor: MessageAnchor): HTMLElement | null {
 function anchorRect(anchor: MessageAnchor): AnchorRect | null {
 	const element = anchorElement(anchor);
 	if (!element) return null;
-	const rect = element.getBoundingClientRect();
+	const rect = anchor.elementId
+		? elementBox(element)
+		: element.getBoundingClientRect();
 	if (anchor.elementId || !anchor.point) return rect;
 	const scaleX = element.offsetWidth ? rect.width / element.offsetWidth : 1;
 	const scaleY = element.offsetHeight ? rect.height / element.offsetHeight : 1;

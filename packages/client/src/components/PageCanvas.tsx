@@ -22,6 +22,12 @@ import {
 } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { translate, useT } from "../i18n/useT";
+import {
+	type AnnotationTarget,
+	elementBox,
+	pendingAnnotationTargets,
+	renderedElementBox,
+} from "../lib/annotationMarkers";
 import { prefixDocumentAssetUrls } from "../lib/browserBasePath";
 import { morphHtml } from "../lib/morph-html";
 import type { Document } from "../store/types";
@@ -151,13 +157,8 @@ function markedTemplateHtml(
 	}
 }
 
-interface AnnotationTarget {
-	elementId: string;
-	note: boolean;
-	deletion: boolean;
-}
-
 interface AnnotationMarkerBounds extends AnnotationTarget {
+	key: string;
 	left: number;
 	top: number;
 	width: number;
@@ -192,6 +193,7 @@ function sameAnnotationMarkers(
 			const candidate = next[index];
 			return (
 				candidate !== undefined &&
+				marker.key === candidate.key &&
 				marker.elementId === candidate.elementId &&
 				marker.note === candidate.note &&
 				marker.deletion === candidate.deletion &&
@@ -350,28 +352,13 @@ export const PageCanvas = memo(function PageCanvas({
 	const stableHtmlRef = useRef(html);
 	if (!isEditing) stableHtmlRef.current = html;
 	const renderHtml = isEditing ? stableHtmlRef.current : html;
-	const annotationTargets = useMemo(() => {
-		if (!activePolicy.showPendingMarkers) return [];
-		const byElement = new Map<string, AnnotationTarget>();
-		for (const message of pending) {
-			if (
-				message.docName !== doc.name ||
-				message.pageIndex !== pageIndex ||
-				!message.elementId ||
-				(message.type !== "note" && message.type !== "delete")
-			)
-				continue;
-			const target = byElement.get(message.elementId) ?? {
-				elementId: message.elementId,
-				note: false,
-				deletion: false,
-			};
-			if (message.type === "note") target.note = true;
-			if (message.type === "delete") target.deletion = true;
-			byElement.set(message.elementId, target);
-		}
-		return [...byElement.values()];
-	}, [activePolicy.showPendingMarkers, doc.name, pageIndex, pending]);
+	const annotationTargets = useMemo(
+		() =>
+			activePolicy.showPendingMarkers
+				? pendingAnnotationTargets(pending, doc.name, pageIndex)
+				: [],
+		[activePolicy.showPendingMarkers, doc.name, pageIndex, pending],
+	);
 	const pageNoteCount = useMemo(
 		() =>
 			activePolicy.showPendingMarkers
@@ -406,28 +393,30 @@ export const PageCanvas = memo(function PageCanvas({
 		const elements = [
 			...contentElement.querySelectorAll<HTMLElement>("[data-id]"),
 		];
-		const next = annotationTargets.flatMap((annotation) => {
-			const target = elements.find(
-				(element) => element.dataset.id === annotation.elementId,
-			);
-			if (!target) return [];
-			const rect = target.getBoundingClientRect();
-			const edgeTolerance = 1;
-			return [
-				{
-					...annotation,
-					left: (rect.left - pageRect.left) * scaleX,
-					top: (rect.top - pageRect.top) * scaleY,
-					width: rect.width * scaleX,
-					height: rect.height * scaleY,
-					inset:
-						rect.left <= pageRect.left + edgeTolerance ||
-						rect.top <= pageRect.top + edgeTolerance ||
-						rect.right >= pageRect.right - edgeTolerance ||
-						rect.bottom >= pageRect.bottom - edgeTolerance,
-				},
-			];
-		});
+		const edgeTolerance = 1;
+		const next = annotationTargets.flatMap((annotation) =>
+			elements
+				.filter((element) => element.dataset.id === annotation.elementId)
+				.flatMap((target, index) => {
+					const rect = renderedElementBox(target);
+					if (!rect) return [];
+					return [
+						{
+							...annotation,
+							key: `${annotation.elementId}:${index}`,
+							left: (rect.left - pageRect.left) * scaleX,
+							top: (rect.top - pageRect.top) * scaleY,
+							width: rect.width * scaleX,
+							height: rect.height * scaleY,
+							inset:
+								rect.left <= pageRect.left + edgeTolerance ||
+								rect.top <= pageRect.top + edgeTolerance ||
+								rect.right >= pageRect.right - edgeTolerance ||
+								rect.bottom >= pageRect.bottom - edgeTolerance,
+						},
+					];
+				}),
+		);
 		setAnnotationMarkers((current) =>
 			sameAnnotationMarkers(current, next) ? current : next,
 		);
@@ -1285,7 +1274,7 @@ export const PageCanvas = memo(function PageCanvas({
 
 			target.classList.add("selected");
 			useStore.getState().selectElement(id);
-			const rect = target.getBoundingClientRect();
+			const rect = elementBox(target);
 			setToolbar({
 				id,
 				screenTop: rect.top,
@@ -1341,7 +1330,7 @@ export const PageCanvas = memo(function PageCanvas({
 				<div className="annotation-overlay" aria-hidden="true">
 					{annotationMarkers.map((marker) => (
 						<div
-							key={marker.elementId}
+							key={marker.key}
 							className={`annotation-marker${marker.note ? " annotation-marker-note" : ""}${marker.deletion ? " annotation-marker-delete" : ""}${marker.inset ? " annotation-marker-inset" : ""}`}
 							data-annotation-marker={marker.elementId}
 							style={{

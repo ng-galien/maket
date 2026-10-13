@@ -1373,6 +1373,236 @@ describe("PageCanvas toolbar interactions", () => {
 			container.querySelector('[data-annotation-marker="inner"]'),
 		).not.toHaveClass("annotation-marker-inset");
 	});
+
+	it("outlines a generated field row that has no box of its own, until it is acknowledged", async () => {
+		const note = {
+			id: "devis-note",
+			type: "note" as const,
+			docName: "alpha",
+			pageIndex: 0,
+			elementId: "field-devis",
+			text: "Devis à confirmer",
+			ts: 0,
+		};
+		useStore.setState({ pending: [note] });
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<dl data-id="detail-fields"><div data-id="field-devis" style="display:contents"><dt>Devis</dt><dd>Martin</dd></div></dl>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		const row = container.querySelector(
+			'[data-id="field-devis"]',
+		) as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(0, 0, 200, 100),
+		);
+		vi.spyOn(row, "getBoundingClientRect").mockReturnValue(
+			mockRect(0, 0, 0, 0),
+		);
+		vi.spyOn(
+			row.querySelector("dt") as HTMLElement,
+			"getBoundingClientRect",
+		).mockReturnValue(mockRect(20, 30, 40, 10));
+		vi.spyOn(
+			row.querySelector("dd") as HTMLElement,
+			"getBoundingClientRect",
+		).mockReturnValue(mockRect(70, 30, 90, 12));
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		const marker = container.querySelector(
+			'[data-annotation-marker="field-devis"]',
+		) as HTMLElement;
+		expect(marker).toHaveStyle({
+			left: "20px",
+			top: "30px",
+			width: "140px",
+			height: "12px",
+		});
+		expect(marker.querySelector(".annotation-marker-badge")).not.toBeNull();
+
+		await act(async () => {
+			useStore.setState({ pending: [] });
+			vi.runAllTimers();
+		});
+		expect(
+			container.querySelector('[data-annotation-marker="field-devis"]'),
+		).toBeNull();
+	});
+
+	it("draws no marker for a copy that is not rendered or a boxless element with only whitespace", async () => {
+		useStore.setState({
+			pending: ["tag", "blank"].map((elementId) => ({
+				id: `${elementId}-note`,
+				type: "note" as const,
+				docName: "alpha",
+				pageIndex: 0,
+				elementId,
+				text: elementId,
+				ts: 0,
+			})),
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<p><span data-id="tag">A</span><span data-id="tag" style="display:none">B</span><span data-id="tag">C</span></p><div data-id="blank" style="display:contents">   </div>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(100, 50, 200, 100),
+		);
+		const tags = container.querySelectorAll<HTMLElement>('[data-id="tag"]');
+		vi.spyOn(tags[0] as HTMLElement, "getBoundingClientRect").mockReturnValue(
+			mockRect(110, 60, 8, 6),
+		);
+		vi.spyOn(tags[2] as HTMLElement, "getBoundingClientRect").mockReturnValue(
+			mockRect(130, 60, 8, 6),
+		);
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		expect(
+			[
+				...container.querySelectorAll<HTMLElement>(
+					'[data-annotation-marker="tag"]',
+				),
+			].map((marker) => marker.style.left),
+		).toEqual(["10px", "30px"]);
+		expect(
+			container.querySelector('[data-annotation-marker="blank"]'),
+		).toBeNull();
+	});
+
+	it("marks a boxless element whose only content is a zero-size image at the image", async () => {
+		useStore.setState({
+			pending: [
+				{
+					id: "row-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "row",
+					text: "Row",
+					ts: 0,
+				},
+			],
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<div data-id="row" style="display:contents"><img alt=""></div>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(100, 50, 200, 100),
+		);
+		const image = container.querySelector('[data-id="row"] img') as HTMLElement;
+		vi.spyOn(image, "getBoundingClientRect").mockReturnValue(
+			mockRect(150, 70, 0, 0),
+		);
+		vi.spyOn(image, "getClientRects").mockReturnValue([
+			mockRect(150, 70, 0, 0),
+		] as unknown as DOMRectList);
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		const marker = container.querySelector(
+			'[data-annotation-marker="row"]',
+		) as HTMLElement;
+		expect(marker).toHaveStyle({ left: "50px", top: "20px" });
+		expect(marker.querySelector(".annotation-marker-badge")).not.toBeNull();
+	});
+
+	it("outlines every instance of an element repeated by a list section", async () => {
+		useStore.setState({
+			pending: [
+				{
+					id: "tag-note",
+					type: "note",
+					docName: "alpha",
+					pageIndex: 0,
+					elementId: "tag",
+					text: "Tags",
+					ts: 0,
+				},
+			],
+		});
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(
+					'<p><span data-id="tag">A</span> <span data-id="tag">B</span></p>',
+				)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const canvas = container.querySelector(".page-canvas") as HTMLElement;
+		Object.defineProperties(canvas, {
+			offsetWidth: { configurable: true, value: 200 },
+			offsetHeight: { configurable: true, value: 100 },
+		});
+		vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(
+			mockRect(0, 0, 200, 100),
+		);
+		const tags = container.querySelectorAll<HTMLElement>('[data-id="tag"]');
+		vi.spyOn(tags[0] as HTMLElement, "getBoundingClientRect").mockReturnValue(
+			mockRect(10, 10, 8, 6),
+		);
+		vi.spyOn(tags[1] as HTMLElement, "getBoundingClientRect").mockReturnValue(
+			mockRect(30, 10, 8, 6),
+		);
+
+		await act(async () => {
+			window.dispatchEvent(new Event("resize"));
+			vi.runAllTimers();
+		});
+
+		expect(
+			[
+				...container.querySelectorAll<HTMLElement>(
+					'[data-annotation-marker="tag"]',
+				),
+			].map((marker) => marker.style.left),
+		).toEqual(["10px", "30px"]);
+	});
 });
 
 function mockRect(
