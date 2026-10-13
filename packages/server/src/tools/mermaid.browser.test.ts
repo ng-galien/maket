@@ -42,7 +42,7 @@ function setup(charte?: Record<string, Record<string, string>>) {
 	if (charte) store.saveCharte({ name: "brand", tokens: charte });
 	const documents = createDocuments({ store });
 	documents.loadAll();
-	const browserPool = createBrowserPool(
+	const pool = createBrowserPool(
 		{},
 		{
 			launch: async () => {
@@ -51,29 +51,44 @@ function setup(charte?: Record<string, Record<string, string>>) {
 			},
 		},
 	);
+	const capture = { started: null as (() => void) | null };
+	const browserPool: typeof pool = {
+		...pool,
+		get: () => {
+			capture.started?.();
+			return pool.get();
+		},
+	};
 	const tool = createMaketMermaidTool({
 		documents,
 		bus: createBus(),
 		browserPool,
 	});
-	return { store, tool };
+	return { store, tool, capture };
 }
 
 /** The tool answer for `code`, and the longest stall of the event loop
- * while it ran. */
+ * during the inline capture: from the moment the tool asks the browser pool
+ * for Chromium to its answer. The diagram layout before it is synchronous by
+ * design and is not part of the capture. */
 async function drawn(
-	tool: ReturnType<typeof setup>["tool"],
+	{ tool, capture }: Pick<ReturnType<typeof setup>, "tool" | "capture">,
 	code: string,
 ): Promise<{ text: string; image: { data: string }; longest: number }> {
 	let longest = 0;
-	let last = performance.now();
-	const monitor = setInterval(() => {
-		const now = performance.now();
-		longest = Math.max(longest, now - last);
-		last = now;
-	}, 5);
+	let last = 0;
+	let monitor: ReturnType<typeof setInterval> | undefined;
+	capture.started = () => {
+		last = performance.now();
+		monitor = setInterval(() => {
+			const now = performance.now();
+			longest = Math.max(longest, now - last);
+			last = now;
+		}, 5);
+	};
 	try {
 		const res = await tool.handler({ doc: "test", page: 1, code }, {} as never);
+		if (!monitor) throw new Error("The tool did not ask for Chromium.");
 		const [answer, image] = res.content as unknown as Array<{
 			text: string;
 			data: string;
@@ -81,6 +96,7 @@ async function drawn(
 		return { text: answer?.text ?? "", image: image as never, longest };
 	} finally {
 		clearInterval(monitor);
+		capture.started = null;
 	}
 }
 
@@ -125,9 +141,9 @@ describe("maket_mermaid inline image drawn by Chromium", () => {
 	])(
 		"draws the boxes, labels and arrow %s, not a dark silhouette, without blocking the event loop",
 		async (_label, charte) => {
-			const { store, tool } = setup(charte);
+			const { store, ...drawing } = setup(charte);
 			const result = await drawn(
-				tool,
+				drawing,
 				"graph TD\n  A[Start here]-->B[End there]",
 			);
 			const stats = await pixels(result.image.data);
@@ -145,12 +161,12 @@ describe("maket_mermaid inline image drawn by Chromium", () => {
 	);
 
 	it("inlines the top part of a very tall diagram at a legible scale and says so", async () => {
-		const { store, tool } = setup();
+		const { store, ...drawing } = setup();
 		const chain = Array.from(
 			{ length: 80 },
 			(_, index) => `  N${index}-->N${index + 1}`,
 		).join("\n");
-		const result = await drawn(tool, `graph TD\n${chain}`);
+		const result = await drawn(drawing, `graph TD\n${chain}`);
 		expect(result.text).toMatch(
 			/Inline image cropped to the top part \(\d+×\d+ px of the full result, shown at \d+×\d+ px\): the whole diagram is on the page\./,
 		);
