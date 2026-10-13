@@ -22,8 +22,10 @@ import { enterReadingSession } from "../store/readingSession";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
 import {
+	READER_PANE_GUTTER,
 	ReaderSurface,
 	ReadingWorkspace,
+	readerGutter,
 	readingScale,
 	readingShortcutBlocked,
 } from "./ReadingWorkspace";
@@ -64,6 +66,27 @@ describe("ReadingWorkspace", () => {
 	it("fits a fixed-width page inside narrow viewports without enlarging it", () => {
 		expect(readingScale(320, 210)).toBeCloseTo(296 / (210 * (96 / 25.4)));
 		expect(readingScale(1440, 210)).toBe(1);
+	});
+
+	it("fills a list-and-detail pane width at fit, enlarging or reducing, inside the pane gutter", () => {
+		const pagePx = (mm: number) => mm * (96 / 25.4);
+		expect(READER_PANE_GUTTER).toBe(8);
+		expect(readerGutter(400, "fill")).toBe(READER_PANE_GUTTER);
+		expect(readerGutter(1200, "fill")).toBe(READER_PANE_GUTTER);
+		const narrow = readingScale(1000, 80, "fill");
+		expect(narrow).toBeGreaterThan(1);
+		expect(pagePx(80) * narrow).toBeCloseTo(1000 - 2 * READER_PANE_GUTTER);
+		const wide = readingScale(380, 210, "fill");
+		expect(wide).toBeLessThan(1);
+		expect(pagePx(210) * wide).toBeCloseTo(380 - 2 * READER_PANE_GUTTER);
+	});
+
+	it("fits the single-document reader to a window narrower than the page and keeps the natural size otherwise", () => {
+		expect(readerGutter(320, "shrink")).toBe(12);
+		expect(readerGutter(700, "shrink")).toBe(24);
+		const scale = readingScale(700, 210, "shrink");
+		expect(210 * (96 / 25.4) * scale).toBeCloseTo(700 - 48);
+		expect(readingScale(1440, 80, "shrink")).toBe(1);
 	});
 
 	it("zooms the reading surface through controls, shortcuts, and modified wheel input", async () => {

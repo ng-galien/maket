@@ -50,14 +50,30 @@ const READER_MIN_SCALE = 0.25;
 const READER_MAX_SCALE = 2;
 const READER_WHEEL_ZOOM_RATE = 0.01;
 const READER_WHEEL_DELTA_LIMIT = 25;
+/** Side gutter of a list-and-detail pane at fit, in CSS px: wider than the
+ * 6 px half of the separator handle that overlaps each pane, so the page edge
+ * stays visible beside the separator. */
+export const READER_PANE_GUTTER = 8;
+
+/** `fill`: the page width equals the pane width less its gutters, enlarging
+ * or reducing. `shrink`: same, but a page narrower than the viewport keeps
+ * its natural size. */
+export type ReaderFit = "fill" | "shrink";
+
+export function readerGutter(viewportWidth: number, fit: ReaderFit): number {
+	if (fit === "fill") return READER_PANE_GUTTER;
+	return viewportWidth < 640 ? MIN_GUTTER : WIDE_GUTTER;
+}
 
 export function readingScale(
 	viewportWidth: number,
 	canvasWidthMm: number,
+	fit: ReaderFit = "shrink",
 ): number {
-	const gutter = viewportWidth < 640 ? MIN_GUTTER : WIDE_GUTTER;
+	const gutter = readerGutter(viewportWidth, fit);
 	const available = Math.max(1, viewportWidth - gutter * 2);
-	return Math.min(1, available / (canvasWidthMm * CSS_PX_PER_MM));
+	const scale = available / (canvasWidthMm * CSS_PX_PER_MM);
+	return fit === "fill" ? scale : Math.min(1, scale);
 }
 
 export function ReadingWorkspace() {
@@ -239,6 +255,7 @@ export function ReaderSurface({
 	canvasNavigation = false,
 	zoomControls = true,
 	rememberZoom = true,
+	fit = "shrink",
 	onZoomChange,
 }: {
 	doc: Document;
@@ -256,6 +273,8 @@ export function ReaderSurface({
 	zoomControls?: boolean;
 	/** Collection panes start fitted instead of inheriting a previous canvas zoom. */
 	rememberZoom?: boolean;
+	/** Collection panes of the list-and-detail layout fill their width. */
+	fit?: ReaderFit;
 	onZoomChange?: (scale: number) => void;
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -265,6 +284,7 @@ export function ReaderSurface({
 		rootRef: scrollRef,
 		canvasNavigation,
 		rememberZoom,
+		fit,
 	});
 	useEffect(() => onZoomChange?.(board.scale), [board.scale, onZoomChange]);
 	useEffect(() => {
@@ -303,7 +323,12 @@ export function ReaderSurface({
 			data-bar-position={barPosition}
 			data-reader-pannable={board.pannable ? "" : undefined}
 			data-reader-panning={board.panning ? "" : undefined}
-			className={`absolute inset-0 overflow-auto ${embedded ? "bg-transparent px-0" : "bg-[var(--color-app)] px-3 sm:px-6"} ${toolbarClearance} ${board.panning ? "cursor-grabbing" : board.pannable ? "cursor-grab" : ""}`}
+			style={
+				embedded
+					? undefined
+					: { paddingLeft: board.gutter, paddingRight: board.gutter }
+			}
+			className={`absolute inset-0 overflow-auto ${embedded ? "bg-transparent px-0" : "bg-[var(--color-app)]"} ${toolbarClearance} ${board.panning ? "cursor-grabbing" : board.pannable ? "cursor-grab" : ""}`}
 		>
 			{status}
 			<div className="mx-auto flex min-h-full w-max min-w-full justify-center">
@@ -322,6 +347,7 @@ export function ReaderSurface({
 				<ReaderZoomControls
 					scale={board.scale}
 					minimum={board.minimum}
+					maximum={board.maximum}
 					variant={embedded ? "minimal" : "bar"}
 					position={barPosition === "bottom" ? "top" : "bottom"}
 					onZoomIn={board.zoomIn}
@@ -364,6 +390,9 @@ function useReaderPageLinks({
 interface ReaderBoard {
 	scale: number;
 	minimum: number;
+	maximum: number;
+	/** Side padding of the scroll root, equal to the gutter of the fit. */
+	gutter: number;
 	pannable: boolean;
 	panning: boolean;
 	zoomIn: () => void;
@@ -420,11 +449,13 @@ function useReaderBoard({
 	rootRef,
 	canvasNavigation,
 	rememberZoom,
+	fit,
 }: {
 	doc: Document;
 	rootRef: RefObject<HTMLDivElement | null>;
 	canvasNavigation: boolean;
 	rememberZoom: boolean;
+	fit: ReaderFit;
 }): ReaderBoard {
 	const documentId = doc.id || doc.name;
 	const annotating = useStore(
@@ -433,24 +464,28 @@ function useReaderBoard({
 			!state.readOnly &&
 			!doc.meta?.locked,
 	);
-	const [fitScale, setFitScale] = useState(1);
+	const [viewportWidth, setViewportWidth] = useState(0);
+	const fitScale =
+		viewportWidth > 0 ? readingScale(viewportWidth, doc.canvas.w, fit) : 1;
+	const gutter = readerGutter(viewportWidth, fit);
 	const [manualScale, setManualScale] = useState<number | null>(() =>
 		rememberZoom ? storedReaderZoom(documentId) : null,
 	);
 	const [panning, setPanning] = useState(false);
 	const anchorRef = useRef<ZoomAnchor | null>(null);
 	const minimum = Math.min(READER_MIN_SCALE, fitScale);
+	const maximum = READER_MAX_SCALE * Math.max(1, fitScale);
 	const scale =
 		manualScale === null
 			? fitScale
-			: Math.max(minimum, Math.min(READER_MAX_SCALE, manualScale));
+			: Math.max(minimum, Math.min(maximum, manualScale));
 	const scaleRef = useRef(scale);
 	scaleRef.current = scale;
 
 	const measure = useCallback(() => {
 		if (!rootRef.current) return;
-		setFitScale(readingScale(rootRef.current.clientWidth, doc.canvas.w));
-	}, [doc.canvas.w, rootRef]);
+		setViewportWidth(rootRef.current.clientWidth);
+	}, [rootRef]);
 
 	useLayoutEffect(() => {
 		measure();
@@ -465,7 +500,7 @@ function useReaderBoard({
 		(next: number, anchor?: { clientX: number; clientY: number }) => {
 			const root = rootRef.current;
 			const current = scaleRef.current;
-			const bounded = Math.max(minimum, Math.min(READER_MAX_SCALE, next));
+			const bounded = Math.max(minimum, Math.min(maximum, next));
 			if (root) {
 				const content = root.querySelector<HTMLElement>("[data-reader-zoom]");
 				const contentRect = content?.getBoundingClientRect();
@@ -489,7 +524,7 @@ function useReaderBoard({
 			setManualScale(bounded);
 			if (rememberZoom) storeReaderZoom(documentId, bounded);
 		},
-		[documentId, minimum, rememberZoom, rootRef],
+		[documentId, maximum, minimum, rememberZoom, rootRef],
 	);
 	const zoomIn = useCallback(
 		() => zoomTo(scaleRef.current + READER_ZOOM_STEP),
@@ -539,7 +574,17 @@ function useReaderBoard({
 		onPanningChange: setPanning,
 	});
 
-	return { scale, minimum, pannable, panning, zoomIn, zoomOut, reset };
+	return {
+		scale,
+		minimum,
+		maximum,
+		gutter,
+		pannable,
+		panning,
+		zoomIn,
+		zoomOut,
+		reset,
+	};
 }
 
 /** Workspace wheel zoom and trackpad pinch: Chromium and Firefox report pinch as a modified wheel,
@@ -715,6 +760,7 @@ function useReaderDragPan({
 function ReaderZoomControls({
 	scale,
 	minimum,
+	maximum,
 	variant,
 	position,
 	onZoomIn,
@@ -723,6 +769,7 @@ function ReaderZoomControls({
 }: {
 	scale: number;
 	minimum: number;
+	maximum: number;
 	variant: "bar" | "minimal";
 	position: "top" | "bottom";
 	onZoomIn: () => void;
@@ -766,7 +813,7 @@ function ReaderZoomControls({
 			</button>
 			<ReaderButton
 				label={t("zoom_in")}
-				disabled={scale >= READER_MAX_SCALE}
+				disabled={scale >= maximum}
 				onClick={onZoomIn}
 				className={`flex ${buttonSize}`}
 			>

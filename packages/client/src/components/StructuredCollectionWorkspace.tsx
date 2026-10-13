@@ -8,6 +8,7 @@ import { sendPinDoc } from "../store/ws";
 import { AnnotationToggle } from "./AnnotationToggle";
 import {
 	fitReadingDocument,
+	type ReaderFit,
 	ReaderSurface,
 	scrollToReadingPage,
 } from "./ReadingWorkspace";
@@ -85,6 +86,7 @@ export function StructuredCollectionWorkspace() {
 						<CollectionDocument
 							key={navigation.index.id}
 							doc={navigation.index}
+							fit={split ? "fill" : "shrink"}
 						/>
 					)}
 				</section>
@@ -105,6 +107,7 @@ export function StructuredCollectionWorkspace() {
 							<CollectionDocument
 								key={navigation.item.id}
 								doc={navigation.item}
+								fit={split ? "fill" : "shrink"}
 								onClose={() => close([navigation.item?.name ?? ""])}
 							/>
 						) : (
@@ -124,9 +127,11 @@ export function StructuredCollectionWorkspace() {
 // to ReaderSurface, which owns rendering, scrolling and gesture behavior.
 function CollectionDocument({
 	doc,
+	fit,
 	onClose,
 }: {
 	doc: Document;
+	fit: ReaderFit;
 	onClose?: () => void;
 }) {
 	const t = useT();
@@ -235,6 +240,7 @@ function CollectionDocument({
 					canvasNavigation={canvasNavigation}
 					zoomControls={false}
 					rememberZoom={false}
+					fit={fit}
 					onZoomChange={setZoom}
 					initialPageIndex={Math.max(
 						0,

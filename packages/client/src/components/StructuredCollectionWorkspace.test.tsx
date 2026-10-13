@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
 import type { Document } from "../store/types";
 import { useStore } from "../store/useStore";
+import { READER_PANE_GUTTER, readingScale } from "./ReadingWorkspace";
 import { StructuredCollectionWorkspace } from "./StructuredCollectionWorkspace";
 import { WorkspaceHeader } from "./WorkspaceHeader";
 
@@ -170,17 +171,23 @@ describe("StructuredCollectionWorkspace reader navigation", () => {
 		);
 		const panes = container.querySelectorAll("[data-collection-document-mode]");
 		expect(panes).toHaveLength(2);
-		for (const pane of panes) {
+		const fits = [
+			readingScale(900, 80, "fill"),
+			readingScale(900, 210, "fill"),
+		];
+		for (const [i, pane] of [...panes].entries()) {
 			expect(pane).toHaveAttribute("data-collection-document-mode", "reader");
 			const root = pane.querySelector(
 				"[data-reading-workspace]",
 			) as HTMLElement;
 			const content = pane.querySelector("[data-reader-zoom]") as HTMLElement;
-			expect(content.style.zoom).toBe("1");
+			expect(root.style.paddingLeft).toBe(`${READER_PANE_GUTTER}px`);
+			expect(root.style.paddingRight).toBe(`${READER_PANE_GUTTER}px`);
+			expect(Number(content.style.zoom)).toBeCloseTo(fits[i] ?? 0);
 			expect(fireEvent.wheel(root, { deltaY: 100, cancelable: true })).toBe(
 				true,
 			);
-			expect(content.style.zoom).toBe("1");
+			expect(Number(content.style.zoom)).toBeCloseTo(fits[i] ?? 0);
 		}
 		expect(
 			container.querySelector(
@@ -193,6 +200,65 @@ describe("StructuredCollectionWorkspace reader navigation", () => {
 			),
 		).toHaveLength(3);
 		expect(screen.queryByRole("group", { name: "Reader zoom" })).toBeNull();
+	});
+
+	it("refits each pane when the separator or the window resizes it and resets an explicit zoom to that fit", async () => {
+		const observers: Array<() => void> = [];
+		vi.stubGlobal(
+			"ResizeObserver",
+			class {
+				constructor(callback: () => void) {
+					observers.push(callback);
+				}
+				observe() {}
+				disconnect() {}
+			},
+		);
+		const width = vi
+			.spyOn(HTMLElement.prototype, "clientWidth", "get")
+			.mockReturnValue(400);
+		seed();
+		const user = userEvent.setup();
+		render(<StructuredCollectionWorkspace />);
+		const indexPane = document.querySelector(
+			"[data-structured-index-pane]",
+		) as HTMLElement;
+		const content = indexPane.querySelector(
+			"[data-reader-zoom]",
+		) as HTMLElement;
+		expect(Number(content.style.zoom)).toBeCloseTo(
+			readingScale(400, 80, "fill"),
+		);
+		width.mockReturnValue(640);
+		act(() => {
+			for (const refit of observers) refit();
+		});
+		const fit = readingScale(640, 80, "fill");
+		expect(Number(content.style.zoom)).toBeCloseTo(fit);
+		const fitButton = within(indexPane).getByRole("button", {
+			name: `Fit to view — ${Math.round(fit * 100)}%`,
+		});
+		await user.click(
+			within(indexPane).getByRole("button", { name: "Canvas view" }),
+		);
+		const root = indexPane.querySelector(
+			"[data-reading-workspace]",
+		) as HTMLElement;
+		fireEvent.wheel(root, { deltaY: -100, cancelable: true });
+		expect(Number(content.style.zoom)).toBeGreaterThan(fit);
+		await user.click(fitButton);
+		expect(Number(content.style.zoom)).toBeCloseTo(fit);
+		vi.unstubAllGlobals();
+	});
+
+	it("keeps a page narrower than the single-document pane at its natural size", () => {
+		seed();
+		useStore.setState({ structuredWorkspaceLayout: "single" });
+		const { container } = render(<StructuredCollectionWorkspace />);
+		const content = container.querySelector(
+			"[data-structured-index-pane] [data-reader-zoom]",
+		) as HTMLElement;
+		expect(content.style.zoom).toBe("1");
 	});
 
 	it("enables canvas navigation only in the selected pane and retains form scrolling", async () => {
@@ -233,7 +299,9 @@ describe("StructuredCollectionWorkspace reader navigation", () => {
 		await user.click(
 			within(itemPane).getByRole("button", { name: "Reading view" }),
 		);
-		expect(content.style.zoom).toBe("1");
+		expect(Number(content.style.zoom)).toBeCloseTo(
+			readingScale(900, 210, "fill"),
+		);
 	});
 
 	it("replaces one detail without remounting the index and follows links between detail pages", () => {
