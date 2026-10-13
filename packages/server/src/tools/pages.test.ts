@@ -279,6 +279,33 @@ describe("maket_page — action=add", () => {
 		store.close();
 	});
 
+	it("answers get_form on an HTML page without a form with the way to add one", async () => {
+		const { store, bus, documents } = fixture();
+		const doc = makeDoc("d");
+		const page = doc.pages[0];
+		if (!page) throw new Error("Fixture page missing.");
+		page.html = '<h1 data-id="title">Sign up</h1>';
+		store.saveDoc(doc);
+		documents.loadAll();
+		const tool = createMaketPageTool({ bus, documents });
+
+		const read = await tool.handler(
+			{ action: "get_form", doc: "d", page: 1 },
+			NO_EXTRA,
+		);
+
+		expect(read.isError).toBeUndefined();
+		const said = (read.content[0] as { text: string }).text;
+		expect(said).toContain("has no JSON Forms template yet");
+		expect(said).toContain("HTML and a form combine on the same page");
+		expect(said).toContain("<!--maket-json-form-->");
+		expect(said).not.toContain("uses HTML, not JSON Forms");
+		expect(said).toContain(
+			"maket_page action=set_form doc=d page=1 json_forms=",
+		);
+		store.close();
+	});
+
 	it("rejects an invalid state template and restores memory and DB", async () => {
 		const { store, bus, documents } = fixture();
 		const doc = makeDoc("living");

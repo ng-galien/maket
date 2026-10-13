@@ -260,9 +260,26 @@ function runGetForm(args: Args, d: Document) {
 	const idx = resolvePageIndex(d, args.page);
 	const page = d.pages[idx];
 	if (!page) return text(`Page "${args.page}" not found`, true);
-	if (!page.jsonForms)
-		return text("This page uses HTML, not JSON Forms.", true);
+	if (!page.jsonForms) return noFormYet(d, page, args.page);
 	return json(page.jsonForms, { indent: 2 });
+}
+
+/** The answer of get_form on a page without a template: not an error, the
+ * page simply has no form yet, and HTML and a form combine on one page. */
+function noFormYet(d: Document, page: Page, pageRef: number | string) {
+	const placement = hasJsonFormSlot(page.html)
+		? "Its HTML has the <!--maket-json-form--> slot: set_form places the form there and keeps the HTML."
+		: page.html
+			? "HTML and a form combine on the same page: put the <!--maket-json-form--> slot in the HTML (maket_html), then set_form places the form there. Without the slot, set_form makes the page a full-page form."
+			: "set_form makes it a full-page form; HTML with the <!--maket-json-form--> slot can be added around it.";
+	return text(
+		`Page "${page.name || pageRef}" has no JSON Forms template yet. ${placement}`,
+		{
+			next: [
+				`maket_page action=set_form doc=${d.name} page=${pageRef} json_forms=<JSON Forms template>`,
+			],
+		},
+	);
 }
 
 function runRemove(args: Args, d: Document, documents: Documents, bus: Bus) {
