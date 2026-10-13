@@ -93,6 +93,60 @@ export interface PdfServiceOptions {
 	 * so the test pipeline stays unchanged. Prefer injecting a mock
 	 * BrowserPool via `deps.browserPool` for new code. */
 	browserLaunch?: () => Promise<import("puppeteer").Browser>;
+	/** Overall deadline of one render, from document rendering to the last
+	 * preview measurement. */
+	renderTimeoutMs?: number;
+}
+
+export const PDF_RENDER_TIMEOUT_MS = 120_000;
+
+/** The step a render is in and the pages it holds open, so a passed deadline
+ * can name the step and close the pages. */
+interface RenderRun {
+	step: string;
+	readonly pages: Set<RenderPage>;
+}
+
+async function openRunPage(
+	run: RenderRun,
+	browser: RenderBrowser,
+): Promise<RenderPage> {
+	const page = await browser.newPage();
+	run.pages.add(page);
+	return page;
+}
+
+async function releaseRunPage(run: RenderRun, page: RenderPage): Promise<void> {
+	if (!run.pages.delete(page)) return;
+	await page.close();
+}
+
+async function runWithRenderDeadline<T>(
+	timeoutMs: number,
+	work: (run: RenderRun) => Promise<T>,
+): Promise<T> {
+	const run: RenderRun = { step: "render document", pages: new Set() };
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			const step = run.step;
+			const pages = [...run.pages];
+			run.pages.clear();
+			for (const page of pages) void page.close().catch(() => {});
+			reject(
+				new Error(
+					`PDF render timed out after ${timeoutMs}ms during step "${step}"`,
+				),
+			);
+		}, timeoutMs);
+	});
+	const running = work(run);
+	running.catch(() => {});
+	try {
+		return await Promise.race([running, deadline]);
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -109,6 +163,7 @@ async function renderPdfDocument(
 			Exclude<PdfRowsSelection, "preview">,
 			CollectionRenderMode
 		>;
+		run: RenderRun;
 	},
 	doc: Document,
 	quality = "print",
@@ -122,7 +177,9 @@ async function renderPdfDocument(
 		collectionCursors,
 		pool,
 		forcedMode,
+		run,
 	} = ctx;
+	run.step = "render document";
 	const renderedDoc = await renderDocumentSettled(documentRenderer, doc, {
 		collection: cursorRenderOptions(
 			doc,
@@ -139,6 +196,7 @@ async function renderPdfDocument(
 	if (sourcePages.length === 0) throw new Error("No pages with HTML content");
 
 	const charteCss = documents.charteCss(renderedDoc);
+	run.step = "inline images";
 	const pageHtmls = await Promise.all(
 		sourcePages.map((p) =>
 			inlineImages(p.html, {
@@ -169,18 +227,25 @@ async function renderPdfDocument(
 		charteCss,
 	});
 
+	run.step = "open render page";
 	const b = await pool.get();
-	const page = await b.newPage();
+	const page = await openRunPage(run, b);
 	try {
+		run.step = "install network guard";
 		await installNetworkGuard(page, "offline");
+		run.step = "set viewport";
 		if (renderedDoc.canvas.format === "AUTO")
 			await page.emulateMediaType?.("print");
 		await page.setViewport(viewport);
+		run.step = "set content";
 		await page.setContent(fullHtml, { waitUntil: "load" });
+		run.step = "wait for page stable";
 		await waitForPageStable(page);
+		run.step = "measure print frames";
 		if (renderedDoc.canvas.format === "AUTO")
 			await measureAutoPageHeights(page, true);
 		const printed = await measureRenderFrames(page);
+		run.step = "print to PDF";
 		const pdfBuffer = await page.pdf({
 			width: `${w}mm`,
 			height: `${h}mm`,
@@ -188,7 +253,8 @@ async function renderPdfDocument(
 			printBackground: true,
 			margin: { top: "0", right: "0", bottom: "0", left: "0" },
 		});
-		const previews = await measurePreviewFrames(b, viewport, {
+		run.step = "measure preview frames";
+		const previews = await measurePreviewFrames(run, b, viewport, {
 			canvas: renderedDoc.canvas,
 			pageHtmls,
 			charteCss,
@@ -212,7 +278,7 @@ async function renderPdfDocument(
 			mismatches,
 		};
 	} finally {
-		await page.close();
+		await releaseRunPage(run, page);
 	}
 }
 
@@ -220,6 +286,7 @@ async function renderPdfDocument(
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Browser measurement loop: drives one render page through the preview surface helpers, not a Document method.
 async function measurePreviewFrames(
+	run: RenderRun,
 	browser: RenderBrowser,
 	viewport: { width: number; height: number },
 	input: {
@@ -228,7 +295,7 @@ async function measurePreviewFrames(
 		charteCss: string;
 	},
 ): Promise<ReturnType<typeof measureRenderFrames>> {
-	const page: RenderPage = await browser.newPage();
+	const page: RenderPage = await openRunPage(run, browser);
 	try {
 		await installNetworkGuard(page, "offline");
 		await page.setViewport(viewport);
@@ -250,7 +317,7 @@ async function measurePreviewFrames(
 		}
 		return frames;
 	} finally {
-		await page.close();
+		await releaseRunPage(run, page);
 	}
 }
 
@@ -274,22 +341,29 @@ export function createPdfService(
 				async dispose() {},
 			}
 		: browserPool;
+	const renderTimeoutMs = Math.max(
+		1,
+		opts.renderTimeoutMs ?? PDF_RENDER_TIMEOUT_MS,
+	);
 
 	return {
 		render: (doc, quality = "print", rows = "preview") =>
-			renderPdfDocument(
-				{
-					documents,
-					config,
-					assets,
-					documentRenderer,
-					collectionCursors,
-					pool,
-					forcedMode,
-				},
-				doc,
-				quality,
-				rows,
+			runWithRenderDeadline(renderTimeoutMs, (run) =>
+				renderPdfDocument(
+					{
+						documents,
+						config,
+						assets,
+						documentRenderer,
+						collectionCursors,
+						pool,
+						forcedMode,
+						run,
+					},
+					doc,
+					quality,
+					rows,
+				),
 			),
 	};
 }

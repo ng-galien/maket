@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { BrowserPool, NetworkGuardMode, RenderBrowser, RenderPage } from "@maket/server";
-import { isAllowedRenderRequest } from "@maket/server";
+import { isAllowedRenderRequest, RenderTimeoutError, withDeadline } from "@maket/server";
 import { BrowserWindow, type BrowserWindowConstructorOptions } from "electron";
 
 const DEFAULT_NETWORK_IDLE_MS = 100;
+const DEFAULT_NETWORK_IDLE_TIMEOUT_MS = 15_000;
+const DEFAULT_STEP_TIMEOUT_MS = 30_000;
 
 export interface ElectronBrowserPoolOptions {
   createWindow?: (options: BrowserWindowConstructorOptions) => BrowserWindow;
   networkIdleMs?: number;
+  networkIdleTimeoutMs?: number;
+  stepTimeoutMs?: number;
 }
 
 function mmToInches(value: unknown): number | undefined {
@@ -22,6 +26,7 @@ class ElectronRenderPage implements RenderPage {
   private readonly inFlightRequests = new Set<string>();
   private debuggerReady: Promise<void> | null = null;
   private networkRevision = 0;
+  private networkGuard: NetworkGuardMode | null = null;
   private closed = false;
 
   constructor(private readonly options: ElectronBrowserPoolOptions) {
@@ -44,6 +49,7 @@ class ElectronRenderPage implements RenderPage {
     const requestId = typeof params.requestId === "string" ? params.requestId : null;
     if (!requestId) return;
     if (method === "Network.requestWillBeSent") {
+      if (this.isBlockedByGuard(params.request)) return;
       this.inFlightRequests.add(requestId);
       this.networkRevision += 1;
       return;
@@ -54,18 +60,28 @@ class ElectronRenderPage implements RenderPage {
     }
   };
 
+  private isBlockedByGuard(request: unknown): boolean {
+    if (!this.networkGuard || typeof request !== "object" || request === null) return false;
+    const url = (request as { url?: unknown }).url;
+    return typeof url === "string" && !isAllowedRenderRequest(url, this.networkGuard);
+  }
+
+  private step<T>(name: string, work: Promise<T>): Promise<T> {
+    return withDeadline(work, Math.max(1, this.options.stepTimeoutMs ?? DEFAULT_STEP_TIMEOUT_MS), name);
+  }
+
   private ensureDebugger(): Promise<void> {
     if (!this.debuggerReady) {
       this.debuggerReady = (async () => {
         // Chromium only services debugger commands once the window owns a
         // renderer. On a BrowserWindow that never navigated, `Network.enable`
         // never resolves and wedges the whole render, so navigate first.
-        await this.window.loadURL("about:blank");
+        await this.step("load blank page", this.window.loadURL("about:blank"));
         const debug = this.window.webContents.debugger;
         if (!debug.isAttached()) debug.attach();
         debug.on("message", this.onDebuggerMessage);
-        await debug.sendCommand("Network.enable");
-        await debug.sendCommand("Page.enable");
+        await this.step("enable network events", debug.sendCommand("Network.enable"));
+        await this.step("enable page events", debug.sendCommand("Page.enable"));
       })();
     }
     return this.debuggerReady;
@@ -73,11 +89,15 @@ class ElectronRenderPage implements RenderPage {
 
   async emulateMediaType(type: "print" | "screen"): Promise<void> {
     await this.ensureDebugger();
-    await this.window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { media: type });
+    await this.step(
+      "emulate media type",
+      this.window.webContents.debugger.sendCommand("Emulation.setEmulatedMedia", { media: type }),
+    );
   }
 
   async setNetworkGuard(mode: NetworkGuardMode): Promise<void> {
     await this.ensureDebugger();
+    this.networkGuard = mode;
     this.window.webContents.session.webRequest.onBeforeRequest((details, callback) => {
       callback({ cancel: !isAllowedRenderRequest(details.url, mode) });
     });
@@ -90,12 +110,15 @@ class ElectronRenderPage implements RenderPage {
       height: Math.max(1, Math.ceil(viewport.height)),
     };
     this.window.setContentSize(this.viewport.width, this.viewport.height, false);
-    await this.window.webContents.debugger.sendCommand("Emulation.setDeviceMetricsOverride", {
-      width: this.viewport.width,
-      height: this.viewport.height,
-      deviceScaleFactor: Math.max(0.1, viewport.deviceScaleFactor ?? 1),
-      mobile: false,
-    });
+    await this.step(
+      "set viewport",
+      this.window.webContents.debugger.sendCommand("Emulation.setDeviceMetricsOverride", {
+        width: this.viewport.width,
+        height: this.viewport.height,
+        deviceScaleFactor: Math.max(0.1, viewport.deviceScaleFactor ?? 1),
+        mobile: false,
+      }),
+    );
   }
 
   // A `data:` URL cannot carry a rendered document: Chromium caps URLs at 2 MB
@@ -105,27 +128,38 @@ class ElectronRenderPage implements RenderPage {
   async setContent(html: string): Promise<void> {
     await this.ensureDebugger();
     const debug = this.window.webContents.debugger;
-    await this.window.loadURL("about:blank");
-    const { frameTree } = (await debug.sendCommand("Page.getFrameTree")) as {
+    await this.step("load blank page", this.window.loadURL("about:blank"));
+    this.inFlightRequests.clear();
+    this.networkRevision += 1;
+    const { frameTree } = (await this.step("read frame tree", debug.sendCommand("Page.getFrameTree"))) as {
       frameTree: { frame: { id: string } };
     };
-    await debug.sendCommand("Page.setDocumentContent", {
-      frameId: frameTree.frame.id,
-      html,
-    });
+    await this.step(
+      "set document content",
+      debug.sendCommand("Page.setDocumentContent", {
+        frameId: frameTree.frame.id,
+        html,
+      }),
+    );
   }
 
   async waitForNetworkIdle(): Promise<void> {
     await this.ensureDebugger();
     const idleMs = Math.max(0, this.options.networkIdleMs ?? DEFAULT_NETWORK_IDLE_MS);
-    for (;;) {
+    const timeoutMs = Math.max(1, this.options.networkIdleTimeoutMs ?? DEFAULT_NETWORK_IDLE_TIMEOUT_MS);
+    const deadline = Date.now() + timeoutMs;
+    const assertWaiting = () => {
       this.assertOpen();
+      if (Date.now() >= deadline) throw new RenderTimeoutError("network idle", timeoutMs);
+    };
+    for (;;) {
+      assertWaiting();
       while (this.inFlightRequests.size > 0) {
         await new Promise((resolve) => setTimeout(resolve, 10));
-        this.assertOpen();
+        assertWaiting();
       }
       const revision = this.networkRevision;
-      await new Promise((resolve) => setTimeout(resolve, idleMs));
+      await new Promise((resolve) => setTimeout(resolve, Math.min(idleMs, Math.max(0, deadline - Date.now()))));
       this.assertOpen();
       if (this.inFlightRequests.size === 0 && revision === this.networkRevision) return;
     }
@@ -140,26 +174,32 @@ class ElectronRenderPage implements RenderPage {
   async evaluate<T>(pageFunction: ((...args: never[]) => T) | string, ...args: unknown[]): Promise<Awaited<T>> {
     const source =
       typeof pageFunction === "string" ? pageFunction : `(${pageFunction.toString()})(...${JSON.stringify(args)})`;
-    return this.window.webContents.executeJavaScript(source) as Promise<Awaited<T>>;
+    return this.step("evaluate", this.window.webContents.executeJavaScript(source) as Promise<Awaited<T>>);
   }
 
   async screenshot(options: Record<string, unknown> = {}): Promise<Uint8Array> {
     const clip = options.clip as { x: number; y: number; width: number; height: number } | undefined;
-    const image = await this.window.webContents.capturePage(clip, {
-      stayHidden: true,
-    });
+    const image = await this.step(
+      "capture page",
+      this.window.webContents.capturePage(clip, {
+        stayHidden: true,
+      }),
+    );
     return image.toPNG();
   }
 
   async pdf(options: Record<string, unknown> = {}): Promise<Uint8Array> {
     const width = mmToInches(options.width);
     const height = mmToInches(options.height);
-    return this.window.webContents.printToPDF({
-      pageSize: width && height ? { width, height } : undefined,
-      preferCSSPageSize: true,
-      printBackground: options.printBackground !== false,
-      margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    });
+    return this.step(
+      "print to PDF",
+      this.window.webContents.printToPDF({
+        pageSize: width && height ? { width, height } : undefined,
+        preferCSSPageSize: true,
+        printBackground: options.printBackground !== false,
+        margins: { top: 0, right: 0, bottom: 0, left: 0 },
+      }),
+    );
   }
 
   async close(): Promise<void> {

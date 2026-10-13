@@ -1,10 +1,10 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import { createElectronBrowserPool } from "./electron-browser-pool.js";
+import { createElectronBrowserPool, type ElectronBrowserPoolOptions } from "./electron-browser-pool.js";
 
 vi.mock("electron", () => ({ BrowserWindow: class {} }));
 
-function fixture(networkIdleMs = 0) {
+function fixture(networkIdleMs = 0, options: Omit<ElectronBrowserPoolOptions, "createWindow" | "networkIdleMs"> = {}) {
   const debug = Object.assign(new EventEmitter(), {
     attached: false,
     attach: vi.fn(function (this: { attached: boolean }) {
@@ -36,6 +36,7 @@ function fixture(networkIdleMs = 0) {
   const pool = createElectronBrowserPool({
     createWindow: () => window as never,
     networkIdleMs,
+    ...options,
   });
   return { pool, window, debug };
 }
@@ -137,6 +138,95 @@ describe("Electron browser pool", () => {
     await page.close();
 
     await expect(waiting).rejects.toThrow("Electron render page was closed");
+    await pool.dispose();
+  });
+
+  it("counts a request cancelled by the network guard as finished", async () => {
+    const { pool, debug } = fixture(5, { networkIdleTimeoutMs: 1_000 });
+    const page = await (await pool.get()).newPage();
+    await page.setNetworkGuard?.("offline");
+    await page.setContent("<img src='https://exfiltrate.example/leak.png'>");
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId: "blocked-1",
+      request: { url: "https://exfiltrate.example/leak.png" },
+    });
+
+    await expect(page.waitForNetworkIdle()).resolves.toBeUndefined();
+    await pool.dispose();
+  });
+
+  it("still waits for a request the network guard allows", async () => {
+    const { pool, debug } = fixture(5, { networkIdleTimeoutMs: 40 });
+    const page = await (await pool.get()).newPage();
+    await page.setNetworkGuard?.("offline");
+    await page.setContent("<p>font</p>");
+    debug.emit("message", {}, "Network.requestWillBeSent", {
+      requestId: "font-1",
+      request: { url: "https://fonts.googleapis.com/css2?family=Inter" },
+    });
+
+    await expect(page.waitForNetworkIdle()).rejects.toThrow('Render step "network idle" timed out after 40ms');
+    await pool.dispose();
+  });
+
+  it("forgets requests of a replaced document", async () => {
+    const { pool, debug } = fixture(5, { networkIdleTimeoutMs: 1_000 });
+    const page = await (await pool.get()).newPage();
+    await page.setContent("<p>first</p>");
+    debug.emit("message", {}, "Network.requestWillBeSent", { requestId: "orphan-1" });
+    await page.setContent("<p>second</p>");
+
+    await expect(page.waitForNetworkIdle()).resolves.toBeUndefined();
+    await pool.dispose();
+  });
+
+  it("rejects the network-idle wait at its deadline instead of spinning", async () => {
+    const { pool, debug } = fixture(5, { networkIdleTimeoutMs: 30 });
+    const page = await (await pool.get()).newPage();
+    await page.setContent("<p>stuck</p>");
+    debug.emit("message", {}, "Network.requestWillBeSent", { requestId: "never-finishes" });
+
+    const started = Date.now();
+    await expect(page.waitForNetworkIdle()).rejects.toThrow('Render step "network idle" timed out after 30ms');
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await pool.dispose();
+  });
+
+  it("rejects an in-page wait whose frame never comes, and closes the window", async () => {
+    const { pool, window } = fixture(0, { stepTimeoutMs: 30 });
+    window.webContents.executeJavaScript.mockImplementation(() => new Promise(() => {}));
+    const page = await (await pool.get()).newPage();
+
+    await expect(
+      page.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))"),
+    ).rejects.toThrow('Render step "evaluate" timed out after 30ms');
+    await page.close();
+    expect(window.destroy).toHaveBeenCalledTimes(1);
+    await pool.dispose();
+  });
+
+  it("bounds printing to PDF with a deadline", async () => {
+    const { pool, window } = fixture(0, { stepTimeoutMs: 30 });
+    window.webContents.printToPDF.mockImplementation(() => new Promise(() => {}));
+    const page = await (await pool.get()).newPage();
+
+    await expect(page.pdf({ width: "210mm", height: "297mm" })).rejects.toThrow(
+      'Render step "print to PDF" timed out after 30ms',
+    );
+    await pool.dispose();
+  });
+
+  it("bounds a debugger command that never answers", async () => {
+    const { pool, debug } = fixture(0, { stepTimeoutMs: 30 });
+    debug.sendCommand.mockImplementation(async (method: string) => {
+      if (method === "Network.enable") return new Promise<undefined>(() => {});
+      return undefined;
+    });
+    const page = await (await pool.get()).newPage();
+
+    await expect(page.setNetworkGuard?.("offline")).rejects.toThrow(
+      'Render step "enable network events" timed out after 30ms',
+    );
     await pool.dispose();
   });
 });

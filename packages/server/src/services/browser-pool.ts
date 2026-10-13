@@ -12,7 +12,7 @@
 import puppeteer, { type Browser } from "puppeteer";
 import {
 	CHROMIUM_HEADLESS,
-	shouldDisableSandbox,
+	launchWithSandboxFallback,
 } from "../lib/chromium-sandbox.js";
 
 export type NetworkGuardMode = "offline" | "localhost-only";
@@ -63,10 +63,9 @@ export function createBrowserPool(
 	const launch =
 		opts.launch ??
 		(() =>
-			puppeteer.launch({
-				headless: CHROMIUM_HEADLESS,
-				args: shouldDisableSandbox() ? ["--no-sandbox"] : [],
-			}));
+			launchWithSandboxFallback((args) =>
+				puppeteer.launch({ headless: CHROMIUM_HEADLESS, args }),
+			));
 
 	let current: RenderBrowser | null = null;
 	let pending: Promise<RenderBrowser> | null = null;

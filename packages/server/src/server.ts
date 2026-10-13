@@ -53,6 +53,7 @@ import { structuredWorkspacesPack } from "./tools/structured-workspaces.js";
 import { workspacePack } from "./tools/workspace.js";
 
 export { isAllowedRenderRequest } from "./lib/page-network-guard.js";
+export { RenderTimeoutError, withDeadline } from "./lib/render-deadline.js";
 export type {
 	BrowserPool,
 	NetworkGuardMode,

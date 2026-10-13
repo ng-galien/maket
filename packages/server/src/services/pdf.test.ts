@@ -311,4 +311,44 @@ describe("PdfService.render", () => {
 		store.close();
 		rmSync(tmp, { recursive: true, force: true });
 	});
+
+	it("returns an error naming the step and closes the page when the render deadline passes", async () => {
+		const tmp = mkdtempSync(join(tmpdir(), "maket-pdf-deadline-"));
+		const store = createSQLiteStore(":memory:");
+		const documents = createDocuments({ store });
+		const assets = createAssetsService({ assetsDir: tmp });
+		const page = {
+			setRequestInterception: vi.fn(async () => {}),
+			on: vi.fn(),
+			setViewport: vi.fn(async () => {}),
+			setContent: vi.fn(async () => {}),
+			waitForNetworkIdle: vi.fn(() => new Promise<void>(() => {})),
+			evaluate: vi.fn(async () => {}),
+			pdf: vi.fn(async () => new Uint8Array([1])),
+			close: vi.fn(async () => {}),
+		};
+		const service = createPdfService(
+			{
+				documents,
+				config: { ASSETS_DIR: tmp } as unknown as Config,
+				assets,
+				browserPool: {
+					get: async () => ({ newPage: async () => page }) as never,
+					dispose: async () => {},
+				},
+			},
+			{ renderTimeoutMs: 40 },
+		);
+		const doc = makeDoc({
+			pages: [{ id: "p", name: "P", elements: [], html: "<p>x</p>" }],
+		});
+
+		await expect(service.render(doc)).rejects.toThrow(
+			'PDF render timed out after 40ms during step "wait for page stable"',
+		);
+		expect(page.close).toHaveBeenCalledTimes(1);
+		expect(page.pdf).not.toHaveBeenCalled();
+		store.close();
+		rmSync(tmp, { recursive: true, force: true });
+	});
 });
