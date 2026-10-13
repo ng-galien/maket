@@ -2,18 +2,16 @@ import {
 	type AssetCategoryUpdate,
 	type AssetsListItem,
 	type AssetsListResponse,
-	applyJsonPatch,
 	type Collection,
 	type CollectionCursorMode,
 	collectionCursorKey,
 	DEFAULT_SETTINGS,
 	type DocumentLabelPosition,
 	type DocumentStateClientView,
-	type DocumentStateEntryChange,
 	type PageCollectionCursor,
 	type Settings,
 	type StatePageProjection,
-	type StructuredWorkspaceItemView,
+	type StructuredCollectionWindow,
 	type StructuredWorkspaceRenderTarget,
 	type StructuredWorkspaceView,
 } from "@maket/shared";
@@ -82,23 +80,95 @@ export function projectStatePages(
 	return pageCount === undefined ? next : next.slice(0, Math.max(1, pageCount));
 }
 
-/** The state view after a whole view or one projection entry change; an
- * entry for another revision than the held view leaves the view as it is. */
+/** An item of a Structured Workspace the client knows by its document name:
+ * pinned, in a collection window, loaded, or opened from its workspace. */
+export interface KnownStructuredItem {
+	workspaceId: string;
+	collectionId: string;
+	documentName: string;
+}
+
+const STRUCTURED_OWNERS_KEY = "maket-structured-item-owners";
+const MAX_REMEMBERED_OWNERS = 200;
+
+function rememberedOwners(): KnownStructuredItem[] {
+	try {
+		const parsed = JSON.parse(
+			localStorage.getItem(STRUCTURED_OWNERS_KEY) ?? "[]",
+		);
+		return Array.isArray(parsed) ? parsed : [];
+	} catch {
+		return [];
+	}
+}
+
+/** Remember which workspace an opened item belongs to, so a reload restores
+ * it from its workspace. */
+export function rememberStructuredItem(item: KnownStructuredItem): void {
+	const owners = [
+		item,
+		...rememberedOwners().filter(
+			(owner) => owner.documentName !== item.documentName,
+		),
+	].slice(0, MAX_REMEMBERED_OWNERS);
+	try {
+		localStorage.setItem(STRUCTURED_OWNERS_KEY, JSON.stringify(owners));
+	} catch {}
+}
+
+export function structuredWindowKey(
+	workspaceId: string,
+	collectionId: string,
+): string {
+	return `${workspaceId}\u0000${collectionId}`;
+}
+
+/** The items the client knows, of one workspace or of every workspace. */
+export function knownStructuredItems(
+	state: Pick<
+		StructuredWorkspaceSlice,
+		"structuredWorkspaces" | "structuredWindows"
+	> & { docs: Map<string, Document> },
+	workspaceId?: string,
+): KnownStructuredItem[] {
+	const known = new Map<string, KnownStructuredItem>();
+	const add = (item: KnownStructuredItem) => {
+		if (workspaceId !== undefined && item.workspaceId !== workspaceId) return;
+		if (!known.has(item.documentName)) known.set(item.documentName, item);
+	};
+	for (const doc of state.docs.values()) {
+		const owner = doc.meta?.structuredWorkspace;
+		if (owner?.role === "item")
+			add({
+				workspaceId: owner.workspaceId,
+				collectionId: owner.collectionId,
+				documentName: doc.name,
+			});
+	}
+	for (const workspace of state.structuredWorkspaces)
+		for (const item of workspace.pinnedItems)
+			add({
+				workspaceId: workspace.id,
+				collectionId: item.collectionId,
+				documentName: item.documentName,
+			});
+	for (const held of Object.values(state.structuredWindows))
+		for (const item of held.items)
+			add({
+				workspaceId: held.workspaceId,
+				collectionId: held.collectionId,
+				documentName: item.documentName,
+			});
+	for (const owner of rememberedOwners()) add(owner);
+	return [...known.values()];
+}
+
+/** The state view a state_pages message carries, else the held one. */
 export function nextDocumentStateView(
 	held: DocumentStateClientView | null | undefined,
-	change: DocumentStateClientView | DocumentStateEntryChange | undefined,
+	change: DocumentStateClientView | undefined,
 ): DocumentStateClientView | null {
-	if (!change) return held ?? null;
-	if (!("pointer" in change)) return change;
-	if (!held || held.revision !== change.previousRevision) return held ?? null;
-	return {
-		...held,
-		revision: change.revision,
-		createdAt: change.createdAt,
-		data: applyJsonPatch(held.data, [
-			{ op: "replace", path: change.pointer, value: change.value },
-		]) as DocumentStateClientView["data"],
-	};
+	return change ?? held ?? null;
 }
 
 export function statePatchKey(docName: string, pointer: string): string {
@@ -205,7 +275,7 @@ interface DocumentStateSlice {
 	applyStatePages: (
 		docName: string,
 		pages: StatePageProjection[],
-		view: DocumentStateClientView | DocumentStateEntryChange | undefined,
+		view: DocumentStateClientView | undefined,
 		docList: DocSummary[],
 		pageCount?: number,
 	) => void;
@@ -235,16 +305,15 @@ interface DocumentIdentitySlice {
 
 interface StructuredWorkspaceSlice {
 	structuredWorkspaces: StructuredWorkspaceView[];
+	/** The window of each collection the server holds, by structuredWindowKey. */
+	structuredWindows: Record<string, StructuredCollectionWindow>;
+	/** Replace the window of its collection. */
+	applyStructuredWindow: (window: StructuredCollectionWindow) => void;
 	activeStructuredWorkspaceId: string | null;
 	activeStructuredCollectionId: string | null;
 	structuredWorkspaceLayout: "single" | "split";
 	setStructuredWorkspaceLayout: (layout: "single" | "split") => void;
 	setStructuredWorkspaces: (workspaces: StructuredWorkspaceView[]) => void;
-	/** Replace one item of a known workspace; other views are kept as they are. */
-	applyStructuredWorkspaceItem: (
-		workspaceId: string,
-		item: StructuredWorkspaceItemView,
-	) => void;
 	setActiveStructuredCollection: (
 		workspaceId: string | null,
 		collectionId: string | null,
@@ -640,6 +709,14 @@ export const useStore = create<AppState>((set, get) => ({
 	chartesVersion: 0,
 	collections: [],
 	structuredWorkspaces: [],
+	structuredWindows: {},
+	applyStructuredWindow: (held) =>
+		set((state) => ({
+			structuredWindows: {
+				...state.structuredWindows,
+				[structuredWindowKey(held.workspaceId, held.collectionId)]: held,
+			},
+		})),
 	structuredWorkspaceLayout:
 		localStorage.getItem("maket-structured-layout") === "single"
 			? "single"
@@ -650,9 +727,11 @@ export const useStore = create<AppState>((set, get) => ({
 		const workspace = state.structuredWorkspaces.find(
 			(candidate) => candidate.id === state.activeStructuredWorkspaceId,
 		);
-		const item = workspace?.items.find((candidate) =>
-			state.workspaceDocNames.includes(candidate.documentName),
-		);
+		const item = workspace
+			? knownStructuredItems(state, workspace.id).find((candidate) =>
+					state.workspaceDocNames.includes(candidate.documentName),
+				)
+			: undefined;
 		const index = workspace?.collectionDocuments.find(
 			(candidate) => candidate.collectionId === item?.collectionId,
 		);
@@ -714,21 +793,24 @@ export const useStore = create<AppState>((set, get) => ({
 	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
 	setStructuredWorkspaces: (structuredWorkspaces) => {
 		const previous = get();
-		const previouslyOwned = new Set(
-			previous.structuredWorkspaces.flatMap((workspace) => [
+		const items = knownStructuredItems(previous);
+		const itemsOf = (workspaceId: string) =>
+			items.filter((item) => item.workspaceId === workspaceId);
+		const previouslyOwned = new Set([
+			...previous.structuredWorkspaces.flatMap((workspace) => [
 				...workspace.templateDocuments.map((document) => document.documentName),
 				...workspace.collectionDocuments.map(
 					(document) => document.documentName,
 				),
-				...workspace.items.map((item) => item.documentName),
 			]),
-		);
+			...items.map((item) => item.documentName),
+		]);
 		const restored = previous.activeStructuredWorkspaceId
 			? undefined
 			: structuredWorkspaces.find((workspace) =>
 					[
 						...workspace.collectionDocuments,
-						...workspace.items,
+						...itemsOf(workspace.id),
 						...workspace.templateDocuments,
 					].some(
 						(document) => document.documentName === previous.focusedDocName,
@@ -741,7 +823,7 @@ export const useStore = create<AppState>((set, get) => ({
 			);
 		const restoredCollection =
 			restored &&
-			[...restored.collectionDocuments, ...restored.items].find(
+			[...restored.collectionDocuments, ...itemsOf(restored.id)].find(
 				(document) => document.documentName === previous.focusedDocName,
 			)?.collectionId;
 		const allowed = new Set(
@@ -755,7 +837,7 @@ export const useStore = create<AppState>((set, get) => ({
 									...active.collectionDocuments.map(
 										(document) => document.documentName,
 									),
-									...active.items.map((item) => item.documentName),
+									...itemsOf(active.id).map((item) => item.documentName),
 								]
 							: []),
 					]
@@ -783,19 +865,6 @@ export const useStore = create<AppState>((set, get) => ({
 				returnToCollection: false,
 			});
 	},
-	applyStructuredWorkspaceItem: (workspaceId, item) =>
-		set((state) => ({
-			structuredWorkspaces: state.structuredWorkspaces.map((workspace) =>
-				workspace.id === workspaceId
-					? {
-							...workspace,
-							items: workspace.items.map((candidate) =>
-								candidate.id === item.id ? item : candidate,
-							),
-						}
-					: workspace,
-			),
-		})),
 	setActiveStructuredCollection: (
 		activeStructuredWorkspaceId,
 		activeStructuredCollectionId,
@@ -1188,11 +1257,13 @@ export const useStore = create<AppState>((set, get) => ({
 				const workspace = s.structuredWorkspaces.find(
 					(candidate) => candidate.id === ownership.workspaceId,
 				);
-				const child = workspace?.items.find(
-					(item) =>
-						item.collectionId === ownership.collectionId &&
-						s.workspaceDocNames.includes(item.documentName),
-				);
+				const child = workspace
+					? knownStructuredItems(s, workspace.id).find(
+							(item) =>
+								item.collectionId === ownership.collectionId &&
+								s.workspaceDocNames.includes(item.documentName),
+						)
+					: undefined;
 				if (child)
 					workspaceDocNames =
 						s.structuredWorkspaceLayout === "split"
@@ -1266,22 +1337,35 @@ export const useStore = create<AppState>((set, get) => ({
 
 	applyDocumentPin: (name, pinnedAt) =>
 		set((s) => {
-			if (
-				!s.docList.some((entry) => entry.name === name) &&
-				!s.structuredWorkspaces.some((workspace) =>
-					workspace.items.some((item) => item.documentName === name),
-				)
-			)
-				return {};
+			const owner = s.docs.get(name)?.meta?.structuredWorkspace;
+			const item =
+				owner?.role === "item"
+					? {
+							id: owner.itemId,
+							collectionId: owner.collectionId,
+							documentName: name,
+						}
+					: s.structuredWorkspaces
+							.flatMap((workspace) => workspace.pinnedItems)
+							.find((candidate) => candidate.documentName === name);
+			if (!s.docList.some((entry) => entry.name === name) && !item) return {};
 			return {
-				structuredWorkspaces: s.structuredWorkspaces.map((workspace) => ({
-					...workspace,
-					items: workspace.items.map((item) => {
-						if (item.documentName !== name) return item;
-						const { pinnedAt: _previous, ...rest } = item;
-						return pinnedAt ? { ...rest, pinnedAt } : rest;
-					}),
-				})),
+				structuredWorkspaces: s.structuredWorkspaces.map((workspace) => {
+					const kept = workspace.pinnedItems.filter(
+						(candidate) => candidate.documentName !== name,
+					);
+					const owns =
+						item &&
+						(owner?.role === "item"
+							? owner.workspaceId === workspace.id
+							: kept.length !== workspace.pinnedItems.length);
+					if (!owns) return workspace;
+					return {
+						...workspace,
+						pinnedItems:
+							pinnedAt && item ? [...kept, { ...item, pinnedAt }] : kept,
+					};
+				}),
 				docList: s.docList.map((entry) => {
 					if (entry.name !== name) return entry;
 					const { pinnedAt: _previous, ...rest } = entry;
@@ -1383,7 +1467,10 @@ export const useStore = create<AppState>((set, get) => ({
 				candidate.id === current.activeStructuredWorkspaceId &&
 				candidate.integrity.status === "ready",
 		);
-		const closingItem = workspace?.items.find(
+		const workspaceItems = workspace
+			? knownStructuredItems(current, workspace.id)
+			: [];
+		const closingItem = workspaceItems.find(
 			(item) =>
 				names.has(item.documentName) &&
 				current.workspaceDocNames.includes(item.documentName),
@@ -1404,7 +1491,7 @@ export const useStore = create<AppState>((set, get) => ({
 			saveWorkspace(workspaceDocNames);
 			const docs = new Map(s.docs);
 			for (const name of names) docs.delete(name);
-			const remainingItem = workspace?.items.find((item) =>
+			const remainingItem = workspaceItems.find((item) =>
 				workspaceDocNames.includes(item.documentName),
 			);
 			const closesIndex = workspace?.collectionDocuments.some(
@@ -1481,12 +1568,15 @@ export const useStore = create<AppState>((set, get) => ({
 		}
 		// Reader and document pickers use names; recover the same ownership
 		// context as a click in the structured workspace navigation.
+		const items = knownStructuredItems(state);
+		const itemsOf = (workspaceId: string) =>
+			items.filter((item) => item.workspaceId === workspaceId);
 		if (!structuredWorkspace) {
 			const owner = state.structuredWorkspaces.find((workspace) =>
 				[
 					...workspace.collectionDocuments,
 					...workspace.templateDocuments,
-					...workspace.items,
+					...itemsOf(workspace.id),
 				].some((entry) => entry.documentName === docName),
 			);
 			const entry =
@@ -1494,7 +1584,7 @@ export const useStore = create<AppState>((set, get) => ({
 				[
 					...owner.collectionDocuments,
 					...owner.templateDocuments,
-					...owner.items,
+					...itemsOf(owner.id),
 				].find((candidate) => candidate.documentName === docName);
 			if (owner && entry)
 				structuredWorkspace = {
@@ -1503,15 +1593,15 @@ export const useStore = create<AppState>((set, get) => ({
 						"collectionId" in entry ? entry.collectionId : undefined,
 				};
 		}
-		const ownedNames = new Set(
-			state.structuredWorkspaces.flatMap((workspace) => [
+		const ownedNames = new Set([
+			...state.structuredWorkspaces.flatMap((workspace) => [
 				...workspace.templateDocuments.map((document) => document.documentName),
 				...workspace.collectionDocuments.map(
 					(document) => document.documentName,
 				),
-				...workspace.items.map((item) => item.documentName),
 			]),
-		);
+			...items.map((item) => item.documentName),
+		]);
 		const allowed = structuredWorkspace
 			? new Set(
 					state.structuredWorkspaces
@@ -1525,7 +1615,7 @@ export const useStore = create<AppState>((set, get) => ({
 							...workspace.collectionDocuments.map(
 								(document) => document.documentName,
 							),
-							...workspace.items.map((item) => item.documentName),
+							...itemsOf(workspace.id).map((item) => item.documentName),
 						]),
 				)
 			: null;
@@ -1542,11 +1632,15 @@ export const useStore = create<AppState>((set, get) => ({
 			const workspace = state.structuredWorkspaces.find(
 				(candidate) => candidate.id === structuredWorkspace.workspaceId,
 			);
-			const item = workspace?.items.find(
-				(candidate) => candidate.documentName === docName,
-			);
+			const item = workspace
+				? itemsOf(workspace.id).find(
+						(candidate) => candidate.documentName === docName,
+					)
+				: undefined;
 			const index = workspace?.collectionDocuments.find(
-				(candidate) => candidate.collectionId === item?.collectionId,
+				(candidate) =>
+					candidate.collectionId ===
+					(item?.collectionId ?? structuredWorkspace.collectionId),
 			);
 			if (workspace && index && !state.docs.has(index.documentName))
 				sendBackgroundLoadDoc(index.documentName, {

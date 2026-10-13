@@ -37,7 +37,8 @@ const workspace: StructuredWorkspaceView = {
 		},
 	},
 	revision: 1,
-	items: [],
+	itemCounts: { backlog: 0 },
+	pinnedItems: [],
 	collectionDocuments: [],
 	templateDocuments: [
 		{

@@ -14,6 +14,7 @@ import type { DocumentRenderer } from "../document-renderer.js";
 import type { DocumentStateMutations } from "../document-state-mutations.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
+import type { ItemWindows } from "../item-windows.js";
 import type { SettingsService } from "../settings.js";
 import type { Store } from "../store.js";
 import type { StructuredWorkspaces } from "../structured-workspaces.js";
@@ -33,6 +34,7 @@ export interface WsHandlerDeps {
 	documentStateMutations: DocumentStateMutations;
 	documentStates: DocumentStates;
 	documents: Documents;
+	itemWindows: Pick<ItemWindows, "current" | "query">;
 	pending: Annotations;
 	settings: SettingsService;
 	store: Store;

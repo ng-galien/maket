@@ -3,10 +3,10 @@
  * reads items through this contract only; each connector (Maket's own
  * storage first) implements it with a factory.
  *
- * `list` and `get` answer synchronously: the index composition and the
- * workspace views they feed are synchronous, so a connector serves them from
- * what it holds and fetches in `refresh`. Writes, `refresh` and `close` are
- * asynchronous.
+ * `list` answers one batch of a query by cursor; `get` one whole item. Both
+ * answer synchronously: the index composition and the workspace views they
+ * feed are synchronous, so a connector serves them from what it holds and
+ * fetches in `refresh`. Writes, `refresh` and `close` are asynchronous.
  */
 
 import type {
@@ -26,9 +26,10 @@ export interface ItemSourceCapabilities {
 }
 
 export interface ItemQueryFilter {
+	/** JSON Pointer into item data. */
 	field: string;
 	op: "eq" | "in";
-	value: unknown;
+	value: StructuredWorkspaceGroupValue | StructuredWorkspaceGroupValue[];
 }
 
 export interface ItemQuery {
@@ -37,9 +38,10 @@ export interface ItemQuery {
 	filters?: ItemQueryFilter[];
 	sort?: { field: string; direction: "ascending" | "descending" };
 	groupBy?: string;
-	/** Opaque position returned in a previous page's `cursor`. */
+	/** Opaque position returned as `next` by the previous batch of the same
+	 * query; never read by callers. */
 	cursor?: string;
-	/** Most items in the page; `Number.POSITIVE_INFINITY` for every item. */
+	/** Most items in the batch; the source may answer fewer and caps it. */
 	limit: number;
 }
 
@@ -53,10 +55,14 @@ export interface ItemSummary {
 	issues?: StructuredWorkspaceItemDataIssue[];
 }
 
+/** One batch of a query: a new query restarts from the first item, `next`
+ * continues it and is absent once the query is exhausted. */
 export interface ItemPage {
 	items: ItemSummary[];
-	cursor: { next?: string; previous?: string; offset: number };
+	next?: string;
+	/** Items matching the query, when `capabilities().total` is not none. */
 	total?: number;
+	/** Items per group value over the whole query, in index order. */
 	groups?: Array<{ value: StructuredWorkspaceGroupValue; count: number }>;
 }
 
@@ -87,7 +93,9 @@ export type ItemSourceErrorCode =
 	| "unknown_item"
 	| "read_only"
 	| "query_unsupported"
-	| "invalid_record";
+	| "invalid_record"
+	| "unknown_workspace"
+	| "unknown_collection";
 
 /** A connector failure the engine translates for the client and the agent. */
 export interface ItemSourceError extends Error {
@@ -101,7 +109,7 @@ export interface ItemSourceError extends Error {
 export interface ItemSource {
 	/** What the source supports; the engine never asks for more. */
 	capabilities(): ItemSourceCapabilities;
-	/** One page of item summaries matching the query, in index order. */
+	/** One batch of item summaries matching the query, in index order. */
 	list(query: ItemQuery): ItemPage;
 	/** The whole current data of one item, or null when the source has no such item. */
 	get(id: string): ItemRecord | null;

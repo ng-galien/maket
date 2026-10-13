@@ -12,6 +12,10 @@ import { createConfig } from "../services/config.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
 import { createItemSources } from "../services/item-sources/item-sources.js";
+import {
+	createItemWindows,
+	type ItemWindows,
+} from "../services/item-windows.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import {
 	createStructuredWorkspaces,
@@ -48,7 +52,10 @@ describe("maket_structured_workspace", () => {
 			documents,
 			documentStates,
 		});
-		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows: windowsOf(structuredWorkspaces),
+		});
 		try {
 			const template = createDocument({
 				name: "Incompatible template",
@@ -131,7 +138,10 @@ describe("maket_structured_workspace", () => {
 			documents,
 			documentStates,
 		});
-		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows: windowsOf(structuredWorkspaces),
+		});
 		try {
 			const canvas = {
 				format: "A4" as const,
@@ -260,7 +270,10 @@ describe("maket_structured_workspace", () => {
 		expect(structuredWorkspacesPack.declaresTools).toEqual([
 			"maket_structured_workspace",
 		]);
-		expect(structuredWorkspacesPack.requires).toEqual(["structuredWorkspaces"]);
+		expect(structuredWorkspacesPack.requires).toEqual([
+			"structuredWorkspaces",
+			"itemWindows",
+		]);
 	});
 
 	it("creates a workspace and operates its instantiated item through MCP", async () => {
@@ -293,7 +306,10 @@ describe("maket_structured_workspace", () => {
 			documentStates,
 			bus,
 		});
-		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows: windowsOf(structuredWorkspaces),
+		});
 		const invalidArgs = {
 			action: "create",
 			workspace: "Invalid delivery",
@@ -530,11 +546,14 @@ describe("maket_structured_workspace", () => {
 		expect(addedAfterDelete.isError).toBeUndefined();
 		const compacted = structuredWorkspaces.get("Delivery");
 		expect(
-			compacted?.items.map(({ id, position }) => ({ id, position })),
+			structuredWorkspaces
+				.list()
+				.find((workspace) => workspace.id === compacted?.id)
+				?.items.map(({ id, position }) => ({ id, position })),
 		).toEqual([
 			{ id: "task-1", position: 0 },
-			{ id: "task-3", position: 1 },
-			{ id: "task-4", position: 2 },
+			{ id: "task-3", position: 2 },
+			{ id: "task-4", position: 3 },
 		]);
 		const renamed = await tool.handler(
 			{
@@ -614,6 +633,7 @@ describe("maket_structured_workspace update_item propagation", () => {
 			collectionCursors: container.resolve("collectionCursors"),
 			documents: container.resolve("documents"),
 			documentRenderer: container.resolve("documentRenderer"),
+			itemWindows: container.resolve("itemWindows"),
 			mermaidDiagrams: container.resolve("mermaidDiagrams"),
 			structuredWorkspaces: container.resolve("structuredWorkspaces"),
 			wsRegistry: container.resolve("wsRegistry"),
@@ -672,7 +692,11 @@ describe("maket_structured_workspace update_item propagation", () => {
 		const structuredWorkspaces = container.resolve<StructuredWorkspaces>(
 			"structuredWorkspaces",
 		);
-		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		const itemWindows = container.resolve<ItemWindows>("itemWindows");
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows,
+		});
 		const created = await tool.handler(
 			{
 				action: "create",
@@ -748,43 +772,36 @@ describe("maket_structured_workspace update_item propagation", () => {
 		expect(textOf(updated)).toBe('Item "topic-30" updated to data revision 2.');
 		expect(writes).toEqual([
 			"putStructuredWorkspaceItem",
-			"replaceCurrentDocumentStateValue",
 			"mirrorDocumentState",
 		]);
 		expect(events.sort()).toEqual([
 			"document-state:changed",
-			"document-state:changed",
-			"structured-workspace:item-changed",
+			"structured-workspace:source-changed",
+			"structured-workspace:window-changed",
 		]);
 		expect(broadcasts.map(({ type, doc }) => ({ type, doc }))).toEqual([
+			{ type: "structured_collection_window", doc: undefined },
 			{ type: "state_pages", doc: "Graph — Topics" },
-			{ type: "structured_workspace_item_changed", doc: undefined },
 			{ type: "state_pages", doc: "Topic 30" },
 		]);
-		const itemBroadcast = broadcasts.find(
-			({ type }) => type === "structured_workspace_item_changed",
+		const windowBroadcast = broadcasts.find(
+			({ type }) => type === "structured_collection_window",
 		);
-		expect(itemBroadcast?.bytes).toBeLessThan(1000);
+		expect(windowBroadcast?.bytes).toBeLessThan(20_000);
+		const window = itemWindows.current(workspaceId, "topics");
+		expect(window.items).toHaveLength(50);
+		expect(window.total).toBe(100);
+		expect(window.next).toEqual(expect.any(String));
+		expect(
+			window.items.find((item) => item.id === "topic-30")?.fields.status,
+		).toBe("closed");
 		const documentStates =
 			container.resolve<ReturnType<typeof createDocumentStates>>(
 				"documentStates",
 			);
-		const projection = documentStates.get("Graph — Topics")?.current;
-		const projected = projection?.data.items as Array<{ status: string }>;
-		expect(projected).toHaveLength(100);
-		expect(projected[30]?.status).toBe("closed");
-		expect(projected.filter(({ status }) => status === "open")).toHaveLength(
-			99,
-		);
+		expect(documentStates.get("Graph — Topics")?.current.data).toEqual({});
 		const index = broadcasts.find(({ doc }) => doc === "Graph — Topics");
-		expect(index?.message.documentState).toBeUndefined();
-		expect(index?.message.documentStateEntry).toEqual({
-			previousRevision: (projection?.revision ?? 0) - 1,
-			revision: projection?.revision,
-			createdAt: projection?.createdAt,
-			pointer: "/items/30",
-			value: { title: "Topic 30", status: "closed" },
-		});
+		expect(index?.message.documentState).toMatchObject({ data: {} });
 		const indexPages = (index?.message.pages ?? []) as Array<{
 			html?: string;
 		}>;
@@ -806,8 +823,10 @@ describe("maket_structured_workspace update_item propagation", () => {
 		expect(unchanged.isError).toBeUndefined();
 		expect(writes).toEqual(["putStructuredWorkspaceItem"]);
 		expect(
-			broadcasts.filter(({ doc }) => doc === "Graph — Topics"),
-		).toHaveLength(0);
+			broadcasts
+				.filter(({ doc }) => doc === "Graph — Topics")
+				.map(({ message }) => message.pages),
+		).toEqual([[]]);
 		store.close();
 	});
 });
@@ -828,6 +847,7 @@ function methodHarness() {
 	});
 	const workspaceTool = createMaketStructuredWorkspaceTool({
 		structuredWorkspaces,
+		itemWindows: windowsOf(structuredWorkspaces),
 	});
 	const docTool = createMaketDocTool({
 		documents,
@@ -863,6 +883,155 @@ function answerOf(result: CallToolResult): string {
 		...(Array.isArray(findings) ? findings.map((f) => f.message) : []),
 	].join("\n");
 }
+
+describe("maket_structured_workspace view by cursor", () => {
+	async function paging() {
+		const store = createSQLiteStore(":memory:");
+		const bus = createBus();
+		const documents = createDocuments({ store });
+		const documentStates = createDocumentStates({ store, bus, documents });
+		const structuredWorkspaces = structuredWorkspacesWithSources({
+			store,
+			bus,
+			documents,
+			documentStates,
+		});
+		const itemWindows = windowsOf(structuredWorkspaces);
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows,
+		});
+		structuredWorkspaces.create({
+			name: "Pages",
+			dataSchema: {
+				type: "object",
+				properties: { title: { type: "string" }, priority: { type: "number" } },
+				required: ["title"],
+				additionalProperties: false,
+			},
+		});
+		for (let index = 1; index <= 25; index += 1)
+			await structuredWorkspaces.addItem({
+				workspace: "Pages",
+				itemId: `items-${String(index).padStart(3, "0")}`,
+				collectionId: "items",
+				bindingId: "item",
+				documentName: `Page ${String(index).padStart(3, "0")}`,
+				data: { title: `Item ${String(index).padStart(3, "0")}` },
+			});
+		const workspaceId = structuredWorkspaces.get("Pages")?.id ?? "";
+		const view = async (args: Record<string, unknown>) => {
+			const result = await tool.handler(
+				{ action: "view", workspace: "Pages", ...args } as never,
+				{} as never,
+			);
+			return {
+				result,
+				window: (
+					result.structuredContent as {
+						window?: {
+							items: Array<{ id: string }>;
+							next?: string;
+							more?: string;
+							query: object;
+						};
+					}
+				)?.window,
+			};
+		};
+		return { store, structuredWorkspaces, itemWindows, workspaceId, view };
+	}
+
+	it("pages statelessly through the source: a delete and a client load-more between two calls lose no item", async () => {
+		const { store, structuredWorkspaces, itemWindows, workspaceId, view } =
+			await paging();
+		const sort = { field: "/title", direction: "ascending" };
+		const first = await view({ sort, batch: 10 });
+		const ids = (window: typeof first.window) =>
+			window?.items.map((item) => item.id) ?? [];
+		expect(ids(first.window)).toEqual(
+			Array.from(
+				{ length: 10 },
+				(_, i) => `items-${String(i + 1).padStart(3, "0")}`,
+			),
+		);
+		expect(first.window?.more).toContain(`cursor=${first.window?.next}`);
+		expect(first.window?.more).toContain(
+			'sort=\'{"field":"/title","direction":"ascending"}\'',
+		);
+		await structuredWorkspaces.deleteItem("Pages", "items-003");
+		const shared = itemWindows.current(workspaceId, "items");
+		itemWindows.query(workspaceId, "items", { cursor: shared.next });
+		const second = await view({ sort, batch: 10, cursor: first.window?.next });
+		expect(ids(second.window)[0]).toBe("items-011");
+		expect(ids(second.window)).toHaveLength(10);
+		const third = await view({ sort, batch: 10, cursor: second.window?.next });
+		expect(ids(third.window)).toEqual([
+			"items-021",
+			"items-022",
+			"items-023",
+			"items-024",
+			"items-025",
+		]);
+		expect(third.window?.next).toBeUndefined();
+		store.close();
+	});
+
+	it("sets the shared window on a new query and answers the default first batch without arguments, never the accumulated window", async () => {
+		const { store, itemWindows, workspaceId, view } = await paging();
+		const shared = itemWindows.current(workspaceId, "items");
+		itemWindows.query(workspaceId, "items", { cursor: shared.next });
+		expect(itemWindows.current(workspaceId, "items").items).toHaveLength(25);
+		const plain = await view({});
+		expect(plain.window?.items).toHaveLength(25);
+		expect(plain.window?.query).toEqual({});
+		const searched = await view({ text: "Item 02", batch: 3 });
+		expect(searched.window?.items.map((item) => item.id)).toEqual([
+			"items-020",
+			"items-021",
+			"items-022",
+		]);
+		expect(itemWindows.current(workspaceId, "items").query).toEqual({
+			text: "Item 02",
+			batch: 3,
+		});
+		store.close();
+	});
+
+	it("refuses with a typed answer: an empty in-list answers no item, an undeclared field is refused, a deleted collection or workspace is named", async () => {
+		const { store, structuredWorkspaces, view } = await paging();
+		const empty = await view({
+			filters: [{ field: "/priority", op: "in", value: [] }],
+		});
+		expect(empty.result.isError).toBeUndefined();
+		expect(empty.window?.items).toEqual([]);
+		for (const args of [
+			{ filters: [{ field: "/x') OR 1=1 --", op: "eq", value: 1 }] },
+			{ sort: { field: "/address/city/../x" } },
+			{ sort: { field: "title" } },
+		]) {
+			const refused = await view(args);
+			expect(refused.result.isError).toBe(true);
+			expect(textOf(refused.result)).toMatch(
+				/^query_unsupported: Field .* is not a declared property of the items; declared: \/title, \/priority\./,
+			);
+		}
+		const unknownCollection = await view({ collection: "gone" });
+		expect(textOf(unknownCollection.result)).toMatch(
+			/^unknown_collection: Collection "gone" not found/,
+		);
+		structuredWorkspaces.delete("Pages");
+		const unknownWorkspace = await view({});
+		expect(unknownWorkspace.result.isError).toBe(true);
+		expect(textOf(unknownWorkspace.result)).toMatch(
+			/^unknown_workspace: Structured Workspace "Pages" not found\./,
+		);
+		expect(textOf(unknownWorkspace.result)).toContain(
+			"maket_structured_workspace action=list",
+		);
+		store.close();
+	});
+});
 
 describe("maket_structured_workspace documented method", () => {
 	it.each(STRUCTURED_WORKSPACE_METHOD.map((path) => [path.title, path]))(
@@ -1181,8 +1350,8 @@ describe("maket_structured_workspace documented method", () => {
 				workspace: "Reading list",
 			});
 			const itemId = (
-				view.structuredContent as { items: Array<{ id: string }> }
-			).items[0]?.id;
+				view.structuredContent as { window: { items: Array<{ id: string }> } }
+			).window.items[0]?.id;
 			const refused = await run("maket_structured_workspace", {
 				action: "update_item",
 				workspace: "Reading list",
@@ -1212,7 +1381,10 @@ describe("maket_structured_workspace Mermaid sources", () => {
 			documents,
 			documentStates,
 		});
-		const tool = createMaketStructuredWorkspaceTool({ structuredWorkspaces });
+		const tool = createMaketStructuredWorkspaceTool({
+			structuredWorkspaces,
+			itemWindows: windowsOf(structuredWorkspaces),
+		});
 		try {
 			const created = await tool.handler(
 				{
@@ -1255,7 +1427,9 @@ describe("maket_structured_workspace Mermaid sources", () => {
 				/^State value \/flow \(format maket-mermaid\) is not a Mermaid diagram Maket can draw: Invalid mermaid header.* Fix: /,
 			);
 			expect(documents.resolveOrLoad("Broken")).toBeNull();
-			expect(structuredWorkspaces.get("Flows")?.items).toEqual([]);
+			expect(structuredWorkspaces.get("Flows")?.itemCounts).toEqual({
+				items: 0,
+			});
 
 			const added = await add("Release", "flowchart LR\n  Draft --> Signed");
 			expect(added.isError).toBeUndefined();
@@ -1288,11 +1462,25 @@ describe("maket_structured_workspace Mermaid sources", () => {
 	});
 });
 
+const itemWindowsOf = new WeakMap<StructuredWorkspaces, ItemWindows>();
+
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	itemWindowsOf.set(workspaces, itemWindows);
+	return workspaces;
+}
+
+/** The collection windows of an engine built by structuredWorkspacesWithSources. */
+function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
+	const windows = itemWindowsOf.get(workspaces);
+	if (!windows) throw new Error("engine built without item windows");
+	return windows;
 }

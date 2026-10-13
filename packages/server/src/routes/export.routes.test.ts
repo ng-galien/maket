@@ -46,6 +46,7 @@ import {
 } from "../services/document-states.js";
 import { createDocuments, type Documents } from "../services/documents.js";
 import { createItemSources } from "../services/item-sources/item-sources.js";
+import { createItemWindows } from "../services/item-windows.js";
 import type { PdfService } from "../services/pdf.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
@@ -571,7 +572,15 @@ describe("export routes — .maket bundle", () => {
 		).toEqual(before);
 		expect([...documents.all().keys()].sort()).toEqual(cacheBefore);
 		expect(created).not.toHaveBeenCalled();
-		expect(restoredWorkspace?.items[0]?.data).toEqual({
+		const [restoredItem] =
+			structuredWorkspaces
+				.list()
+				.find((workspace) => workspace.id === restoredWorkspace.id)?.items ??
+			[];
+		expect(
+			structuredWorkspaces.getItem(restoredWorkspace.id, restoredItem?.id ?? "")
+				?.data,
+		).toEqual({
 			kind: "task",
 			title: "Ship the release",
 		});
@@ -1384,10 +1393,14 @@ describe("export routes — .maket bundle", () => {
 });
 
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	return workspaces;
 }

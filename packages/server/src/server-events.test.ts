@@ -15,6 +15,7 @@ describe("server Mermaid refresh propagation", () => {
 			collectionCursors: { snapshot: () => [] } as never,
 			documents: { resolve: () => null, all: () => new Map() } as never,
 			documentRenderer: {} as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte,
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
@@ -71,6 +72,7 @@ describe("server Mermaid refresh propagation", () => {
 				charteCss: () => "",
 			} as never,
 			documentRenderer: { render, stateView: () => null } as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
@@ -111,6 +113,7 @@ describe("server Mermaid refresh propagation", () => {
 				render: (doc: unknown) => doc,
 				stateView: () => null,
 			} as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument,
@@ -137,6 +140,7 @@ describe("server document-state retention notice", () => {
 			collectionCursors: { snapshot: () => [] } as never,
 			documents: { resolve: () => null } as never,
 			documentRenderer: {} as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
@@ -173,6 +177,7 @@ describe("server Structured Workspace propagation", () => {
 			collectionCursors: { snapshot: () => [] } as never,
 			documents: { resolve: () => null } as never,
 			documentRenderer: {} as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
@@ -190,44 +195,75 @@ describe("server Structured Workspace propagation", () => {
 		});
 	});
 
-	it("broadcasts only the changed item after an item data change", () => {
+	it("broadcasts the collection window and the index pages after a window change", () => {
 		const bus = createBus();
 		const broadcast = vi.fn();
 		const listViews = vi.fn(() => []);
-		const item = { id: "task-1", data: { title: "Ship" }, dataRevision: 2 };
-		const getItem = vi.fn((workspaceId: string, itemId: string) =>
-			workspaceId === "delivery" && itemId === "task-1" ? item : null,
-		);
+		const window = {
+			workspaceId: "delivery",
+			collectionId: "tasks",
+			query: {},
+			items: [],
+			total: 0,
+			fetchedAt: "2026-10-13T20:00:00.000Z",
+		};
+		const current = vi.fn(() => window);
+		const index = {
+			name: "Delivery — Tasks",
+			dataModel: "state",
+			meta: {
+				structuredWorkspace: {
+					role: "collection",
+					workspaceId: "delivery",
+					collectionId: "tasks",
+				},
+			},
+			pages: [],
+		};
+		const documentState = { revision: 1, data: {} };
 		registerServerEvents({
 			bus,
 			collections: { loadAll: () => [] } as never,
 			collectionCursors: { snapshot: () => [] } as never,
-			documents: { resolve: () => null } as never,
-			documentRenderer: {} as never,
+			documents: {
+				resolve: (name: string) => (name === index.name ? index : null),
+				all: () => new Map([[index.name, index]]),
+				list: () => [],
+			} as never,
+			documentRenderer: {
+				stateView: () => documentState,
+				statePages: () => ({
+					pages: [{ index: 0, id: "p", html: "<main></main>" }],
+					pageCount: 1,
+				}),
+			} as never,
+			itemWindows: { current },
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),
 			},
-			structuredWorkspaces: { listViews, getItem } as never,
+			structuredWorkspaces: { listViews } as never,
 			wsRegistry: { broadcast } as never,
 			pending: { all: () => [] } as never,
 		});
 
-		bus.emit("structured-workspace:item-changed", {
+		bus.emit("structured-workspace:window-changed", {
 			workspaceId: "delivery",
-			itemId: "task-1",
-		});
-		bus.emit("structured-workspace:item-changed", {
-			workspaceId: "delivery",
-			itemId: "gone",
+			collectionId: "tasks",
 		});
 
-		expect(broadcast).toHaveBeenCalledTimes(1);
-		expect(broadcast).toHaveBeenCalledWith({
-			type: "structured_workspace_item_changed",
-			workspaceId: "delivery",
-			item,
-		});
+		expect(current).toHaveBeenCalledWith("delivery", "tasks");
+		expect(broadcast.mock.calls.map(([message]) => message)).toEqual([
+			{ type: "structured_collection_window", window },
+			{
+				type: "state_pages",
+				docName: "Delivery — Tasks",
+				documentState,
+				pages: [{ index: 0, id: "p", html: "<main></main>" }],
+				pageCount: 1,
+				docList: [],
+			},
+		]);
 		expect(listViews).not.toHaveBeenCalled();
 	});
 });
@@ -242,6 +278,7 @@ describe("server document pin propagation", () => {
 			collectionCursors: { snapshot: () => [] } as never,
 			documents: { resolve: () => null } as never,
 			documentRenderer: {} as never,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: vi.fn(() => ({ docNames: [], errors: [] })),
 				refreshDocument: vi.fn(() => ({ docNames: [], errors: [] })),

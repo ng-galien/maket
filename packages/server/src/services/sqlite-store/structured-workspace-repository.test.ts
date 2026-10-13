@@ -44,8 +44,12 @@ describe("Structured Workspace item rows", () => {
 		).toMatchObject({ workspaceId: "ws", item: { id: "one" } });
 		expect(
 			store
-				.loadStructuredWorkspaceCollectionItems("ws", "items")
-				.map(({ id }) => id),
+				.loadStructuredWorkspaceItemBatch({
+					workspaceId: "ws",
+					collectionId: "items",
+					limit: 10,
+				})
+				.rows.map(({ id }) => id),
 		).toEqual(["one", "two"]);
 	});
 
@@ -69,10 +73,19 @@ describe("Structured Workspace item rows", () => {
 		});
 	});
 
-	it("deletes at the expected revision when given and compacts positions", () => {
+	it("deletes at the expected revision when given and never renumbers positions", () => {
 		expect(store.deleteStructuredWorkspaceItem("ws", "one", 5)).toBe(false);
 		expect(store.deleteStructuredWorkspaceItem("ws", "one", 1)).toBe(true);
-		expect(store.loadStructuredWorkspaceItem("ws", "two")?.position).toBe(0);
+		expect(store.loadStructuredWorkspaceItem("ws", "two")?.position).toBe(1);
+		store.addStructuredWorkspaceItem("ws", {
+			id: "three",
+			collectionId: "items",
+			bindingId: "item",
+			documentId: "doc-three",
+			documentName: "Row three",
+			data: { title: "three" },
+		});
+		expect(store.loadStructuredWorkspaceItem("ws", "three")?.position).toBe(2);
 		expect(store.deleteStructuredWorkspaceItem("ws", "two")).toBe(true);
 		expect(store.deleteStructuredWorkspaceItem("ws", "two")).toBe(false);
 	});

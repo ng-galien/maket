@@ -7,6 +7,7 @@ import { createDocumentStateMutations } from "./document-state-mutations.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createItemSources } from "./item-sources/item-sources.js";
+import { createItemWindows, type ItemWindows } from "./item-windows.js";
 import { createSQLiteStore } from "./store.js";
 import {
 	createStructuredWorkspaces,
@@ -186,7 +187,7 @@ describe("StructuredWorkspaces item names and missing data", () => {
 			.listViews()
 			.find((candidate) => candidate.id === workspace.id);
 		expect(view?.integrity.status).toBe("ready");
-		expect(view?.items.map((item) => item.id)).toEqual(["task-2"]);
+		expect(view?.itemCounts).toMatchObject({ backlog: 2 });
 		const listed = createItemSources({
 			bus: createBus(),
 			documents: createDocuments({ store }),
@@ -215,7 +216,9 @@ describe("StructuredWorkspaces item names and missing data", () => {
 			done: false,
 		});
 		expect(
-			workspaces.get("Delivery")?.items.map((item) => item.data.title),
+			["task-1", "task-2"].map(
+				(id) => workspaces.getItem(workspace.id, id)?.data.title,
+			),
 		).toEqual(["Ship again", "Notes"]);
 		store.close();
 		raw.close();
@@ -256,7 +259,7 @@ describe("StructuredWorkspaces", () => {
 		});
 		expect(
 			documentStates.get(collectionDocument?.documentName ?? "")?.current,
-		).toMatchObject({ revision: 1, data: { items: [] } });
+		).toMatchObject({ revision: 1, data: {} });
 
 		const item = await addTask(workspaces);
 		expect(documents.resolve(item.documentName)).toBeNull();
@@ -318,7 +321,7 @@ describe("StructuredWorkspaces", () => {
 				data: { kind: "decision", title: "Choose", outcome: "Go" },
 			}),
 		).rejects.toThrow(/Invalid item data/);
-		expect(workspaces.get("Delivery")?.items).toEqual([]);
+		expect(workspaces.get("Delivery")?.itemCounts.backlog).toBe(0);
 		store.close();
 	});
 
@@ -531,16 +534,13 @@ describe("StructuredWorkspaces", () => {
 	);
 
 	it("updates item data with optimistic revisions", async () => {
-		const { store, documentStates, workspaces, workspace } = fixture();
+		const { store, workspaces, workspace } = fixture();
 		await addTask(workspaces);
-		const collectionDocument =
-			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
-		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
-			{
-				revision: 2,
-				data: { items: [{ kind: "task", title: "Ship", done: false }] },
-			},
-		);
+		const fieldsOf = () =>
+			windowsOf(workspaces)
+				.current(workspace.id, "backlog")
+				.items.map((item) => [item.revision, item.fields]);
+		expect(fieldsOf()).toEqual([["1", { title: "Ship", done: false }]]);
 		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
 				kind: "task",
@@ -557,12 +557,7 @@ describe("StructuredWorkspaces", () => {
 			revision: 2,
 			data: { kind: "task", title: "Ship now", done: true },
 		});
-		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
-			{
-				revision: 3,
-				data: { items: [{ kind: "task", title: "Ship now", done: true }] },
-			},
-		);
+		expect(fieldsOf()).toEqual([["2", { title: "Ship now", done: true }]]);
 		await expect(
 			workspaces.updateItem("Delivery", "task-1", 1, {
 				kind: "task",
@@ -592,9 +587,9 @@ describe("StructuredWorkspaces", () => {
 		const collectionDocument =
 			workspaces.get("Delivery")?.collectionDocuments[0]?.documentName;
 		const changed = vi.fn();
-		const itemChanged = vi.fn();
+		const sourceChanged = vi.fn();
 		bus.on("structured-workspace:changed", changed);
-		bus.on("structured-workspace:item-changed", itemChanged);
+		bus.on("structured-workspace:source-changed", sourceChanged);
 
 		await expect(
 			mutations.update(item.documentName, 1, {
@@ -607,18 +602,15 @@ describe("StructuredWorkspaces", () => {
 			data: { title: "Ship from live controls" },
 		});
 
-		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
-			{
-				revision: 3,
-				data: {
-					items: [
-						{ kind: "task", title: "Ship from live controls", done: true },
-					],
-				},
-			},
+		expect(documentStates.get(collectionDocument ?? "")?.current.data).toEqual(
+			{},
 		);
-		expect(itemChanged).toHaveBeenCalledWith({
+		expect(
+			windowsOf(workspaces).current(workspace.id, "backlog").items[0]?.fields,
+		).toMatchObject({ title: "Ship from live controls", done: true });
+		expect(sourceChanged).toHaveBeenCalledWith({
 			workspaceId: workspace.id,
+			scope: "item",
 			itemId: "task-1",
 		});
 		expect(changed).not.toHaveBeenCalled();
@@ -638,47 +630,6 @@ describe("StructuredWorkspaces", () => {
 				data: { kind: "task", title: "Ship from live controls", done: true },
 			}),
 		]);
-		store.close();
-	});
-
-	it("rebuilds a drifted collection projection and announces the whole Workspace", async () => {
-		const { store, bus, documents, documentStates, workspaces, workspace } =
-			fixture();
-		const mutations = createDocumentStateMutations({
-			documentStates,
-			documents,
-			store,
-			structuredWorkspaces: workspaces,
-		});
-		const item = await addTask(workspaces);
-		workspaces.openItem(workspace.id, item.documentName);
-		const collectionDocument =
-			workspaces.get("Delivery")?.collectionDocuments[0];
-		if (!collectionDocument) throw new Error("Collection projection missing.");
-		const projection = documentStates.get(collectionDocument.documentName);
-		store.appendDocumentStateRevision(
-			collectionDocument.documentId,
-			projection?.current.revision ?? 0,
-			{ items: [] },
-		);
-		const changed = vi.fn();
-		const itemChanged = vi.fn();
-		bus.on("structured-workspace:changed", changed);
-		bus.on("structured-workspace:item-changed", itemChanged);
-
-		await mutations.update(item.documentName, 1, {
-			kind: "task",
-			title: "Ship after drift",
-			done: false,
-		});
-
-		expect(
-			documentStates.get(collectionDocument.documentName)?.current.data,
-		).toEqual({
-			items: [{ kind: "task", title: "Ship after drift", done: false }],
-		});
-		expect(changed).toHaveBeenCalledWith({ workspaceId: workspace.id });
-		expect(itemChanged).not.toHaveBeenCalled();
 		store.close();
 	});
 
@@ -929,12 +880,12 @@ describe("StructuredWorkspaces", () => {
 		expect(deletedDocuments).toHaveBeenCalledWith({
 			docName: item.documentName,
 		});
-		expect(workspaces.get("Delivery")?.items).toEqual([]);
-		expect(documentStates.get(collectionDocument ?? "")?.current).toMatchObject(
-			{
-				revision: 3,
-				data: { items: [] },
-			},
+		expect(workspaces.get("Delivery")?.itemCounts.backlog).toBe(0);
+		expect(
+			windowsOf(workspaces).current(workspace.id, "backlog").items,
+		).toEqual([]);
+		expect(documentStates.get(collectionDocument ?? "")?.current.data).toEqual(
+			{},
 		);
 
 		const unopened = await addTask(workspaces);
@@ -1285,6 +1236,20 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 		});
 		await addProjects(workspaces, 80);
 
+		const firstBatch = workspaces
+			.renderCollection(workspace.id, "projects")
+			.pages.map((page) => pageSummary(page.html));
+		expect(firstBatch.map((page) => page.headers)).toEqual([
+			["dormant:20", "live:30"],
+			["live+:30"],
+			["live+:30"],
+		]);
+		expect(firstBatch.map((page) => page.cards.length)).toEqual([24, 24, 2]);
+		const windows = windowsOf(workspaces);
+		const { next } = windows.current(workspace.id, "projects");
+		expect(next).toEqual(expect.any(String));
+		windows.query(workspace.id, "projects", { cursor: next });
+
 		const rendered = workspaces.renderCollection(workspace.id, "projects");
 		const pages = rendered.pages.map((page) => pageSummary(page.html));
 
@@ -1443,9 +1408,7 @@ describe("StructuredWorkspaces grouped collection pages", () => {
 			},
 		]);
 
-		const item = workspaces
-			.get(workspace.id)
-			?.items.find((candidate) => candidate.id === "L-a");
+		const item = workspaces.getItem(workspace.id, "L-a");
 		if (!item) throw new Error("Item L-a missing.");
 		await workspaces.updateItem("Portfolio", "L-a", item.dataRevision, {
 			title: "L-a",
@@ -2516,12 +2479,25 @@ describe("StructuredWorkspaces definition control and check", () => {
 	});
 });
 
+const itemWindowsOf = new WeakMap<StructuredWorkspaces, ItemWindows>();
+
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	itemWindowsOf.set(workspaces, itemWindows);
 	return workspaces;
+}
+
+/** The collection windows of an engine built by structuredWorkspacesWithSources. */
+function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
+	const windows = itemWindowsOf.get(workspaces);
+	if (!windows) throw new Error("engine built without item windows");
+	return windows;
 }

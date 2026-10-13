@@ -13,6 +13,7 @@ export const TOAST_KEYS = [
 	"toast_document_locked_meta",
 	"toast_document_locked_delete",
 	"toast_structured_workspace_document_delete",
+	"toast_structured_query_refused",
 	"toast_document_locked_rename",
 	"toast_category_cycle",
 	"toast_category_locked_document",

@@ -63,8 +63,8 @@ export function WorkspaceHeader({
 						pinned: Boolean(
 							docList.find((entry) => entry.name === name)?.pinnedAt ||
 								workspaces.some((workspace) =>
-									workspace.items.some(
-										(item) => item.documentName === name && item.pinnedAt,
+									workspace.pinnedItems.some(
+										(item) => item.documentName === name,
 									),
 								),
 						),

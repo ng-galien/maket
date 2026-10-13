@@ -44,17 +44,17 @@ export interface BusEvents {
 		scope: "index" | "item";
 		itemId?: string;
 	};
-	/** One item's data changed; its collection projection entry is already aligned. */
-	"structured-workspace:item-changed": { workspaceId: string; itemId: string };
+	/** The window of a collection was read again, replaced or extended. */
+	"structured-workspace:window-changed": {
+		workspaceId: string;
+		collectionId: string;
+	};
 	"document-state:changed": {
 		docName: string;
 		revision: number;
 		paths: string[];
 		schemaChanged?: boolean;
 		attached?: boolean;
-		/** One entry of a derived projection was replaced in place (`paths`
-		 * holds its pointer); the revision before it is `revision - 1`. */
-		projection?: boolean;
 	};
 	/** Revision retention was set; `pruned` revisions were deleted for good. */
 	"document-state:retention-changed": {

@@ -73,16 +73,8 @@ function seed(includeItem = true) {
 				documentName: index.name,
 			},
 		],
-		items: [item, next].map((doc, position) => ({
-			id: doc.id,
-			position,
-			collectionId: "subjects",
-			bindingId: "subject",
-			documentId: doc.id,
-			documentName: doc.name,
-			data: {},
-			dataRevision: 1,
-		})),
+		itemCounts: { subjects: 2 },
+		pinnedItems: [],
 		createdAt: "2026-10-12",
 		updatedAt: "2026-10-12",
 	};

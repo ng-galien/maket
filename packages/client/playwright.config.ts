@@ -3,7 +3,8 @@ import { defineConfig, devices } from "@playwright/test";
 // The E2E runner spins up a dedicated server on port 3399 with an isolated
 // data dir so it can't clobber the user's local `.maket/` state. The root
 // `e2e:server` script wipes `.e2e-maket/` before each run so tests always
-// start from an empty workspace.
+// start from an empty workspace, and builds the client into `.e2e-maket/public`
+// (MAKET_PUBLIC_DIR), never into the `public/` that running servers watch.
 const BASE_URL = "http://localhost:3399";
 
 export default defineConfig({

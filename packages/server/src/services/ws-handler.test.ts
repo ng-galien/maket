@@ -22,6 +22,7 @@ import { createDocumentStateMutations } from "./document-state-mutations.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createItemSources } from "./item-sources/item-sources.js";
+import { createItemWindows, type ItemWindows } from "./item-windows.js";
 import type { SettingsService } from "./settings.js";
 import { createSQLiteStore } from "./store.js";
 import {
@@ -97,6 +98,7 @@ function fixture(opts: { documentRenderer?: DocumentRenderer } = {}) {
 		documentStateMutations,
 		documentStates,
 		documents,
+		itemWindows: windowsOf(structuredWorkspaces),
 		pending,
 		settings: settingsStub(),
 		store,
@@ -206,6 +208,70 @@ describe("ws-handler — viewer and optional form boundaries", () => {
 	});
 });
 
+describe("ws-handler — collection window queries", () => {
+	it("answers a typed refusal for a deleted workspace or collection and an empty result for an empty in-list", async () => {
+		const f = fixture();
+		try {
+			const workspace = f.structuredWorkspaces.create({
+				name: "Queries",
+				dataSchema: {
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+			});
+			await f.structuredWorkspaces.addItem({
+				workspace: workspace.id,
+				itemId: "one",
+				collectionId: "items",
+				bindingId: "item",
+				documentName: "Query one",
+				data: { title: "One" },
+			});
+			const toasts: Array<{ key: string; params?: unknown }> = [];
+			f.bus.on("toast", (toast) => toasts.push(toast));
+			const windows: unknown[] = [];
+			f.bus.on("structured-workspace:window-changed", (change) =>
+				windows.push(change),
+			);
+			const query = (
+				workspaceId: string,
+				collectionId: string,
+				extra: object = {},
+			) =>
+				f.handler(
+					{
+						type: "structured_collection_query",
+						workspaceId,
+						collectionId,
+						...extra,
+					} as never,
+					STUB_WS,
+				);
+			query(workspace.id, "items", {
+				filters: [{ field: "/title", op: "in", value: [] }],
+			});
+			expect(toasts).toEqual([]);
+			expect(windows).toHaveLength(1);
+			query(workspace.id, "gone");
+			f.structuredWorkspaces.delete(workspace.id);
+			query(workspace.id, "items");
+			expect(toasts).toEqual([
+				expect.objectContaining({
+					key: "toast_structured_query_refused",
+					params: expect.objectContaining({ code: "unknown_collection" }),
+				}),
+				expect.objectContaining({
+					key: "toast_structured_query_refused",
+					params: expect.objectContaining({ code: "unknown_workspace" }),
+				}),
+			]);
+		} finally {
+			f.dispose();
+		}
+	});
+});
+
 describe("ws-handler — document pins", () => {
 	it("pins and unpins from a writable client and broadcasts the pin to editors only", () => {
 		const f = fixture();
@@ -227,6 +293,7 @@ describe("ws-handler — document pins", () => {
 				}),
 				documents: f.documents,
 				documentRenderer: f.documentRenderer,
+				itemWindows: {} as never,
 				mermaidDiagrams: {
 					refreshCharte: () => ({ docNames: [], errors: [] }),
 					refreshDocument: () => ({ docNames: [], errors: [] }),
@@ -1406,6 +1473,7 @@ describe("ws-handler — file and document mutations", () => {
 			collectionCursors: createCollectionCursors({ bus, documents, store }),
 			documents,
 			documentRenderer,
+			itemWindows: {} as never,
 			mermaidDiagrams: {
 				refreshCharte: () => ({ docNames: [], errors: [] }),
 				refreshDocument: () => ({ docNames: [], errors: [] }),
@@ -1783,7 +1851,7 @@ describe("ws-handler — item document form", () => {
 			"document:created",
 			"document:saved",
 			"document-state:changed",
-			"structured-workspace:item-changed",
+			"structured-workspace:source-changed",
 		] as const)
 			current.bus.on(event, () => events.push(event));
 		const ws = { readyState: 1, send: vi.fn() } as any;
@@ -1853,7 +1921,7 @@ describe("ws-handler — item document form", () => {
 		expect(documentStates.history("Form one").map((r) => r.revision)).toEqual([
 			2,
 		]);
-		expect(events).toContain("structured-workspace:item-changed");
+		expect(events).toContain("structured-workspace:source-changed");
 		expect(events).toContain("document-state:changed");
 		dispose();
 	});
@@ -1954,6 +2022,7 @@ describe("ws-handler — collection cursor", () => {
 			documentStateMutations: base.documentStateMutations,
 			documentStates: base.documentStates,
 			documents: base.documents,
+			itemWindows: windowsOf(base.structuredWorkspaces),
 			pending: base.pending,
 			settings: settingsStub(),
 			store: base.store,
@@ -2031,11 +2100,25 @@ describe("ws-handler — collection cursor", () => {
 	});
 });
 
+const itemWindowsOf = new WeakMap<StructuredWorkspaces, ItemWindows>();
+
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	itemWindowsOf.set(workspaces, itemWindows);
+	return workspaces;
+}
+
+/** The collection windows of an engine built by structuredWorkspacesWithSources. */
+function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
+	const windows = itemWindowsOf.get(workspaces);
+	if (!windows) throw new Error("engine built without item windows");
+	return windows;
 }

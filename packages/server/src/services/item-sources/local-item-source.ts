@@ -15,14 +15,20 @@ import {
 	type StructuredWorkspaceItemDataIssue,
 	structuredWorkspaceBindingSchema,
 	structuredWorkspaceItemDataIssues,
+	structuredWorkspaceMaxBatch,
+	structuredWorkspaceSchemaDeclaresPath,
+	structuredWorkspaceTemplateFields,
 } from "@maket/shared";
 import type { Bus } from "../bus.js";
 import type { Documents } from "../documents.js";
 import type {
+	StoredItemKey,
+	StoredItemQueryRow,
+} from "../sqlite-store/structured-workspace-item-query.js";
+import type {
 	StoredStructuredWorkspaceItem,
 	StructuredWorkspaceRepository,
 } from "../sqlite-store/structured-workspace-repository.js";
-import { groupItems, sortItems } from "./item-order.js";
 import type {
 	ItemCreation,
 	ItemPage,
@@ -50,8 +56,8 @@ const localCapabilities: ItemSourceCapabilities = {
 	readOnly: false,
 	create: true,
 	delete: true,
-	search: false,
-	sort: "memory",
+	search: true,
+	sort: "pushdown",
 	total: "exact",
 	changes: "poll",
 	revisions: "local",
@@ -61,11 +67,6 @@ const localCapabilities: ItemSourceCapabilities = {
 interface BindingRead {
 	rule: SummaryFieldRule;
 	schema: StructuredWorkspaceDataSchema;
-}
-
-interface ListedItem {
-	summary: ItemSummary;
-	data: Record<string, unknown>;
 }
 
 export function createLocalItemSource(
@@ -148,18 +149,18 @@ function listItems(
 	workspaceId: string,
 	query: ItemQuery,
 ): ItemPage {
-	if (query.text !== undefined || (query.filters?.length ?? 0) > 0)
-		throw itemSourceError(
-			"query_unsupported",
-			"The local item source does not search or filter yet.",
-		);
 	const workspace = requiredWorkspace(deps, workspaceId);
 	const collection =
 		workspace.representationSchema.collections[query.collectionId];
 	if (!collection)
 		throw itemSourceError(
-			"query_unsupported",
+			"unknown_collection",
 			`Collection "${query.collectionId}" not found in Structured Workspace "${workspace.name}".`,
+		);
+	if (!Number.isInteger(query.limit) || query.limit < 1)
+		throw itemSourceError(
+			"query_unsupported",
+			`Batch size ${query.limit} is not a count of items.`,
 		);
 	const reads = bindingReads(deps, workspace, {
 		collectionId: query.collectionId,
@@ -171,21 +172,67 @@ function listItems(
 			query.groupBy,
 		],
 	});
-	const listed = deps.store
-		.loadStructuredWorkspaceCollectionItems(workspace.id, query.collectionId)
-		.map((row) => listedItem(row, reads));
-	const ordered = orderedItems(listed, query, collection);
+	assertDeclaredFields(workspace, collection, [
+		...(query.filters ?? []).map((filter) => filter.field),
+		...(query.sort ? [query.sort.field] : []),
+	]);
+	const signature = querySignature(query);
+	const text = query.text?.trim();
+	const result = deps.store.loadStructuredWorkspaceItemBatch({
+		workspaceId: workspace.id,
+		collectionId: query.collectionId,
+		...(text
+			? { text: { value: text, paths: searchPaths(workspace, collection) } }
+			: {}),
+		filters: (query.filters ?? []).map((filter) => ({
+			path: filter.field,
+			values: Array.isArray(filter.value) ? filter.value : [filter.value],
+		})),
+		...(query.sort
+			? { sort: { path: query.sort.field, direction: query.sort.direction } }
+			: {}),
+		...(query.groupBy === undefined
+			? {}
+			: {
+					group: {
+						path: query.groupBy,
+						order:
+							query.groupBy === collection.groupBy
+								? (collection.groupOrder ?? [])
+								: [],
+					},
+				}),
+		...(query.cursor === undefined
+			? {}
+			: { after: cursorKey(query.cursor, signature) }),
+		limit: Math.min(query.limit, structuredWorkspaceMaxBatch) + 1,
+	});
+	const batch = result.rows.slice(
+		0,
+		Math.min(query.limit, structuredWorkspaceMaxBatch),
+	);
+	const last = batch.at(-1);
 	return {
-		...pageOf(ordered.items, query),
-		total: listed.length,
-		...(ordered.groups ? { groups: ordered.groups } : {}),
+		items: batch.map((row) => listedSummary(row, reads)),
+		...(result.rows.length > batch.length && last
+			? { next: encodeCursor(signature, last.key) }
+			: {}),
+		total: result.total,
+		...(result.groups
+			? {
+					groups: result.groups.map((group) => ({
+						value: groupValue(JSON.parse(group.key)),
+						count: group.count,
+					})),
+				}
+			: {}),
 	};
 }
 
-function listedItem(
-	row: StoredStructuredWorkspaceItem,
+function listedSummary(
+	row: StoredItemQueryRow,
 	reads: ReadonlyMap<string, BindingRead>,
-): ListedItem {
+): ItemSummary {
 	const read = reads.get(row.bindingId);
 	const data = row.data ?? {};
 	const issues =
@@ -195,15 +242,108 @@ function listedItem(
 				? structuredWorkspaceItemDataIssues(read.schema, data)
 				: [];
 	return {
-		summary: {
-			id: row.id,
-			revision: String(row.revision),
-			bindingId: row.bindingId,
-			fields: read ? summaryFields(data, read.rule) : data,
-			...(issues.length > 0 ? { issues } : {}),
-		},
-		data,
+		id: row.id,
+		revision: String(row.revision),
+		bindingId: row.bindingId,
+		fields: read ? summaryFields(data, read.rule) : data,
+		...(issues.length > 0 ? { issues } : {}),
 	};
+}
+
+/** Refuse a filter or sort field that no binding schema of the collection
+ * declares, naming the declared properties. */
+function assertDeclaredFields(
+	workspace: StructuredWorkspaceDefinition,
+	collection: StructuredWorkspaceCollectionRepresentation,
+	fields: string[],
+): void {
+	const schemas = [
+		workspace.dataSchema,
+		...Object.values(collection.bindings).map((binding) =>
+			bindingSchemaOrRoot(workspace, binding),
+		),
+	];
+	for (const field of fields) {
+		if (
+			field.startsWith("/") &&
+			field.length > 1 &&
+			schemas.some((schema) =>
+				structuredWorkspaceSchemaDeclaresPath(schema, field),
+			)
+		)
+			continue;
+		const declared = [
+			...new Set(
+				schemas.flatMap((schema) =>
+					structuredWorkspaceTemplateFields(schema).map(
+						(property) => `/${property.name}`,
+					),
+				),
+			),
+		];
+		throw itemSourceError(
+			"query_unsupported",
+			`Field ${JSON.stringify(field)} is not a declared property of the items; declared: ${declared.join(", ") || "none"}.`,
+		);
+	}
+}
+
+/** The pointers a text query searches: the collection searchFields, else
+ * every string property at depth one of its binding schemas. */
+function searchPaths(
+	workspace: StructuredWorkspaceDefinition,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): string[] {
+	if (collection.searchFields) return collection.searchFields;
+	const names = new Set<string>();
+	for (const binding of Object.values(collection.bindings)) {
+		const properties = bindingSchemaOrRoot(workspace, binding).properties;
+		if (!properties || typeof properties !== "object") continue;
+		for (const [name, property] of Object.entries(properties)) {
+			const type = (property as { type?: unknown } | null)?.type;
+			if (type === "string" || (Array.isArray(type) && type.includes("string")))
+				names.add(name);
+		}
+	}
+	return [...names].map(
+		(name) => `/${name.replaceAll("~", "~0").replaceAll("/", "~1")}`,
+	);
+}
+
+/** What makes two queries the same listing: a cursor of one is refused by
+ * the other. */
+function querySignature(query: ItemQuery): string {
+	return crypto
+		.createHash("sha1")
+		.update(
+			JSON.stringify([
+				query.collectionId,
+				query.text?.trim() ?? "",
+				query.filters ?? [],
+				query.sort ?? null,
+				query.groupBy ?? null,
+			]),
+		)
+		.digest("hex")
+		.slice(0, 12);
+}
+
+function encodeCursor(signature: string, key: StoredItemKey): string {
+	return Buffer.from(JSON.stringify({ q: signature, k: key })).toString(
+		"base64url",
+	);
+}
+
+function cursorKey(cursor: string, signature: string): StoredItemKey {
+	try {
+		const decoded = JSON.parse(Buffer.from(cursor, "base64url").toString());
+		if (decoded?.q === signature && typeof decoded.k?.id === "string")
+			return decoded.k as StoredItemKey;
+	} catch {}
+	throw itemSourceError(
+		"query_unsupported",
+		`Cursor "${cursor}" was not issued by this query of the local item source; start the query again without a cursor.`,
+	);
 }
 
 /** The summary field rule and the validating schema of each binding of a
@@ -268,31 +408,6 @@ function collectionDocumentPages(
 	return [];
 }
 
-function orderedItems(
-	listed: ListedItem[],
-	query: ItemQuery,
-	collection: StructuredWorkspaceCollectionRepresentation,
-): { items: ListedItem[]; groups?: ItemPage["groups"] } {
-	const dataOf = (item: ListedItem) => item.data;
-	const sort = query.sort
-		? { sortBy: query.sort.field, sortDirection: query.sort.direction }
-		: {};
-	if (query.groupBy === undefined)
-		return { items: sortItems(listed, dataOf, sort) };
-	const groups = groupItems(listed, dataOf, {
-		groupBy: query.groupBy,
-		groupOrder:
-			query.groupBy === collection.groupBy ? (collection.groupOrder ?? []) : [],
-	});
-	return {
-		items: groups.flatMap((group) => sortItems(group.entries, dataOf, sort)),
-		groups: groups.map((group) => ({
-			value: groupValue(group.value),
-			count: group.entries.length,
-		})),
-	};
-}
-
 function groupValue(value: unknown): StructuredWorkspaceGroupValue {
 	return value === null ||
 		typeof value === "string" ||
@@ -302,39 +417,6 @@ function groupValue(value: unknown): StructuredWorkspaceGroupValue {
 		: JSON.stringify(value);
 }
 
-function pageOf(
-	items: ListedItem[],
-	query: Pick<ItemQuery, "cursor" | "limit">,
-): Pick<ItemPage, "items" | "cursor"> {
-	const offset = cursorOffset(query.cursor);
-	if (!(query.limit >= 0))
-		throw itemSourceError(
-			"query_unsupported",
-			`Page limit ${query.limit} is not a count of items.`,
-		);
-	const end = offset + query.limit;
-	return {
-		items: items.slice(offset, end).map((item) => item.summary),
-		cursor: {
-			offset,
-			...(end < items.length ? { next: String(end) } : {}),
-			...(offset > 0
-				? { previous: String(Math.max(0, offset - query.limit)) }
-				: {}),
-		},
-	};
-}
-
-function cursorOffset(cursor: string | undefined): number {
-	if (cursor === undefined) return 0;
-	if (!/^\d+$/.test(cursor))
-		throw itemSourceError(
-			"query_unsupported",
-			`Cursor "${cursor}" was not issued by the local item source.`,
-		);
-	return Number(cursor);
-}
-
 function requiredWorkspace(
 	deps: Pick<LocalItemSourceDeps, "store">,
 	workspaceId: string,
@@ -342,7 +424,7 @@ function requiredWorkspace(
 	const workspace = deps.store.loadStructuredWorkspace(workspaceId);
 	if (!workspace)
 		throw itemSourceError(
-			"source_unreachable",
+			"unknown_workspace",
 			`Structured Workspace "${workspaceId}" not found.`,
 		);
 	return workspace;

@@ -31,6 +31,7 @@ import type { Config } from "./services/config.js";
 import { createConfig, loadEnvFile } from "./services/config.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
+import type { ItemWindows } from "./services/item-windows.js";
 import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { SettingsService } from "./services/settings.js";
 import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
@@ -96,6 +97,7 @@ interface RuntimeServices {
 	collectionCursors: CollectionCursors;
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
+	itemWindows: ItemWindows;
 	mermaidDiagrams: MermaidDiagrams;
 	pending: Annotations;
 	settings: SettingsService;
@@ -182,6 +184,7 @@ function resolveRuntimeServices(container: AppContainer): RuntimeServices {
 			container.resolve<CollectionCursors>("collectionCursors"),
 		documents: container.resolve<Documents>("documents"),
 		documentRenderer: container.resolve<DocumentRenderer>("documentRenderer"),
+		itemWindows: container.resolve<ItemWindows>("itemWindows"),
 		mermaidDiagrams: container.resolve<MermaidDiagrams>("mermaidDiagrams"),
 		pending: container.resolve<Annotations>("pending"),
 		settings: container.resolve<SettingsService>("settings"),
@@ -334,6 +337,7 @@ function handleWebSocketConnection(
 		collectionCursors,
 		documents,
 		documentRenderer,
+		itemWindows,
 		pending,
 		settings,
 		structuredWorkspaces,
@@ -356,6 +360,7 @@ function handleWebSocketConnection(
 		docList: documents.list({ includeWorkspaceDocuments: viewer }),
 		collections: viewer ? undefined : collections.loadAll(),
 		structuredWorkspaces: viewer ? undefined : structuredWorkspaces.listViews(),
+		structuredWindows: viewer ? undefined : itemWindows.all(),
 		collectionCursors: viewer ? undefined : collectionCursors.snapshot(),
 		annotations: viewer ? undefined : pending.all(),
 		charteCss: documents.charteCss(firstDoc ?? null),
@@ -398,15 +403,11 @@ function watchPublicFiles(
 	wsRegistry: WsRegistry,
 	log: ServerLog,
 ): ReturnType<typeof watch> | null {
-	if (
-		config.COMPILED ||
-		config.PACKAGED ||
-		!existsSync(join(config.PACKAGE_DIR, "public"))
-	) {
+	if (config.COMPILED || config.PACKAGED || !existsSync(config.PUBLIC_DIR)) {
 		return null;
 	}
 	let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-	return watch(join(config.PACKAGE_DIR, "public"), { recursive: true }, () => {
+	return watch(config.PUBLIC_DIR, { recursive: true }, () => {
 		if (reloadTimer) clearTimeout(reloadTimer);
 		reloadTimer = setTimeout(() => {
 			wsRegistry.broadcast({ type: "reload" });

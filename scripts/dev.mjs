@@ -9,13 +9,15 @@
  *   dev:watch     — server (--watch) + client `vite build --watch` to public/
  *   dev:server    — server (--watch) only
  *   start:isolated — server on :3333 with $PWD/.maket
- *   e2e:server    — wipe ./.e2e-maket then start a fresh server on :3399
+ *   e2e:server    — wipe ./.e2e-maket, build the client into ./.e2e-maket/public
+ *                   (never ./public, which running servers watch), then start a
+ *                   fresh server on :3399 serving it
  *
  * Forwards stdout/stderr from each child, exits non-zero if any child does,
  * and broadcasts SIGINT/SIGTERM so Ctrl-C cleans up everything.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -94,10 +96,18 @@ switch (MODE) {
   }
   case "e2e:server": {
     const e2eDir = resolve(ROOT, ".e2e-maket");
+    const e2ePublic = resolve(e2eDir, "public");
     rmSync(e2eDir, { recursive: true, force: true });
+    const build = spawnSync(NPX_CMD, ["vite", "build", "--outDir", e2ePublic, "--emptyOutDir"], {
+      cwd: resolve(ROOT, "packages/client"),
+      stdio: "inherit",
+      shell: false,
+    });
+    if (build.status !== 0) process.exit(build.status ?? 1);
     const server = run("server", NPX_CMD, ["tsx", "packages/server/index.ts"], {
       MAKET_PORT: "3399",
       MAKET_DATA_DIR: e2eDir,
+      MAKET_PUBLIC_DIR: e2ePublic,
       MAKET_SETTINGS_FILE: resolve(e2eDir, "settings.json"),
     });
     spawnAll([server]);

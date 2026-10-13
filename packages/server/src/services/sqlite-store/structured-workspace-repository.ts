@@ -5,6 +5,13 @@ import type {
 	StructuredWorkspaceItemReference,
 	StructuredWorkspaceRepresentationSchema,
 } from "@maket/shared";
+import {
+	queryStoredItems,
+	type StoredItemQuery,
+	type StoredItemQueryResult,
+	sortText,
+	sortTextFunction,
+} from "./structured-workspace-item-query.js";
 
 export interface NewStructuredWorkspace {
 	id: string;
@@ -45,11 +52,11 @@ export interface StructuredWorkspaceRepository {
 		workspaceId: string,
 		itemId: string,
 	): StoredStructuredWorkspaceItem | null;
-	/** Every item of one collection with its data, in position order. */
-	loadStructuredWorkspaceCollectionItems(
-		workspaceId: string,
-		collectionId: string,
-	): StoredStructuredWorkspaceItem[];
+	/** One batch of the items of a collection matching `query`, in index
+	 * order after `query.after`, with the total and the group counts. */
+	loadStructuredWorkspaceItemBatch(
+		query: StoredItemQuery,
+	): StoredItemQueryResult;
 	/** The item whose document bears `documentName`, in any workspace. */
 	loadStructuredWorkspaceItemByDocumentName(
 		documentName: string,
@@ -72,7 +79,9 @@ export interface StructuredWorkspaceRepository {
 		dataSchema: StructuredWorkspaceDataSchema,
 		representationSchema: StructuredWorkspaceRepresentationSchema,
 	): StructuredWorkspaceDefinition;
-	/** Insert an item last in its collection, at revision 1 unless given. */
+	/** Insert an item last in its collection, at the position after the
+	 * highest one, at revision 1 unless given. Positions are never renumbered:
+	 * they stay sparse and increasing, so a cursor keyed on them stays valid. */
 	addStructuredWorkspaceItem(
 		workspaceId: string,
 		item: NewStructuredWorkspaceItem,
@@ -84,8 +93,8 @@ export interface StructuredWorkspaceRepository {
 		expectedRevision: number,
 		data: Record<string, unknown>,
 	): StructuredWorkspaceItemWrite;
-	/** Delete an item, only at `expectedRevision` when given; false when no
-	 * row matched. */
+	/** Delete an item, only at `expectedRevision` when given, leaving the
+	 * other positions as they are; false when no row matched. */
 	deleteStructuredWorkspaceItem(
 		workspaceId: string,
 		itemId: string,
@@ -135,17 +144,18 @@ type Statements = {
 	itemInsert: StatementSync;
 	itemSelectByWorkspace: StatementSync;
 	itemSelectOne: StatementSync;
-	itemSelectCollection: StatementSync;
 	itemSelectByDocumentName: StatementSync;
-	itemCountCollection: StatementSync;
+	itemNextPosition: StatementSync;
 	itemUpdate: StatementSync;
 	itemDelete: StatementSync;
-	itemCompactPositions: StatementSync;
 };
 
 export function createStructuredWorkspaceRepository(
 	db: DatabaseSync,
 ): StructuredWorkspaceRepository {
+	db.function(sortTextFunction, { deterministic: true }, (value) =>
+		value === null ? null : sortText(value),
+	);
 	const statements = prepareStatements(db);
 	return {
 		createStructuredWorkspace(workspace) {
@@ -175,13 +185,8 @@ export function createStructuredWorkspaceRepository(
 				| undefined;
 			return row ? storedItemFromRow(row) : null;
 		},
-		loadStructuredWorkspaceCollectionItems(workspaceId, collectionId) {
-			return (
-				statements.itemSelectCollection.all(
-					workspaceId,
-					collectionId,
-				) as unknown as StoredItemRow[]
-			).map(storedItemFromRow);
+		loadStructuredWorkspaceItemBatch(query) {
+			return queryStoredItems(db, query);
 		},
 		loadStructuredWorkspaceItemByDocumentName(documentName) {
 			const row = statements.itemSelectByDocumentName.get(documentName) as
@@ -282,20 +287,13 @@ export function createStructuredWorkspaceRepository(
 			};
 		},
 		deleteStructuredWorkspaceItem(workspaceId, itemId, expectedRevision) {
-			db.exec("SAVEPOINT maket_repository");
-			try {
-				const result = statements.itemDelete.run({
+			return (
+				statements.itemDelete.run({
 					workspace_id: workspaceId,
 					id: itemId,
 					expected_revision: expectedRevision ?? null,
-				});
-				statements.itemCompactPositions.run(workspaceId);
-				db.exec("RELEASE maket_repository");
-				return result.changes > 0;
-			} catch (error) {
-				db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
-				throw error;
-			}
+				}).changes > 0
+			);
 		},
 	};
 }
@@ -451,14 +449,11 @@ function prepareStatements(db: DatabaseSync): Statements {
 		itemSelectOne: db.prepare(
 			"SELECT id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND id = ?",
 		),
-		itemSelectCollection: db.prepare(
-			"SELECT id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ? ORDER BY position ASC",
-		),
 		itemSelectByDocumentName: db.prepare(
 			"SELECT workspace_id, id, position, collection_id, binding_id, document_id, document_name, data, revision FROM structured_workspace_items WHERE document_name = ? LIMIT 1",
 		),
-		itemCountCollection: db.prepare(
-			"SELECT count(*) AS count FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ?",
+		itemNextPosition: db.prepare(
+			"SELECT coalesce(max(position), -1) + 1 AS position FROM structured_workspace_items WHERE workspace_id = ? AND collection_id = ?",
 		),
 		itemUpdate: db.prepare(`
 			UPDATE structured_workspace_items
@@ -469,17 +464,6 @@ function prepareStatements(db: DatabaseSync): Statements {
 			DELETE FROM structured_workspace_items
 			WHERE workspace_id = $workspace_id AND id = $id
 				AND ($expected_revision IS NULL OR revision = $expected_revision)
-		`),
-		itemCompactPositions: db.prepare(`
-			UPDATE structured_workspace_items AS target
-			SET position = (
-				SELECT count(*)
-				FROM structured_workspace_items AS preceding
-				WHERE preceding.workspace_id = target.workspace_id
-					AND preceding.collection_id = target.collection_id
-					AND preceding.position < target.position
-			)
-			WHERE workspace_id = ?
 		`),
 	};
 }
@@ -552,8 +536,8 @@ function nextPosition(
 	workspaceId: string,
 	collectionId: string,
 ): number {
-	const row = statements.itemCountCollection.get(workspaceId, collectionId) as
-		| { count: number }
+	const row = statements.itemNextPosition.get(workspaceId, collectionId) as
+		| { position: number }
 		| undefined;
-	return Number(row?.count ?? 0);
+	return Number(row?.position ?? 0);
 }

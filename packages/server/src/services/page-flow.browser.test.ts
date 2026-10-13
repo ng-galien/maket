@@ -17,6 +17,7 @@ import { createDocumentRenderer } from "./document-renderer.js";
 import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { createItemSources } from "./item-sources/item-sources.js";
+import { createItemWindows } from "./item-windows.js";
 import { createLayoutService } from "./layout.js";
 import { createPageFlow } from "./page-flow.js";
 import { createStateRenderer } from "./state-renderer.js";
@@ -489,10 +490,14 @@ describe("page flow — lists longer than their page, laid out in Chromium", () 
 });
 
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	return workspaces;
 }

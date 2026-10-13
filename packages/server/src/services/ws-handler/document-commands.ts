@@ -69,6 +69,16 @@ export function handleLoadDocument(
 			includeWorkspaceDocuments: ctx.wsRegistry.isViewer(ws),
 		}),
 		collections: ctx.collections.loadAll(),
+		...(structuredWorkspace
+			? {
+					structuredWindows: [
+						ctx.itemWindows.current(
+							structuredWorkspace.workspaceId,
+							structuredWorkspace.collectionId,
+						),
+					],
+				}
+			: {}),
 		collectionCursors: ctx.collectionCursors.snapshot(),
 		annotations: ctx.pending.all(),
 		charteCss: ctx.documents.charteCss(requested),

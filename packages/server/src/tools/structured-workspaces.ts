@@ -1,12 +1,21 @@
-import type {
-	StructuredWorkspaceDataSchema,
-	StructuredWorkspaceDefinition,
-	StructuredWorkspaceFinding,
+import {
+	type StructuredCollectionQuery,
+	type StructuredCollectionWindowItem,
+	type StructuredWorkspaceDataSchema,
+	type StructuredWorkspaceDefinition,
+	type StructuredWorkspaceFinding,
+	type StructuredWorkspaceView,
+	structuredWorkspaceMaxBatch,
 } from "@maket/shared";
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
+import {
+	isItemSourceError,
+	itemSourceError,
+} from "../services/item-sources/item-source-error.js";
+import type { ItemWindows } from "../services/item-windows.js";
 import {
 	isStructuredWorkspaceRefusal,
 	type StructuredWorkspaceRepresentationInput,
@@ -16,6 +25,7 @@ import { json, text } from "./_helpers.js";
 
 export interface StructuredWorkspacesToolDeps {
 	structuredWorkspaces: StructuredWorkspaces;
+	itemWindows: Pick<ItemWindows, "query" | "page">;
 }
 
 const FormSchema = z.object({
@@ -48,6 +58,21 @@ const CollectionRepresentationSchema = z.object({
 	pageSize: z.number().int().positive().optional(),
 	sortBy: z.string().optional(),
 	sortDirection: z.enum(["ascending", "descending"]).optional(),
+	indexPageSize: z.number().int().positive().optional(),
+	searchFields: z.array(z.string()).optional(),
+});
+
+const GroupValueSchema = z.union([
+	z.string(),
+	z.number(),
+	z.boolean(),
+	z.null(),
+]);
+
+const FilterSchema = z.object({
+	field: z.string(),
+	op: z.enum(["eq", "in"]),
+	value: z.union([GroupValueSchema, z.array(GroupValueSchema)]),
 });
 
 const RepresentationSchema = z.object({
@@ -82,25 +107,36 @@ const StructuredWorkspaceSchema = z.object({
 	expected_revision: z.number().int().positive().optional(),
 	expected_workspace_revision: z.number().int().positive().optional(),
 	allow_incomplete: z.boolean().optional(),
+	text: z.string().optional(),
+	filters: z.array(FilterSchema).optional(),
+	sort: z
+		.object({
+			field: z.string(),
+			direction: z.enum(["ascending", "descending"]).optional(),
+		})
+		.optional(),
+	cursor: z.string().optional(),
+	batch: z.number().int().positive().optional(),
 });
 
 const DESCRIPTION = [
-	"When to use: create and operate a Structured Workspace — a schema-driven collection whose items own real instantiated Maket documents.",
+	"When to use: create and operate a Structured Workspace — a schema-driven collection of items, listed in an index and opened as Maket documents built from templates.",
 	"",
 	"Method (full recipe: maket_learn action=topic topic=structured-workspaces): 1) create with a data_schema alone — Maket writes the index, detail, card templates and the detail form itself, in the Workspace category; 2) add_item; 3) check, which must answer verdict ready. Inline template HTML (detailTemplateHtml, compactTemplateHtml, indexTemplateHtml, detailForm) or names of existing template documents are the optional second and third paths.",
 	"create and update_definition refuse a definition with errors (isError, one line per error with collection, path and fix) and keep the previous definition; allow_incomplete=true persists it anyway. add_item and update_item refuse data that breaks the schema with its path, rule and fix.",
 	"",
-	"The data schema validates every item. The representation schema declares one or more collections; each collection owns its global template and binds concrete schema paths to compact and detail templates. Adding an item instantiates the detail template as a persistent state-backed document. Template-controlled pages are synchronized from the template; instance-owned pages remain in the same document.",
+	"The data schema validates every item. The representation schema declares one or more collections; each collection owns its global template and binds concrete schema paths to compact and detail templates. The item source holds the item data; an item's document is created from its detail template when the item is opened or exported. Template-controlled pages are synchronized from the template; instance-owned pages remain in the same document.",
+	'Reading items is a cursor query: view answers one batch of item summaries for one collection (collection, default the first) with `next` (an opaque cursor, absent once the listing is exhausted), `total` and the group counts. Pass text (searches `searchFields`, by default every text property), filters ([{"field":"/status","op":"eq","value":"todo"}], op in for a list), sort ({"field":"/title","direction":"descending"}) and batch (default `indexPageSize`, 50; at most 500) to start a new query, which also becomes the window every client sees in the index. To read the next batch, pass cursor=<next> with the same query arguments (the answer gives the call in `more`): it reads the source directly and never depends on the shared window, so paging is complete whatever clients do meanwhile. There is no page number and no previous: a new query restarts from the first item. view with neither query nor cursor answers the first batch of the collection\'s own order.',
 	'Optional collection grouping: `groupBy` is a JSON Pointer into item data (e.g. "/status"), `groupOrder` lists group values to place first, and `pageSize` (default 24) caps the compact cards per collection page. With `groupBy`, each item slot receives a group header followed by its cards and the collection document flows onto as many pages as needed; without it, the collection stays one page.',
 	'Optional collection sort: `sortBy` is a JSON Pointer into item data (e.g. "/place") and `sortDirection` is "ascending" (default) or "descending"; cards are ordered by that value inside each group, or across the slot without `groupBy`, items without a value last and ties in insertion order; without `sortBy`, insertion order stays.',
 	"  list          — list Structured Workspaces, each prefixed with ready or incomplete.",
-	"  view          — verdict and finding count first, then schemas, items, current data revisions, and instantiated documents.",
+	"  view          — verdict and finding count first, then the definition, item counts, pinned items, owned documents, and one batch of the collection window (see the cursor query above).",
 	"  check         — the doctor: verdict ready or not ready and every finding with severity, object, sentence, fix and next call. Never writes.",
 	"  create        — create a workspace from a data schema, with an optional representation schema; refuses errors unless allow_incomplete=true.",
 	"  update_definition — validate and replace the data and/or representation contract, then update instantiated documents; an erroneous definition is refused and the previous one kept unless allow_incomplete=true.",
-	"  add_item      — validate data and instantiate its persistent document.",
+	"  add_item      — validate data and write the item to its source; its document is created when the item is opened.",
 	"  update_item   — replace item data with optimistic revision control.",
-	"  delete_item   — delete the item and its instantiated document.",
+	"  delete_item   — delete the item from its source, with its document when it was opened.",
 	"  sync_template — propagate current detail-template pages while preserving instance-owned pages.",
 	"  rename        — rename the Workspace without regenerating owned documents.",
 	"  delete        — atomically delete the Workspace and every document, state revision, and annotation it owns.",
@@ -112,6 +148,7 @@ type Args = z.infer<typeof StructuredWorkspaceSchema>;
 
 export function createMaketStructuredWorkspaceTool({
 	structuredWorkspaces,
+	itemWindows,
 }: StructuredWorkspacesToolDeps): ToolHandler {
 	return {
 		metadata: {
@@ -120,13 +157,16 @@ export function createMaketStructuredWorkspaceTool({
 			schema: StructuredWorkspaceSchema,
 		},
 		handler: async (rawArgs) =>
-			handleStructuredWorkspaceTool(rawArgs, structuredWorkspaces),
+			handleStructuredWorkspaceTool(rawArgs, {
+				structuredWorkspaces,
+				itemWindows,
+			}),
 	};
 }
 
 async function handleStructuredWorkspaceTool(
 	rawArgs: unknown,
-	structuredWorkspaces: StructuredWorkspaces,
+	deps: StructuredWorkspacesToolDeps,
 ) {
 	const parsed = StructuredWorkspaceSchema.safeParse(rawArgs);
 	if (!parsed.success) {
@@ -138,27 +178,48 @@ async function handleStructuredWorkspaceTool(
 		);
 	}
 	try {
-		return await dispatch(parsed.data, structuredWorkspaces);
+		return await dispatch(parsed.data, deps);
 	} catch (error) {
-		if (isStructuredWorkspaceRefusal(error)) {
-			return text(
-				[error.message, ...error.findings.map(findingLine)].join("\n"),
-				{ isError: true, next: refusalNext(parsed.data, error.findings) },
-			);
-		}
-		const message = error instanceof Error ? error.message : String(error);
-		if (
-			message.startsWith("Item data breaks the schema") &&
-			parsed.data.workspace
-		)
-			return text(message, {
-				isError: true,
-				next: [
-					`maket_structured_workspace action=view workspace=${parsed.data.workspace}`,
-				],
-			});
-		return text(message, true);
+		return failureAnswer(error, parsed.data);
 	}
+}
+
+/** Source refusals of a query, answered with their code. */
+const queryRefusals: ReadonlySet<string> = new Set([
+	"unknown_workspace",
+	"unknown_collection",
+	"query_unsupported",
+]);
+
+/** The answer to a failed call: a refused definition with its findings, a
+ * typed refusal of the item source, or the error text. */
+function failureAnswer(error: unknown, args: Args) {
+	if (isStructuredWorkspaceRefusal(error))
+		return text(
+			[error.message, ...error.findings.map(findingLine)].join("\n"),
+			{
+				isError: true,
+				next: refusalNext(args, error.findings),
+			},
+		);
+	if (isItemSourceError(error) && queryRefusals.has(error.code))
+		return text(`${error.code}: ${error.message}`, {
+			isError: true,
+			next: [
+				error.code === "unknown_workspace" || !args.workspace
+					? "maket_structured_workspace action=list"
+					: `maket_structured_workspace action=view workspace=${args.workspace}`,
+			],
+		});
+	const message = error instanceof Error ? error.message : String(error);
+	if (message.startsWith("Item data breaks the schema") && args.workspace)
+		return text(message, {
+			isError: true,
+			next: [
+				`maket_structured_workspace action=view workspace=${args.workspace}`,
+			],
+		});
+	return text(message, true);
 }
 
 /** One line per finding: collection, path, sentence, fix. */
@@ -186,9 +247,10 @@ function refusalNext(
 	return calls;
 }
 
-function dispatch(args: Args, workspaces: StructuredWorkspaces) {
+function dispatch(args: Args, deps: StructuredWorkspacesToolDeps) {
+	const workspaces = deps.structuredWorkspaces;
 	if (args.action === "list") return runList(workspaces);
-	if (args.action === "view") return runView(args, workspaces);
+	if (args.action === "view") return runView(args, deps);
 	if (args.action === "check") return runCheck(args, workspaces);
 	if (args.action === "create") return runCreate(args, workspaces);
 	if (args.action === "update_definition")
@@ -289,11 +351,15 @@ function runList(workspaces: StructuredWorkspaces) {
 	);
 }
 
-function runView(args: Args, workspaces: StructuredWorkspaces) {
+function runView(args: Args, deps: StructuredWorkspacesToolDeps) {
+	const workspaces = deps.structuredWorkspaces;
 	const name = required(args.workspace, "workspace");
 	const workspace = workspaces.get(name);
 	if (!workspace)
-		return text(`Structured Workspace "${name}" not found.`, true);
+		throw itemSourceError(
+			"unknown_workspace",
+			`Structured Workspace "${name}" not found.`,
+		);
 	const check = workspaces.check(workspace.id);
 	const call = `maket_structured_workspace action=check workspace=${workspace.id}`;
 	const value = {
@@ -301,8 +367,104 @@ function runView(args: Args, workspaces: StructuredWorkspaces) {
 		findings: check.findings.length,
 		check: call,
 		...workspace,
+		window: viewWindow(args, deps.itemWindows, workspace),
 	};
 	return json(value, { indent: 2 });
+}
+
+/** One batch of a collection, read from its source. With a cursor, the
+ * batch after it, statelessly, whatever the shared window does; with query
+ * arguments, the first batch of that query, which becomes the shared window;
+ * with neither, the first batch of the collection's own order. */
+function viewWindow(
+	args: Args,
+	itemWindows: StructuredWorkspacesToolDeps["itemWindows"],
+	workspace: StructuredWorkspaceView,
+) {
+	const collectionId =
+		args.collection ??
+		Object.keys(workspace.representationSchema.collections)[0];
+	if (!collectionId || workspace.integrity.status !== "ready") return null;
+	if (!workspace.representationSchema.collections[collectionId])
+		throw itemSourceError(
+			"unknown_collection",
+			`Collection "${collectionId}" not found in Structured Workspace "${workspace.name}".`,
+		);
+	const query = viewQuery(args);
+	const page =
+		args.cursor !== undefined || Object.keys(query).length === 0
+			? itemWindows.page(workspace.id, collectionId, {
+					...query,
+					...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+				})
+			: (() => {
+					const { window } = itemWindows.query(
+						workspace.id,
+						collectionId,
+						query,
+					);
+					return window;
+				})();
+	return {
+		collection: collectionId,
+		query,
+		items: page.items.map(viewItem),
+		...(page.next === undefined
+			? {}
+			: {
+					next: page.next,
+					more: moreCall(workspace.id, collectionId, args, page.next),
+				}),
+		...(page.total === undefined ? {} : { total: page.total }),
+		...(page.groups === undefined ? {} : { groups: page.groups }),
+	};
+}
+
+/** The query arguments of a view call, as the window and the source take them. */
+function viewQuery(args: Args): StructuredCollectionQuery {
+	return {
+		...(args.text === undefined ? {} : { text: args.text }),
+		...(args.filters === undefined ? {} : { filters: args.filters }),
+		...(args.sort === undefined
+			? {}
+			: {
+					sort: {
+						field: args.sort.field,
+						direction: args.sort.direction ?? "ascending",
+					},
+				}),
+		...(args.batch === undefined
+			? {}
+			: { batch: Math.min(args.batch, structuredWorkspaceMaxBatch) }),
+	};
+}
+
+/** The call reading the next batch: the same query arguments and the cursor. */
+function moreCall(
+	workspaceId: string,
+	collectionId: string,
+	args: Args,
+	cursor: string,
+): string {
+	const json = (value: unknown) => `'${JSON.stringify(value)}'`;
+	return [
+		`maket_structured_workspace action=view workspace=${workspaceId} collection=${collectionId}`,
+		...(args.text === undefined ? [] : [`text=${json(args.text)}`]),
+		...(args.filters === undefined ? [] : [`filters=${json(args.filters)}`]),
+		...(args.sort === undefined ? [] : [`sort=${json(args.sort)}`]),
+		...(args.batch === undefined ? [] : [`batch=${args.batch}`]),
+		`cursor=${cursor}`,
+	].join(" ");
+}
+
+function viewItem(item: StructuredCollectionWindowItem) {
+	return {
+		id: item.id,
+		documentName: item.documentName,
+		revision: Number(item.revision),
+		fields: item.fields,
+		...(item.issues ? { issues: item.issues } : {}),
+	};
 }
 
 function runCreate(args: Args, workspaces: StructuredWorkspaces) {
@@ -355,7 +517,7 @@ async function runAddItem(args: Args, workspaces: StructuredWorkspaces) {
 		data: requiredValue(args.data, "data"),
 	});
 	return text(
-		`Item "${item.id}" instantiated as document "${item.documentName}" at data revision ${item.dataRevision}.`,
+		`Item "${item.id}" added to collection "${item.collectionId}" at data revision ${item.dataRevision}; it opens as document "${item.documentName}".`,
 		{
 			next: [
 				`maket_structured_workspace action=check workspace=${args.workspace}`,
@@ -382,7 +544,7 @@ async function runDeleteItem(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = required(args.workspace, "workspace");
 	const item = required(args.item, "item");
 	await workspaces.deleteItem(workspace, item);
-	return text(`Item "${item}" and its instantiated document were deleted.`);
+	return text(`Item "${item}" was deleted from its source.`);
 }
 
 function runSyncTemplate(args: Args, workspaces: StructuredWorkspaces) {
@@ -410,7 +572,7 @@ function requiredValue<T>(value: T | undefined, field: string): T {
 export const structuredWorkspacesPack: ToolPack = {
 	id: "structured-workspaces",
 	name: "Structured Workspaces",
-	requires: ["structuredWorkspaces"],
+	requires: ["structuredWorkspaces", "itemWindows"],
 	declaresTools: ["maket_structured_workspace"],
 	register(container) {
 		container.register({

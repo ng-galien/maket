@@ -78,7 +78,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const explicitData = env.MAKET_DATA_DIR;
 	const DATA_DIR = explicitData ? explicitData : join(homedir(), ".maket");
 
-	const PUBLIC_DIR = join(PACKAGE_DIR, "public");
+	const PUBLIC_DIR = env.MAKET_PUBLIC_DIR || join(PACKAGE_DIR, "public");
 	const ASSETS_DIR = join(DATA_DIR, "assets");
 	const DOCS_DIR = join(DATA_DIR, "documents");
 	const EXPORTS_DIR = join(DATA_DIR, "exports");

@@ -42,18 +42,6 @@ export interface DocumentStateRepository {
 		data: DocumentStateData,
 	): DocumentStateRevision;
 	/**
-	 * Replace one value of the current revision in place, the row taking the
-	 * next revision number: for derived projections, whose history carries no
-	 * meaning, so a one-entry change does not append a whole snapshot.
-	 * `jsonPath` is an SQLite JSON path such as `$.items[3]`.
-	 */
-	replaceCurrentDocumentStateValue(
-		documentId: string,
-		expectedRevision: number,
-		jsonPath: string,
-		value: unknown,
-	): number;
-	/**
 	 * Make the state a mirror of a source: one revision numbered `revision`
 	 * holding `schema` and `data`, every other revision dropped; creates the
 	 * state when the document has none.
@@ -99,18 +87,6 @@ export function createDocumentStateRepository(
 				| { revision: number }
 				| undefined;
 			return row ? Number(row.revision) : null;
-		},
-		replaceCurrentDocumentStateValue(
-			documentId,
-			expectedRevision,
-			jsonPath,
-			value,
-		) {
-			return replaceCurrentValue(db, statements, documentId, {
-				expectedRevision,
-				jsonPath,
-				value,
-			});
 		},
 		loadDocumentStateRevision(documentId, revision) {
 			const row = statements.revisionSelect.get(documentId, revision);
@@ -158,7 +134,6 @@ type DocumentStateStatements = {
 	revisionSelect: StatementSync;
 	revisionSelectCurrent: StatementSync;
 	revisionNumberSelectCurrent: StatementSync;
-	revisionReplaceValue: StatementSync;
 	revisionSelectAll: StatementSync;
 	documentMarkState: StatementSync;
 	documentTouch: StatementSync;
@@ -235,53 +210,6 @@ function appendRevision(
 		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
 		throw error;
 	}
-}
-
-function replaceCurrentValue(
-	db: DatabaseSync,
-	statements: DocumentStateStatements,
-	documentId: string,
-	change: { expectedRevision: number; jsonPath: string; value: unknown },
-): number {
-	db.exec("SAVEPOINT maket_repository");
-	try {
-		const next = replaceRevisionValue(statements, documentId, change);
-		statements.documentTouch.run({ document_id: documentId });
-		db.exec("RELEASE maket_repository");
-		return next;
-	} catch (error) {
-		db.exec("ROLLBACK TO maket_repository; RELEASE maket_repository");
-		throw error;
-	}
-}
-
-function replaceRevisionValue(
-	statements: DocumentStateStatements,
-	documentId: string,
-	change: { expectedRevision: number; jsonPath: string; value: unknown },
-): number {
-	const next = change.expectedRevision + 1;
-	const result = statements.revisionReplaceValue.run({
-		document_id: documentId,
-		expected: change.expectedRevision,
-		next,
-		path: change.jsonPath,
-		value: JSON.stringify(change.value),
-	});
-	if (Number(result.changes) !== 1) {
-		const current =
-			(
-				statements.revisionNumberSelectCurrent.get(documentId) as
-					| { revision: number }
-					| undefined
-			)?.revision ?? null;
-		throw new MessageError(
-			`Document state revision conflict: expected ${change.expectedRevision}, current ${current}.`,
-			"msg_state_revision_conflict",
-			{ expected: change.expectedRevision, current: current ?? 0 },
-		);
-	}
-	return next;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -456,9 +384,6 @@ function prepareStatements(db: DatabaseSync): DocumentStateStatements {
 		),
 		revisionNumberSelectCurrent: db.prepare(
 			"SELECT revision FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC LIMIT 1",
-		),
-		revisionReplaceValue: db.prepare(
-			"UPDATE document_state_revisions SET revision = $next, data = json_set(data, $path, json($value)), created_at = datetime('now') WHERE document_id = $document_id AND revision = $expected",
 		),
 		revisionSelectAll: db.prepare(
 			"SELECT document_id, revision, schema, data, created_at FROM document_state_revisions WHERE document_id = ? ORDER BY revision DESC",

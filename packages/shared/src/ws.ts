@@ -3,7 +3,8 @@ import type { DocumentStateClientView } from "./document-state.js";
 import type { LocalizedMessage } from "./messages.js";
 import type { Settings } from "./settings.js";
 import type {
-	StructuredWorkspaceItemView,
+	StructuredCollectionFilter,
+	StructuredCollectionWindow,
 	StructuredWorkspaceView,
 } from "./structured-workspace.js";
 import type { ToastKey, ToastLevel } from "./toast.js";
@@ -41,6 +42,8 @@ export interface WorkspaceStateSignal {
 	docList: unknown[];
 	collections?: unknown[];
 	structuredWorkspaces?: StructuredWorkspaceView[];
+	/** Every Structured Workspace collection window the server holds. */
+	structuredWindows?: StructuredCollectionWindow[];
 	/** Server-owned page↔collection preview cursors (full snapshot). */
 	collectionCursors?: PageCollectionCursor[];
 	charteCss: string;
@@ -61,24 +64,10 @@ export interface StatePageProjection {
 	name?: string;
 }
 
-/** One replaced entry of a derived projection state (a Structured Workspace
- * collection), sent in place of the whole state view. */
-export interface DocumentStateEntryChange {
-	previousRevision: number;
-	revision: number;
-	createdAt: string;
-	pointer: string;
-	value: unknown;
-}
-
 export interface StatePageProjectionSignal {
 	type: "state_pages";
 	docName: string;
-	/** The whole state view; absent when `documentStateEntry` carries the
-	 * change instead. */
-	documentState?: DocumentStateClientView;
-	/** Applied by a client whose view is at `previousRevision`. */
-	documentStateEntry?: DocumentStateEntryChange;
+	documentState: DocumentStateClientView;
 	pages: StatePageProjection[];
 	/** Present when the rendered page count is authoritative: the client keeps
 	 * exactly this many pages. */
@@ -178,11 +167,11 @@ export interface StructuredWorkspacesChangedSignal {
 	workspaces: StructuredWorkspaceView[];
 }
 
-/** One item's data changed; the rest of the workspace view is unchanged. */
-export interface StructuredWorkspaceItemChangedSignal {
-	type: "structured_workspace_item_changed";
-	workspaceId: string;
-	item: StructuredWorkspaceItemView;
+/** The window of one collection changed: a new query, a further batch, or
+ * a change of the source. */
+export interface StructuredCollectionWindowSignal {
+	type: "structured_collection_window";
+	window: StructuredCollectionWindow;
 }
 
 export interface ActivitySignal {
@@ -257,6 +246,17 @@ export interface RenameStructuredWorkspaceCommand {
 export interface DeleteStructuredWorkspaceCommand {
 	type: "delete_structured_workspace";
 	workspaceId: string;
+}
+
+/** Replace the window of a collection with a new query, or, with the
+ * window's `next` cursor, extend it with the next batch. */
+export interface StructuredCollectionQueryCommand {
+	type: "structured_collection_query";
+	workspaceId: string;
+	collectionId: string;
+	text?: string;
+	filters?: StructuredCollectionFilter[];
+	cursor?: string;
 }
 
 export interface DuplicateDocumentCommand {
@@ -472,7 +472,7 @@ export type WorkspaceSignal =
 	| AnnotationEditResultSignal
 	| WorkspaceReloadSignal
 	| StructuredWorkspacesChangedSignal
-	| StructuredWorkspaceItemChangedSignal
+	| StructuredCollectionWindowSignal
 	| ActivitySignal
 	| AssetsChangedSignal
 	| CollectionsChangedSignal
@@ -486,6 +486,7 @@ export type WorkspaceCommand =
 	| RenameDocumentCommand
 	| RenameStructuredWorkspaceCommand
 	| DeleteStructuredWorkspaceCommand
+	| StructuredCollectionQueryCommand
 	| DuplicateDocumentCommand
 	| LockDocumentCommand
 	| PinDocumentCommand

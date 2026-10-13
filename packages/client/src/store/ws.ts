@@ -17,7 +17,9 @@ import { browserBasePath, linkedDocumentId } from "../lib/browserBasePath";
 import type { DocSummary, Document } from "./types";
 import {
 	hasPendingStatePatchForDocument,
+	knownStructuredItems,
 	type PendingMessage,
+	rememberStructuredItem,
 	useStore,
 } from "./useStore";
 import { requestFit } from "./zoomBridge";
@@ -350,7 +352,7 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 				.applyStatePages(
 					msg.docName,
 					msg.pages,
-					msg.documentState ?? msg.documentStateEntry,
+					msg.documentState,
 					(msg.docList ?? []) as DocSummary[],
 					msg.pageCount,
 				);
@@ -407,10 +409,8 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "structured_workspaces_changed":
 			useStore.getState().setStructuredWorkspaces(msg.workspaces);
 			break;
-		case "structured_workspace_item_changed":
-			useStore
-				.getState()
-				.applyStructuredWorkspaceItem(msg.workspaceId, msg.item);
+		case "structured_collection_window":
+			useStore.getState().applyStructuredWindow(msg.window);
 			break;
 		case "collection_cursors":
 			useStore.getState().setCollectionCursors(msg.cursors ?? []);
@@ -469,6 +469,8 @@ function applyStateMessage(
 	if (msg.collections !== undefined) {
 		useStore.getState().setCollections(msg.collections as Collection[]);
 	}
+	for (const held of msg.structuredWindows ?? [])
+		useStore.getState().applyStructuredWindow(held);
 	if (msg.structuredWorkspaces !== undefined) {
 		useStore.getState().setStructuredWorkspaces(msg.structuredWorkspaces);
 	}
@@ -476,6 +478,13 @@ function applyStateMessage(
 		useStore.getState().setCollectionCursors(msg.collectionCursors);
 	}
 	if (msg.charteCss) ensureCharteFonts(msg.charteCss);
+	const owner = doc?.meta?.structuredWorkspace;
+	if (doc && owner?.role === "item")
+		rememberStructuredItem({
+			workspaceId: owner.workspaceId,
+			collectionId: owner.collectionId,
+			documentName: doc.name,
+		});
 	if (!doc) {
 		const restore = !initialStateReceived && !isLinkedReaderPath();
 		initialStateReceived = true;
@@ -559,11 +568,12 @@ function updateWorkspaceHydration(): void {
 	for (const workspace of state.structuredWorkspaces) {
 		for (const document of [
 			...workspace.collectionDocuments,
-			...workspace.items,
 			...workspace.templateDocuments,
 		])
 			available.add(document.documentName);
 	}
+	for (const item of knownStructuredItems(state))
+		available.add(item.documentName);
 	const expected = state.workspaceDocNames.filter((name) =>
 		available.has(name),
 	);
@@ -618,11 +628,16 @@ export function sendBackgroundLoadDoc(
 ): void {
 	backgroundLoadDocs.add(name);
 	if (!structuredWorkspace) {
+		const items = knownStructuredItems(useStore.getState());
 		for (const workspace of useStore.getState().structuredWorkspaces) {
 			const owned =
 				workspace.collectionDocuments.find(
 					(index) => index.documentName === name,
-				) ?? workspace.items.find((item) => item.documentName === name);
+				) ??
+				items.find(
+					(item) =>
+						item.workspaceId === workspace.id && item.documentName === name,
+				);
 			if (
 				owned ||
 				workspace.templateDocuments.some(
@@ -891,6 +906,35 @@ export function sendRenameStructuredWorkspace(
 
 export function sendDeleteStructuredWorkspace(workspaceId: string): void {
 	wsSend({ type: "delete_structured_workspace", workspaceId });
+}
+
+/** Start a new query of a collection window: the server answers every client
+ * with the window's first batch. */
+export function sendStructuredCollectionQuery(
+	workspaceId: string,
+	collectionId: string,
+	text: string,
+): void {
+	wsSend({
+		type: "structured_collection_query",
+		workspaceId,
+		collectionId,
+		...(text.trim() ? { text: text.trim() } : {}),
+	});
+}
+
+/** Extend a collection window with the batch after its `next` cursor. */
+export function sendStructuredCollectionMore(
+	workspaceId: string,
+	collectionId: string,
+	cursor: string,
+): void {
+	wsSend({
+		type: "structured_collection_query",
+		workspaceId,
+		collectionId,
+		cursor,
+	});
 }
 
 export function sendDuplicateDoc(name: string, newName: string): void {

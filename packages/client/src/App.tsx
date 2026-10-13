@@ -18,7 +18,7 @@ import {
 	resolveDarkMode,
 } from "./lib/colorScheme";
 import { initializePwa } from "./pwa";
-import { useStore } from "./store/useStore";
+import { knownStructuredItems, useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -119,9 +119,10 @@ export default function App() {
 			workspaceDocNames.includes(focusedDocName) &&
 			(docs.has(focusedDocName) ||
 				workspaces.some((workspace) =>
-					[...workspace.collectionDocuments, ...workspace.items].some(
-						(entry) => entry.documentName === focusedDocName,
-					),
+					[
+						...workspace.collectionDocuments,
+						...knownStructuredItems(useStore.getState(), workspace.id),
+					].some((entry) => entry.documentName === focusedDocName),
 				))
 		) {
 			return;

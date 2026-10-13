@@ -47,6 +47,7 @@ import { handleStatePatch } from "./state-commands.js";
 import {
 	handleDeleteStructuredWorkspace,
 	handleRenameStructuredWorkspace,
+	handleStructuredCollectionQuery,
 } from "./structured-workspace-commands.js";
 import {
 	handleOpenOnboarding,
@@ -64,6 +65,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStateMutations,
 		documentStates,
 		documents,
+		itemWindows,
 		pending,
 		settings,
 		store,
@@ -84,6 +86,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		documentStateMutations,
 		documentStates,
 		documents,
+		itemWindows,
 		pending,
 		settings,
 		store,
@@ -168,6 +171,9 @@ function dispatchWorkspaceCommand(
 			break;
 		case "delete_structured_workspace":
 			handleDeleteStructuredWorkspace(ctx, msg);
+			break;
+		case "structured_collection_query":
+			handleStructuredCollectionQuery(ctx, msg);
 			break;
 		case "duplicate_document":
 			handleDuplicateDocument(ctx, msg);

@@ -1,6 +1,6 @@
 import type {
 	StructuredWorkspaceCollectionRepresentation,
-	StructuredWorkspaceItemView,
+	StructuredWorkspacePinnedItem,
 	StructuredWorkspaceView,
 } from "@maket/shared";
 import {
@@ -35,7 +35,8 @@ interface CollectionNode {
 	id: string;
 	representation: StructuredWorkspaceCollectionRepresentation;
 	documentName?: string;
-	items: StructuredWorkspaceItemView[];
+	count: number;
+	pinned: StructuredWorkspacePinnedItem[];
 }
 
 interface StructuredWorkspaceTreeModel {
@@ -279,9 +280,13 @@ function StructuredWorkspaceNode({
 	const menuAnchor = useRef<HTMLButtonElement>(null);
 	const collections = collectionNodes(workspace);
 	const active = model.activeWorkspaceId === workspace.id;
-	const openCount = workspace.items.filter((item) =>
-		model.openNames.has(item.documentName),
-	).length;
+	const openCount = useStore(
+		(state) =>
+			state.workspaceDocNames.filter((name) => {
+				const owner = state.docs.get(name)?.meta?.structuredWorkspace;
+				return owner?.role === "item" && owner.workspaceId === workspace.id;
+			}).length,
+	);
 	return (
 		<div data-structured-workspace={workspace.id}>
 			{mode === "rename" ? (
@@ -444,48 +449,46 @@ function StructuredCollectionNode({
 				<span
 					className="shrink-0 text-xs tabular-nums"
 					title={t("structured_collection_item_count", {
-						count: collection.items.length,
+						count: collection.count,
 					})}
 				>
-					{collection.items.length}
+					{collection.count}
 				</span>
 			</button>
-			{collection.items
-				.filter((item) => item.pinnedAt)
-				.map((item) => (
-					<div
-						key={item.id}
-						data-structured-item={item.id}
-						className="flex min-w-0 items-center gap-1 rounded-md hover:bg-input/70"
-						style={{ paddingLeft: libraryCategoryRowOffset(2) }}
+			{collection.pinned.map((item) => (
+				<div
+					key={item.id}
+					data-structured-item={item.id}
+					className="flex min-w-0 items-center gap-1 rounded-md hover:bg-input/70"
+					style={{ paddingLeft: libraryCategoryRowOffset(2) }}
+				>
+					<button
+						type="button"
+						disabled={unavailable}
+						onClick={() => {
+							open(item.documentName, {
+								workspaceId: workspace.id,
+								collectionId: collection.id,
+							});
+							model.onNavigate?.();
+						}}
+						className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left text-sm text-text-2"
 					>
+						<Pin size={13} className="shrink-0 text-accent" />
+						<span className="truncate">{item.documentName}</span>
+					</button>
+					{!readOnly && (
 						<button
 							type="button"
-							disabled={unavailable}
-							onClick={() => {
-								open(item.documentName, {
-									workspaceId: workspace.id,
-									collectionId: collection.id,
-								});
-								model.onNavigate?.();
-							}}
-							className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left text-sm text-text-2"
+							aria-label={t("unpin_document", { name: item.documentName })}
+							onClick={() => sendPinDoc(item.documentName, false)}
+							className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded text-text-3 hover:bg-input hover:text-text-1"
 						>
-							<Pin size={13} className="shrink-0 text-accent" />
-							<span className="truncate">{item.documentName}</span>
+							<Pin size={14} />
 						</button>
-						{!readOnly && (
-							<button
-								type="button"
-								aria-label={t("unpin_document", { name: item.documentName })}
-								onClick={() => sendPinDoc(item.documentName, false)}
-								className="mr-1 grid h-7 w-7 shrink-0 place-items-center rounded text-text-3 hover:bg-input hover:text-text-1"
-							>
-								<Pin size={14} />
-							</button>
-						)}
-					</div>
-				))}
+					)}
+				</div>
+			))}
 		</div>
 	);
 }
@@ -510,9 +513,10 @@ function collectionNodes(workspace: StructuredWorkspaceView): CollectionNode[] {
 				id,
 				representation,
 				documentName: document?.documentName,
-				items: workspace.items
-					.filter((item) => item.collectionId === id)
-					.sort((left, right) => left.position - right.position),
+				count: workspace.itemCounts[id] ?? 0,
+				pinned: workspace.pinnedItems.filter(
+					(item) => item.collectionId === id,
+				),
 			};
 		},
 	);
@@ -532,9 +536,7 @@ function filterWorkspaces(
 				(collection) => collection.name,
 			),
 			...workspace.collectionDocuments.map((document) => document.documentName),
-			...workspace.items
-				.filter((item) => item.pinnedAt)
-				.map((item) => item.documentName),
+			...workspace.pinnedItems.map((item) => item.documentName),
 		]
 			.filter(Boolean)
 			.join(" ")

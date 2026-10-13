@@ -74,18 +74,8 @@ const workspace: StructuredWorkspaceView = {
 			],
 		},
 	],
-	items: [
-		{
-			id: "task-1",
-			position: 0,
-			collectionId: "backlog",
-			bindingId: "task",
-			documentId: "task-doc",
-			documentName: "Ship the release",
-			data: { title: "Ship" },
-			dataRevision: 1,
-		},
-	],
+	itemCounts: { backlog: 1 },
+	pinnedItems: [],
 	createdAt: "2026-09-19 10:00:00",
 	updatedAt: "2026-09-19 10:00:00",
 };
@@ -297,7 +287,8 @@ describe("StructuredWorkspacesTab", () => {
 					},
 				},
 			},
-			items: [],
+			itemCounts: { calendar: 0 },
+			pinnedItems: [],
 			collectionDocuments: [
 				{
 					collectionId: "calendar",

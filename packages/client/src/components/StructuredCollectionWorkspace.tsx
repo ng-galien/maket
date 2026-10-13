@@ -1,10 +1,14 @@
-import { BookOpen, MousePointer2, Pin, Scan, X } from "lucide-react";
+import { BookOpen, MousePointer2, Pin, Scan, Search, X } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useT } from "../i18n/useT";
 import type { Document } from "../store/types";
-import { useStore } from "../store/useStore";
-import { sendPinDoc } from "../store/ws";
+import { structuredWindowKey, useStore } from "../store/useStore";
+import {
+	sendPinDoc,
+	sendStructuredCollectionMore,
+	sendStructuredCollectionQuery,
+} from "../store/ws";
 import { AnnotationToggle } from "./AnnotationToggle";
 import {
 	fitReadingDocument,
@@ -32,15 +36,20 @@ export function selectStructuredCollectionNavigation(state: StoreState) {
 		(candidate) => candidate.collectionId === ownership.collectionId,
 	);
 	if (!index) return null;
-	const item = workspace.items.find(
-		(candidate) =>
-			candidate.collectionId === index.collectionId &&
-			state.workspaceDocNames.includes(candidate.documentName),
-	);
+	const item = state.workspaceDocNames.find((name) => {
+		const owner = state.docs.get(name)?.meta?.structuredWorkspace;
+		return (
+			owner?.role === "item" &&
+			owner.workspaceId === workspace.id &&
+			owner.collectionId === index.collectionId
+		);
+	});
 	return {
+		workspaceId: workspace.id,
+		collectionId: index.collectionId,
 		indexName: index.documentName,
 		index: state.docs.get(index.documentName),
-		item: item ? state.docs.get(item.documentName) : undefined,
+		item: item ? state.docs.get(item) : undefined,
 	};
 }
 
@@ -87,6 +96,10 @@ export function StructuredCollectionWorkspace() {
 							key={navigation.index.id}
 							doc={navigation.index}
 							fit={split ? "fill" : "shrink"}
+							collection={{
+								workspaceId: navigation.workspaceId,
+								collectionId: navigation.collectionId,
+							}}
 						/>
 					)}
 				</section>
@@ -129,10 +142,13 @@ function CollectionDocument({
 	doc,
 	fit,
 	onClose,
+	collection,
 }: {
 	doc: Document;
 	fit: ReaderFit;
 	onClose?: () => void;
+	/** The collection whose window this index renders. */
+	collection?: { workspaceId: string; collectionId: string };
 }) {
 	const t = useT();
 	const [zoom, setZoom] = useState(1);
@@ -165,9 +181,7 @@ function CollectionDocument({
 	const readOnly = useStore((state) => state.readOnly);
 	const pinned = useStore((state) =>
 		state.structuredWorkspaces.some((workspace) =>
-			workspace.items.some(
-				(item) => item.documentName === doc.name && item.pinnedAt,
-			),
+			workspace.pinnedItems.some((item) => item.documentName === doc.name),
 		),
 	);
 	return (
@@ -233,6 +247,7 @@ function CollectionDocument({
 					<Scan size={14} />
 				</button>
 			</div>
+			{collection && <CollectionWindowSearch {...collection} />}
 			<div className="relative min-h-0 flex-1" style={{ contain: "layout" }}>
 				<ReaderSurface
 					doc={doc}
@@ -253,6 +268,120 @@ function CollectionDocument({
 					}}
 				/>
 			</div>
+			{collection && <CollectionWindowMore {...collection} />}
+		</div>
+	);
+}
+
+function useCollectionWindow(workspaceId: string, collectionId: string) {
+	return useStore(
+		(state) =>
+			state.structuredWindows[structuredWindowKey(workspaceId, collectionId)],
+	);
+}
+
+/** The search of the collection window: applied on Enter and when cleared;
+ * the server answers every client with the first batch. */
+function CollectionWindowSearch({
+	workspaceId,
+	collectionId,
+}: {
+	workspaceId: string;
+	collectionId: string;
+}) {
+	const t = useT();
+	const held = useCollectionWindow(workspaceId, collectionId);
+	const applied = held?.query.text ?? "";
+	const [text, setText] = useState(applied);
+	const [heldApplied, setHeldApplied] = useState(applied);
+	if (applied !== heldApplied) {
+		setHeldApplied(applied);
+		setText(applied);
+	}
+	const apply = (value: string) =>
+		sendStructuredCollectionQuery(workspaceId, collectionId, value);
+	return (
+		<div
+			data-structured-index-search
+			className="flex shrink-0 items-center gap-2 border-b border-border bg-panel px-3 py-1.5 text-sm"
+		>
+			<div className="relative min-w-0 flex-1">
+				<Search
+					size={14}
+					aria-hidden
+					className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-3"
+				/>
+				<input
+					type="search"
+					value={text}
+					onChange={(event) => {
+						setText(event.target.value);
+						if (event.target.value === "" && applied !== "") apply("");
+					}}
+					onKeyDown={(event) => {
+						if (event.key === "Enter") apply(text);
+						if (event.key === "Escape" && text !== "") {
+							setText("");
+							if (applied !== "") apply("");
+						}
+					}}
+					placeholder={t("structured_index_search")}
+					aria-label={t("structured_index_search")}
+					className="h-8 w-full rounded-md border border-border bg-input pl-8 pr-8 text-sm text-text-1 outline-none transition focus:border-accent"
+				/>
+				{text && (
+					<button
+						type="button"
+						onClick={() => {
+							setText("");
+							if (applied !== "") apply("");
+						}}
+						aria-label={t("structured_index_search_clear")}
+						className="absolute right-1 top-1 grid h-6 w-6 place-items-center rounded text-text-3 hover:bg-panel hover:text-text-1"
+					>
+						<X size={13} />
+					</button>
+				)}
+			</div>
+			{held?.total !== undefined && (
+				<span
+					data-structured-index-count
+					aria-live="polite"
+					className="shrink-0 text-xs tabular-nums text-text-3"
+				>
+					{t("structured_index_count", {
+						shown: held.items.length,
+						total: held.total,
+					})}
+				</span>
+			)}
+		</div>
+	);
+}
+
+/** Extends the collection window with the batch after its cursor. */
+function CollectionWindowMore({
+	workspaceId,
+	collectionId,
+}: {
+	workspaceId: string;
+	collectionId: string;
+}) {
+	const t = useT();
+	const next = useCollectionWindow(workspaceId, collectionId)?.next;
+	if (next === undefined) return null;
+	return (
+		<div className="flex shrink-0 justify-center border-t border-border bg-panel px-3 py-1.5">
+			<button
+				type="button"
+				data-structured-index-more
+				onClick={() =>
+					sendStructuredCollectionMore(workspaceId, collectionId, next)
+				}
+				className="h-8 rounded-md px-3 text-sm text-accent hover:bg-input"
+			>
+				{t("structured_index_load_more")}
+			</button>
 		</div>
 	);
 }

@@ -170,7 +170,7 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 						status: "reading",
 					},
 				},
-				answer: ['instantiated as document "Dune" at data revision 1.'],
+				answer: ['at data revision 1; it opens as document "Dune".'],
 				verify:
 					"The answer names the item document. An answer starting with `Item data breaks the schema` lists each wrong path with its fix: correct `data` and call add_item again.",
 			},
@@ -241,7 +241,7 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 					document_name: "Pancakes",
 					data: { title: "Pancakes", minutes: 20, vegetarian: true },
 				},
-				answer: ['instantiated as document "Pancakes" at data revision 1.'],
+				answer: ['at data revision 1; it opens as document "Pancakes".'],
 				verify: "The answer names the item document.",
 			},
 			{
@@ -325,7 +325,7 @@ export const STRUCTURED_WORKSPACE_METHOD: WorkspaceMethodPath[] = [
 					document_name: "Ada",
 					data: { name: "Ada", role: "Engineer" },
 				},
-				answer: ['instantiated as document "Ada" at data revision 1.'],
+				answer: ['at data revision 1; it opens as document "Ada".'],
 				verify: "The answer names the item document.",
 			},
 			{
@@ -1022,7 +1022,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"Parameters of `create` (and of `update_definition`, which adds `expected_workspace_revision` (integer)):",
 				"- `workspace` (string): the Workspace name.",
 				"- `data_schema` (object): JSON Schema of one item.",
-				'- `representation_schema` (object, optional; omit it on path 1): `version` (integer 1, optional) and `collections` (object keyed by collection id). Each collection: `name` (string), `indexTemplateHtml`, `detailTemplateHtml`, `compactTemplateHtml` (string, inline HTML with `{{ state.<property> }}` placeholders), `detailForm` (object `{uischema}` in JSON Forms, Controls with `scope` `#/properties/<property>`), `collectionTemplateDocumentId` (string, exact name of an existing document, path 3), `groupBy`, `sortBy` (string JSON Pointer such as `/status`), `sortDirection` (`ascending` or `descending`), `groupOrder` (array), `pageSize` (integer), `bindings` (object keyed by binding id; omitted, one binding `item` covers the whole schema). Each binding: `schemaPath` (string, `""` for the whole schema), `detailTemplateDocumentId`, `compactTemplateDocumentId` (string names, path 3), and the same inline fields as the collection.',
+				'- `representation_schema` (object, optional; omit it on path 1): `version` (integer 1, optional) and `collections` (object keyed by collection id). Each collection: `name` (string), `indexTemplateHtml`, `detailTemplateHtml`, `compactTemplateHtml` (string, inline HTML with `{{ state.<property> }}` placeholders), `detailForm` (object `{uischema}` in JSON Forms, Controls with `scope` `#/properties/<property>`), `collectionTemplateDocumentId` (string, exact name of an existing document, path 3), `groupBy`, `sortBy` (string JSON Pointer such as `/status`), `sortDirection` (`ascending` or `descending`), `groupOrder` (array), `pageSize` (integer), `indexPageSize` (integer, items per index batch, default 50, at most 500), `searchFields` (array of JSON Pointers searched by the index text query; default every string property of the binding schema at depth one), `bindings` (object keyed by binding id; omitted, one binding `item` covers the whole schema). Each binding: `schemaPath` (string, `""` for the whole schema), `detailTemplateDocumentId`, `compactTemplateDocumentId` (string names, path 3), and the same inline fields as the collection.',
 				"- `allow_incomplete` (boolean, optional): persist a definition with errors instead of refusing it; reserved for deliberate drafts.",
 			].join("\n"),
 		),
@@ -1036,6 +1036,16 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 				"- Template references may be exact document names or stable ids; Maket stores ids. A template belongs to exactly one Workspace.",
 				"- `list` prefixes each Workspace with `[ready]` or `[incomplete]`; `view` returns JSON whose first keys are `verdict`, `findings` (their count) and `check` (the call that lists them); `check` returns `{workspace, verdict, findings[]}`, each finding with `severity` (error, warning, hint), `object` (schema, collection, template, item, form, index), `collection`, `path`, `message`, `fix` and `next`. check never writes.",
 				"- Incomplete Workspaces (only through `allow_incomplete=true`) stay visible, but their index and item documents cannot open until check is ready.",
+			].join("\n"),
+		),
+		section(
+			"Reading items by cursor",
+			[
+				"- The items live in the Workspace's item source, never in the index document. `view` answers the definition, `itemCounts` per collection, `pinnedItems`, the owned documents, and `window`: one batch of item summaries of one collection (`collection`, default the first) with `items[]` (`id`, `documentName`, `revision`, `fields`, `issues`), `next`, `total` and `groups` (count per group value over the whole query).",
+				'- A query is `text` (searched in `searchFields`, ignoring case), `filters` (`[{"field":"/status","op":"eq","value":"todo"}]`, `op` `in` with a list of values), `sort` (`{"field":"/title","direction":"descending"}`; the collection `sortBy` otherwise) and `batch` (the collection `indexPageSize` otherwise, at most 500). Any of them starts a new query from the first item.',
+				"- `next` is an opaque cursor: pass it back unchanged as `cursor=<next>` with the same workspace, collection and query arguments (the answer gives that call in `more`) to read the following batch, straight from the source; it is absent once the listing is exhausted. Paging by cursor is complete and without duplicates whatever the index or other clients do between two calls. There is no page number and no previous batch; to go back, start the query again.",
+				"- A query without cursor also becomes the window every client sees: the index document renders the batches read so far, its group headers count the whole query. `view` with neither query nor cursor answers the first batch of the collection's own order.",
+				"```text\nmaket_structured_workspace action=view workspace=<id-or-name> collection=<collection> text=<words> filters=<json> sort=<json> batch=<n>\nmaket_structured_workspace action=view workspace=<id-or-name> collection=<collection> cursor=<next>\n```",
 			].join("\n"),
 		),
 		failureSection(),
@@ -1072,7 +1082,7 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Instantiated documents",
 			[
-				"- `add_item` validates the item, creates one real state-backed document, and records revision 1.",
+				"- `add_item` validates the item and writes it to the Workspace's item source at revision 1; its state-backed document is created from the detail template when the item is opened or exported.",
 				"- Template-controlled pages update through `sync_template` and cannot be edited directly.",
 				"- Pages added to the instance remain editable and are preserved during template synchronization.",
 				'- An item may hold a diagram: declare its property `{"type":"string","format":"maket-mermaid"}` and place a render slot `<div data-maket-render="mermaid" data-maket-from="state.<property>"></div>` in the detail template (read `state`, section Render slots).',

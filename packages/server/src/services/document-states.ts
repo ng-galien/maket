@@ -47,17 +47,6 @@ export interface DocumentStates {
 		expectedRevision: number,
 		operations: JsonPatchOperation[],
 	): DocumentStateRevision;
-	/**
-	 * Replace the entry at `pointer` (`/<array>/<index>`) of a derived
-	 * projection in place: the entry alone is validated and written, the
-	 * revision number advances without appending a snapshot.
-	 */
-	replaceProjectionEntry(
-		docName: string,
-		expectedRevision: number,
-		pointer: string,
-		value: unknown,
-	): number;
 	patchTerminal(
 		docName: string,
 		expectedRevision: number,
@@ -197,32 +186,6 @@ export function createDocumentStates(deps: DocumentStatesDeps): DocumentStates {
 		},
 		patch(docName, expectedRevision, operations) {
 			return patchState(deps, docName, expectedRevision, operations);
-		},
-		replaceProjectionEntry(docName, expectedRevision, pointer, value) {
-			const doc = requiredDocument(deps.documents, docName);
-			const current = currentRevision(doc.id);
-			if (doc.dataModel !== "state" || !current) {
-				throw new MessageError(
-					`Document "${doc.name}" has no state.`,
-					"msg_document_no_state",
-					{ name: doc.name },
-				);
-			}
-			const { jsonPath, entrySchema } = projectionEntry(current, pointer);
-			assertValidState(entrySchema, { entry: value });
-			const revision = deps.store.replaceCurrentDocumentStateValue(
-				doc.id,
-				expectedRevision,
-				jsonPath,
-				value,
-			);
-			deps.bus.emit("document-state:changed", {
-				docName: doc.name,
-				revision,
-				paths: [pointer],
-				projection: true,
-			});
-			return revision;
 		},
 		patchTerminal(docName, expectedRevision, operation) {
 			assertTerminalPatch(deps, docName, operation);
@@ -403,47 +366,6 @@ function deepFreeze<T>(value: T): T {
 		return value;
 	for (const child of Object.values(value)) deepFreeze(child);
 	return Object.freeze(value);
-}
-
-/** SQLite JSON path and validation schema of one projection entry. */
-function projectionEntry(
-	current: DocumentStateRevision,
-	pointer: string,
-): { jsonPath: string; entrySchema: DocumentStateSchema } {
-	const segments = parseJsonPointer(pointer);
-	const [array, index] = segments;
-	const items = (
-		current.schema.properties?.[array ?? ""] as { items?: unknown } | undefined
-	)?.items;
-	const list = array === undefined ? undefined : current.data[array];
-	if (
-		segments.length !== 2 ||
-		array === undefined ||
-		!/^\d+$/.test(index ?? "") ||
-		!Array.isArray(list) ||
-		Number(index) >= list.length ||
-		typeof items !== "object" ||
-		items === null
-	) {
-		throw new MessageError(
-			`"${pointer}" is not an entry of a projected list.`,
-			"msg_state_invalid",
-		);
-	}
-	const { $defs, definitions } = current.schema as {
-		$defs?: unknown;
-		definitions?: unknown;
-	};
-	return {
-		jsonPath: `$.${JSON.stringify(array)}[${Number(index)}]`,
-		entrySchema: {
-			type: "object",
-			properties: { entry: items },
-			required: ["entry"],
-			...($defs ? { $defs } : {}),
-			...(definitions ? { definitions } : {}),
-		},
-	};
 }
 
 function requiredDocument(documents: Documents, docName: string) {

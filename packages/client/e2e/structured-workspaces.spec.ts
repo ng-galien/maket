@@ -47,6 +47,77 @@ async function checkReaderRoundTrip(
 }
 
 test.describe("Structured Workspace", () => {
+	test("lists 120 items by batch: search narrows, load more extends, an item of the second batch opens", async ({
+		mcp,
+		page,
+	}) => {
+		const workspaceName = "Batched backlog";
+		const title = (index: number) => `Task ${String(index).padStart(3, "0")}`;
+		await openWorkspace(page);
+		await mcp.call("maket_structured_workspace", {
+			action: "create",
+			workspace: workspaceName,
+			data_schema: {
+				type: "object",
+				properties: { title: { type: "string" } },
+				required: ["title"],
+				additionalProperties: false,
+			},
+		});
+		for (let index = 1; index <= 120; index += 1)
+			await mcp.call("maket_structured_workspace", {
+				action: "add_item",
+				workspace: workspaceName,
+				item: `task-${index}`,
+				collection: "items",
+				binding: "item",
+				document_name: title(index),
+				data: { title: title(index) },
+			});
+
+		const library = await openLibraryView(page, "structured-workspaces");
+		const workspace = library
+			.locator("[data-structured-workspace]")
+			.filter({ hasText: workspaceName });
+		await workspace.locator("button").first().click();
+		await library
+			.getByRole("button", { name: "Open collection index Items" })
+			.click();
+
+		const indexPane = page.locator("[data-structured-index-pane]");
+		const count = indexPane.locator("[data-structured-index-count]");
+		const card = (index: number) =>
+			indexPane.locator(`[data-maket-document="${title(index)}"]`);
+		await expect(count).toHaveText("50 of 120");
+		await expect(card(50)).toHaveCount(1);
+		await expect(card(51)).toHaveCount(0);
+
+		const search = indexPane.getByRole("searchbox", {
+			name: "Search this collection",
+		});
+		await search.fill("task 11");
+		await search.press("Enter");
+		await expect(count).toHaveText("10 of 10");
+		await expect(card(110)).toHaveCount(1);
+		await expect(card(1)).toHaveCount(0);
+		await expect(indexPane.locator("[data-structured-index-more]")).toHaveCount(
+			0,
+		);
+
+		await indexPane
+			.getByRole("button", { name: "Clear the search", exact: true })
+			.click();
+		await expect(count).toHaveText("50 of 120");
+		await indexPane.locator("[data-structured-index-more]").click();
+		await expect(count).toHaveText("100 of 120");
+		await expect(card(51)).toHaveCount(1);
+
+		await card(75).click();
+		const itemPane = page.locator("[data-structured-item-pane]");
+		await expect(itemPane.locator(`[data-doc="${title(75)}"]`)).toBeVisible();
+		await expect(count).toHaveText("100 of 120");
+	});
+
 	test("navigates between indexes and one current item in split and single views", async ({
 		mcp,
 		page,
@@ -301,13 +372,13 @@ test.describe("Structured Workspace", () => {
 			}),
 		).toBeVisible();
 		const pinSnapshot = await mcp.callJson<{
-			items: { documentName: string; pinnedAt?: string }[];
+			pinnedItems: { documentName: string; pinnedAt: string }[];
 		}>("maket_structured_workspace", {
 			action: "view",
 			workspace: workspaceName,
 		});
 		expect(
-			pinSnapshot.items.find((item) => item.documentName === itemDocument)
+			pinSnapshot.pinnedItems.find((item) => item.documentName === itemDocument)
 				?.pinnedAt,
 		).toBeTruthy();
 		const pinLibrary = await openLibraryView(page, "structured-workspaces");

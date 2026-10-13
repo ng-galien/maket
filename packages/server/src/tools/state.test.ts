@@ -6,6 +6,7 @@ import { createDocumentStateMutations } from "../services/document-state-mutatio
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
 import { createItemSources } from "../services/item-sources/item-sources.js";
+import { createItemWindows } from "../services/item-windows.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
 import {
@@ -196,7 +197,7 @@ describe("maket_state revision retention", () => {
 });
 
 describe("maket_state revision retention on Workspace documents", () => {
-	it("bounds the history of an item document and of its collection projection", async () => {
+	it("bounds the history of an item document; item changes leave the collection document state as initialized", async () => {
 		const store = createSQLiteStore(":memory:");
 		const bus = createBus();
 		const documents = createDocuments({ store });
@@ -302,9 +303,9 @@ describe("maket_state revision retention on Workspace documents", () => {
 		expect(
 			store.loadStructuredWorkspaceItem(workspaceId, "topic-1"),
 		).toMatchObject({ revision: 5, data: { title: "v4" } });
-		const projectionHistory = documentStates.history(projection);
-		expect(projectionHistory).toHaveLength(2);
-		expect(projectionHistory[0]?.data).toEqual({ items: [{ title: "v4" }] });
+		expect(documentStates.history(projection)).toEqual([
+			expect.objectContaining({ revision: 1, data: {} }),
+		]);
 		store.close();
 	});
 });
@@ -563,14 +564,17 @@ describe("maket_state", () => {
 			{
 				action: "update",
 				doc: collectionName,
-				expected_revision: 2,
+				expected_revision: 1,
 				data: { items: [] },
 			},
 			{} as never,
 		);
 		expect(collectionWrite.isError).toBe(true);
 		expect(textOf(collectionWrite)).toContain("derived");
-		expect(documentStates.get(collectionName)?.current.revision).toBe(2);
+		expect(documentStates.get(collectionName)?.current).toMatchObject({
+			revision: 1,
+			data: {},
+		});
 
 		const invalidItemWrite = await tool.handler(
 			{
@@ -642,10 +646,14 @@ describe("maket_state drawing from state", () => {
 });
 
 function structuredWorkspacesWithSources(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	return workspaces;
 }

@@ -468,20 +468,10 @@ describe("state message", () => {
 		expect(useStore.getState().collections).toEqual([clientsCollection]);
 	});
 
-	it("replaces one Structured Workspace item without touching the others", async () => {
+	it("keeps the window of each collection the server announces, and the item counts without item data", async () => {
 		const { initWs, useStore } = await freshWsModule();
 		initWs();
 		MockWebSocket.last().open();
-		const item = (id: string, title: string, dataRevision: number) => ({
-			id,
-			position: id === "task-1" ? 0 : 1,
-			collectionId: "backlog",
-			bindingId: "task",
-			documentId: `${id}-document`,
-			documentName: id,
-			data: { title },
-			dataRevision,
-		});
 		MockWebSocket.last().emit({
 			type: "structured_workspaces_changed",
 			workspaces: [
@@ -491,7 +481,8 @@ describe("state message", () => {
 					dataSchema: {},
 					representationSchema: { version: 1, collections: {} },
 					revision: 1,
-					items: [item("task-1", "Ship", 1), item("task-2", "Test", 1)],
+					itemCounts: { backlog: 120 },
+					pinnedItems: [],
 					collectionDocuments: [],
 					templateDocuments: [],
 					integrity: { status: "ready", issues: [] },
@@ -500,20 +491,38 @@ describe("state message", () => {
 				},
 			],
 		});
-		const untouched = useStore.getState().structuredWorkspaces[0]?.items[1];
-
-		MockWebSocket.last().emit({
-			type: "structured_workspace_item_changed",
+		const window = (title: string, next?: string) => ({
 			workspaceId: "delivery",
-			item: item("task-1", "Ship now", 2),
+			collectionId: "backlog",
+			query: {},
+			items: [
+				{
+					id: "task-1",
+					bindingId: "task",
+					documentName: "Ship",
+					revision: "2",
+					fields: { title },
+				},
+			],
+			...(next ? { next } : {}),
+			total: 120,
+			fetchedAt: "2026-10-13T20:00:00.000Z",
+		});
+		MockWebSocket.last().emit({
+			type: "structured_collection_window",
+			window: window("Ship", "cursor-1"),
+		});
+		MockWebSocket.last().emit({
+			type: "structured_collection_window",
+			window: window("Ship now"),
 		});
 
-		const [workspace] = useStore.getState().structuredWorkspaces;
-		expect(workspace?.items[0]).toMatchObject({
-			data: { title: "Ship now" },
-			dataRevision: 2,
-		});
-		expect(workspace?.items[1]).toBe(untouched);
+		const state = useStore.getState();
+		expect(state.structuredWorkspaces[0]).not.toHaveProperty("items");
+		expect(state.structuredWorkspaces[0]?.itemCounts).toEqual({ backlog: 120 });
+		expect(Object.values(state.structuredWindows)).toEqual([
+			window("Ship now"),
+		]);
 	});
 });
 
@@ -1218,16 +1227,8 @@ describe("structured navigation loads", () => {
 				{ collectionId: "items", documentId: "index", documentName: "Index" },
 			],
 			templateDocuments: [],
-			items: ["First", "Second"].map((name, position) => ({
-				id: name,
-				position,
-				collectionId: "items",
-				bindingId: "item",
-				documentId: name,
-				documentName: name,
-				data: {},
-				dataRevision: 1,
-			})),
+			itemCounts: { items: 2 },
+			pinnedItems: [],
 			integrity: { status: "ready" as const, issues: [] },
 			createdAt: "2026-10-11",
 			updatedAt: "2026-10-11",
@@ -1253,6 +1254,12 @@ describe("structured navigation loads", () => {
 
 	it("restores saved owned documents when the server has no free initial document", async () => {
 		const { initWs, useStore } = await freshWsModule();
+		localStorage.setItem(
+			"maket-structured-item-owners",
+			JSON.stringify([
+				{ workspaceId: "nav", collectionId: "items", documentName: "First" },
+			]),
+		);
 		useStore.setState({
 			workspaceDocNames: ["Index", "First"],
 			focusedDocName: "First",
@@ -1294,6 +1301,7 @@ describe("structured navigation loads", () => {
 			activeStructuredCollectionId: "items",
 			workspaceHydrated: true,
 		});
+		localStorage.removeItem("maket-structured-item-owners");
 	});
 
 	it.each(["close-all", "context-switch"])(
@@ -1464,6 +1472,22 @@ describe("structured navigation loads", () => {
 			docList: [],
 			charteCss: "",
 			structuredWorkspaces: [snapshot()],
+			structuredWindows: [
+				{
+					workspaceId: "nav",
+					collectionId: "items",
+					query: {},
+					items: ["First", "Second"].map((name) => ({
+						id: name,
+						bindingId: "item",
+						documentName: name,
+						revision: "1",
+						fields: {},
+					})),
+					total: 2,
+					fetchedAt: "2026-10-13T20:00:00.000Z",
+				},
+			],
 		});
 		useStore.setState({
 			workspaceDocNames: ["Free"],

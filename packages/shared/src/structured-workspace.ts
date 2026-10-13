@@ -30,12 +30,20 @@ export interface StructuredWorkspaceCollectionRepresentation {
 	sortBy?: string;
 	/** Direction of `sortBy` (default ascending). */
 	sortDirection?: StructuredWorkspaceSortDirection;
+	/** Items per batch of the index (default 50, at most 500). */
+	indexPageSize?: number;
+	/** JSON Pointers into item data searched by the index text query; by
+	 * default every string property of the binding schema at depth one. */
+	searchFields?: string[];
 }
 
 export type StructuredWorkspaceSortDirection = "ascending" | "descending";
 
 export const structuredWorkspaceDefaultPageSize = 24;
 export const structuredWorkspaceMaxPageSize = 500;
+export const structuredWorkspaceDefaultIndexPageSize = 50;
+/** Most items one query of a collection answers. */
+export const structuredWorkspaceMaxBatch = 500;
 
 export interface StructuredWorkspaceRepresentationSchema {
 	version: 1;
@@ -92,12 +100,67 @@ export interface StructuredWorkspaceTemplateDocumentView {
 	}>;
 }
 
+/** An item whose document is pinned, listed under its collection. */
+export interface StructuredWorkspacePinnedItem {
+	id: string;
+	collectionId: string;
+	documentName: string;
+	pinnedAt: string;
+}
+
+/** A workspace as clients and the agent see it: its definition, item counts
+ * and pinned items, never the item data. */
 export interface StructuredWorkspaceView
 	extends Omit<StructuredWorkspaceDefinition, "items"> {
 	integrity: StructuredWorkspaceIntegrity;
-	items: StructuredWorkspaceItemView[];
+	/** Number of items per collection id. */
+	itemCounts: Record<string, number>;
+	pinnedItems: StructuredWorkspacePinnedItem[];
 	collectionDocuments: StructuredWorkspaceCollectionDocumentView[];
 	templateDocuments: StructuredWorkspaceTemplateDocumentView[];
+}
+
+export interface StructuredCollectionFilter {
+	/** JSON Pointer into item data. */
+	field: string;
+	op: "eq" | "in";
+	value: StructuredWorkspaceGroupValue | StructuredWorkspaceGroupValue[];
+}
+
+/** What a collection window asks its source: a new query restarts from the
+ * first item. */
+export interface StructuredCollectionQuery {
+	text?: string;
+	filters?: StructuredCollectionFilter[];
+	sort?: { field: string; direction: StructuredWorkspaceSortDirection };
+	/** Items per batch; the collection indexPageSize by default. */
+	batch?: number;
+}
+
+/** One item of a window: the fields its card and the index read. */
+export interface StructuredCollectionWindowItem {
+	id: string;
+	bindingId: string;
+	documentName: string;
+	revision: string;
+	fields: Record<string, unknown>;
+	issues?: StructuredWorkspaceItemDataIssue[];
+}
+
+/** The items of a collection fetched so far for the current query, held by
+ * the server and shared by every client and the agent. */
+export interface StructuredCollectionWindow {
+	workspaceId: string;
+	collectionId: string;
+	query: StructuredCollectionQuery;
+	items: StructuredCollectionWindowItem[];
+	/** Opaque position of the next batch; absent once the query is exhausted. */
+	next?: string;
+	/** Items matching the query, when the source counts them. */
+	total?: number;
+	/** Items per group value over the whole query, when grouped. */
+	groups?: Array<{ value: StructuredWorkspaceGroupValue; count: number }>;
+	fetchedAt: string;
 }
 
 export type StructuredWorkspacePageProvenance =
@@ -294,6 +357,7 @@ function validateCollectionGrouping(
 		...validateCollectionSort(collectionId, collection),
 		...validateCollectionGroupOrder(collectionId, collection),
 		...validateCollectionPageSize(collectionId, collection),
+		...validateCollectionQueryFields(collectionId, collection),
 	];
 }
 
@@ -387,6 +451,49 @@ function validateCollectionPageSize(
 		);
 	}
 	return findings;
+}
+
+function validateCollectionQueryFields(
+	collectionId: string,
+	collection: StructuredWorkspaceCollectionRepresentation,
+): StructuredWorkspaceFinding[] {
+	const findings: StructuredWorkspaceFinding[] = [];
+	const size = collection.indexPageSize;
+	if (
+		size !== undefined &&
+		(!Number.isInteger(size) || size < 1 || size > structuredWorkspaceMaxBatch)
+	)
+		findings.push(
+			groupingFinding(
+				collectionId,
+				"indexPageSize",
+				`Collection "${collectionId}" indexPageSize must be an integer from 1 to ${structuredWorkspaceMaxBatch}.`,
+				`Set indexPageSize to an integer from 1 to ${structuredWorkspaceMaxBatch}, or remove it for the default ${structuredWorkspaceDefaultIndexPageSize}.`,
+			),
+		);
+	const fields = collection.searchFields;
+	if (
+		fields !== undefined &&
+		(!Array.isArray(fields) || !fields.every(isItemPointer))
+	)
+		findings.push(
+			groupingFinding(
+				collectionId,
+				"searchFields",
+				`Collection "${collectionId}" searchFields must list JSON Pointers into the item data, for example ["/title"].`,
+				'List property pointers such as ["/title","/address/city"], or remove searchFields to search every text property.',
+			),
+		);
+	return findings;
+}
+
+function isItemPointer(value: unknown): boolean {
+	if (typeof value !== "string") return false;
+	try {
+		return parseJsonPointer(value).length > 0;
+	} catch {
+		return false;
+	}
 }
 
 function validateCollectionSort(

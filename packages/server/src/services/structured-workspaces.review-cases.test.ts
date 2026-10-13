@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readFileSync } from "node:fs";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMaketStructuredWorkspaceTool } from "../tools/structured-workspaces.js";
@@ -8,6 +9,7 @@ import { createDocumentStates } from "./document-states.js";
 import { createDocuments } from "./documents.js";
 import { isItemSourceError } from "./item-sources/item-source-error.js";
 import { createItemSources } from "./item-sources/item-sources.js";
+import { createItemWindows, type ItemWindows } from "./item-windows.js";
 import type { PageFlow, PageFlowRequest } from "./page-flow.js";
 import { createSQLiteStore } from "./store.js";
 import {
@@ -48,13 +50,27 @@ const pageFlow: Pick<PageFlow, "pages"> = {
 	},
 };
 
+const itemWindowsOf = new WeakMap<StructuredWorkspaces, ItemWindows>();
+
 function engine(
-	deps: Omit<StructuredWorkspacesDeps, "itemSources">,
+	deps: Omit<StructuredWorkspacesDeps, "itemSources" | "itemWindows">,
 ): StructuredWorkspaces {
-	return createStructuredWorkspaces({
+	const itemSources = createItemSources(deps);
+	const itemWindows = createItemWindows({ ...deps, itemSources });
+	const workspaces = createStructuredWorkspaces({
 		...deps,
-		itemSources: createItemSources(deps),
+		itemSources,
+		itemWindows,
 	});
+	itemWindowsOf.set(workspaces, itemWindows);
+	return workspaces;
+}
+
+/** The collection windows of an engine built by engine. */
+function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
+	const windows = itemWindowsOf.get(workspaces);
+	if (!windows) throw new Error("engine built without item windows");
+	return windows;
 }
 
 function scenario() {
@@ -71,6 +87,7 @@ function scenario() {
 	});
 	const tool = createMaketStructuredWorkspaceTool({
 		structuredWorkspaces: workspaces,
+		itemWindows: windowsOf(workspaces),
 	});
 	return { store, bus, documents, documentStates, workspaces, tool };
 }
@@ -395,12 +412,132 @@ async function outputOf(run: Case["run"]): Promise<Record<string, string>> {
 	}
 }
 
-describe("Structured Workspaces stay byte-identical to HEAD on the review cases", () => {
+interface HeadItem {
+	id: string;
+	collectionId: string;
+	documentName: string;
+	data: Record<string, unknown>;
+	dataRevision: number;
+}
+
+type HeadView = Record<string, unknown> & { items: HeadItem[] };
+
+/** The HEAD view under the new contract: no item data, the item count of
+ * each collection and no pinned item instead. */
+function lightView(head: HeadView) {
+	const { items, ...definition } = head;
+	const collections = Object.keys(
+		(definition.representationSchema as { collections: object }).collections,
+	);
+	return {
+		...definition,
+		itemCounts: Object.fromEntries(
+			collections.map((id) => [
+				id,
+				items.filter((item) => item.collectionId === id).length,
+			]),
+		),
+		pinnedItems: [],
+	};
+}
+
+const isJson = (text: string) => text.startsWith("{") || text.startsWith("[");
+
+/** The keys whose contract changed: listViews and get carry item counts
+ * instead of items, the MCP view one window batch of the first collection. */
+const changedKeys = new Set(["listViews", "get", "mcpView"]);
+
+function expectNewViewContract(
+	key: string,
+	output: string,
+	head: string,
+): void {
+	if (/^(THROW|ERR) Invalid state\/items\//.test(head)) {
+		interface ChangedView {
+			itemCounts: Record<string, number>;
+			window?: {
+				items: Array<{ id: string; issues?: Array<{ rule: string }> }>;
+			};
+		}
+		const parsed = JSON.parse(output) as ChangedView | ChangedView[];
+		const listed: ChangedView | undefined = Array.isArray(parsed)
+			? parsed[0]
+			: parsed;
+		if (!listed) throw new Error(`${key}: no view`);
+		expect(listed, key).not.toHaveProperty("items");
+		expect(listed.itemCounts, key).toEqual({ items: 3 });
+		if (key === "mcpView")
+			expect(
+				listed.window?.items.find((item) => item.id === "items-1")?.issues,
+				key,
+			).toEqual([expect.objectContaining({ rule: "required" })]);
+		return;
+	}
+	if (!isJson(head)) {
+		expect(output, key).toBe(head);
+		return;
+	}
+	if (key === "listViews") {
+		expect(JSON.parse(output), key).toEqual(
+			(JSON.parse(head) as HeadView[]).map(lightView),
+		);
+		return;
+	}
+	if (key === "get") {
+		expect(JSON.parse(output), key).toEqual(lightView(JSON.parse(head)));
+		return;
+	}
+	const headView = JSON.parse(head) as HeadView;
+	const { window, ...view } = JSON.parse(output) as {
+		window: {
+			collection: string;
+			items: Array<{ id: string; revision: number; fields: object }>;
+			total: number;
+			next?: string;
+		};
+	};
+	expect(view, key).toEqual(lightView(headView));
+	const headItems = headView.items.filter(
+		(item) => item.collectionId === window.collection,
+	);
+	expect(window.total, key).toBe(headItems.length);
+	expect(window.next, key).toBeUndefined();
+	expect(new Set(window.items.map((item) => item.id)), key).toEqual(
+		new Set(headItems.map((item) => item.id)),
+	);
+	for (const item of window.items) {
+		const headItem = headItems.find((candidate) => candidate.id === item.id);
+		expect(item.revision, key).toBe(headItem?.dataRevision);
+		expect(headItem?.data, key).toMatchObject(item.fields);
+	}
+}
+
+describe("Structured Workspaces on the review cases: HEAD index and answers, views under the window contract", () => {
 	it.each(cases)("$name", async ({ name, run }) => {
 		const output = await outputOf(run);
-		await expect(JSON.stringify(output, null, 2)).toMatchFileSnapshot(
-			`${snapshots}/${name}.snap`,
-		);
+		const head = JSON.parse(
+			readFileSync(
+				new URL(`${snapshots}/${name}.snap`, import.meta.url),
+				"utf8",
+			),
+		) as Record<string, string>;
+		expect(Object.keys(output).sort()).toEqual(Object.keys(head).sort());
+		for (const [key, value] of Object.entries(output)) {
+			if (changedKeys.has(key))
+				expectNewViewContract(key, value, head[key] ?? "");
+			else if (
+				name === "deleted-item" &&
+				key.startsWith("getItem:") &&
+				value !== "null"
+			) {
+				const { position, ...rest } = JSON.parse(value);
+				const { position: _headPosition, ...headRest } = JSON.parse(
+					head[key] ?? "{}",
+				);
+				expect(rest, key).toEqual(headRest);
+				expect(position, key).toBe(2);
+			} else expect(value, key).toBe(head[key]);
+		}
 	});
 });
 

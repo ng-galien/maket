@@ -8,7 +8,6 @@ import type {
 	StructuredWorkspaceDataSchema,
 	StructuredWorkspaceDefinition,
 	StructuredWorkspaceFinding,
-	StructuredWorkspaceGroupValue,
 	StructuredWorkspaceItemView,
 	StructuredWorkspaceRepresentationSchema,
 	StructuredWorkspaceTemplateDocumentView,
@@ -42,17 +41,18 @@ import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
 import type { Documents } from "./documents.js";
-import { groupItems, sortItems } from "./item-sources/item-order.js";
-import type {
-	ItemRecord,
-	ItemSource,
-	ItemSummary,
-} from "./item-sources/item-source.js";
+import {
+	itemGroupKey,
+	itemGroupLabel,
+	itemValue,
+} from "./item-sources/item-order.js";
+import type { ItemRecord, ItemSource } from "./item-sources/item-source.js";
 import {
 	isItemSourceError,
 	itemSourceError,
 } from "./item-sources/item-source-error.js";
 import type { ItemSources } from "./item-sources/item-sources.js";
+import type { ItemWindows } from "./item-windows.js";
 import {
 	type FlowRanges,
 	flowedPageIdentity,
@@ -220,6 +220,7 @@ export interface StructuredWorkspacesDeps {
 	documentStates: DocumentStates;
 	store: StructuredWorkspaceRepository;
 	itemSources: ItemSources;
+	itemWindows: Pick<ItemWindows, "current">;
 	pageFlow?: Pick<PageFlow, "pages">;
 }
 
@@ -279,6 +280,9 @@ export function createStructuredWorkspaces(
 		},
 		get itemSources() {
 			return injected.itemSources;
+		},
+		get itemWindows() {
+			return injected.itemWindows;
 		},
 		get pageFlow() {
 			return injected.pageFlow;
@@ -639,7 +643,20 @@ function renderCollection(
 		existing?.dataModel === "state"
 			? existing
 			: requiredCollectionDocument(deps, workspace, collectionId);
-	const items = collectionItems(deps, workspace, collectionId);
+	const window = deps.itemWindows.current(workspace.id, collectionId);
+	const items: CollectionItem[] = window.items.map((item) => ({
+		id: item.id,
+		bindingId: item.bindingId,
+		documentName: item.documentName,
+		revision: item.revision,
+		data: item.fields,
+	}));
+	const groupCounts = new Map(
+		(window.groups ?? []).map((group) => [
+			itemGroupKey(group.value),
+			group.count,
+		]),
+	);
 	const collectionState = deps.documentStates.get(collectionDocument.name);
 	if (!collectionState) {
 		throw new Error(
@@ -656,7 +673,7 @@ function renderCollection(
 		}
 		const flowed = renderCollectionPage(
 			deps,
-			{ workspace, collection, items, compactCards },
+			{ workspace, collection, items, groupCounts, compactCards },
 			{ doc: collectionDocument, pageId: page.id },
 			renderDocumentStatePage(page, collectionState.current.data, {
 				schema: collectionState.current.schema,
@@ -683,45 +700,14 @@ function renderCollection(
 	};
 }
 
-/** One item as the index composes it: its summary fields as data and the
- * name of the document its card opens. */
+/** One item of the collection window as the index composes it: its summary
+ * fields as data and the name of the document its card opens. */
 interface CollectionItem {
 	id: string;
 	bindingId: string;
 	documentName: string;
 	revision: string;
 	data: Record<string, unknown>;
-}
-
-/** The items of a collection in position order, read through the
- * workspace's item source. */
-function collectionItems(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-): CollectionItem[] {
-	const rows = new Map(workspace.items.map((item) => [item.id, item]));
-	const page = deps.itemSources.sourceFor(workspace.id).list({
-		collectionId,
-		limit: Number.POSITIVE_INFINITY,
-	});
-	return page.items.map((summary) =>
-		collectionItem(summary, rows.get(summary.id)),
-	);
-}
-
-function collectionItem(
-	summary: ItemSummary,
-	row: StructuredWorkspaceDefinition["items"][number] | undefined,
-): CollectionItem {
-	if (!row) throw new Error(`Item "${summary.id}" is not in its workspace.`);
-	return {
-		id: summary.id,
-		bindingId: summary.bindingId,
-		documentName: row.documentName,
-		revision: summary.revision,
-		data: summary.fields,
-	};
 }
 
 interface CollectionCardEntry {
@@ -737,6 +723,7 @@ interface CompactCard {
 }
 
 interface CollectionCardGroup {
+	key: string;
 	label: string;
 	entries: CollectionCardEntry[];
 }
@@ -754,11 +741,14 @@ interface SlotSegment {
 interface CollectionPageSource {
 	workspace: StructuredWorkspaceDefinition;
 	collection: StructuredWorkspaceCollectionRepresentation;
+	/** The window items, in index order. */
 	items: CollectionItem[];
+	/** Items per group key over the whole query of the window. */
+	groupCounts: ReadonlyMap<string, number>;
 	compactCards: CompactCardCache;
 }
 
-/** Rendered compact cards by template content, item data revision and slot,
+/** Rendered compact cards by template content, item row revision and slot,
  * so a collection re-render after one item change renders one card. */
 type CompactCardCache = Map<
 	string,
@@ -843,22 +833,14 @@ function renderCollectionPage(
 						groupIndex: 0,
 						count: 0,
 						continued: false,
-						cards: sortCollectionEntries(entries, collection).flatMap(
-							(entry) => entry.cards,
-						),
+						cards: entries.flatMap((entry) => entry.cards),
 					},
 				],
 			];
 		}
 		return flowCollectionGroups(
-			groupCollectionCards(
-				entries,
-				collection.groupBy,
-				collection.groupOrder ?? [],
-			).map((group) => ({
-				...group,
-				entries: sortCollectionEntries(group.entries, collection),
-			})),
+			windowGroups(entries, collection.groupBy),
+			source.groupCounts,
 			owner.doc.canvas.format === "AUTO"
 				? Number.POSITIVE_INFINITY
 				: (collection.pageSize ?? structuredWorkspaceDefaultPageSize),
@@ -1009,32 +991,29 @@ function collectionCardEntries(
 	return entries;
 }
 
-function groupCollectionCards(
+/** Consecutive entries of the same group value, in window order: the
+ * source answers items group by group. */
+function windowGroups(
 	entries: CollectionCardEntry[],
 	groupBy: string,
-	groupOrder: StructuredWorkspaceGroupValue[],
 ): CollectionCardGroup[] {
-	return groupItems(entries, (entry) => entry.item.data, {
-		groupBy,
-		groupOrder,
-	}).map((group) => ({ label: group.label, entries: group.entries }));
+	const groups: CollectionCardGroup[] = [];
+	for (const entry of entries) {
+		const value = itemValue(entry.item.data, groupBy);
+		const key = itemGroupKey(value);
+		const last = groups.at(-1);
+		if (last?.key === key) last.entries.push(entry);
+		else groups.push({ key, label: itemGroupLabel(value), entries: [entry] });
+	}
+	return groups;
 }
 
-/** Entries ordered by `sortBy`; without it, insertion order. Items without a
- * value come last in both directions; equal values keep insertion order. */
-function sortCollectionEntries(
-	entries: CollectionCardEntry[],
-	collection: Pick<
-		StructuredWorkspaceCollectionRepresentation,
-		"sortBy" | "sortDirection"
-	>,
-): CollectionCardEntry[] {
-	return sortItems(entries, (entry) => entry.item.data, collection);
-}
-
-/** Pages of at most `pageSize` cards, laid out group by group. */
+/** Pages of at most `pageSize` cards, laid out group by group; a header
+ * counts the items of its group over the whole query when the window knows
+ * it, else the cards of the group in the window. */
 function flowCollectionGroups(
 	groups: CollectionCardGroup[],
+	groupCounts: ReadonlyMap<string, number>,
 	pageSize: number,
 ): SlotSegment[][] {
 	const pages: SlotSegment[][] = [];
@@ -1053,7 +1032,7 @@ function flowCollectionGroups(
 			current.push({
 				label: group.label,
 				groupIndex,
-				count: cards.length,
+				count: groupCounts.get(group.key) ?? cards.length,
 				continued: index > 0,
 				cards: taken,
 			});
@@ -1600,7 +1579,7 @@ async function addItem(
 		},
 	});
 	const updated = requiredWorkspace(deps.store, workspace.id);
-	refreshCollectionDocumentState(deps, updated, input.collectionId);
+	await source.refresh({ scope: "index" });
 	const view = presentItem(deps, source, requiredItem(updated, itemId));
 	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
 	return view;
@@ -1631,7 +1610,8 @@ async function updateItem(
 		refreshItemMirror(deps, workspace, item);
 		throw staleItemRevision(expectedRevision, error.currentRevision);
 	}
-	publishItemChange(deps, workspace, item);
+	await source.refresh({ scope: "item", id: item.id });
+	refreshItemMirror(deps, workspace, item);
 	const view = presentItem(deps, source, item);
 	if (!view) throw new Error(`Item "${itemId}" has no data in its source.`);
 	return view;
@@ -1653,94 +1633,6 @@ function staleItemRevision(
 	);
 }
 
-/** After a write: the collection projection entry, the item-changed signal,
- * then the mirror of the item's document when it exists. */
-function publishItemChange(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
-): void {
-	if (alignCollectionEntry(deps, workspace, item) === "rebuilt")
-		deps.bus.emit("structured-workspace:changed", {
-			workspaceId: workspace.id,
-		});
-	else
-		deps.bus.emit("structured-workspace:item-changed", {
-			workspaceId: workspace.id,
-			itemId: item.id,
-		});
-	refreshItemMirror(deps, workspace, item);
-}
-
-/**
- * Replace only this item's entry in its collection projection state. A
- * projection whose shape no longer matches the items is rebuilt whole, which
- * may create or replace the projection document.
- */
-function alignCollectionEntry(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	item: StructuredWorkspaceDefinition["items"][number],
-): "entry" | "rebuilt" {
-	const collectionDocument = findCollectionDocument(
-		deps.documents,
-		workspace.id,
-		item.collectionId,
-	);
-	const collectionState =
-		collectionDocument && deps.documentStates.get(collectionDocument.name);
-	const record = sourcedRecord(
-		deps.itemSources.sourceFor(workspace.id),
-		item.id,
-	);
-	const projected = collectionState?.current.data.items;
-	const entries = projectedEntries(
-		deps,
-		workspace,
-		item.collectionId,
-		Array.isArray(projected) ? projected.length : -1,
-	);
-	const index = entries.findIndex((candidate) => candidate.id === item.id);
-	if (
-		!collectionDocument ||
-		!collectionState ||
-		!record ||
-		collectionDocument.dataModel !== "state" ||
-		!Array.isArray(projected) ||
-		projected.length !== entries.length ||
-		JSON.stringify(collectionState.current.schema) !==
-			JSON.stringify(collectionDocumentStateSchema(workspace))
-	) {
-		refreshCollectionDocumentState(deps, workspace, item.collectionId);
-		return "rebuilt";
-	}
-	if (JSON.stringify(projected[index]) === JSON.stringify(record.data))
-		return "entry";
-	deps.documentStates.replaceProjectionEntry(
-		collectionDocument.name,
-		collectionState.current.revision,
-		`/items/${index}`,
-		record.data,
-	);
-	return "entry";
-}
-
-/** The items a collection projection holds, in position order: every item,
- * or, when the projection is shorter, only the items whose source has data. */
-function projectedEntries(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-	projectedLength: number,
-): StructuredWorkspaceDefinition["items"] {
-	const entries = workspace.items
-		.filter((candidate) => candidate.collectionId === collectionId)
-		.sort((left, right) => left.position - right.position);
-	if (entries.length === projectedLength) return entries;
-	const reads = itemReads(deps.itemSources.sourceFor(workspace.id));
-	return entries.filter((entry) => reads.record(entry.id) !== null);
-}
-
 async function deleteItem(
 	deps: EngineDeps,
 	workspaceName: string,
@@ -1751,14 +1643,11 @@ async function deleteItem(
 	const document = itemDocument(deps.documents, item);
 	if (document) assertDocumentUnlocked(document);
 	assertCollectionUnlocked(deps, workspace, item.collectionId);
-	await sourceWrite(
-		deps.itemSources.sourceFor(workspace.id),
-		"delete",
-	)(item.id);
+	const source = deps.itemSources.sourceFor(workspace.id);
+	await sourceWrite(source, "delete")(item.id);
 	if (document)
 		deps.documents.delete(document.name, { allowStructuredWorkspace: true });
-	const updatedWorkspace = requiredWorkspace(deps.store, workspaceName);
-	refreshCollectionDocumentState(deps, updatedWorkspace, item.collectionId);
+	await source.refresh({ scope: "index" });
 	if (document) deps.bus.emit("document:deleted", { docName: document.name });
 	return true;
 }
@@ -1859,23 +1748,36 @@ function workspaceView(
 	workspace: StructuredWorkspaceDefinition,
 ): StructuredWorkspaceView {
 	reconcileTemplateOwnership(deps, workspace);
-	const source = deps.itemSources.sourceFor(workspace.id);
-	const reads = itemReads(source);
-	const integrity = workspaceIntegrity(deps, workspace, reads);
+	const integrity = workspaceIntegrity(deps, workspace);
+	const { items, ...definition } = workspace;
+	const itemCounts: Record<string, number> = Object.fromEntries(
+		Object.keys(workspace.representationSchema.collections).map((id) => [
+			id,
+			0,
+		]),
+	);
+	for (const item of items)
+		itemCounts[item.collectionId] = (itemCounts[item.collectionId] ?? 0) + 1;
 	return {
-		...workspace,
+		...definition,
 		integrity,
-		items: workspace.items.flatMap((item) => {
-			try {
-				const view = presentItem(deps, reads, item);
-				return view ? [view] : [];
-			} catch {
-				return [];
-			}
+		itemCounts,
+		pinnedItems: items.flatMap((item) => {
+			const pinnedAt = itemDocument(deps.documents, item)?.pinnedAt;
+			return pinnedAt
+				? [
+						{
+							id: item.id,
+							collectionId: item.collectionId,
+							documentName: item.documentName,
+							pinnedAt,
+						},
+					]
+				: [];
 		}),
 		collectionDocuments:
 			integrity.status === "ready"
-				? ensureCollectionDocuments(deps, workspace, reads)
+				? ensureCollectionDocuments(deps, workspace)
 				: [],
 		templateDocuments: templateDocumentViews(deps, workspace),
 	};
@@ -1884,16 +1786,10 @@ function workspaceView(
 function ensureCollectionDocuments(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	reads?: ItemReads,
 ): StructuredWorkspaceCollectionDocumentView[] {
 	return Object.entries(workspace.representationSchema.collections).map(
 		([collectionId, collection]) =>
-			ensureCollectionDocument(
-				deps,
-				workspace,
-				{ collectionId, collection },
-				reads,
-			),
+			ensureCollectionDocument(deps, workspace, { collectionId, collection }),
 	);
 }
 
@@ -1904,7 +1800,6 @@ function ensureCollectionDocument(
 		collectionId: string;
 		collection: StructuredWorkspaceRepresentationSchema["collections"][string];
 	},
-	reads?: ItemReads,
 ): StructuredWorkspaceCollectionDocumentView {
 	const { collectionId, collection } = target;
 	const existing = findCollectionDocument(
@@ -1913,12 +1808,7 @@ function ensureCollectionDocument(
 		collectionId,
 	);
 	if (existing) {
-		ensureCollectionDocumentState(
-			deps,
-			workspace,
-			{ collectionId, document: existing },
-			reads,
-		);
+		ensureCollectionDocumentState(deps, existing);
 		return collectionDocumentView(collectionId, existing);
 	}
 	const template = requiredDocument(
@@ -1935,12 +1825,7 @@ function ensureCollectionDocument(
 	);
 	deps.documents.all().set(document.name, document);
 	deps.documents.persist(document.name);
-	ensureCollectionDocumentState(
-		deps,
-		workspace,
-		{ collectionId, document },
-		reads,
-	);
+	ensureCollectionDocumentState(deps, document);
 	deps.bus.emit("document:created", { docName: document.name });
 	return collectionDocumentView(collectionId, document);
 }
@@ -2023,23 +1908,27 @@ function instantiateCollectionDocument(
 	});
 }
 
+/** The state of a collection document: it holds no item, the index reads
+ * them from the collection window. */
+const collectionDocumentStateSchema: StructuredWorkspaceDataSchema = {
+	type: "object",
+	properties: {},
+	additionalProperties: false,
+};
+
 function ensureCollectionDocumentState(
 	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	target: { collectionId: string; document: Document },
-	reads?: ItemReads,
+	document: Document,
 ): void {
-	const { collectionId, document } = target;
-	const schema = collectionDocumentStateSchema(workspace);
-	const data = collectionDocumentStateData(deps, workspace, collectionId, {
-		clone: true,
-		reads,
-	});
 	const state = deps.documentStates.get(document.name);
 	if (!state) {
 		document.dataModel = "static";
 		deps.documents.persist(document.name);
-		deps.documentStates.initialize(document.name, schema, data);
+		deps.documentStates.initialize(
+			document.name,
+			structuredClone(collectionDocumentStateSchema),
+			{},
+		);
 		deps.documents.persist(document.name);
 		return;
 	}
@@ -2047,83 +1936,16 @@ function ensureCollectionDocumentState(
 		document.dataModel = "state";
 		deps.documents.persist(document.name);
 	}
-	if (JSON.stringify(state.current.schema) !== JSON.stringify(schema)) {
+	if (
+		JSON.stringify(state.current.schema) !==
+		JSON.stringify(collectionDocumentStateSchema)
+	)
 		deps.documentStates.changeSchema(
 			document.name,
 			state.current.revision,
-			schema,
-			data,
+			structuredClone(collectionDocumentStateSchema),
+			{},
 		);
-		return;
-	}
-	if (JSON.stringify(state.current.data) !== JSON.stringify(data)) {
-		deps.documentStates.update(document.name, state.current.revision, data);
-	}
-}
-
-function refreshCollectionDocumentState(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-): void {
-	const existing = findCollectionDocument(
-		deps.documents,
-		workspace.id,
-		collectionId,
-	);
-	if (!existing) {
-		requiredCollectionDocument(deps, workspace, collectionId);
-		return;
-	}
-	ensureCollectionDocumentState(deps, workspace, {
-		collectionId,
-		document: existing,
-	});
-}
-
-function collectionDocumentStateSchema(
-	workspace: StructuredWorkspaceDefinition,
-): StructuredWorkspaceDataSchema {
-	const itemSchema = structuredClone(workspace.dataSchema);
-	const definitions = itemSchema.$defs;
-	const legacyDefinitions = itemSchema.definitions;
-	delete itemSchema.$defs;
-	delete itemSchema.definitions;
-	return {
-		type: "object",
-		properties: {
-			items: {
-				type: "array",
-				items: itemSchema,
-			},
-		},
-		required: ["items"],
-		additionalProperties: false,
-		...(definitions ? { $defs: structuredClone(definitions) } : {}),
-		...(legacyDefinitions
-			? { definitions: structuredClone(legacyDefinitions) }
-			: {}),
-	};
-}
-
-function collectionDocumentStateData(
-	deps: EngineDeps,
-	workspace: StructuredWorkspaceDefinition,
-	collectionId: string,
-	options: { clone: boolean; reads?: ItemReads } = { clone: true },
-): Record<string, unknown> {
-	const reads =
-		options.reads ?? itemReads(deps.itemSources.sourceFor(workspace.id));
-	return {
-		items: workspace.items
-			.filter((item) => item.collectionId === collectionId)
-			.sort((left, right) => left.position - right.position)
-			.flatMap((item) => {
-				const record = reads.record(item.id);
-				if (!record) return [];
-				return [options.clone ? structuredClone(record.data) : record.data];
-			}),
-	};
 }
 
 /** Whether a document the engine names may take `name`: its own current
@@ -2558,7 +2380,6 @@ function templateDocumentViews(
 function workspaceIntegrity(
 	deps: EngineDeps,
 	workspace: StructuredWorkspaceDefinition,
-	reads: ItemReads = itemReads(deps.itemSources.sourceFor(workspace.id)),
 ): StructuredWorkspaceView["integrity"] {
 	const issues = deps.definitionIssues(workspace);
 	for (const documentId of templateRoles(workspace).keys()) {
@@ -2599,13 +2420,8 @@ function workspaceIntegrity(
 				const document =
 					findCollectionDocument(deps.documents, workspace.id, collectionId) ??
 					template;
-				const schema = collectionDocumentStateSchema(workspace);
-				const data = collectionDocumentStateData(
-					deps,
-					workspace,
-					collectionId,
-					{ clone: false, reads },
-				);
+				const schema = collectionDocumentStateSchema;
+				const data = {};
 				for (const page of [
 					...template.pages,
 					...(document !== template ? document.pages : []),
@@ -3360,7 +3176,7 @@ function diagnoseWorkspace(
 			findings.push(
 				...templatePageFindings(
 					index,
-					collectionDocumentStateSchema(workspace),
+					collectionDocumentStateSchema,
 					reference,
 					"warning",
 				),

@@ -1,14 +1,11 @@
-import {
-	readJsonPointer,
-	type StatePageProjection,
-	stateRenderAttribute,
-} from "@maket/shared";
+import { type StatePageProjection, stateRenderAttribute } from "@maket/shared";
 import type { Annotations } from "./services/annotations.js";
 import type { Bus } from "./services/bus.js";
 import type { CollectionCursors } from "./services/collection-cursor.js";
 import type { Collections } from "./services/collections.js";
 import type { DocumentRenderer } from "./services/document-renderer.js";
 import type { Documents } from "./services/documents.js";
+import type { ItemWindows } from "./services/item-windows.js";
 import type { MermaidDiagrams } from "./services/mermaid-diagrams.js";
 import type { StructuredWorkspaces } from "./services/structured-workspaces.js";
 import type { WsRegistry } from "./services/ws-registry.js";
@@ -20,13 +17,17 @@ export interface ServerEventDeps {
 	collectionCursors: CollectionCursors;
 	documents: Documents;
 	documentRenderer: DocumentRenderer;
+	itemWindows: Pick<ItemWindows, "current">;
 	mermaidDiagrams: MermaidDiagrams;
 	structuredWorkspaces: StructuredWorkspaces;
 	wsRegistry: WsRegistry;
 	pending: Annotations;
 }
 
-type BroadcastDeps = Omit<ServerEventDeps, "bus" | "mermaidDiagrams"> & {
+type BroadcastDeps = Omit<
+	ServerEventDeps,
+	"bus" | "mermaidDiagrams" | "itemWindows"
+> & {
 	/** Page HTML last sent per document and page id. */
 	sentPages: SentPages;
 };
@@ -99,6 +100,33 @@ function broadcastRenamedDoc(
 	});
 }
 
+/** The pages of a state document a change touched, or the whole document
+ * when its rendered page list changed shape. */
+function broadcastStatePages(
+	deps: BroadcastDeps,
+	docName: string,
+	paths: string[],
+): void {
+	const { documents, documentRenderer, wsRegistry } = deps;
+	const doc = documents.resolve(docName);
+	if (doc?.dataModel !== "state") return;
+	const documentState = documentRenderer.stateView(doc);
+	if (!documentState) return;
+	const { restructured, ...update } = documentRenderer.statePages(doc, paths);
+	if (restructured) {
+		broadcastDoc(deps, docName);
+		return;
+	}
+	wsRegistry.broadcast({
+		type: "state_pages",
+		docName,
+		documentState,
+		...update,
+		pages: unsentPages(deps.sentPages, docName, update),
+		docList: documents.list(),
+	});
+}
+
 // This listener adapter is the intentional fan-out boundary between the bus and WebSocket clients.
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function registerServerEvents(deps: ServerEventDeps): void {
@@ -108,6 +136,7 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		collectionCursors,
 		documents,
 		documentRenderer,
+		itemWindows,
 		mermaidDiagrams,
 		structuredWorkspaces,
 		wsRegistry,
@@ -142,47 +171,42 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 		mermaidDiagrams.refreshDocument(docName);
 		broadcastDoc(broadcasters, docName);
 	});
-	bus.on("document:pinned", ({ docName, pinnedAt }) =>
-		wsRegistry.broadcast({ type: "doc_pinned", name: docName, pinnedAt }),
-	);
+	bus.on("document:pinned", ({ docName, pinnedAt }) => {
+		wsRegistry.broadcast({ type: "doc_pinned", name: docName, pinnedAt });
+		if (documents.resolve(docName)?.meta.structuredWorkspace?.role === "item")
+			wsRegistry.broadcast({
+				type: "structured_workspaces_changed",
+				workspaces: structuredWorkspaces.listViews(),
+			});
+	});
 	bus.on("document:renamed", ({ oldName, docName }) =>
 		broadcastRenamedDoc(broadcasters, oldName, docName),
 	);
-	bus.on("document-state:changed", (change) => {
-		const { docName, paths, attached } = change;
+	bus.on("document-state:changed", ({ docName, paths, attached }) => {
 		if (attached) {
 			broadcastDoc(broadcasters, docName);
 			return;
 		}
-		const doc = documents.resolve(docName);
-		if (doc?.dataModel !== "state") return;
-		const documentState = documentRenderer.stateView(doc);
-		if (!documentState) return;
-		const { restructured, ...update } = documentRenderer.statePages(doc, paths);
-		if (restructured) {
-			broadcastDoc(broadcasters, docName);
-			return;
-		}
-		const entryPointer = change.projection ? paths[0] : undefined;
-		wsRegistry.broadcast({
-			type: "state_pages",
-			docName,
-			...(entryPointer === undefined
-				? { documentState }
-				: {
-						documentStateEntry: {
-							previousRevision: change.revision - 1,
-							revision: documentState.revision,
-							createdAt: documentState.createdAt,
-							pointer: entryPointer,
-							value: readJsonPointer(documentState.data, entryPointer),
-						},
-					}),
-			...update,
-			pages: unsentPages(broadcasters.sentPages, docName, update),
-			docList: documents.list(),
-		});
+		broadcastStatePages(broadcasters, docName, paths);
 	});
+	bus.on(
+		"structured-workspace:window-changed",
+		({ workspaceId, collectionId }) => {
+			wsRegistry.broadcast({
+				type: "structured_collection_window",
+				window: itemWindows.current(workspaceId, collectionId),
+			});
+			const index = [...documents.all().values()].find((document) => {
+				const owner = document.meta.structuredWorkspace;
+				return (
+					owner?.role === "collection" &&
+					owner.workspaceId === workspaceId &&
+					owner.collectionId === collectionId
+				);
+			});
+			if (index) broadcastStatePages(broadcasters, index.name, [""]);
+		},
+	);
 	bus.on("document:flowed", ({ docName }) =>
 		broadcastDoc(broadcasters, docName),
 	);
@@ -234,15 +258,6 @@ export function registerServerEvents(deps: ServerEventDeps): void {
 			params: { doc: docName, count: pruned },
 			level: "info",
 			duration: 3000,
-		});
-	});
-	bus.on("structured-workspace:item-changed", ({ workspaceId, itemId }) => {
-		const item = structuredWorkspaces.getItem(workspaceId, itemId);
-		if (!item) return;
-		wsRegistry.broadcast({
-			type: "structured_workspace_item_changed",
-			workspaceId,
-			item,
 		});
 	});
 	bus.on("collection-cursor:changed", () => {

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createBus } from "../bus.js";
 import { createDocumentStates } from "../document-states.js";
 import { createDocuments } from "../documents.js";
+import { createItemWindows } from "../item-windows.js";
 import { createSQLiteStore } from "../store.js";
 import {
 	createStructuredWorkspaces,
@@ -44,6 +45,7 @@ async function setup() {
 	const workspaces: StructuredWorkspaces = createStructuredWorkspaces({
 		...deps,
 		itemSources,
+		itemWindows: createItemWindows({ bus, store, itemSources }),
 	});
 	const workspace = workspaces.create({
 		name: "Tracker",
@@ -111,19 +113,16 @@ describe("createLocalItemSource", () => {
 			readOnly: false,
 			create: true,
 			delete: true,
-			search: false,
-			sort: "memory",
+			search: true,
+			sort: "pushdown",
 			total: "exact",
 			changes: "poll",
 			revisions: "local",
 		});
 	});
 
-	it("lists every item in position order with an exact total", () => {
-		const page = source.list({
-			collectionId: "items",
-			limit: Number.POSITIVE_INFINITY,
-		});
+	it("lists a whole short collection in position order, with an exact total and no next cursor", () => {
+		const page = source.list({ collectionId: "items", limit: 10 });
 		expect(page.items.map((item) => item.id)).toEqual([
 			"item-1",
 			"item-2",
@@ -132,7 +131,7 @@ describe("createLocalItemSource", () => {
 			"item-5",
 		]);
 		expect(page.total).toBe(5);
-		expect(page.cursor).toEqual({ offset: 0 });
+		expect(page.next).toBeUndefined();
 		expect(page.groups).toBeUndefined();
 		expect(page.items[0]).toMatchObject({
 			revision: "1",
@@ -160,7 +159,7 @@ describe("createLocalItemSource", () => {
 			collectionId: "items",
 			groupBy: "/status",
 			sort: { field: "/priority", direction: "descending" },
-			limit: Number.POSITIVE_INFINITY,
+			limit: 10,
 		});
 		expect(page.items.map((item) => item.fields.title)).toEqual([
 			"Delta",
@@ -176,43 +175,254 @@ describe("createLocalItemSource", () => {
 		]);
 	});
 
-	it("pages with an offset cursor", () => {
-		const first = source.list({ collectionId: "items", limit: 2 });
-		expect(first.items.map((item) => item.id)).toEqual(["item-1", "item-2"]);
-		expect(first.cursor).toEqual({ offset: 0, next: "2" });
-		const second = source.list({
-			collectionId: "items",
-			limit: 2,
-			cursor: first.cursor.next,
-		});
-		expect(second.items.map((item) => item.id)).toEqual(["item-3", "item-4"]);
-		expect(second.cursor).toEqual({ offset: 2, next: "4", previous: "0" });
-		const last = source.list({ collectionId: "items", limit: 2, cursor: "4" });
-		expect(last.items.map((item) => item.id)).toEqual(["item-5"]);
-		expect(last.cursor).toEqual({ offset: 4, previous: "2" });
-		expect(last.total).toBe(5);
+	it("sorts in both directions, items without a value last in both, text by case and number value", () => {
+		const titles = (direction: "ascending" | "descending", field: string) =>
+			source
+				.list({ collectionId: "items", sort: { field, direction }, limit: 10 })
+				.items.map((item) => item.fields.title);
+		expect(titles("ascending", "/priority")).toEqual([
+			"Echo",
+			"Alpha",
+			"Charlie",
+			"Bravo",
+			"Delta",
+		]);
+		expect(titles("descending", "/priority")).toEqual([
+			"Bravo",
+			"Charlie",
+			"Alpha",
+			"Echo",
+			"Delta",
+		]);
+		current.store.putStructuredWorkspaceItem(
+			current.workspace.id,
+			"item-1",
+			1,
+			{
+				title: "item 10",
+				status: "todo",
+			},
+		);
+		current.store.putStructuredWorkspaceItem(
+			current.workspace.id,
+			"item-2",
+			1,
+			{
+				title: "Item 9",
+				status: "todo",
+			},
+		);
+		expect(titles("ascending", "/title")).toEqual([
+			"Charlie",
+			"Delta",
+			"Echo",
+			"Item 9",
+			"item 10",
+		]);
+		expect(titles("descending", "/title")).toEqual([
+			"item 10",
+			"Item 9",
+			"Echo",
+			"Delta",
+			"Charlie",
+		]);
+	});
+
+	it("searches the text properties of the binding schema, ignoring case, and counts the matches", () => {
+		const page = source.list({ collectionId: "items", text: "HAR", limit: 10 });
+		expect(page.items.map((item) => item.fields.title)).toEqual(["Charlie"]);
+		expect(page.total).toBe(1);
 		expect(
-			codeOf(() =>
-				source.list({ collectionId: "items", limit: 2, cursor: "x" }),
-			),
+			source
+				.list({ collectionId: "items", text: "ha", limit: 10 })
+				.items.map((item) => item.fields.title),
+		).toEqual(["Alpha", "Charlie"]);
+		expect(
+			source.list({ collectionId: "items", text: "DOING", limit: 10 }).total,
+		).toBe(1);
+		expect(
+			source.list({ collectionId: "items", text: "100%", limit: 10 }).items,
+		).toEqual([]);
+		expect(
+			source.list({ collectionId: "items", text: "Lyon", limit: 10 }).total,
+		).toBe(0);
+	});
+
+	it("searches the declared searchFields only", async () => {
+		const workspace = current.workspaces.get(current.workspace.id);
+		if (!workspace) throw new Error("workspace");
+		current.workspaces.updateDefinition({
+			workspace: workspace.id,
+			expectedRevision: workspace.revision,
+			representationSchema: {
+				version: 1,
+				collections: {
+					items: {
+						name: "Items",
+						groupBy: "/status",
+						groupOrder: ["doing"],
+						searchFields: ["/address/city"],
+					},
+				},
+			},
+		});
+		expect(
+			source.list({ collectionId: "items", text: "lyo", limit: 10 }).total,
+		).toBe(5);
+		expect(
+			source.list({ collectionId: "items", text: "Alpha", limit: 10 }).total,
+		).toBe(0);
+	});
+
+	it("filters with eq and in on the value type, and groups the whole query", () => {
+		const eq = source.list({
+			collectionId: "items",
+			filters: [{ field: "/status", op: "eq", value: "todo" }],
+			limit: 10,
+		});
+		expect(eq.items.map((item) => item.id)).toEqual(["item-1", "item-3"]);
+		expect(eq.total).toBe(2);
+		const within = source.list({
+			collectionId: "items",
+			filters: [
+				{ field: "/status", op: "in", value: ["todo", "doing"] },
+				{ field: "/priority", op: "in", value: [2, 5, "9"] },
+			],
+			groupBy: "/status",
+			limit: 1,
+		});
+		expect(within.items.map((item) => item.id)).toEqual(["item-1"]);
+		expect(within.groups).toEqual([{ value: "todo", count: 2 }]);
+		expect(within.total).toBe(2);
+		expect(
+			source
+				.list({
+					collectionId: "items",
+					filters: [{ field: "/priority", op: "eq", value: null }],
+					limit: 10,
+				})
+				.items.map((item) => item.id),
+		).toEqual(["item-4"]);
+	});
+
+	it("continues a query by an opaque keyset cursor across inserts and deletes", async () => {
+		const query = {
+			collectionId: "items",
+			groupBy: "/status",
+			sort: { field: "/title", direction: "ascending" as const },
+			limit: 2,
+		};
+		const first = source.list(query);
+		expect(first.items.map((item) => item.fields.title)).toEqual([
+			"Delta",
+			"Alpha",
+		]);
+		expect(first.next).toEqual(expect.any(String));
+		await current.workspaces.addItem({
+			workspace: current.workspace.id,
+			itemId: "item-6",
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Tracker Aaron",
+			data: { title: "Aaron", status: "todo" },
+		});
+		await current.workspaces.addItem({
+			workspace: current.workspace.id,
+			itemId: "item-7",
+			collectionId: "items",
+			bindingId: "item",
+			documentName: "Tracker Zulu",
+			data: { title: "Zulu", status: "todo" },
+		});
+		await current.workspaces.deleteItem(current.workspace.id, "item-4");
+		const second = source.list({ ...query, cursor: first.next });
+		expect(second.items.map((item) => item.fields.title)).toEqual([
+			"Charlie",
+			"Zulu",
+		]);
+		const third = source.list({ ...query, cursor: second.next });
+		expect(third.items.map((item) => item.fields.title)).toEqual([
+			"Bravo",
+			"Echo",
+		]);
+		expect(third.next).toBeUndefined();
+		expect(third.total).toBe(6);
+		expect(
+			codeOf(() => source.list({ ...query, cursor: "not-a-cursor" })),
+		).toBe("query_unsupported");
+		expect(
+			codeOf(() => source.list({ ...query, text: "a", cursor: first.next })),
 		).toBe("query_unsupported");
 	});
 
-	it("refuses search and filters it does not support", () => {
-		expect(
-			codeOf(() =>
-				source.list({ collectionId: "items", text: "alpha", limit: 5 }),
-			),
-		).toBe("query_unsupported");
-		expect(
-			codeOf(() =>
-				source.list({
+	it.each([
+		{ order: "default order", sort: undefined },
+		{
+			order: "a sort with equal values",
+			sort: { field: "/status", direction: "ascending" as const },
+		},
+	])(
+		"skips no live item after deletes before the cursor, in $order",
+		async ({ sort }) => {
+			for (let index = 6; index <= 20; index += 1)
+				await current.workspaces.addItem({
+					workspace: current.workspace.id,
+					itemId: `item-${index}`,
 					collectionId: "items",
-					filters: [{ field: "status", op: "eq", value: "todo" }],
-					limit: 5,
-				}),
-			),
-		).toBe("query_unsupported");
+					bindingId: "item",
+					documentName: `Tracker z${String(100 - index).padStart(3, "0")}`,
+					data: { title: `Item ${index}`, status: "todo" },
+				});
+			const query = {
+				collectionId: "items",
+				...(sort ? { sort } : {}),
+				limit: 5,
+			};
+			const read: string[] = [];
+			let page = source.list(query);
+			read.push(...page.items.map((item) => item.id));
+			page = source.list({ ...query, cursor: page.next });
+			read.push(...page.items.map((item) => item.id));
+			for (const id of [read[1], read[3], read[8]])
+				await current.workspaces.deleteItem(current.workspace.id, id ?? "");
+			while (page.next !== undefined) {
+				page = source.list({ ...query, cursor: page.next });
+				read.push(...page.items.map((item) => item.id));
+			}
+			const all = source.list({ ...query, limit: 50 });
+			expect(all.total).toBe(17);
+			const unread = all.items
+				.map((item) => item.id)
+				.filter((id) => !read.includes(id));
+			expect(unread).toEqual([]);
+			expect(new Set(read).size).toBe(read.length);
+			expect(read).toHaveLength(20);
+		},
+	);
+
+	it("answers at most structuredWorkspaceMaxBatch items for a larger batch size", () => {
+		for (let index = 0; index < 520; index += 1)
+			current.store.addStructuredWorkspaceItem(current.workspace.id, {
+				id: `bulk-${index}`,
+				collectionId: "items",
+				bindingId: "item",
+				documentId: `bulk-doc-${index}`,
+				documentName: `Bulk ${index}`,
+				data: { title: `Bulk ${index}`, status: "todo" },
+			});
+		const page = source.list({ collectionId: "items", limit: 2000 });
+		expect(page.items).toHaveLength(500);
+		expect(page.total).toBe(525);
+		const rest = source.list({
+			collectionId: "items",
+			limit: 2000,
+			cursor: page.next,
+		});
+		expect(rest.items).toHaveLength(25);
+		expect(rest.next).toBeUndefined();
+		expect(codeOf(() => source.list({ collectionId: "items", limit: 0 }))).toBe(
+			"query_unsupported",
+		);
 	});
 
 	it("gets the current data and revision of an item, null for an unknown id", () => {
@@ -343,7 +553,7 @@ describe("createLocalItemSource", () => {
 		expect(page.total).toBe(6);
 		expect(page.items.at(-1)?.id).toBe("item-6");
 		expect(
-			current.workspaces.get(current.workspace.id)?.items.at(-1),
+			current.store.loadStructuredWorkspace(current.workspace.id)?.items.at(-1),
 		).toMatchObject({
 			position: 5,
 			documentId: "doc-6",
