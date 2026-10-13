@@ -399,10 +399,6 @@ test.describe("Structured Workspace", () => {
 		await expect(
 			itemPane.locator(`[data-doc="${itemDocument}"]`),
 		).toBeVisible();
-		await page.screenshot({
-			path: "/private/tmp/maket-workspace-navigation-split.png",
-		});
-
 		const picker = page
 			.locator("[data-workspace-header]")
 			.getByRole("button", { name: "Document", exact: true });
