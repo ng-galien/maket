@@ -125,7 +125,6 @@
     .eyebrow,
     .section-index,
     .nav__links,
-    .use__number,
     .workflow__number,
     .template__field,
     .collection__row {
@@ -183,8 +182,6 @@
       background: var(--accent-light);
       content: "";
       transform: scaleX(0);
-      transform-origin: right;
-      transition: transform 180ms ease;
     }
 
     .nav__links a:hover,
@@ -195,7 +192,6 @@
     .nav__links a:hover::after,
     .nav__links a:focus-visible::after {
       transform: scaleX(1);
-      transform-origin: left;
     }
 
     .hero {
@@ -300,13 +296,7 @@
       transition:
         color 180ms ease,
         background 180ms ease,
-        border-color 180ms ease,
-        transform 180ms ease;
-    }
-
-    .button:hover,
-    .button:focus-visible {
-      transform: translateY(-2px);
+        border-color 180ms ease;
     }
 
     .button--primary {
@@ -330,8 +320,6 @@
     .demo {
       position: relative;
       align-self: start;
-      transform: translateY(var(--demo-shift, 0));
-      transition: transform 100ms linear;
     }
 
     .demo::before {
@@ -375,6 +363,44 @@
       background: #e8e5de;
       object-fit: cover;
       object-position: top;
+    }
+
+    .demo__screen {
+      position: relative;
+    }
+
+    .demo__play {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      display: grid;
+      width: 4.5rem;
+      height: 4.5rem;
+      place-items: center;
+      margin: -2.25rem 0 0 -2.25rem;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      color: var(--paper-light);
+      background: var(--ink);
+      box-shadow: 0 1rem 2.5rem rgba(16, 28, 25, 0.35);
+      cursor: pointer;
+    }
+
+    .demo__play svg {
+      width: 1.9rem;
+      height: 1.9rem;
+      margin-left: 0.2rem;
+      fill: currentColor;
+    }
+
+    .demo__play:hover,
+    .demo__play:focus-visible {
+      background: var(--ink-soft);
+    }
+
+    .demo__play[hidden] {
+      display: none;
     }
 
     .live {
@@ -484,9 +510,7 @@
       border-bottom: 1px solid var(--line);
       font-size: var(--type-label);
       font-weight: 600;
-      transition:
-        color 180ms ease,
-        transform 180ms ease;
+      transition: color 180ms ease;
     }
 
     .starter-list a:first-child {
@@ -496,7 +520,6 @@
     .starter-list a:hover,
     .starter-list a:focus-visible {
       color: var(--accent);
-      transform: translateX(0.3rem);
     }
 
     .section {
@@ -594,8 +617,6 @@
     }
 
     .section-head--sticky {
-      position: sticky;
-      top: 3rem;
       display: block;
       align-self: start;
       margin: 0;
@@ -636,42 +657,65 @@
       background: var(--paper);
     }
 
-    .uses__grid {
+    .uses__head {
       display: grid;
-      grid-template-columns: 1fr;
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
+      gap: 1.6rem;
+      margin-bottom: clamp(3rem, 5vw, 4.5rem);
     }
 
-    .use {
-      min-height: 16rem;
-      padding: 2.25rem 0 2.5rem;
-      border-top: 1px solid var(--line);
-    }
-
-    .use:first-child {
-      border-top: 0;
-    }
-
-    .use__number {
-      color: var(--accent);
-      font-size: var(--type-label);
-    }
-
-    .use h3 {
-      max-width: 15ch;
-      margin: 2.75rem 0 1rem;
-      font-size: var(--type-h3);
+    .uses__head h2 {
+      margin: 0;
+      font-size: var(--type-h2);
       font-weight: 500;
       letter-spacing: var(--tracking-heading);
-      line-height: 1.02;
+      line-height: 1;
     }
 
-    .use p {
-      max-width: 25rem;
-      margin: 0;
-      color: var(--muted);
-      font-size: var(--type-body);
+    .cases {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: clamp(2.5rem, 4vw, 3.5rem) clamp(1.5rem, 3vw, 2.5rem);
+    }
+
+    .case {
+      min-width: 0;
+      padding-top: 1.4rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .case h3 {
+      margin: 0 0 1rem;
+      font-size: clamp(1.3rem, 1.9vw, 1.7rem);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .case img {
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: 0.6rem;
+      background: #edf3f5;
+    }
+
+    .case__labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .case__labels li {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink-soft);
+      background: var(--paper-light);
+      font-family: "DM Mono", monospace;
+      font-size: 0.82rem;
     }
 
     .workflow {
@@ -934,12 +978,11 @@
       align-items: center;
       padding: 1.35rem 0;
       border-bottom: 1px solid rgba(251, 250, 246, 0.22);
-      transition: color 160ms ease, padding-left 160ms ease;
+      transition: color 160ms ease;
     }
 
     .download:hover,
     .download:focus-visible {
-      padding-left: 0.45rem;
       color: var(--accent-light);
     }
 
@@ -1018,47 +1061,6 @@
       flex: none;
     }
 
-    .reveal {
-      opacity: 0;
-      transform: translateY(2rem);
-      transition:
-        opacity 700ms cubic-bezier(0.2, 0.65, 0.3, 1),
-        transform 700ms cubic-bezier(0.2, 0.65, 0.3, 1);
-    }
-
-    .reveal.is-visible {
-      opacity: 1;
-      transform: none;
-    }
-
-    .hero .eyebrow,
-    .hero h1,
-    .hero__intro,
-    .demo {
-      opacity: 0;
-      transform: translateY(1.5rem);
-      animation: hero-in 750ms cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
-    }
-
-    .hero h1 {
-      animation-delay: 100ms;
-    }
-
-    .hero__intro {
-      animation-delay: 220ms;
-    }
-
-    .demo {
-      animation-delay: 320ms;
-    }
-
-    @keyframes hero-in {
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
     @media (max-width: 900px) {
       .nav__links a:not(.nav__github, .nav__lang) {
         display: none;
@@ -1106,24 +1108,8 @@
         height: 38rem;
       }
 
-      .uses__grid {
+      .cases {
         grid-template-columns: 1fr;
-      }
-
-      .use,
-      .use:first-child {
-        min-height: auto;
-        padding: 2rem 0 2.5rem;
-        border-left: 0;
-        border-top: 1px solid var(--line);
-      }
-
-      .use:first-child {
-        border-top: 0;
-      }
-
-      .use h3 {
-        margin: 2.5rem 0 1rem;
       }
 
       .resources__list {
@@ -1252,24 +1238,6 @@
       html {
         scroll-behavior: auto;
       }
-
-      .reveal,
-      .hero .eyebrow,
-      .hero h1,
-      .hero__intro,
-      .demo {
-        animation: none;
-        opacity: 1;
-        transform: none;
-        transition: none;
-      }
-
-      .button,
-      .starter-list a,
-      .nav__links a,
-      .nav__links a::after {
-        transition: none;
-      }
     }
   </style>
 </head>
@@ -1302,8 +1270,8 @@
         <div class="hero__bottom">
           <div class="hero__intro">
             <p>
-              Create a poster, report, or personalized series, then revise,
-              export, and share the result without leaving your agent.
+              Create a poster, report, or personalized series, then edit,
+              export, and share the result from your agent.
             </p>
             <div class="actions">
               <a class="button button--primary" href="#live">Try the live demo</a>
@@ -1314,15 +1282,20 @@
           <figure class="demo" aria-label="Maket demonstration">
             <div class="demo__chrome">
               <div class="demo__bar" aria-hidden="true"><i></i><i></i><i></i></div>
-              <video
-                src="demo.mp4"
-                autoplay
-                loop
-                muted
-                playsinline
-                preload="metadata"
-                aria-label="Maket composes a document while the agent works."
-              ></video>
+              <div class="demo__screen">
+                <video
+                  src="demo.mp4"
+                  poster="assets/demo-poster.jpg"
+                  loop
+                  muted
+                  playsinline
+                  preload="none"
+                  aria-label="Maket composes a document while the agent works."
+                ></video>
+                <button class="demo__play" type="button" aria-label="Play the demonstration">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+                </button>
+              </div>
             </div>
           </figure>
         </div>
@@ -1331,25 +1304,25 @@
 
     <section class="overview" id="features" aria-labelledby="overview-title">
       <div class="shell">
-        <div class="overview__head reveal">
+        <div class="overview__head">
           <span class="section-index">Everything at a glance</span>
           <div>
             <h2 id="overview-title">Everything you can do with Maket<span class="dot">.</span></h2>
             <p class="overview__intro">
-              From the first prompt to final sharing, Maket keeps your documents,
-              images, and visual guidelines together—on your own machine.
+              Maket keeps your documents, images, and visual guidelines together
+              on your own machine.
             </p>
           </div>
         </div>
 
-        <div class="feature-index reveal">
+        <div class="feature-index">
           <article class="feature">
             <span class="feature__number">01</span>
             <div><h3>Create with your agent</h3><p>Claude, Codex, or Gemini composes posters, presentations, reports, wireframes, and multi-page documents.</p></div>
           </article>
           <article class="feature">
             <span class="feature__number">02</span>
-            <div><h3>Review and revise live</h3><p>Watch the layout in your browser, annotate an area, or edit the text in place.</p></div>
+            <div><h3>Review and edit live</h3><p>Watch the layout in your browser, annotate an area, or edit the text in place.</p></div>
           </article>
           <article class="feature">
             <span class="feature__number">03</span>
@@ -1357,7 +1330,7 @@
           </article>
           <article class="feature">
             <span class="feature__number">04</span>
-            <div><h3>Personalize a template</h3><p>From a data table, produce a controlled version for every person, product, or event.</p></div>
+            <div><h3>Personalize a document</h3><p>From a data table, produce a controlled version for every person, product, or event.</p></div>
           </article>
           <article class="feature">
             <span class="feature__number">05</span>
@@ -1373,7 +1346,11 @@
           </article>
           <article class="feature">
             <span class="feature__number">08</span>
-            <div><h3>Keep your files</h3><p>Switch agents or platforms without rebuilding your library or losing your resources.</p></div>
+            <div><h3>Keep your files</h3><p>Switch agents or platforms and keep your library and resources.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">09</span>
+            <div><h3>Organize your work in a workspace</h3><p>One page per item, a form for your answers, and the assistant continues.</p></div>
           </article>
         </div>
       </div>
@@ -1382,7 +1359,7 @@
     <section class="section live" id="live" aria-labelledby="live-title">
       <div class="shell">
         <div class="live__grid">
-          <div class="live__copy reveal">
+          <div class="live__copy">
             <span class="section-index">01 — Try it live</span>
             <h2 id="live-title">See the workflow<span class="dot">.</span> Keep the file.</h2>
             <p>
@@ -1395,7 +1372,7 @@
             </div>
           </div>
 
-          <div class="live__stage reveal">
+          <div class="live__stage">
             <iframe
               src="app/demo.html?scenario=product-catalog"
               title="Interactive Maket demo"
@@ -1404,7 +1381,7 @@
           </div>
         </div>
 
-        <div class="live__starters reveal">
+        <div class="live__starters">
           <div>
             <h3>Six examples ready to explore</h3>
             <p class="mono">Open, adapt, and keep them</p>
@@ -1421,34 +1398,48 @@
       </div>
     </section>
 
-    <section class="section uses" id="uses">
-      <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+    <section class="section uses" id="uses" aria-labelledby="uses-title">
+      <div class="shell">
+        <header class="uses__head">
           <span class="section-index">02 — Use cases</span>
-          <div>
-            <h2>From first sketch to final document<span class="dot">.</span></h2>
-            <p>
-              Maket can shape an early idea or produce a deliverable ready to
-              present, print, or adapt.
-            </p>
-          </div>
+          <h2 id="uses-title">For what<span class="dot">?</span></h2>
         </header>
 
-        <div class="uses__grid reveal">
-          <article class="use">
-            <span class="use__number">01 / Idea</span>
-            <h3>App wireframes</h3>
-            <p>Turn a functional need into screens you can review, annotate, and refine.</p>
+        <div class="cases">
+          <article class="case">
+            <h3>To sketch an app</h3>
+            <img src="assets/cases/wireframes.png" width="1450" height="760" loading="lazy" alt="Three screens of an app wireframe" />
+            <ul class="case__labels"><li>One screen per page</li><li>Notes on any area</li><li>Assistant applies the notes</li></ul>
           </article>
-          <article class="use">
-            <span class="use__number">02 / Work</span>
-            <h3>Presentations and reports</h3>
-            <p>Create pages that follow your brand guidelines and reuse the same resources across projects.</p>
+          <article class="case">
+            <h3>To present and report</h3>
+            <img src="assets/cases/presentations.png" width="1450" height="760" loading="lazy" alt="A presentation page with brand colours and fonts" />
+            <ul class="case__labels"><li>Brand colours and fonts</li><li>Same resources across projects</li><li>PDF for screen or print</li></ul>
           </article>
-          <article class="use">
-            <span class="use__number">03 / Sharing</span>
-            <h3>Posters and visual materials</h3>
-            <p>Create a poster, flyer, brochure, résumé, or visual for social media.</p>
+          <article class="case">
+            <h3>To make a poster</h3>
+            <img src="assets/cases/posters.png" width="1450" height="760" loading="lazy" alt="An event poster" />
+            <ul class="case__labels"><li>Poster, flyer, brochure, résumé</li><li>Formats for social media</li><li>PDF ready to print</li></ul>
+          </article>
+          <article class="case">
+            <h3>To follow a renovation</h3>
+            <img src="assets/cases/renovation.png" width="800" height="499" loading="lazy" alt="Maket list and page view: renovation jobs grouped by status on the left, the kitchen cabinets page with its form on the right" />
+            <ul class="case__labels"><li>One page per job</li><li>Form: decision, start date, comment</li><li>Assistant compares the quotes</li></ul>
+          </article>
+          <article class="case">
+            <h3>To prepare a move</h3>
+            <img src="assets/cases/move.png" width="800" height="499" loading="lazy" alt="Maket list and page view: move tasks grouped by week on the left, the moving van page with its form on the right" />
+            <ul class="case__labels"><li>One page per task</li><li>Form: offer, pickup time, note</li><li>Assistant compares the offers</li></ul>
+          </article>
+          <article class="case">
+            <h3>To look for a flat</h3>
+            <img src="assets/cases/flat-search.png" width="800" height="499" loading="lazy" alt="Maket list and page view: flats grouped by visit on the left, one flat page with its form on the right" />
+            <ul class="case__labels"><li>One page per flat</li><li>Form: next step, rating, questions</li><li>Assistant checks the application file</li></ul>
+          </article>
+          <article class="case">
+            <h3>To organize a family event</h3>
+            <img src="assets/cases/family-event.png" width="800" height="499" loading="lazy" alt="Maket list and page view: family event parts grouped by decision on the left, the catering page with its form on the right" />
+            <ul class="case__labels"><li>One page per part</li><li>Form: menu, children, allergies</li><li>Assistant totals the costs</li></ul>
           </article>
         </div>
       </div>
@@ -1456,7 +1447,7 @@
 
     <section class="section workflow" id="workflow">
       <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+        <header class="section-head section-head--sticky">
           <span class="section-index">03 — How it works</span>
           <div>
             <h2>You guide<span class="dot">.</span> The agent composes.</h2>
@@ -1467,20 +1458,20 @@
         </header>
 
         <div class="workflow__list">
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">01</span>
             <h3>Describe what you need</h3>
-            <p>Give the content, format, and mood from your usual AI client. The agent creates the document in Maket.</p>
+            <p>Give the content, format, and mood from your usual AI client.</p>
           </article>
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">02</span>
             <h3>Watch the document take shape</h3>
-            <p>Pages appear in your browser as the agent works. You can check hierarchy, images, and layout right away.</p>
+            <p>Pages appear in your browser as the agent works.</p>
           </article>
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">03</span>
             <h3>Annotate what needs to change</h3>
-            <p>Click an area and leave a note for the agent. For a quick correction, text remains directly editable.</p>
+            <p>Click an area and leave a note for the agent.</p>
           </article>
         </div>
       </div>
@@ -1488,46 +1479,45 @@
 
     <section class="section resources" id="resources">
       <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+        <header class="section-head section-head--sticky">
           <span class="section-index">04 — Resources</span>
           <div>
-            <h2>Your workspace stays ready<span class="dot">.</span></h2>
+            <h2>Your resources stay ready<span class="dot">.</span></h2>
             <p>
-              Maket brings together documents, visual identity, images, and data
-              so any agent can pick up the work.
+              Any agent can pick up the work.
             </p>
           </div>
         </header>
 
         <div class="resources__list">
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Documents</h3>
-              <p>Posters, presentations, wireframes, and multi-page documents remain available from one session to the next.</p>
+              <p>Kept from one session to the next.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Brand guidelines</h3>
-              <p>Apply the same colors, fonts, and visual rules to every document for a brand or project.</p>
+              <p>Same colors, fonts, and rules for every document.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Image library</h3>
-              <p>Tag your images with keywords so the agent can find the right assets without relying on filenames.</p>
+              <p>Images found by keyword.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Personalized versions</h3>
-              <p>Connect a template to structured data and generate a controlled version for each person, product, or event.</p>
+              <p>One version per person, product, or event.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Evolving documents</h3>
-              <p>Check, enter, and update information directly in a checklist, form, or report.</p>
+              <p>Checklists, forms, and reports updated in place.</p>
             </div>
           </article>
         </div>
@@ -1536,9 +1526,9 @@
 
     <section class="section collection" aria-labelledby="collection-title">
       <div class="shell collection__inner">
-        <div class="collection__copy reveal">
+        <div class="collection__copy">
           <span class="section-index">05 — Personalized versions</span>
-          <h2 id="collection-title">One template, as many versions as you need<span class="dot">.</span></h2>
+          <h2 id="collection-title">One document, as many versions as you need<span class="dot">.</span></h2>
           <p>
             Prepare an invitation, label, or product card. Add your data, then
             let Maket produce one page per entry—like mail merge, with field
@@ -1546,7 +1536,7 @@
           </p>
         </div>
 
-        <div class="collection__visual reveal" role="img" aria-label="Example of a template personalized from a data table">
+        <div class="collection__visual" role="img" aria-label="Example of a document personalized from a data table">
           <div class="template">
             <span class="template__field">For Agatha</span>
             <h3>Invitation<span class="dot">.</span></h3>
@@ -1565,19 +1555,19 @@
 
     <section class="section collection" id="living" aria-labelledby="living-title">
       <div class="shell collection__inner">
-        <div class="collection__copy reveal">
+        <div class="collection__copy">
           <span class="section-index">06 — Documents that stay current</span>
           <h2 id="living-title">One document that stays current<span class="dot">.</span></h2>
           <p>
             Turn a checklist, tracker, form, or report into a document everyone can
             update. Actions taken on the page and changes requested from the agent stay
-            together. Share or resume the document without starting over.
+            together.
           </p>
           <div class="actions">
             <a class="button button--ink" href="app/demo.html?scenario=living-checklist">See the checklist in action</a>
           </div>
         </div>
-        <div class="collection__visual collection__visual--single reveal" role="img" aria-label="An interactive opening-day checklist">
+        <div class="collection__visual collection__visual--single" role="img" aria-label="An interactive opening-day checklist">
           <div class="template template--checklist">
             <span class="template__field">Opening day</span>
             <h3>Checklist<span class="dot">.</span></h3>
@@ -1594,10 +1584,10 @@
 
     <section class="section install" id="install">
       <div class="shell install__layout">
-        <div class="install__copy reveal">
+        <div class="install__copy">
           <span class="section-index">07 — Installation</span>
           <h2>Install Maket App<span class="dot">.</span></h2>
-          <p>The app includes its own server and runtime. Install it, launch Maket, then connect your agents from the first-run screen — no Node.js or terminal required.</p>
+          <p>The app includes everything it needs. Install it, launch Maket, then connect your agents from the first screen.</p>
           <div class="actions">
             <a
               class="button button--primary"
@@ -1618,10 +1608,10 @@
             >View latest snapshot</a>
             <a class="button button--ghost" href="https://github.com/ng-galien/maket#install-maket-app" target="_blank" rel="noopener">Installation guide ↗</a>
           </div>
-          <p class="install__note">Need automation or a headless host? Maket Server remains available through npm as the advanced installation path.</p>
+          <p class="install__note">For automation or CI, Maket Server remains available through npm as the advanced installation path.</p>
         </div>
 
-        <div class="reveal">
+        <div>
           <nav class="downloads" aria-label="Maket App downloads">
             <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-arm64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Apple Silicon</span><em data-release-badge>Snapshot ↗</em></a>
             <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-x64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Intel</span><em data-release-badge>Snapshot ↗</em></a>
@@ -1651,46 +1641,15 @@
   </footer>
 
   <script>
-    const reveals = document.querySelectorAll('.reveal');
-    if ('IntersectionObserver' in window) {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              entry.target.classList.add('is-visible');
-              observer.unobserve(entry.target);
-            }
-          }
-        },
-        { threshold: 0.12 }
-      );
-      for (const element of reveals) observer.observe(element);
-    } else {
-      for (const element of reveals) element.classList.add('is-visible');
+    for (const screen of document.querySelectorAll('.demo__screen')) {
+      const video = screen.querySelector('video');
+      const play = screen.querySelector('.demo__play');
+      play.addEventListener('click', () => {
+        play.hidden = true;
+        video.controls = true;
+        video.play();
+      });
     }
-
-    const demo = document.querySelector('.demo');
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let ticking = false;
-
-    function updateDemoDepth() {
-      if (demo && !reducedMotion.matches) {
-        const shift = Math.min(window.scrollY * 0.055, 28);
-        demo.style.setProperty('--demo-shift', `${shift}px`);
-      }
-      ticking = false;
-    }
-
-    window.addEventListener(
-      'scroll',
-      () => {
-        if (!ticking) {
-          window.requestAnimationFrame(updateDemoDepth);
-          ticking = true;
-        }
-      },
-      { passive: true }
-    );
 
     for (const link of document.querySelectorAll('[data-platform-download]')) {
       const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;

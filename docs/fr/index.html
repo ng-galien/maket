@@ -122,11 +122,10 @@
     }
 
     .mono,
+    .proof__item,
     .eyebrow,
     .section-index,
     .nav__links,
-    .proof__item,
-    .use__number,
     .workflow__number,
     .template__field,
     .collection__row {
@@ -184,8 +183,6 @@
       background: var(--accent-light);
       content: "";
       transform: scaleX(0);
-      transform-origin: right;
-      transition: transform 180ms ease;
     }
 
     .nav__links a:hover,
@@ -196,7 +193,6 @@
     .nav__links a:hover::after,
     .nav__links a:focus-visible::after {
       transform: scaleX(1);
-      transform-origin: left;
     }
 
     .hero {
@@ -301,13 +297,7 @@
       transition:
         color 180ms ease,
         background 180ms ease,
-        border-color 180ms ease,
-        transform 180ms ease;
-    }
-
-    .button:hover,
-    .button:focus-visible {
-      transform: translateY(-2px);
+        border-color 180ms ease;
     }
 
     .button--primary {
@@ -331,8 +321,6 @@
     .demo {
       position: relative;
       align-self: start;
-      transform: translateY(var(--demo-shift, 0));
-      transition: transform 100ms linear;
     }
 
     .demo::before {
@@ -376,6 +364,44 @@
       background: #e8e5de;
       object-fit: cover;
       object-position: top;
+    }
+
+    .demo__screen {
+      position: relative;
+    }
+
+    .demo__play {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      display: grid;
+      width: 4.5rem;
+      height: 4.5rem;
+      place-items: center;
+      margin: -2.25rem 0 0 -2.25rem;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      color: var(--paper-light);
+      background: var(--ink);
+      box-shadow: 0 1rem 2.5rem rgba(16, 28, 25, 0.35);
+      cursor: pointer;
+    }
+
+    .demo__play svg {
+      width: 1.9rem;
+      height: 1.9rem;
+      margin-left: 0.2rem;
+      fill: currentColor;
+    }
+
+    .demo__play:hover,
+    .demo__play:focus-visible {
+      background: var(--ink-soft);
+    }
+
+    .demo__play[hidden] {
+      display: none;
     }
 
     .live {
@@ -485,9 +511,7 @@
       border-bottom: 1px solid var(--line);
       font-size: var(--type-label);
       font-weight: 600;
-      transition:
-        color 180ms ease,
-        transform 180ms ease;
+      transition: color 180ms ease;
     }
 
     .starter-list a:first-child {
@@ -497,7 +521,6 @@
     .starter-list a:hover,
     .starter-list a:focus-visible {
       color: var(--accent);
-      transform: translateX(0.3rem);
     }
 
     .section {
@@ -595,8 +618,6 @@
     }
 
     .section-head--sticky {
-      position: sticky;
-      top: 3rem;
       display: block;
       align-self: start;
       margin: 0;
@@ -637,42 +658,65 @@
       background: var(--paper);
     }
 
-    .uses__grid {
+    .uses__head {
       display: grid;
-      grid-template-columns: 1fr;
-      border-top: 1px solid var(--line);
-      border-bottom: 1px solid var(--line);
+      gap: 1.6rem;
+      margin-bottom: clamp(3rem, 5vw, 4.5rem);
     }
 
-    .use {
-      min-height: 16rem;
-      padding: 2.25rem 0 2.5rem;
-      border-top: 1px solid var(--line);
-    }
-
-    .use:first-child {
-      border-top: 0;
-    }
-
-    .use__number {
-      color: var(--accent);
-      font-size: var(--type-label);
-    }
-
-    .use h3 {
-      max-width: 15ch;
-      margin: 2.75rem 0 1rem;
-      font-size: var(--type-h3);
+    .uses__head h2 {
+      margin: 0;
+      font-size: var(--type-h2);
       font-weight: 500;
       letter-spacing: var(--tracking-heading);
-      line-height: 1.02;
+      line-height: 1;
     }
 
-    .use p {
-      max-width: 25rem;
-      margin: 0;
-      color: var(--muted);
-      font-size: var(--type-body);
+    .cases {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: clamp(2.5rem, 4vw, 3.5rem) clamp(1.5rem, 3vw, 2.5rem);
+    }
+
+    .case {
+      min-width: 0;
+      padding-top: 1.4rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .case h3 {
+      margin: 0 0 1rem;
+      font-size: clamp(1.3rem, 1.9vw, 1.7rem);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .case img {
+      width: 100%;
+      height: auto;
+      border: 1px solid var(--line);
+      border-radius: 0.6rem;
+      background: #edf3f5;
+    }
+
+    .case__labels {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .case__labels li {
+      padding: 0.3rem 0.75rem;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink-soft);
+      background: var(--paper-light);
+      font-family: "DM Mono", monospace;
+      font-size: 0.82rem;
     }
 
     .workflow {
@@ -935,12 +979,11 @@
       align-items: center;
       padding: 1.35rem 0;
       border-bottom: 1px solid rgba(251, 250, 246, 0.22);
-      transition: color 160ms ease, padding-left 160ms ease;
+      transition: color 160ms ease;
     }
 
     .download:hover,
     .download:focus-visible {
-      padding-left: 0.45rem;
       color: var(--accent-light);
     }
 
@@ -1019,47 +1062,6 @@
       flex: none;
     }
 
-    .reveal {
-      opacity: 0;
-      transform: translateY(2rem);
-      transition:
-        opacity 700ms cubic-bezier(0.2, 0.65, 0.3, 1),
-        transform 700ms cubic-bezier(0.2, 0.65, 0.3, 1);
-    }
-
-    .reveal.is-visible {
-      opacity: 1;
-      transform: none;
-    }
-
-    .hero .eyebrow,
-    .hero h1,
-    .hero__intro,
-    .demo {
-      opacity: 0;
-      transform: translateY(1.5rem);
-      animation: hero-in 750ms cubic-bezier(0.2, 0.65, 0.3, 1) forwards;
-    }
-
-    .hero h1 {
-      animation-delay: 100ms;
-    }
-
-    .hero__intro {
-      animation-delay: 220ms;
-    }
-
-    .demo {
-      animation-delay: 320ms;
-    }
-
-    @keyframes hero-in {
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
     @media (max-width: 900px) {
       .nav__links a:not(.nav__github, .nav__lang) {
         display: none;
@@ -1107,24 +1109,8 @@
         height: 38rem;
       }
 
-      .uses__grid {
+      .cases {
         grid-template-columns: 1fr;
-      }
-
-      .use,
-      .use:first-child {
-        min-height: auto;
-        padding: 2rem 0 2.5rem;
-        border-left: 0;
-        border-top: 1px solid var(--line);
-      }
-
-      .use:first-child {
-        border-top: 0;
-      }
-
-      .use h3 {
-        margin: 2.5rem 0 1rem;
       }
 
       .resources__list {
@@ -1253,24 +1239,6 @@
       html {
         scroll-behavior: auto;
       }
-
-      .reveal,
-      .hero .eyebrow,
-      .hero h1,
-      .hero__intro,
-      .demo {
-        animation: none;
-        opacity: 1;
-        transform: none;
-        transition: none;
-      }
-
-      .button,
-      .starter-list a,
-      .nav__links a,
-      .nav__links a::after {
-        transition: none;
-      }
     }
   </style>
 </head>
@@ -1304,7 +1272,7 @@
           <div class="hero__intro">
             <p>
               Créez une affiche, un rapport ou une série personnalisée, puis corrigez,
-              exportez et partagez le résultat sans quitter votre agent.
+              exportez et partagez le résultat depuis votre agent.
             </p>
             <div class="actions">
               <a class="button button--primary" href="#live">Essayer la démo</a>
@@ -1315,15 +1283,20 @@
           <figure class="demo" aria-label="Démonstration de Maket">
             <div class="demo__chrome">
               <div class="demo__bar" aria-hidden="true"><i></i><i></i><i></i></div>
-              <video
-                src="../demo.mp4"
-                autoplay
-                loop
-                muted
-                playsinline
-                preload="metadata"
-                aria-label="Maket compose un document pendant que l’agent travaille."
-              ></video>
+              <div class="demo__screen">
+                <video
+                  src="../demo.mp4"
+                  poster="../assets/demo-poster.jpg"
+                  loop
+                  muted
+                  playsinline
+                  preload="none"
+                  aria-label="Maket compose un document pendant que l’agent travaille."
+                ></video>
+                <button class="demo__play" type="button" aria-label="Lancer la démonstration">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" /></svg>
+                </button>
+              </div>
             </div>
           </figure>
         </div>
@@ -1332,18 +1305,18 @@
 
     <section class="overview" id="fonctionnalites" aria-labelledby="overview-title">
       <div class="shell">
-        <div class="overview__head reveal">
+        <div class="overview__head">
           <span class="section-index">Tout Maket en un coup d’œil</span>
           <div>
             <h2 id="overview-title">Tout ce que vous pouvez faire avec Maket<span class="dot">.</span></h2>
             <p class="overview__intro">
-              De la première consigne au partage final, Maket garde vos documents,
-              vos images et vos repères visuels au même endroit — sur votre machine.
+              Maket garde vos documents, vos images et vos repères visuels
+              au même endroit, sur votre machine.
             </p>
           </div>
         </div>
 
-        <div class="feature-index reveal">
+        <div class="feature-index">
           <article class="feature">
             <span class="feature__number">01</span>
             <div><h3>Créer avec votre agent</h3><p>Claude, Codex ou Gemini compose affiches, présentations, rapports, wireframes et documents multipages.</p></div>
@@ -1358,7 +1331,7 @@
           </article>
           <article class="feature">
             <span class="feature__number">04</span>
-            <div><h3>Décliner un modèle</h3><p>À partir d’un tableau de données, produisez une version contrôlée pour chaque personne, produit ou événement.</p></div>
+            <div><h3>Décliner un document</h3><p>À partir d’un tableau de données, produisez une version contrôlée pour chaque personne, produit ou événement.</p></div>
           </article>
           <article class="feature">
             <span class="feature__number">05</span>
@@ -1374,7 +1347,11 @@
           </article>
           <article class="feature">
             <span class="feature__number">08</span>
-            <div><h3>Garder vos fichiers</h3><p>Changez d’agent ou de plateforme sans reconstruire votre bibliothèque ni perdre vos ressources.</p></div>
+            <div><h3>Garder vos fichiers</h3><p>Changez d’agent ou de plateforme et gardez votre bibliothèque et vos ressources.</p></div>
+          </article>
+          <article class="feature">
+            <span class="feature__number">09</span>
+            <div><h3>Organiser votre travail dans un espace de travail</h3><p>Une page par élément, un formulaire pour vos réponses, et l’assistant poursuit.</p></div>
           </article>
         </div>
       </div>
@@ -1383,7 +1360,7 @@
     <section class="section live" id="live" aria-labelledby="live-title">
       <div class="shell">
         <div class="live__grid">
-          <div class="live__copy reveal">
+          <div class="live__copy">
             <span class="section-index">01 — Essayer en direct</span>
             <h2 id="live-title">Voyez le parcours<span class="dot">.</span> Gardez le fichier.</h2>
             <p>
@@ -1396,7 +1373,7 @@
             </div>
           </div>
 
-          <div class="live__stage reveal">
+          <div class="live__stage">
             <iframe
               src="../app/demo.html?scenario=product-catalog"
               title="Démo interactive de Maket"
@@ -1405,7 +1382,7 @@
           </div>
         </div>
 
-        <div class="live__starters reveal">
+        <div class="live__starters">
           <div>
             <h3>Six exemples prêts à explorer</h3>
             <p class="mono">À ouvrir, adapter et conserver</p>
@@ -1422,34 +1399,48 @@
       </div>
     </section>
 
-    <section class="section uses" id="usages">
-      <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+    <section class="section uses" id="usages" aria-labelledby="uses-title">
+      <div class="shell">
+        <header class="uses__head">
           <span class="section-index">02 — Usages</span>
-          <div>
-            <h2>Du premier croquis au document final<span class="dot">.</span></h2>
-            <p>
-              Maket sert aussi bien à mettre une idée en forme qu’à produire un livrable
-              prêt à présenter, imprimer ou décliner.
-            </p>
-          </div>
+          <h2 id="uses-title">Pour quoi faire<span class="dot">&nbsp;?</span></h2>
         </header>
 
-        <div class="uses__grid reveal">
-          <article class="use">
-            <span class="use__number">01 / Idée</span>
-            <h3>Wireframes d’applications</h3>
-            <p>Transformez un besoin fonctionnel en écrans que vous pouvez regarder, annoter et faire évoluer.</p>
+        <div class="cases">
+          <article class="case">
+            <h3>Pour esquisser une application</h3>
+            <img src="../assets/cases/wireframes.png" width="1450" height="760" loading="lazy" alt="Trois écrans d’une maquette d’application" />
+            <ul class="case__labels"><li>Un écran par page</li><li>Notes sur une zone</li><li>Corrections appliquées par l’assistant</li></ul>
           </article>
-          <article class="use">
-            <span class="use__number">02 / Travail</span>
-            <h3>Présentations et rapports</h3>
-            <p>Composez des pages cohérentes avec votre charte et réutilisez les mêmes ressources d’un projet à l’autre.</p>
+          <article class="case">
+            <h3>Pour présenter et rendre compte</h3>
+            <img src="../assets/cases/presentations.png" width="1450" height="760" loading="lazy" alt="Une page de présentation aux couleurs et polices d’une marque" />
+            <ul class="case__labels"><li>Couleurs et polices de la marque</li><li>Mêmes ressources d’un projet à l’autre</li><li>PDF pour l’écran ou l’impression</li></ul>
           </article>
-          <article class="use">
-            <span class="use__number">03 / Partage</span>
-            <h3>Affiches et supports</h3>
-            <p>Créez une affiche, un flyer, une brochure, un CV ou un visuel pour les réseaux sociaux.</p>
+          <article class="case">
+            <h3>Pour faire une affiche</h3>
+            <img src="../assets/cases/posters.png" width="1450" height="760" loading="lazy" alt="Une affiche d’événement" />
+            <ul class="case__labels"><li>Affiche, flyer, brochure, CV</li><li>Formats pour les réseaux sociaux</li><li>PDF prêt à imprimer</li></ul>
+          </article>
+          <article class="case">
+            <h3>Pour suivre une rénovation</h3>
+            <img src="../assets/cases/renovation.png" width="800" height="499" loading="lazy" alt="Vue liste et fiche de Maket : travaux groupés par état à gauche, la page des meubles de cuisine et son formulaire à droite" />
+            <ul class="case__labels"><li>Une page par chantier</li><li>Formulaire : décision, date de début, commentaire</li><li>L’assistant compare les devis</li></ul>
+          </article>
+          <article class="case">
+            <h3>Pour préparer un déménagement</h3>
+            <img src="../assets/cases/move.png" width="800" height="499" loading="lazy" alt="Vue liste et fiche de Maket : tâches du déménagement groupées par semaine à gauche, la page du camion et son formulaire à droite" />
+            <ul class="case__labels"><li>Une page par tâche</li><li>Formulaire : offre, heure, note</li><li>L’assistant compare les offres</li></ul>
+          </article>
+          <article class="case">
+            <h3>Pour chercher un appartement</h3>
+            <img src="../assets/cases/flat-search.png" width="800" height="499" loading="lazy" alt="Vue liste et fiche de Maket : appartements groupés par visite à gauche, la page d’un appartement et son formulaire à droite" />
+            <ul class="case__labels"><li>Une page par appartement</li><li>Formulaire : suite, note, questions</li><li>L’assistant vérifie le dossier</li></ul>
+          </article>
+          <article class="case">
+            <h3>Pour organiser une fête de famille</h3>
+            <img src="../assets/cases/family-event.png" width="800" height="499" loading="lazy" alt="Vue liste et fiche de Maket : postes de la fête groupés par décision à gauche, la page du traiteur et son formulaire à droite" />
+            <ul class="case__labels"><li>Une page par poste</li><li>Formulaire : menu, enfants, allergies</li><li>L’assistant totalise les coûts</li></ul>
           </article>
         </div>
       </div>
@@ -1457,7 +1448,7 @@
 
     <section class="section workflow" id="fonctionnement">
       <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+        <header class="section-head section-head--sticky">
           <span class="section-index">03 — Fonctionnement</span>
           <div>
             <h2>Vous guidez<span class="dot">.</span> L’agent compose.</h2>
@@ -1469,20 +1460,20 @@
         </header>
 
         <div class="workflow__list">
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">01</span>
             <h3>Décrivez ce que vous voulez</h3>
-            <p>Donnez le contenu, le format et l’ambiance depuis votre client IA habituel. L’agent crée le document dans Maket.</p>
+            <p>Donnez le contenu, le format et l’ambiance depuis votre client IA habituel.</p>
           </article>
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">02</span>
             <h3>Regardez le document se construire</h3>
-            <p>Les pages apparaissent dans le navigateur au fur et à mesure. Vous contrôlez immédiatement la hiérarchie, les images et la mise en page.</p>
+            <p>Les pages apparaissent dans le navigateur au fur et à mesure.</p>
           </article>
-          <article class="workflow__step reveal">
+          <article class="workflow__step">
             <span class="workflow__number">03</span>
             <h3>Annotez ce qui doit changer</h3>
-            <p>Cliquez sur une zone et laissez une note à l’agent. Pour une correction rapide, le texte reste directement modifiable.</p>
+            <p>Cliquez sur une zone et laissez une note à l’agent.</p>
           </article>
         </div>
       </div>
@@ -1490,46 +1481,45 @@
 
     <section class="section resources" id="ressources">
       <div class="shell story-layout">
-        <header class="section-head section-head--sticky reveal">
+        <header class="section-head section-head--sticky">
           <span class="section-index">04 — Ressources</span>
           <div>
             <h2>Votre atelier reste en place<span class="dot">.</span></h2>
             <p>
-              Maket rassemble les documents, leur identité visuelle, leurs images et
-              leurs données afin que chaque agent puisse reprendre le travail.
+              Chaque agent peut reprendre le travail.
             </p>
           </div>
         </header>
 
         <div class="resources__list">
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Documents</h3>
-              <p>Affiches, présentations, wireframes et documents multipages restent disponibles d’une session à l’autre.</p>
+              <p>Conservés d’une session à l’autre.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Chartes graphiques</h3>
-              <p>Couleurs, polices et règles visuelles peuvent être appliquées à tous les documents d’une marque ou d’un projet.</p>
+              <p>Mêmes couleurs, polices et règles pour chaque document.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Galerie d’images</h3>
-              <p>Classez vos images par mots-clés pour que l’agent retrouve les bonnes ressources sans dépendre du nom des fichiers.</p>
+              <p>Images retrouvées par mot-clé.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Versions personnalisées</h3>
-              <p>Reliez un modèle à des données structurées et générez une version contrôlée pour chaque personne, produit ou événement.</p>
+              <p>Une version par personne, produit ou événement.</p>
             </div>
           </article>
-          <article class="resource reveal">
+          <article class="resource">
             <div>
               <h3>Documents évolutifs</h3>
-              <p>Cochez, saisissez et mettez à jour les informations directement dans une checklist, un formulaire ou un rapport.</p>
+              <p>Checklists, formulaires et rapports mis à jour sur place.</p>
             </div>
           </article>
         </div>
@@ -1538,9 +1528,9 @@
 
     <section class="section collection" aria-labelledby="collection-title">
       <div class="shell collection__inner">
-        <div class="collection__copy reveal">
+        <div class="collection__copy">
           <span class="section-index">05 — Versions personnalisées</span>
-          <h2 id="collection-title">Un modèle, autant de versions qu’il vous faut<span class="dot">.</span></h2>
+          <h2 id="collection-title">Un document, autant de versions qu’il vous faut<span class="dot">.</span></h2>
           <p>
             Préparez une invitation, une étiquette ou une fiche. Ajoutez vos données,
             puis laissez Maket produire une page par entrée — comme un publipostage,
@@ -1548,7 +1538,7 @@
           </p>
         </div>
 
-        <div class="collection__visual reveal" role="img" aria-label="Exemple d’un modèle décliné à partir d’un tableau de données">
+        <div class="collection__visual" role="img" aria-label="Exemple d’un document décliné à partir d’un tableau de données">
           <div class="template">
             <span class="template__field">Pour Agathe</span>
             <h3>Invitation<span class="dot">.</span></h3>
@@ -1567,20 +1557,19 @@
 
     <section class="section collection" id="documents-vivants" aria-labelledby="living-title">
       <div class="shell collection__inner">
-        <div class="collection__copy reveal">
+        <div class="collection__copy">
           <span class="section-index">06 — Documents à jour</span>
           <h2 id="living-title">Un document qui reste à jour<span class="dot">.</span></h2>
           <p>
             Transformez une checklist, un suivi, un formulaire ou un rapport en document
             que chacun peut mettre à jour. Les actions faites dans la page et les changements
-            demandés à l’agent se retrouvent au même endroit. Partagez ou reprenez
-            le document sans repartir de zéro.
+            demandés à l’agent se retrouvent au même endroit.
           </p>
           <div class="actions">
             <a class="button button--ink" href="../app/demo.html?scenario=living-checklist">Voir la checklist en action</a>
           </div>
         </div>
-        <div class="collection__visual collection__visual--single reveal" role="img" aria-label="Checklist interactive d’ouverture du lieu">
+        <div class="collection__visual collection__visual--single" role="img" aria-label="Checklist interactive d’ouverture du lieu">
           <div class="template template--checklist">
             <span class="template__field">Ouverture du lieu</span>
             <h3>Checklist<span class="dot">.</span></h3>
@@ -1597,13 +1586,12 @@
 
     <section class="section install" id="installer">
       <div class="shell install__layout">
-        <div class="install__copy reveal">
+        <div class="install__copy">
           <span class="section-index">07 — Installation</span>
           <h2>Installez Maket App<span class="dot">.</span></h2>
           <p>
-            L’application contient son propre serveur et son environnement
-            d’exécution. Installez-la, lancez Maket, puis connectez vos agents
-            depuis le premier écran — sans Node.js ni terminal.
+            L’application contient tout ce qu’il lui faut. Installez-la, lancez
+            Maket, puis connectez vos agents depuis le premier écran.
           </p>
           <div class="actions">
             <a
@@ -1625,10 +1613,10 @@
             >Voir le dernier snapshot</a>
             <a class="button button--ghost" href="https://github.com/ng-galien/maket#install-maket-app" target="_blank" rel="noopener">Guide d’installation ↗</a>
           </div>
-          <p class="install__note">Pour l’automatisation, les serveurs sans interface ou la CI, Maket Server reste disponible via npm comme installation avancée.</p>
+          <p class="install__note">Pour l’automatisation ou la CI, Maket Server reste disponible via npm comme installation avancée.</p>
         </div>
 
-        <div class="reveal">
+        <div>
           <nav class="downloads" aria-label="Téléchargements Maket App">
             <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-arm64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Apple Silicon</span><em data-release-badge>Snapshot ↗</em></a>
             <a class="download" href="https://github.com/ng-galien/maket/actions/workflows/desktop-snapshot.yml" data-release-asset="Maket-macOS-x64.dmg" data-release-label="DMG ↓"><span><strong>macOS</strong>Intel</span><em data-release-badge>Snapshot ↗</em></a>
@@ -1658,46 +1646,15 @@
   </footer>
 
   <script>
-    const reveals = document.querySelectorAll('.reveal');
-    if ('IntersectionObserver' in window) {
-      const observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (entry.isIntersecting) {
-              entry.target.classList.add('is-visible');
-              observer.unobserve(entry.target);
-            }
-          }
-        },
-        { threshold: 0.12 }
-      );
-      for (const element of reveals) observer.observe(element);
-    } else {
-      for (const element of reveals) element.classList.add('is-visible');
+    for (const screen of document.querySelectorAll('.demo__screen')) {
+      const video = screen.querySelector('video');
+      const play = screen.querySelector('.demo__play');
+      play.addEventListener('click', () => {
+        play.hidden = true;
+        video.controls = true;
+        video.play();
+      });
     }
-
-    const demo = document.querySelector('.demo');
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    let ticking = false;
-
-    function updateDemoDepth() {
-      if (demo && !reducedMotion.matches) {
-        const shift = Math.min(window.scrollY * 0.055, 28);
-        demo.style.setProperty('--demo-shift', `${shift}px`);
-      }
-      ticking = false;
-    }
-
-    window.addEventListener(
-      'scroll',
-      () => {
-        if (!ticking) {
-          window.requestAnimationFrame(updateDemoDepth);
-          ticking = true;
-        }
-      },
-      { passive: true }
-    );
 
     for (const link of document.querySelectorAll('[data-platform-download]')) {
       const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
