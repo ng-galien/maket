@@ -350,7 +350,7 @@ describe("WorkspaceHeader", () => {
 			focusedCollectionName: "clients",
 			selectedIds: ["title"],
 			editingElementId: "title",
-			showPopover: true,
+			messageAnchor: { docName: doc.name, pageIndex: 0, elementId: "title" },
 		});
 		const activity = document.createElement("div");
 		activity.dataset.maketActivity = "";
@@ -364,7 +364,7 @@ describe("WorkspaceHeader", () => {
 			focusedCollectionName: null,
 			selectedIds: [],
 			editingElementId: null,
-			showPopover: false,
+			messageAnchor: null,
 		});
 		expect(document.querySelector("[data-maket-activity]")).toBeNull();
 	});

@@ -25,7 +25,11 @@ beforeEach(() => {
 		focusedDocName: doc.name,
 		focusedPageIndex: 0,
 		selectedIds: ["shared-element"],
-		showPopover: true,
+		messageAnchor: {
+			docName: doc.name,
+			pageIndex: 0,
+			elementId: "shared-element",
+		},
 		editingElementId: null,
 		pending: [],
 	});
@@ -119,7 +123,9 @@ describe("Popover", () => {
 				</>,
 			);
 
-			const dialog = screen.getByRole("dialog", { name: "Comment" });
+			const dialog = screen.getByRole("dialog", {
+				name: "Message to the agent",
+			});
 			const library = document.querySelector("[data-library-panel]");
 			expect(library && observed.has(library)).toBe(true);
 			expect(dialog).toHaveStyle({ left: "667px", top: "532px" });
@@ -133,8 +139,8 @@ describe("Popover", () => {
 			act(() => notifyResize());
 			expect(dialog).toHaveStyle({ left: "720px", top: "452px" });
 			expect(screen.getByText("Selected label")).toBeInTheDocument();
-			const note = screen.getByPlaceholderText("Note for the agent...");
-			const send = screen.getByRole("button", { name: "Send note" });
+			const note = screen.getByPlaceholderText("Message for the agent");
+			const send = screen.getByRole("button", { name: "Send message" });
 			expect(send).toBeDisabled();
 			await userEvent.type(note, "Tighten the label spacing");
 			expect(send).toBeEnabled();

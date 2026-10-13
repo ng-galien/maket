@@ -14,7 +14,7 @@ interface ReadingReturnState {
 	settingsOpen: boolean;
 	selectedIds: string[];
 	editingElementId: string | null;
-	showPopover: boolean;
+	messageAnchor: StoreState["messageAnchor"];
 }
 
 let returnState: ReadingReturnState | null = null;
@@ -36,14 +36,14 @@ export function enterReadingSession(): boolean {
 			settingsOpen: state.settingsOpen,
 			selectedIds: [...state.selectedIds],
 			editingElementId: state.editingElementId,
-			showPopover: state.showPopover,
+			messageAnchor: state.messageAnchor,
 		};
 	}
 	state.setFocusedCollection(null);
 	useStore.setState({
 		selectedIds: [],
 		editingElementId: null,
-		showPopover: false,
+		messageAnchor: null,
 	});
 	state.setWorkspaceView("reading");
 	return true;
@@ -91,7 +91,7 @@ export function exitReadingSession(): void {
 		editingElementId: originalDocumentAvailable
 			? snapshot.editingElementId
 			: null,
-		showPopover: originalDocumentAvailable ? snapshot.showPopover : false,
+		messageAnchor: originalDocumentAvailable ? snapshot.messageAnchor : null,
 	});
 	if (focusedDocName) {
 		state.setFocusedPage(focusedDocName, focusedPageIndex);

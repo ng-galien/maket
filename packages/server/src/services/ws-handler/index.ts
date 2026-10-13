@@ -113,7 +113,10 @@ function dispatchWorkspaceCommand(
 			handleAnnotationCreate(ctx, msg, ws);
 			break;
 		case "annotation_remove":
-			ctx.pending.ack([msg.id]);
+			handleAnnotationRemove(ctx, msg);
+			break;
+		case "annotation_edit":
+			handleAnnotationEdit(ctx, msg, ws);
 			break;
 		case "workspace_update":
 			handleWorkspaceUpdate(ctx, msg);
@@ -201,10 +204,47 @@ function handleAnnotationCreate(
 				ok: true,
 			}),
 		);
+		ctx.bus.emit("toast", { key: "toast_message_sent", level: "success" });
 	} catch (error) {
 		ws.send(
 			JSON.stringify({
 				type: "annotation_create_result",
+				requestId: msg.requestId,
+				ok: false,
+				message: localizedOf(error) ?? { key: "msg_annotation_not_saved" },
+			}),
+		);
+	}
+}
+
+function handleAnnotationRemove(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "annotation_remove" }>,
+): void {
+	const { matched } = ctx.pending.ack([msg.id]);
+	if (matched.length > 0)
+		ctx.bus.emit("toast", { key: "toast_message_deleted", level: "info" });
+}
+
+function handleAnnotationEdit(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "annotation_edit" }>,
+	ws: WebSocket,
+): void {
+	try {
+		ctx.pending.edit(msg.id, msg.text);
+		ws.send(
+			JSON.stringify({
+				type: "annotation_edit_result",
+				requestId: msg.requestId,
+				ok: true,
+			}),
+		);
+		ctx.bus.emit("toast", { key: "toast_message_edited", level: "success" });
+	} catch (error) {
+		ws.send(
+			JSON.stringify({
+				type: "annotation_edit_result",
 				requestId: msg.requestId,
 				ok: false,
 				message: localizedOf(error) ?? { key: "msg_annotation_not_saved" },

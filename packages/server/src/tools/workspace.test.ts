@@ -297,6 +297,45 @@ describe("maket_workspace — action=list_messages", () => {
 		expect(pending.all()).toHaveLength(3);
 		store.close();
 	});
+	it("shows the agent the current text of an edited note with its edit flag and time", async () => {
+		const { store, bus, documents, pending, collectionCursors } = fixture();
+		seedAnnotations(store, pending, [
+			{
+				id: "edited",
+				docName: "alpha",
+				type: "note",
+				pageIndex: 0,
+				text: "First wording",
+				ts: 10,
+			},
+		]);
+		pending.edit("edited", "Current wording");
+		const tool = createMaketWorkspaceTool({
+			bus,
+			documents,
+			pending,
+			collectionCursors,
+		});
+		const result = await tool.handler(
+			{ action: "list_messages", doc: "alpha" },
+			NO_EXTRA,
+		);
+		expect(result.structuredContent).toEqual({
+			messages: [
+				{
+					id: "edited",
+					docName: "alpha",
+					pageIndex: 0,
+					type: "note",
+					text: "Current wording",
+					ts: 10,
+					edited: true,
+					editedAt: expect.any(Number),
+				},
+			],
+		});
+		store.close();
+	});
 	it("returns the empty sentinel when nothing is queued", async () => {
 		const { store, bus, documents, pending, collectionCursors } = fixture();
 		const tool = createMaketWorkspaceTool({

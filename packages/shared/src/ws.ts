@@ -162,6 +162,13 @@ export interface AnnotationCreateResultSignal {
 	message?: LocalizedMessage;
 }
 
+export interface AnnotationEditResultSignal {
+	type: "annotation_edit_result";
+	requestId: string;
+	ok: boolean;
+	message?: LocalizedMessage;
+}
+
 export interface WorkspaceReloadSignal {
 	type: "reload";
 }
@@ -407,6 +414,10 @@ export interface PendingMessage {
 	file?: string;
 	position?: string;
 	ts?: number;
+	/** Present and true once the person changed the text after sending it. */
+	edited?: boolean;
+	/** Epoch milliseconds of the last text change; present with `edited`. */
+	editedAt?: number;
 }
 
 export interface CreateAnnotationCommand {
@@ -418,6 +429,14 @@ export interface CreateAnnotationCommand {
 export interface RemoveAnnotationCommand {
 	type: "annotation_remove";
 	id: string;
+}
+
+/** Replaces the text of a pending note the agent has not acknowledged yet. */
+export interface EditAnnotationCommand {
+	type: "annotation_edit";
+	requestId: string;
+	id: string;
+	text: string;
 }
 
 export interface UpdateWorkspaceCommand {
@@ -450,6 +469,7 @@ export type WorkspaceSignal =
 	| PendingAcknowledgedSignal
 	| AnnotationsChangedSignal
 	| AnnotationCreateResultSignal
+	| AnnotationEditResultSignal
 	| WorkspaceReloadSignal
 	| StructuredWorkspacesChangedSignal
 	| StructuredWorkspaceItemChangedSignal
@@ -485,6 +505,7 @@ export type WorkspaceCommand =
 	| PatchDocumentStateCommand
 	| CreateAnnotationCommand
 	| RemoveAnnotationCommand
+	| EditAnnotationCommand
 	| UpdateWorkspaceCommand
 	| SetSettingsCommand;
 

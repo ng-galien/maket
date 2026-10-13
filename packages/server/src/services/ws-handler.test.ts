@@ -328,6 +328,72 @@ describe("ws-handler — annotation persistence acknowledgement", () => {
 	});
 });
 
+describe("ws-handler — annotation edit and removal", () => {
+	it("edits a pending note, reports refusals, and announces each change with a server toast", () => {
+		const { store, documents, pending, handler, bus, dispose } = fixture();
+		store.saveDoc(makeDoc("annotated"));
+		documents.loadAll();
+		const toasts: unknown[] = [];
+		bus.on("toast", (toast) => toasts.push(toast));
+		const ws = { readyState: 1, send: vi.fn() } as any;
+		pending.create({
+			id: "note",
+			docName: "annotated",
+			type: "note",
+			text: "First wording",
+			ts: 1,
+		});
+
+		handler(
+			{
+				type: "annotation_edit",
+				requestId: "edit-ok",
+				id: "note",
+				text: "Second wording",
+			},
+			ws,
+		);
+		expect(pending.all()).toEqual([
+			expect.objectContaining({
+				id: "note",
+				text: "Second wording",
+				edited: true,
+				editedAt: expect.any(Number),
+			}),
+		]);
+
+		handler({ type: "annotation_remove", id: "note" }, ws);
+		handler({ type: "annotation_remove", id: "note" }, ws);
+		handler(
+			{
+				type: "annotation_edit",
+				requestId: "edit-late",
+				id: "note",
+				text: "Third wording",
+			},
+			ws,
+		);
+
+		expect(pending.all()).toEqual([]);
+		expect(
+			ws.send.mock.calls.map(([payload]: [string]) => JSON.parse(payload)),
+		).toEqual([
+			{ type: "annotation_edit_result", requestId: "edit-ok", ok: true },
+			{
+				type: "annotation_edit_result",
+				requestId: "edit-late",
+				ok: false,
+				message: { key: "msg_annotation_not_found" },
+			},
+		]);
+		expect(toasts).toEqual([
+			{ key: "toast_message_edited", level: "success" },
+			{ key: "toast_message_deleted", level: "info" },
+		]);
+		dispose();
+	});
+});
+
 describe("ws-handler — living document state", () => {
 	it("rejects collection projection writes and aggregate-invalid item writes without revisions", () => {
 		const { store, documents, documentStates, handler, dispose } = fixture();

@@ -22,7 +22,7 @@ export function AnnotationToggle({ doc }: { doc: Document }) {
 				useStore.setState({
 					annotationDocName: active ? null : doc.name,
 					selectedIds: [],
-					showPopover: false,
+					messageAnchor: null,
 				});
 			}}
 			className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-40 ${active ? "bg-accent-soft text-accent" : "text-text-2 hover:bg-input hover:text-text-1"}`}

@@ -1,37 +1,65 @@
-import { LoaderCircle, MessageCircle, Send, Trash2 } from "lucide-react";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { Trash2 } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import type { MessageAnchor } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { randomId } from "../utils";
 
+const SENT_VISIBLE_MS = 900;
+const FIELD_MAX_HEIGHT = 168;
+
+interface AnchorRect {
+	left: number;
+	top: number;
+	right: number;
+	bottom: number;
+	width: number;
+	height: number;
+}
+
+/** The message field a person opens on an element or a page for the agent. */
 export function Popover() {
 	const model = usePopoverModel();
 	if (!model) return null;
 	return <PopoverView {...model} />;
 }
 
-function usePopoverPosition({
-	selectedId,
-	showPopover,
-	docName,
-	pageIndex,
-	popover,
-}: {
-	selectedId: string | null;
-	showPopover: boolean;
-	docName: string | null;
-	pageIndex: number;
-	popover: HTMLDivElement | null;
-}) {
+function anchorPage(anchor: MessageAnchor): HTMLElement | null {
+	const pages = document.querySelectorAll<HTMLElement>(
+		`[data-doc="${CSS.escape(anchor.docName)}"] .page-canvas[data-page="${anchor.pageIndex}"]`,
+	);
+	return pages[0] ?? null;
+}
+
+function anchorElement(anchor: MessageAnchor): HTMLElement | null {
+	if (!anchor.elementId) return anchorPage(anchor);
+	return selectedElement(anchor.elementId, anchor.docName, anchor.pageIndex);
+}
+
+function anchorRect(anchor: MessageAnchor): AnchorRect | null {
+	const element = anchorElement(anchor);
+	if (!element) return null;
+	const rect = element.getBoundingClientRect();
+	if (anchor.elementId || !anchor.point) return rect;
+	const scaleX = element.offsetWidth ? rect.width / element.offsetWidth : 1;
+	const scaleY = element.offsetHeight ? rect.height / element.offsetHeight : 1;
+	const left = rect.left + anchor.point.x * scaleX;
+	const top = rect.top + anchor.point.y * scaleY;
+	return { left, top, right: left, bottom: top, width: 0, height: 0 };
+}
+
+function usePopoverPosition(
+	anchor: MessageAnchor | null,
+	popover: HTMLDivElement | null,
+) {
 	const [position, setPosition] = useState({ top: 140, left: 0 });
 	useLayoutEffect(() => {
-		if (!selectedId || !showPopover) return;
-		const element = selectedElement(selectedId, docName, pageIndex);
+		if (!anchor) return;
+		const element = anchorElement(anchor);
 		const updatePosition = () => {
-			const currentElement = selectedElement(selectedId, docName, pageIndex);
-			if (currentElement) {
-				setPosition(positionPopover(currentElement, popover));
-			}
+			const rect = anchorRect(anchor);
+			const surface = anchorPage(anchor);
+			if (rect) setPosition(positionPopover(rect, surface, popover));
 		};
 		updatePosition();
 		window.addEventListener("resize", updatePosition);
@@ -53,149 +81,145 @@ function usePopoverPosition({
 			window.removeEventListener("resize", updatePosition);
 			window.removeEventListener("scroll", updatePosition, true);
 		};
-	}, [docName, pageIndex, popover, selectedId, showPopover]);
+	}, [anchor, popover]);
 	return position;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-// This hook is a DOM positioning adapter for the popover shell; it coordinates browser events and local UI state rather than domain behavior.
+// This hook adapts the message field to the DOM and the pending queue; queue ownership stays in Zustand.
 function usePopoverModel() {
 	const t = useT();
-	const selectedId = useStore((s) =>
-		s.selectedIds.length === 1 ? s.selectedIds[0] : null,
-	);
-	const showPopover = useStore((s) => s.showPopover);
+	const anchor = useStore((s) => s.messageAnchor);
 	const isEditing = useStore((s) => s.editingElementId !== null);
-	const focusedDocName = useStore((s) => s.focusedDocName);
-	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
-	const focusedDoc = useStore((s) =>
-		s.focusedDocName ? s.docs.get(s.focusedDocName) : null,
+	const anchorDoc = useStore((s) =>
+		s.messageAnchor ? s.docs.get(s.messageAnchor.docName) : null,
 	);
 	const readOnly = useStore((state) => state.readOnly);
-	const inaccessible = readOnly || focusedDoc?.meta?.locked === true;
+	const inaccessible = readOnly || anchorDoc?.meta?.locked === true;
 	const addPending = useStore((s) => s.addPending);
 	const pending = useStore((s) => s.pending);
 	const [note, setNote] = useState("");
 	const [saving, setSaving] = useState(false);
+	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [popover, setPopover] = useState<HTMLDivElement | null>(null);
-	const pos = usePopoverPosition({
-		selectedId,
-		showPopover,
-		docName: focusedDocName,
-		pageIndex: focusedPageIndex,
-		popover,
-	});
+	const pos = usePopoverPosition(anchor, popover);
 
 	useEffect(() => {
 		setNote("");
 		setError(null);
 		setSaving(false);
-	}, [selectedId, focusedDocName, focusedPageIndex]);
+		setSent(false);
+	}, [anchor]);
 
 	useEffect(() => {
-		if (inaccessible) useStore.getState().selectElement(null);
-	}, [inaccessible]);
+		if (!sent) return;
+		const timeout = window.setTimeout(
+			() => closeField(anchor, false),
+			SENT_VISIBLE_MS,
+		);
+		return () => window.clearTimeout(timeout);
+	}, [anchor, sent]);
 
-	if (!selectedId || !showPopover || isEditing || inaccessible) return null;
+	useEffect(() => {
+		if (inaccessible && anchor) useStore.getState().closeMessageField();
+	}, [anchor, inaccessible]);
 
-	const el = selectedElement(selectedId, focusedDocName, focusedPageIndex);
+	if (!anchor || isEditing || inaccessible) return null;
+
+	const el = anchorElement(anchor);
 	if (!el) return null;
 
-	const pageIndex = selectedElementPageIndex(el);
-	const pageName = focusedDoc?.pages?.[pageIndex]?.name;
-	const isFlaggedDelete = pending.some(
-		(m) =>
-			m.type === "delete" &&
-			m.docName === focusedDocName &&
-			m.pageIndex === pageIndex &&
-			m.elementId === selectedId,
-	);
-	const existingNote = pending.find(
-		(m) =>
-			m.type === "note" &&
-			m.docName === focusedDocName &&
-			m.pageIndex === pageIndex &&
-			m.elementId === selectedId,
-	);
-	const elName = el.dataset.name || el.textContent?.slice(0, 20) || selectedId;
+	const { docName, pageIndex, elementId } = anchor;
+	const page = anchorDoc?.pages?.[pageIndex];
+	const pageLabel = page?.name || `${t("page")} ${pageIndex + 1}`;
+	const sameAnchor = (m: (typeof pending)[number]) =>
+		m.docName === docName &&
+		m.pageIndex === pageIndex &&
+		(m.elementId ?? null) === (elementId ?? null);
+	const flaggedDelete = elementId
+		? pending.find((m) => m.type === "delete" && sameAnchor(m))
+		: undefined;
+	const pendingHere = pending.filter((m) => m.type === "note" && sameAnchor(m));
+	const anchorLabel = elementId
+		? el.dataset.name || el.textContent?.trim().slice(0, 32) || elementId
+		: t("message_anchor_page");
 
-	const deselect = () => useStore.getState().selectElement(null);
 	const submitNote = async () => {
 		const text = note.trim();
-		if (!text || saving) return;
+		if (!text || saving || sent) return;
 		setSaving(true);
 		setError(null);
 		const outcome = await addPending({
 			id: randomId(),
 			type: "note",
-			elementId: selectedId,
-			docName: focusedDocName ?? undefined,
-			pageIndex: pageIndex,
+			docName,
+			pageIndex,
+			...(elementId ? { elementId } : {}),
 			text,
 			ts: Date.now(),
 		});
 		setSaving(false);
 		if (!outcome.ok) {
-			setError(t("pending_create_failed"));
+			setError(outcome.error ?? t("pending_create_failed"));
 			return;
 		}
-		setNote("");
-		deselect();
+		setSent(true);
 	};
 
 	const toggleDelete = async () => {
-		if (isFlaggedDelete) {
-			const msg = pending.find(
-				(m) =>
-					m.type === "delete" &&
-					m.docName === focusedDocName &&
-					m.pageIndex === pageIndex &&
-					m.elementId === selectedId,
-			);
-			if (msg) useStore.getState().removePending(msg.id);
-		} else {
-			if (saving) return;
-			setSaving(true);
-			setError(null);
-			const outcome = await addPending({
-				id: randomId(),
-				type: "delete",
-				elementId: selectedId,
-				docName: focusedDocName ?? undefined,
-				pageIndex: pageIndex,
-				ts: Date.now(),
-			});
-			setSaving(false);
-			if (!outcome.ok) {
-				setError(t("pending_create_failed"));
-				return;
-			}
-			deselect();
+		if (!elementId || saving) return;
+		if (flaggedDelete) {
+			useStore.getState().removePending(flaggedDelete.id);
+			return;
 		}
+		setSaving(true);
+		setError(null);
+		const outcome = await addPending({
+			id: randomId(),
+			type: "delete",
+			elementId,
+			docName,
+			pageIndex,
+			ts: Date.now(),
+		});
+		setSaving(false);
+		if (!outcome.ok) {
+			setError(outcome.error ?? t("pending_create_failed"));
+			return;
+		}
+		closeField(anchor, true);
 	};
 
 	return {
 		t,
 		setPopover,
 		pos,
-		focusedDocName,
-		focusedDoc,
-		pageName,
-		pageIndex,
-		elName,
-		existingNote,
-		isFlaggedDelete,
+		docName,
+		pageLabel,
+		anchorLabel,
+		isPageAnchor: !elementId,
+		pendingHere,
+		flaggedDelete: Boolean(flaggedDelete),
 		note,
 		setNote: (value: string) => {
 			setNote(value);
 			if (error) setError(null);
 		},
 		saving,
+		sent,
 		error,
 		submitNote,
 		toggleDelete,
+		cancel: () => closeField(anchor, true),
 	};
+}
+
+/** Closes the field and gives the keyboard back to the anchor it came from. */
+function closeField(anchor: MessageAnchor | null, restoreFocus: boolean) {
+	const target = anchor ? anchorElement(anchor) : null;
+	useStore.getState().closeMessageField();
+	if (restoreFocus && target?.hasAttribute("tabindex")) target.focus();
 }
 
 function selectedElement(
@@ -226,23 +250,18 @@ function selectedElement(
 	);
 }
 
-function selectedElementPageIndex(el: HTMLElement): number {
-	const pageCanvas = el.closest(".page-canvas") as HTMLElement | null;
-	return pageCanvas ? Number.parseInt(pageCanvas.dataset.page ?? "0", 10) : 0;
-}
-
 function positionPopover(
-	el: HTMLElement,
+	rect: AnchorRect,
+	surface: HTMLElement | null,
 	popover: HTMLDivElement | null,
 ): { top: number; left: number } {
-	const rect = el.getBoundingClientRect();
 	const popW = popover?.offsetWidth || 280;
 	const popH = popover?.offsetHeight || 220;
 	const gap = 12;
 	const margin = 16;
 	const vw = window.innerWidth;
 	const vh = window.innerHeight;
-	const surfaceRect = el.closest(".page-canvas")?.getBoundingClientRect();
+	const surfaceRect = surface?.getBoundingClientRect();
 	const libraryRect = document
 		.querySelector<HTMLElement>(
 			'[data-library-panel][data-library-mode="extended"]',
@@ -267,129 +286,218 @@ function positionPopover(
 	return { top, left };
 }
 
+function PinGlyph({ className }: { className?: string }) {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 24 24"
+			width="14"
+			height="14"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.8"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+			className={className}
+		>
+			<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
+			<circle cx="12" cy="10" r="2.2" />
+		</svg>
+	);
+}
+
+function SendGlyph() {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 24 24"
+			width="13"
+			height="13"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M4 12h14M13 6l6 6-6 6" />
+		</svg>
+	);
+}
+
+function CheckGlyph() {
+	return (
+		<svg
+			aria-hidden="true"
+			viewBox="0 0 24 24"
+			width="13"
+			height="13"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="2.2"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<path d="M5 12.5 10 17l9-10" />
+		</svg>
+	);
+}
+
+function KeyHint({ keys, label }: { keys: string; label: string }) {
+	return (
+		<span className="inline-flex items-center gap-1">
+			<kbd className="rounded-[4px] border border-border bg-input px-1 font-sans text-[10px] font-semibold leading-4 text-text-2">
+				{keys}
+			</kbd>
+			<span>{label}</span>
+		</span>
+	);
+}
+
 function PopoverView(model: NonNullable<ReturnType<typeof usePopoverModel>>) {
 	const {
 		t,
 		setPopover,
 		pos,
-		focusedDocName,
-		focusedDoc,
-		pageName,
-		pageIndex,
-		elName,
-		existingNote,
-		isFlaggedDelete,
+		docName,
+		pageLabel,
+		anchorLabel,
+		isPageAnchor,
+		pendingHere,
+		flaggedDelete,
 		note,
 		setNote,
 		saving,
+		sent,
 		error,
 		submitNote,
 		toggleDelete,
+		cancel,
 	} = model;
+	const fieldRef = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		fieldRef.current?.focus();
+	}, []);
+	useLayoutEffect(() => {
+		const field = fieldRef.current;
+		if (!field) return;
+		field.style.height = "auto";
+		if (note)
+			field.style.height = `${Math.min(field.scrollHeight, FIELD_MAX_HEIGHT)}px`;
+	}, [note]);
 	return (
 		<div
 			ref={setPopover}
 			role="dialog"
-			aria-label={t("comment")}
+			aria-label={t("message_dialog")}
 			data-annotation-popover=""
-			className="fixed z-[var(--z-popover)] w-[280px] overflow-hidden rounded-xl border border-border bg-panel shadow-[0_18px_52px_rgba(0,0,0,0.24)]"
+			onKeyDown={(event) => {
+				if (event.key !== "Escape") return;
+				event.preventDefault();
+				event.stopPropagation();
+				cancel();
+			}}
+			className="fixed z-[var(--z-popover)] w-[280px] overflow-hidden rounded-lg border border-border bg-panel shadow-[0_12px_36px_rgba(15,23,42,0.22)]"
 			style={{
 				top: pos.top,
 				left: pos.left,
 				animation: "popoverIn 160ms cubic-bezier(0.16, 1, 0.3, 1)",
 			}}
 		>
-			<div className="flex items-start gap-3 border-b border-border px-3.5 py-3">
+			<div className="flex items-start gap-2 border-b border-border px-3 py-2">
 				<div className="min-w-0 flex-1">
-					{focusedDocName && (
-						<div className="mb-1 truncate text-2xs font-medium text-text-3">
-							{focusedDocName}
-							{focusedDoc && focusedDoc.pages.length > 1
-								? ` · ${pageName || `p.${pageIndex + 1}`}`
-								: ""}
-						</div>
-					)}
-					<div className="flex min-w-0 items-center gap-2 text-sm font-semibold text-text-1">
-						<MessageCircle size={14} className="shrink-0 text-accent" />
-						<span className="truncate">{elName}</span>
+					<div className="truncate text-2xs font-medium text-text-3">
+						{docName} · {pageLabel}
+					</div>
+					<div className="flex min-w-0 items-center gap-1.5 text-[13px] font-semibold text-text-1">
+						<PinGlyph className="shrink-0 text-accent" />
+						<span className="truncate" data-message-anchor-label="">
+							{anchorLabel}
+						</span>
 					</div>
 				</div>
-				<button
-					type="button"
-					onClick={toggleDelete}
-					disabled={saving}
-					className={`flex size-8 shrink-0 items-center justify-center rounded-md transition-colors ${
-						isFlaggedDelete
-							? "bg-danger/10 text-danger"
-							: "text-text-3 hover:text-danger hover:bg-danger-soft"
-					}`}
-					title={isFlaggedDelete ? t("flagged_delete") : t("delete")}
-				>
-					<Trash2 size={14} />
-				</button>
+				{!isPageAnchor && (
+					<button
+						type="button"
+						onClick={toggleDelete}
+						disabled={saving || sent}
+						aria-pressed={flaggedDelete}
+						aria-label={flaggedDelete ? t("flagged_delete") : t("delete")}
+						title={flaggedDelete ? t("flagged_delete") : t("delete")}
+						className={`flex size-7 shrink-0 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger ${
+							flaggedDelete
+								? "bg-danger-soft text-danger"
+								: "text-text-3 hover:bg-danger-soft hover:text-danger"
+						}`}
+					>
+						<Trash2 size={13} aria-hidden="true" />
+					</button>
+				)}
 			</div>
 
-			<div className="flex flex-col gap-2.5 p-3.5">
-				{existingNote && (
-					<div className="flex items-start gap-2 rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-xs leading-relaxed text-amber-700">
-						<svg
-							aria-hidden="true"
-							width="10"
-							height="10"
-							viewBox="0 0 24 24"
-							fill="none"
-							stroke="currentColor"
-							strokeWidth="2.5"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							className="shrink-0"
-						>
-							<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
-						</svg>
-						{existingNote.text}
+			<div className="flex flex-col gap-2 p-3">
+				{pendingHere.length > 0 && !sent && (
+					<div className="rounded-md border border-border bg-input px-2 py-1.5 text-xs leading-snug text-text-2">
+						<div className="font-medium text-text-3">
+							{t("message_pending_here", { count: pendingHere.length })}
+						</div>
+						<p className="mt-0.5 line-clamp-2 whitespace-pre-wrap break-words">
+							{pendingHere[pendingHere.length - 1]?.text}
+						</p>
 					</div>
 				)}
 
 				<textarea
+					ref={fieldRef}
 					value={note}
+					aria-label={t("message_dialog")}
 					aria-invalid={error ? true : undefined}
+					readOnly={sent}
 					onChange={(e) => setNote(e.target.value)}
 					onKeyDown={(e) => {
-						if (e.key === "Enter" && !e.shiftKey) {
+						if (
+							e.key === "Enter" &&
+							!e.shiftKey &&
+							!e.nativeEvent.isComposing
+						) {
 							e.preventDefault();
 							submitNote();
 						}
 					}}
-					placeholder={t("note_placeholder")}
+					placeholder={t("message_placeholder")}
 					rows={3}
-					className="min-h-[82px] w-full resize-none rounded-lg border border-border bg-input px-3 py-2.5 text-sm leading-relaxed text-text-1 outline-none placeholder:text-text-3 transition-[border-color,box-shadow] focus:border-accent/60 focus:ring-2 focus:ring-accent/15"
+					className="min-h-[68px] w-full resize-none rounded-md border border-border bg-input px-2.5 py-2 text-sm leading-snug text-text-1 outline-none placeholder:text-text-3 transition-[border-color,box-shadow] focus:border-accent/60 focus:ring-2 focus:ring-accent/15 read-only:opacity-70"
 				/>
-				<div className="flex items-center justify-end">
-					<button
-						type="button"
-						onClick={submitNote}
-						disabled={saving || !note.trim()}
-						aria-busy={saving}
-						aria-label={t("pending_send_note")}
-						className="flex h-8 items-center gap-1.5 rounded-md bg-accent px-3 text-xs font-semibold text-accent-contrast transition-[filter,opacity] hover:brightness-110 disabled:cursor-default disabled:opacity-35"
-					>
-						{saving ? (
-							<LoaderCircle
-								size={12}
-								className="animate-spin"
-								aria-hidden="true"
-							/>
-						) : (
-							<Send size={12} aria-hidden="true" />
-						)}
-						<span>{t("pending_send_note")}</span>
-					</button>
+				<div className="flex items-center gap-2">
+					{sent ? (
+						<p
+							className="flex flex-1 items-center gap-1.5 text-xs font-semibold text-accent"
+							role="status"
+						>
+							<CheckGlyph />
+							{t("message_sent")}
+						</p>
+					) : (
+						<div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-text-3">
+							<KeyHint keys={t("key_enter")} label={t("hint_send")} />
+							<KeyHint keys={t("key_shift_enter")} label={t("hint_newline")} />
+							<KeyHint keys={t("key_escape")} label={t("hint_cancel")} />
+						</div>
+					)}
+					{!sent && (
+						<button
+							type="button"
+							onClick={submitNote}
+							disabled={saving || !note.trim()}
+							aria-busy={saving}
+							aria-label={t("pending_send_note")}
+							title={t("pending_send_note")}
+							className="flex h-7 shrink-0 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-semibold text-accent-contrast transition-[filter,opacity] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:cursor-default disabled:opacity-35"
+						>
+							<SendGlyph />
+							<span>{saving ? t("pending_sending") : t("message_send")}</span>
+						</button>
+					)}
 				</div>
-				{saving && (
-					<p className="text-xs font-medium text-text-2" aria-live="polite">
-						{t("pending_sending")}
-					</p>
-				)}
 				{error && (
 					<p className="text-xs font-medium text-danger" role="alert">
 						{error}

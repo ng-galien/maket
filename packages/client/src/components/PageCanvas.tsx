@@ -612,10 +612,11 @@ export const PageCanvas = memo(function PageCanvas({
 	const openComment = useCallback(
 		(id: string) => {
 			dismissToolbar();
-			useStore.getState().selectElement(id);
-			useStore.setState({ showPopover: true });
+			useStore
+				.getState()
+				.openMessageField({ docName: doc.name, pageIndex, elementId: id });
 		},
-		[dismissToolbar],
+		[dismissToolbar, doc.name, pageIndex],
 	);
 
 	// Capture targets before links, item cards and live controls. Annotation
@@ -631,18 +632,41 @@ export const PageCanvas = memo(function PageCanvas({
 			)
 				return;
 			if (!(event.target instanceof Element)) return;
+			if (!canvas.contains(event.target)) return;
 			const target = event.target.closest<Element>("[data-id]");
 			const id = target?.getAttribute("data-id");
-			if (!target || !id) return;
 			event.preventDefault();
 			event.stopImmediatePropagation();
 			canvas.querySelectorAll("[data-id].selected").forEach((element) => {
 				element.classList.remove("selected");
 			});
-			target.classList.add("selected");
 			useStore.getState().setFocusedPage(doc.name, pageIndex);
-			openComment(id);
+			if (target && id) {
+				target.classList.add("selected");
+				openComment(id);
+				return;
+			}
+			dismissToolbar();
+			useStore.getState().openMessageField({
+				docName: doc.name,
+				pageIndex,
+				...(event instanceof MouseEvent
+					? { point: pagePoint(canvas, event) }
+					: {}),
+			});
 		};
+		canvas.setAttribute("tabindex", "0");
+		canvas.setAttribute("role", "group");
+		canvas.setAttribute(
+			"aria-label",
+			t("message_page_target", { page: pageIndex + 1 }),
+		);
+		const focusable: HTMLElement[] = [];
+		for (const element of canvas.querySelectorAll<HTMLElement>("[data-id]")) {
+			if (element.hasAttribute("tabindex")) continue;
+			element.setAttribute("tabindex", "0");
+			focusable.push(element);
+		}
 		const preventControlFocus = (event: PointerEvent) => {
 			if (
 				event.target instanceof Element &&
@@ -662,8 +686,35 @@ export const PageCanvas = memo(function PageCanvas({
 			canvas.querySelectorAll("[data-id].selected").forEach((element) => {
 				element.classList.remove("selected");
 			});
+			for (const element of focusable) element.removeAttribute("tabindex");
+			canvas.removeAttribute("tabindex");
+			canvas.removeAttribute("role");
+			canvas.removeAttribute("aria-label");
 		};
-	}, [activePolicy.annotations, doc.name, pageIndex, openComment, renderHtml]);
+	}, [
+		activePolicy.annotations,
+		dismissToolbar,
+		doc.name,
+		pageIndex,
+		openComment,
+		renderHtml,
+		t,
+	]);
+
+	const messageAnchor = useStore((s) =>
+		s.messageAnchor?.docName === doc.name &&
+		s.messageAnchor.pageIndex === pageIndex
+			? s.messageAnchor
+			: null,
+	);
+	useEffect(() => {
+		const canvas = pageRef.current;
+		if (!canvas || !activePolicy.annotations || messageAnchor?.elementId)
+			return;
+		canvas.querySelectorAll("[data-id].selected").forEach((element) => {
+			element.classList.remove("selected");
+		});
+	}, [activePolicy.annotations, messageAnchor]);
 
 	const applyPlaceholder = useCallback(
 		(id: string, placeholder: string) => {
@@ -1266,6 +1317,9 @@ export const PageCanvas = memo(function PageCanvas({
 				ref={pageRef}
 				className={`page-canvas${activePolicy.annotations ? " is-annotating" : ""}${activePolicy.showPreviewOutline && (preview?.mode === "rendered" || liveState) ? " data-preview" : ""}${liveState ? " state-live" : ""}${activePolicy.surface === "reader" ? " reader-page" : ""}`}
 				data-page={pageIndex}
+				data-message-anchor={
+					messageAnchor && !messageAnchor.elementId ? "" : undefined
+				}
 				data-auto-height={canvas.format === "AUTO" ? "true" : undefined}
 				data-document-mode={doc.dataModel}
 				aria-busy={liveState ? stateDocumentPending : undefined}
@@ -1307,6 +1361,25 @@ export const PageCanvas = memo(function PageCanvas({
 						>
 							<MessageCircle size={16} strokeWidth={2.4} />
 							<span>{pageNoteCount}</span>
+						</div>
+					)}
+					{messageAnchor && !messageAnchor.elementId && (
+						<div
+							className="annotation-compose-pin"
+							data-annotation-compose-pin=""
+							style={
+								messageAnchor.point
+									? {
+											left: messageAnchor.point.x,
+											top: messageAnchor.point.y,
+										}
+									: undefined
+							}
+						>
+							<svg viewBox="0 0 24 24" aria-hidden="true">
+								<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
+								<circle cx="12" cy="10" r="2.4" />
+							</svg>
 						</div>
 					)}
 				</div>
@@ -1665,4 +1738,18 @@ function StateValueEditor({
 			</div>
 		</form>
 	);
+}
+
+/** The pointer position on a page, in the page's own unscaled pixels. */
+function pagePoint(
+	canvas: HTMLElement,
+	event: MouseEvent,
+): { x: number; y: number } {
+	const rect = canvas.getBoundingClientRect();
+	const scaleX = rect.width ? canvas.offsetWidth / rect.width : 1;
+	const scaleY = rect.height ? canvas.offsetHeight / rect.height : 1;
+	return {
+		x: Math.round((event.clientX - rect.left) * scaleX),
+		y: Math.round((event.clientY - rect.top) * scaleY),
+	};
 }

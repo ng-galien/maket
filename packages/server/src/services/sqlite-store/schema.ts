@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 20;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -124,6 +124,7 @@ const SCHEMA_SQL = `
     file        TEXT,
     position    TEXT,
     ts          INTEGER NOT NULL,
+    edited_at   INTEGER,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `;
@@ -146,6 +147,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 17, up: migrateToV17 },
 	{ version: 18, up: migrateToV18 },
 	{ version: 19, up: migrateToV19 },
+	{ version: 20, up: migrateToV20 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -201,6 +203,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV17(db);
 	migrateToV18(db);
 	migrateToV19(db);
+	migrateToV20(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -481,6 +484,11 @@ function migrateToV19(db: DatabaseSync): void {
 	addColumnIfMissing(db, "documents", "pinned_at", "TEXT");
 }
 
+function migrateToV20(db: DatabaseSync): void {
+	migrateToV19(db);
+	addColumnIfMissing(db, "annotations", "edited_at", "INTEGER");
+}
+
 function migrateToV16(db: DatabaseSync): void {
 	migrateToV15(db);
 	addColumnIfMissing(db, "pages", "json_forms", "TEXT");
@@ -637,6 +645,7 @@ function assertAnnotationsSchema(db: DatabaseSync): void {
 		"file",
 		"position",
 		"ts",
+		"edited_at",
 		"created_at",
 	]) {
 		if (!columns.has(required)) {

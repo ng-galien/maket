@@ -361,7 +361,7 @@ describe("ReadingWorkspace", () => {
 			settingsOpen: false,
 			selectedIds: ["element-1"],
 			editingElementId: "element-1",
-			showPopover: true,
+			messageAnchor: { docName: "alpha", pageIndex: 1, elementId: "element-1" },
 			workspaceView: "canvas",
 		});
 		expect(enterReadingSession()).toBe(true);
@@ -390,7 +390,7 @@ describe("ReadingWorkspace", () => {
 			settingsOpen: false,
 			selectedIds: ["element-1"],
 			editingElementId: "element-1",
-			showPopover: true,
+			messageAnchor: { docName: "alpha", pageIndex: 1, elementId: "element-1" },
 		});
 	});
 

@@ -105,7 +105,11 @@ describe("desktop command parity", () => {
 			focusedCollectionName: "clients",
 			selectedIds: ["title"],
 			editingElementId: "title",
-			showPopover: true,
+			messageAnchor: {
+				docName: "Command document",
+				pageIndex: 0,
+				elementId: "title",
+			},
 			autoFocusFit: true,
 		});
 
@@ -127,7 +131,7 @@ describe("desktop command parity", () => {
 			focusedCollectionName: null,
 			selectedIds: [],
 			editingElementId: null,
-			showPopover: false,
+			messageAnchor: null,
 		});
 	});
 

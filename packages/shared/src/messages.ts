@@ -29,6 +29,9 @@ export const MESSAGE_KEYS = [
 	"msg_collection_no_rows",
 	"msg_rendered_needs_row",
 	"msg_annotation_not_saved",
+	"msg_annotation_not_found",
+	"msg_annotation_not_editable",
+	"msg_annotation_text_required",
 ] as const;
 
 export type MessageKey = (typeof MESSAGE_KEYS)[number];

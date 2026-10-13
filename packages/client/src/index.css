@@ -287,6 +287,10 @@ button[data-library-pin]:focus-visible {
 .page-canvas.is-annotating [data-id] { cursor: crosshair; }
 .page-canvas.is-annotating [data-id]:hover { outline: 2px solid var(--color-accent-border); outline-offset: 2px; }
 .page-canvas.is-annotating [data-id].selected { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.page-canvas.is-annotating { cursor: crosshair; }
+.page-canvas.is-annotating:focus-visible,
+.page-canvas.is-annotating [data-id]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.page-canvas.is-annotating[data-message-anchor] { outline: 2px solid var(--color-accent); outline-offset: 4px; }
 
 /* Inline text editing */
 .page-canvas [data-id][contenteditable="true"] {
@@ -376,6 +380,28 @@ button[data-library-pin]:focus-visible {
 .annotation-marker-inset .annotation-marker-badge {
 	top: 8px;
 	right: 8px;
+}
+.annotation-compose-pin {
+	position: absolute;
+	top: 40px;
+	left: 28px;
+	z-index: 10000;
+	width: 28px;
+	height: 28px;
+	transform: translate(-50%, -100%);
+	color: var(--color-accent);
+	filter: drop-shadow(0 2px 4px rgb(15 23 42 / 0.3));
+}
+.annotation-compose-pin svg {
+	width: 100%;
+	height: 100%;
+	fill: currentColor;
+	stroke: var(--color-accent-contrast);
+	stroke-width: 1.5;
+}
+.annotation-compose-pin circle {
+	fill: var(--color-accent-contrast);
+	stroke: none;
 }
 .annotation-page-marker {
 	position: absolute;

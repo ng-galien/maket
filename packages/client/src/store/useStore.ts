@@ -36,6 +36,7 @@ import {
 	type AnnotationCreateOutcome,
 	cancelDocumentLoads,
 	sendAnnotationCreate,
+	sendAnnotationEdit,
 	sendBackgroundLoadDoc,
 	sendLoadDoc,
 	sendSettings,
@@ -128,6 +129,19 @@ export interface PendingMessage {
 	file?: string;
 	position?: string;
 	ts: number;
+	/** True once the person changed the text after sending it. */
+	edited?: boolean;
+	editedAt?: number;
+}
+
+/** Where an open message field points: an element of a page, or the page. */
+export interface MessageAnchor {
+	docName: string;
+	pageIndex: number;
+	/** Absent when the message is anchored to the whole page. */
+	elementId?: string;
+	/** Pointer position on the page, in unscaled page pixels. */
+	point?: { x: number; y: number };
 }
 
 interface CollectionSlice {
@@ -299,7 +313,8 @@ interface AppState
 	readOnly: boolean;
 	selectedIds: string[];
 	editingElementId: string | null;
-	showPopover: boolean;
+	/** The open message field's anchor; null when no field is open. */
+	messageAnchor: MessageAnchor | null;
 	/** Transient annotation tool; never part of the document or saved workspace. */
 	annotationDocName: string | null;
 	locked: boolean;
@@ -344,7 +359,10 @@ interface AppState
 	setDocumentLabelPosition: (position: DocumentLabelPosition) => void;
 	applySettings: (settings: Settings) => void;
 	addPending: (msg: PendingMessage) => Promise<AnnotationCreateOutcome>;
+	editPending: (id: string, text: string) => Promise<AnnotationCreateOutcome>;
 	removePending: (id: string) => boolean;
+	openMessageField: (anchor: MessageAnchor) => void;
+	closeMessageField: () => void;
 
 	// Deprecated — backward compat
 	setServerState: (
@@ -656,7 +674,7 @@ export const useStore = create<AppState>((set, get) => ({
 	readOnly: false,
 	selectedIds: [],
 	editingElementId: null,
-	showPopover: false,
+	messageAnchor: null,
 	annotationDocName: null,
 	pending: [],
 	libraryView:
@@ -1611,17 +1629,17 @@ export const useStore = create<AppState>((set, get) => ({
 
 	selectElement: (id, toggle = false) =>
 		set((s) => {
-			if (!id) return { selectedIds: [], showPopover: false };
+			if (!id) return { selectedIds: [], messageAnchor: null };
 			if (toggle) {
 				const has = s.selectedIds.includes(id);
 				return {
 					selectedIds: has
 						? s.selectedIds.filter((x) => x !== id)
 						: [...s.selectedIds, id],
-					showPopover: false,
+					messageAnchor: null,
 				};
 			}
-			return { selectedIds: [id], showPopover: false };
+			return { selectedIds: [id], messageAnchor: null };
 		}),
 
 	setEditingElement: (id) => set({ editingElementId: id }),
@@ -1732,9 +1750,16 @@ export const useStore = create<AppState>((set, get) => ({
 			"docName" in msg ? msg.docName : (state.focusedDocName ?? undefined);
 		return sendAnnotationCreate({ ...msg, docName });
 	},
+	editPending: (id, text) => sendAnnotationEdit(id, text),
 	removePending: (id) => {
 		return wsSend({ type: "annotation_remove", id });
 	},
+	openMessageField: (anchor) =>
+		set({
+			messageAnchor: anchor,
+			selectedIds: anchor.elementId ? [anchor.elementId] : [],
+		}),
+	closeMessageField: () => set({ messageAnchor: null, selectedIds: [] }),
 
 	// Deprecated — calls upsertDoc for backward compat
 	setServerState: (doc, docList, charteCss) => {

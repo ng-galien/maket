@@ -1,19 +1,19 @@
 import {
 	Eye,
-	FileText,
 	Images,
 	LoaderCircle,
 	MessageSquareText,
-	Send,
+	Pencil,
 	Trash2,
 	Type,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getLang, useT } from "../i18n/useT";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
 import { requestFit } from "../store/zoomBridge";
+import { HoldToDelete } from "./shared/HoldToDelete";
 import { LibrarySearchField } from "./shared/LibrarySearchField";
 import {
 	LibraryToolbar,
@@ -82,7 +82,10 @@ function openMessageTarget(
 	onError: () => void,
 ) {
 	if (!msg.docName) {
-		onError();
+		useStore
+			.getState()
+			.setLibraryView(msg.type === "classify-images" ? "photos" : "docs");
+		onOpened();
 		return;
 	}
 	if (useStore.getState().docs.has(msg.docName)) {
@@ -173,14 +176,14 @@ function MessageScope({ msg }: { msg: PendingMessage }) {
 		);
 
 	return (
-		<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+		<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 			{hasDoc && (
 				<span className="truncate text-[13px] font-semibold text-text-1">
 					{msg.docName}
 				</span>
 			)}
 			{(hasPage || hasEl) && (
-				<div className="flex min-w-0 items-center gap-1.5 text-xs text-text-2">
+				<span className="flex min-w-0 items-center gap-1.5 text-xs text-text-2">
 					{hasPage && (
 						<span className="shrink-0 tabular-nums">
 							{t("page")} {(msg.pageIndex ?? 0) + 1}
@@ -192,9 +195,9 @@ function MessageScope({ msg }: { msg: PendingMessage }) {
 							{elLabel}
 						</span>
 					)}
-				</div>
+				</span>
 			)}
-		</div>
+		</span>
 	);
 }
 
@@ -219,17 +222,112 @@ function MessageBody({ msg }: { msg: PendingMessage }) {
 	return null;
 }
 
+function MessageEditor({
+	initial,
+	saving,
+	onSave,
+	onCancel,
+}: {
+	initial: string;
+	saving: boolean;
+	onSave: (text: string) => void;
+	onCancel: () => void;
+}) {
+	const t = useT();
+	const [value, setValue] = useState(initial);
+	const fieldRef = useRef<HTMLTextAreaElement>(null);
+	useEffect(() => {
+		const field = fieldRef.current;
+		if (!field) return;
+		field.focus();
+		field.setSelectionRange(field.value.length, field.value.length);
+	}, []);
+	useLayoutEffect(() => {
+		const field = fieldRef.current;
+		if (!field) return;
+		field.style.height = "auto";
+		if (value) field.style.height = `${Math.min(field.scrollHeight, 200)}px`;
+	}, [value]);
+	const commit = () => {
+		if (!value.trim() || saving) return;
+		onSave(value);
+	};
+	return (
+		<div className="flex flex-col gap-1.5">
+			<textarea
+				ref={fieldRef}
+				value={value}
+				aria-label={t("pending_edit")}
+				readOnly={saving}
+				onChange={(event) => setValue(event.target.value)}
+				onKeyDown={(event) => {
+					if (
+						event.key === "Enter" &&
+						!event.shiftKey &&
+						!event.nativeEvent.isComposing
+					) {
+						event.preventDefault();
+						commit();
+					} else if (event.key === "Escape") {
+						event.preventDefault();
+						event.stopPropagation();
+						onCancel();
+					}
+				}}
+				rows={2}
+				className="w-full resize-none rounded-md bg-accent/5 px-2.5 py-2 text-[14px] leading-[20px] text-text-1 outline-none ring-2 ring-accent/30"
+			/>
+			<div className="flex items-center justify-end gap-1.5">
+				<button
+					type="button"
+					onClick={onCancel}
+					className="h-7 rounded-md px-2.5 text-xs font-medium text-text-2 hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					{t("cancel")}
+				</button>
+				<button
+					type="button"
+					onClick={commit}
+					disabled={saving || !value.trim()}
+					aria-busy={saving}
+					className="flex h-7 items-center gap-1 rounded-md bg-accent px-2.5 text-xs font-semibold text-accent-contrast hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-35"
+				>
+					{saving && (
+						<LoaderCircle
+							size={12}
+							className="animate-spin"
+							aria-hidden="true"
+						/>
+					)}
+					{t("pending_edit_save")}
+				</button>
+			</div>
+		</div>
+	);
+}
+
+const iconButton =
+	"inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-3 transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:opacity-50";
+
 function MessageCard({
 	msg,
 	onDelete,
+	onEdit,
 }: {
 	msg: PendingMessage;
 	onDelete: (id: string) => boolean;
+	onEdit: (
+		id: string,
+		text: string,
+	) => Promise<{ ok: boolean; error?: string }>;
 }) {
 	const t = useT();
-	const canOpen = Boolean(msg.docName);
-	const [busy, setBusy] = useState<"opening" | "deleting" | null>(null);
+	const [busy, setBusy] = useState<"opening" | "deleting" | "saving" | null>(
+		null,
+	);
+	const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
 	const [error, setError] = useState<string | null>(null);
+	const editable = msg.type === "note";
 	useEffect(
 		() => () => {
 			highlightElement(msg, false);
@@ -257,15 +355,28 @@ function MessageCard({
 		);
 	};
 	const deleteMessage = () => {
+		setMode("view");
 		setError(null);
 		setBusy("deleting");
 		if (onDelete(msg.id)) return;
 		setBusy(null);
 		setError(t("pending_delete_failed"));
 	};
+	const saveEdit = async (text: string) => {
+		setError(null);
+		setBusy("saving");
+		const outcome = await onEdit(msg.id, text);
+		setBusy(null);
+		if (!outcome.ok) {
+			setError(outcome.error ?? t("pending_edit_failed"));
+			return;
+		}
+		setMode("view");
+	};
 	return (
 		<article
 			aria-busy={busy !== null}
+			data-message-id={msg.id}
 			className={`rounded-md border px-3 py-2.5 transition-colors ${
 				msg.type === "delete"
 					? "border-danger-border bg-danger-soft"
@@ -275,33 +386,60 @@ function MessageCard({
 			onMouseLeave={() => highlightElement(msg, false)}
 		>
 			<div className="flex min-w-0 items-start gap-2">
-				<MessageScope msg={msg} />
+				<button
+					type="button"
+					onClick={openTarget}
+					disabled={busy !== null}
+					title={t("pending_open_target")}
+					className="flex min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					<MessageScope msg={msg} />
+				</button>
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
-					<time className="mr-1 text-xs font-medium tabular-nums text-text-3">
-						{formatTime(msg.ts)}
-					</time>
-					{canOpen && (
+					<span className="mr-1 flex flex-col items-end text-xs font-medium tabular-nums text-text-3">
+						<time>{formatTime(msg.ts)}</time>
+						{msg.edited && msg.editedAt && (
+							<span data-message-edited="" className="text-2xs font-normal">
+								{t("pending_edited", { time: formatTime(msg.editedAt) })}
+							</span>
+						)}
+					</span>
+					<button
+						type="button"
+						onClick={openTarget}
+						disabled={busy !== null}
+						aria-label={
+							busy === "opening"
+								? t("pending_opening")
+								: t("pending_open_target")
+						}
+						title={t("pending_open_target")}
+						className={`${iconButton} hover:bg-panel hover:text-text-1 focus-visible:ring-accent`}
+					>
+						{busy === "opening" ? (
+							<LoaderCircle
+								size={14}
+								className="animate-spin"
+								aria-hidden="true"
+							/>
+						) : (
+							<Eye size={14} aria-hidden="true" />
+						)}
+					</button>
+					{editable && (
 						<button
 							type="button"
-							onClick={openTarget}
+							aria-label={t("pending_edit")}
+							title={t("pending_edit")}
+							aria-pressed={mode === "edit"}
+							onClick={() => {
+								setError(null);
+								setMode(mode === "edit" ? "view" : "edit");
+							}}
 							disabled={busy !== null}
-							aria-label={
-								busy === "opening"
-									? t("pending_opening")
-									: t("pending_open_target")
-							}
-							title={t("pending_open_target")}
-							className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-panel hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50"
+							className={`${iconButton} hover:bg-accent-soft hover:text-accent focus-visible:ring-accent`}
 						>
-							{busy === "opening" ? (
-								<LoaderCircle
-									size={14}
-									className="animate-spin"
-									aria-hidden="true"
-								/>
-							) : (
-								<Eye size={14} aria-hidden="true" />
-							)}
+							<Pencil size={13} aria-hidden="true" />
 						</button>
 					)}
 					<button
@@ -312,9 +450,12 @@ function MessageCard({
 								: t("pending_delete_note")
 						}
 						title={t("pending_delete_note")}
-						onClick={deleteMessage}
+						onClick={() => {
+							setError(null);
+							setMode(mode === "delete" ? "view" : "delete");
+						}}
 						disabled={busy !== null}
-						className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-text-3 transition-colors hover:bg-danger-soft hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger disabled:opacity-50"
+						className={`${iconButton} hover:bg-danger-soft hover:text-danger focus-visible:ring-danger`}
 					>
 						{busy === "deleting" ? (
 							<LoaderCircle
@@ -331,9 +472,27 @@ function MessageCard({
 			<div className="mt-2 flex items-start gap-2">
 				<TypeBadge type={msg.type} />
 				<div className="min-w-0 flex-1 text-[15px] leading-[21px]">
-					<MessageBody msg={msg} />
+					{mode === "edit" && editable ? (
+						<MessageEditor
+							initial={msg.text ?? ""}
+							saving={busy === "saving"}
+							onSave={saveEdit}
+							onCancel={() => setMode("view")}
+						/>
+					) : (
+						<MessageBody msg={msg} />
+					)}
 				</div>
 			</div>
+			{mode === "delete" && (
+				<div className="mt-2">
+					<HoldToDelete
+						label={t("pending_hold_delete")}
+						onConfirm={deleteMessage}
+						onCancel={() => setMode("view")}
+					/>
+				</div>
+			)}
 			{error && (
 				<p className="mt-2 text-xs font-medium text-danger" role="alert">
 					{error}
@@ -343,116 +502,13 @@ function MessageCard({
 	);
 }
 
-function MessageComposer({
-	isTop,
-	docName,
-	note,
-	saving,
-	error,
-	onChange,
-	onSubmit,
-}: {
-	isTop: boolean;
-	docName: string | null;
-	note: string;
-	saving: boolean;
-	error: string | null;
-	onChange: (value: string) => void;
-	onSubmit: () => void;
-}) {
-	const t = useT();
-	const positionClass = isTop ? "border-b order-first" : "border-t order-last";
-	if (!docName) {
-		return (
-			<div className={`border-border/60 px-3 py-3 ${positionClass}`}>
-				<p className="text-[13px] leading-[18px] text-text-2">
-					{t("note_requires_document")}
-				</p>
-				<button
-					type="button"
-					onClick={() => useStore.getState().setLibraryView("docs")}
-					className="mt-2 inline-flex h-8 items-center rounded-[7px] bg-input px-2.5 text-[13px] font-semibold text-text-1 transition hover:bg-accent-soft hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				>
-					{t("choose_document")}
-				</button>
-			</div>
-		);
-	}
-	return (
-		<div
-			className={`flex flex-col gap-1.5 border-border/60 px-3 py-3 ${positionClass}`}
-		>
-			<div className="flex min-w-0 items-center gap-1 px-0.5 text-[13px] font-medium text-text-2">
-				<FileText size={12} className="flex-shrink-0" />
-				<span className="truncate">
-					{t("new_note_scope", { scope: docName })}
-				</span>
-			</div>
-			<div className="flex items-end gap-1.5">
-				<textarea
-					aria-label={t("note_global_placeholder")}
-					aria-invalid={error ? true : undefined}
-					value={note}
-					onChange={(event) => onChange(event.target.value)}
-					onKeyDown={(event) => {
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							onSubmit();
-						}
-					}}
-					rows={3}
-					placeholder={t("note_global_placeholder")}
-					className="flex-1 min-w-0 px-3 py-2.5 bg-input rounded-lg text-[15px] leading-[21px] outline-none placeholder:text-text-3 focus:ring-2 focus:ring-accent/20 resize-none"
-				/>
-				<button
-					type="button"
-					onClick={onSubmit}
-					disabled={!note.trim() || saving}
-					aria-busy={saving}
-					aria-label={t("pending_send_note")}
-					title={t("pending_send_note")}
-					className={`w-9 h-9 rounded-lg flex items-center justify-center transition flex-shrink-0 ${
-						note.trim() && !saving
-							? "bg-accent text-accent-contrast hover:brightness-110"
-							: "bg-input text-text-3 cursor-not-allowed"
-					}`}
-				>
-					{saving ? (
-						<LoaderCircle
-							size={14}
-							className="animate-spin"
-							aria-hidden="true"
-						/>
-					) : (
-						<Send size={14} aria-hidden="true" />
-					)}
-				</button>
-			</div>
-			{saving && (
-				<p className="text-xs font-medium text-text-2" aria-live="polite">
-					{t("pending_sending")}
-				</p>
-			)}
-			{error && (
-				<p className="text-xs font-medium text-danger" role="alert">
-					{error}
-				</p>
-			)}
-		</div>
-	);
-}
-
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MessagesPanel is an adapter over the pending queue: queue ownership stays in Zustand while the panel only renders and dispatches UI commands.
 export function MessagesPanel() {
 	const t = useT();
-	const [globalNote, setGlobalNote] = useState("");
 	const [search, setSearch] = useState("");
-	const [noteSaving, setNoteSaving] = useState(false);
-	const [noteError, setNoteError] = useState<string | null>(null);
-	const focusedDocName = useStore((s) => s.focusedDocName);
 	const pending = useStore((s) => s.pending);
-	const addPending = useStore((s) => s.addPending);
+	const editPending = useStore((s) => s.editPending);
 	const removePending = useStore((s) => s.removePending);
 	useEffect(() => {
 		if (pending.length > 0) return;
@@ -480,25 +536,6 @@ export function MessagesPanel() {
 				.includes(query),
 		);
 	}, [pending, search]);
-
-	const submitNote = async () => {
-		const text = globalNote.trim();
-		if (!text || noteSaving) return;
-		setNoteSaving(true);
-		setNoteError(null);
-		const outcome = await addPending({
-			id: crypto.randomUUID(),
-			type: "note",
-			text,
-			ts: Date.now(),
-		});
-		setNoteSaving(false);
-		if (!outcome.ok) {
-			setNoteError(t("pending_create_failed"));
-			return;
-		}
-		setGlobalNote((current) => (current.trim() === text ? "" : current));
-	};
 
 	return (
 		<section
@@ -544,23 +581,15 @@ export function MessagesPanel() {
 					</div>
 				) : (
 					filteredPending.map((msg) => (
-						<MessageCard key={msg.id} msg={msg} onDelete={removePending} />
+						<MessageCard
+							key={msg.id}
+							msg={msg}
+							onDelete={removePending}
+							onEdit={editPending}
+						/>
 					))
 				)}
 			</div>
-
-			<MessageComposer
-				isTop={false}
-				docName={focusedDocName}
-				note={globalNote}
-				saving={noteSaving}
-				error={noteError}
-				onChange={(value) => {
-					setGlobalNote(value);
-					if (noteError) setNoteError(null);
-				}}
-				onSubmit={submitNote}
-			/>
 		</section>
 	);
 }

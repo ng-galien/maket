@@ -430,6 +430,14 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 		case "annotations_changed":
 			useStore.setState({ pending: msg.annotations as PendingMessage[] });
 			break;
+		case "annotation_edit_result":
+			settleAnnotationEdit(msg.requestId, {
+				ok: msg.ok,
+				...(msg.ok
+					? {}
+					: { error: describeFailure(msg, "msg_annotation_not_saved") }),
+			});
+			break;
 		case "annotation_create_result":
 			settleAnnotationCreate(msg.requestId, {
 				ok: msg.ok,
@@ -756,6 +764,49 @@ export function sendAnnotationCreate(
 	});
 }
 
+const annotationEditRequests = new Map<
+	string,
+	{
+		resolve: (outcome: AnnotationCreateOutcome) => void;
+		timeout: ReturnType<typeof setTimeout>;
+	}
+>();
+
+/** Asks the server to replace a pending note's text; resolves on its answer. */
+export function sendAnnotationEdit(
+	id: string,
+	text: string,
+): Promise<AnnotationCreateOutcome> {
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve) => {
+		const timeout = setTimeout(
+			() =>
+				settleAnnotationEdit(requestId, {
+					ok: false,
+					error: "The change could not be confirmed by the server.",
+				}),
+			10_000,
+		);
+		annotationEditRequests.set(requestId, { resolve, timeout });
+		if (wsSend({ type: "annotation_edit", requestId, id, text })) return;
+		settleAnnotationEdit(requestId, {
+			ok: false,
+			error: "The change could not be sent.",
+		});
+	});
+}
+
+function settleAnnotationEdit(
+	requestId: string,
+	outcome: AnnotationCreateOutcome,
+): void {
+	const pending = annotationEditRequests.get(requestId);
+	if (!pending) return;
+	clearTimeout(pending.timeout);
+	annotationEditRequests.delete(requestId);
+	pending.resolve(outcome);
+}
+
 function settleAnnotationCreate(
 	requestId: string,
 	outcome: AnnotationCreateOutcome,
@@ -770,6 +821,9 @@ function settleAnnotationCreate(
 function settleAllAnnotationCreates(error: string): void {
 	for (const requestId of annotationCreateRequests.keys()) {
 		settleAnnotationCreate(requestId, { ok: false, error });
+	}
+	for (const requestId of annotationEditRequests.keys()) {
+		settleAnnotationEdit(requestId, { ok: false, error });
 	}
 }
 

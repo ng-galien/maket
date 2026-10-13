@@ -79,7 +79,7 @@ const DESCRIPTION = [
 	"  state         — summarise `doc`'s current state: canvas, pages with element counts and data-source cursors (collection · mode · row), charte, pending messages.",
 	"  lock          — lock or unlock `doc`. When locked, every doc-scoped mutation refuses until it's unlocked. Pass locked=true/false, or omit to toggle.",
 	"  fit_view      — zoom out the client to fit the whole workspace (same as the Maximize button).",
-	"  list_messages — return pending annotations as JSON. With `doc`, return only that document's messages; without it, return all document and workspace messages. Each message carries `docName` (or none for workspace scope).",
+	"  list_messages — return pending annotations as JSON. With `doc`, return only that document's messages; without it, return all document and workspace messages. Each message carries `docName` (or none for workspace scope), `pageIndex` and `elementId` for its anchor, `text`, `ts`; a note the person changed after sending also carries `edited: true` and `editedAt` (epoch ms) — act on the current `text`.",
 	"  ack_messages  — drop the given `ids` from whichever bucket they live in.",
 ].join("\n");
 

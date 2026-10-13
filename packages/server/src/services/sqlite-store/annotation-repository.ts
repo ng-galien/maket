@@ -6,6 +6,7 @@ export interface AnnotationRepository {
 	saveAnnotation(annotation: PendingMessage): void;
 	loadAnnotations(): PendingMessage[];
 	deleteAnnotations(ids: string[]): string[];
+	updateAnnotationText(id: string, text: string, editedAt: number): boolean;
 }
 
 export function createAnnotationRepository(
@@ -32,13 +33,16 @@ export function createAnnotationRepository(
 	`);
 	const selectAll = db.prepare(`
 		SELECT a.id, d.name AS doc_name, a.page_index, a.element_id,
-			a.type, a.text, a.file, a.position, a.ts
+			a.type, a.text, a.file, a.position, a.ts, a.edited_at
 		FROM annotations a
 		LEFT JOIN documents d ON d.id = a.document_id
 		ORDER BY a.created_at ASC, a.id ASC
 	`);
 	const selectById = db.prepare("SELECT id FROM annotations WHERE id = ?");
 	const deleteById = db.prepare("DELETE FROM annotations WHERE id = ?");
+	const updateText = db.prepare(
+		"UPDATE annotations SET text = $text, edited_at = $edited_at WHERE id = $id",
+	);
 
 	return {
 		saveAnnotation(annotation) {
@@ -80,7 +84,14 @@ export function createAnnotationRepository(
 				...(row.file != null ? { file: String(row.file) } : {}),
 				...(row.position != null ? { position: String(row.position) } : {}),
 				ts: Number(row.ts),
+				...(row.edited_at != null
+					? { edited: true, editedAt: Number(row.edited_at) }
+					: {}),
 			}));
+		},
+		updateAnnotationText(id, text, editedAt) {
+			const result = updateText.run({ id, text, edited_at: editedAt });
+			return Number(result.changes) > 0;
 		},
 		deleteAnnotations(ids) {
 			const matched: string[] = [];

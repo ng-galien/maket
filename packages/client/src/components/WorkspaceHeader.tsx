@@ -14,6 +14,7 @@ import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
 import { sendLockDoc, sendPinDoc } from "../store/ws";
 import { fitToView } from "../store/zoomBridge";
+import { AnnotationToggle } from "./AnnotationToggle";
 import { CollectionDockButton } from "./CollectionDataControls";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
 import { fitReadingDocument, ReaderDocumentPicker } from "./ReadingWorkspace";
@@ -35,6 +36,9 @@ export function WorkspaceHeader({
 	const docs = useStore((state) => state.docs);
 	const docList = useStore((state) => state.docList);
 	const workspaces = useStore((state) => state.structuredWorkspaces);
+	const structuredNavigation = useStore((state) =>
+		Boolean(selectStructuredCollectionNavigation(state)),
+	);
 	const readOnly = useStore((state) => state.readOnly);
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
@@ -185,6 +189,7 @@ export function WorkspaceHeader({
 			{focusedDoc && (
 				<div className="flex shrink-0 items-center gap-0.5 overflow-x-auto">
 					<ReadingButton doc={focusedDoc} />
+					{!structuredNavigation && <AnnotationToggle doc={focusedDoc} />}
 					<FitButton />
 					<DocumentLockButton doc={focusedDoc} onToggle={onDocumentLock} />
 					<DocumentOutputButtons docName={focusedDoc.name} />

@@ -187,7 +187,7 @@ test.describe("Document annotations", () => {
 			await title.click();
 			await page.locator(".tb-comment").click();
 			await page
-				.getByPlaceholder(/Note pour l'agent|Note for the agent/i)
+				.getByPlaceholder(/Message pour l.agent|Message for the agent/i)
 				.fill(NOTE_TEXT);
 			await page.keyboard.press("Enter");
 
@@ -225,7 +225,7 @@ test.describe("Document annotations", () => {
 			).toBeVisible();
 			await expect(
 				messageCard.getByRole("button", {
-					name: /Delete note|Supprimer la note/i,
+					name: /Delete message|Supprimer le message/i,
 				}),
 			).toBeVisible();
 			await messageCard.hover();
@@ -341,7 +341,7 @@ test.describe("Document annotations", () => {
 		}
 	});
 
-	test("a document-level annotation survives another window and its acknowledgement propagates", async ({
+	test("a page-level annotation survives another window and its acknowledgement propagates", async ({
 		baseURL,
 		context,
 		page,
@@ -368,11 +368,16 @@ test.describe("Document annotations", () => {
 			const messagesButton = page.getByRole("button", {
 				name: /^(exchanges|échanges)$/i,
 			});
-			await messagesButton.click();
+			await page.getByRole("button", { name: /^(Annotate|Annoter)$/ }).click();
 			await page
-				.getByPlaceholder(/Note sur le document|Note about the document/i)
+				.locator(`[data-doc="${docName}"] .page-canvas`)
+				.first()
+				.click();
+			await page
+				.getByPlaceholder(/Message pour l.agent|Message for the agent/i)
 				.fill(DOCUMENT_NOTE_TEXT);
 			await page.keyboard.press("Enter");
+			await messagesButton.click();
 			await expect(libraryBadge(messagesButton)).toHaveText("1");
 			await expect(
 				page.locator(`[data-doc="${docName}"] [data-annotation-page-marker]`),
@@ -388,7 +393,7 @@ test.describe("Document annotations", () => {
 			).toBeVisible();
 			await expect(
 				documentMessage.getByRole("button", {
-					name: /Delete note|Supprimer la note/i,
+					name: /Delete message|Supprimer le message/i,
 				}),
 			).toBeVisible();
 

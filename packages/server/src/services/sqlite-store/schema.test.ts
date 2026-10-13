@@ -15,7 +15,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(tableCount(db, "documents")).toBe(2);
 		expect(tableCount(db, "pages")).toBe(2);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
@@ -57,7 +57,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "document_states")).toBe(true);
 		expect(hasTable(db, "document_state_revisions")).toBe(true);
@@ -79,7 +79,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 		expect(createDocumentRepository(db).loadAll()).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(hasColumn(db, "document_state_revisions", "schema")).toBe(true);
 		expect(stateData(db)).toEqual(dataBefore);
 		const rows = db
@@ -123,11 +123,12 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(hasTable(db, "annotations")).toBe(true);
 		expect(annotationColumns(db)).toEqual([
 			"created_at",
 			"document_id",
+			"edited_at",
 			"element_id",
 			"file",
 			"id",
@@ -174,12 +175,12 @@ describe("SQLite schema migrations", () => {
 	});
 
 	it("refuses to downgrade a newer database", () => {
-		const db = historicalDatabaseWithoutIds(20);
+		const db = historicalDatabaseWithoutIds(21);
 
 		expect(() => initializeSQLiteSchema(db)).toThrow(
-			/schema v20 is newer than supported v19/,
+			/schema v21 is newer than supported v20/,
 		);
-		expect(schemaVersion(db)).toBe(20);
+		expect(schemaVersion(db)).toBe(21);
 		expect(tableCount(db, "documents")).toBe(2);
 		db.close();
 	});
@@ -207,7 +208,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(hasUniqueDocumentIdIndex(db)).toBe(true);
 		expect(hasTable(db, "collection_cursors")).toBe(true);
 		expect(hasTable(db, "structured_workspaces")).toBe(true);
@@ -233,7 +234,7 @@ describe("SQLite schema migrations", () => {
 
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(
 			db
 				.prepare(
@@ -265,7 +266,7 @@ describe("SQLite schema migrations", () => {
 		initializeSQLiteSchema(db);
 		initializeSQLiteSchema(db);
 
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		expect(
 			db
 				.prepare(
@@ -282,6 +283,26 @@ describe("SQLite schema migrations", () => {
 		expect(documents.listTimestamps().get("synthesis")).toBe(
 			"2026-01-02 03:04:05.006",
 		);
+		db.close();
+	});
+
+	it("adds an empty edit time to existing annotations", () => {
+		const db = new DatabaseSync(":memory:");
+		db.exec("PRAGMA foreign_keys = ON;");
+		initializeSQLiteSchema(db);
+		db.exec(`
+			INSERT INTO annotations (id, type, text, ts) VALUES ('note-1', 'note', 'Keep', 1);
+			ALTER TABLE annotations DROP COLUMN edited_at;
+			PRAGMA user_version = 19;
+		`);
+		expect(hasColumn(db, "annotations", "edited_at")).toBe(false);
+
+		initializeSQLiteSchema(db);
+
+		expect(schemaVersion(db)).toBe(20);
+		expect(
+			db.prepare("SELECT text, edited_at AS editedAt FROM annotations").get(),
+		).toEqual({ text: "Keep", editedAt: null });
 		db.close();
 	});
 
@@ -350,7 +371,7 @@ describe("SQLite schema migrations", () => {
 				{ role: "detail", collectionId: "backlog", bindingId: "task" },
 			],
 		});
-		expect(schemaVersion(db)).toBe(19);
+		expect(schemaVersion(db)).toBe(20);
 		db.close();
 	});
 });

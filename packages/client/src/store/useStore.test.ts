@@ -44,7 +44,7 @@ function resetStore() {
 			assetsLoading: false,
 			selectedIds: [],
 			editingElementId: null,
-			showPopover: false,
+			messageAnchor: null,
 			pending: [],
 			libraryView: "docs",
 			libraryOpen: true,
@@ -807,10 +807,13 @@ describe("workspace / focus", () => {
 
 describe("selection", () => {
 	it("selectElement(null) clears selection and popover", () => {
-		useStore.setState({ selectedIds: ["x"], showPopover: true });
+		useStore.setState({
+			selectedIds: ["x"],
+			messageAnchor: { docName: "alpha", pageIndex: 0, elementId: "x" },
+		});
 		useStore.getState().selectElement(null);
 		expect(useStore.getState().selectedIds).toEqual([]);
-		expect(useStore.getState().showPopover).toBe(false);
+		expect(useStore.getState().messageAnchor).toBeNull();
 	});
 
 	it("selectElement(id, toggle=true) toggles membership", () => {

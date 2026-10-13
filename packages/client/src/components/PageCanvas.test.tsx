@@ -36,7 +36,7 @@ afterEach(() => {
 		pending: [],
 		editingElementId: null,
 		selectedIds: [],
-		showPopover: false,
+		messageAnchor: null,
 		collections: [],
 		collectionCursors: {},
 		documentStates: {},
@@ -1307,7 +1307,7 @@ describe("PageCanvas toolbar interactions", () => {
 			fireEvent.click(document.querySelector(".tb-comment") as HTMLElement);
 		});
 
-		expect(useStore.getState().showPopover).toBe(true);
+		expect(useStore.getState().messageAnchor).toMatchObject({ elementId: "a" });
 		expect(useStore.getState().selectedIds).toEqual(["a"]);
 	});
 
