@@ -1,3 +1,4 @@
+import { swipeTouch } from "./touch-gesture";
 import {
 	createDocument,
 	expect,
@@ -55,12 +56,12 @@ for (const width of [344, 690]) {
 		const box = await reader.boundingBox();
 		if (!box) throw Error("Missing reader");
 		const session = await page.context().newCDPSession(page);
-		await session.send("Input.synthesizeScrollGesture", {
-			x: box.x + box.width / 2,
-			y: box.y + box.height * 0.7,
-			yDistance: -500,
-			gestureSourceType: "touch",
-		});
+		await swipeTouch(
+			page,
+			session,
+			{ x: box.x + box.width / 2, y: box.y + box.height * 0.7 },
+			{ x: box.x + box.width / 2, y: box.y + box.height * 0.25 },
+		);
 		await expect
 			.poll(() => reader.evaluate((el) => el.scrollTop))
 			.toBeGreaterThan(0);
@@ -96,13 +97,7 @@ for (const width of [344, 690]) {
 			.toBeGreaterThan(before);
 
 		const leftBefore = await reader.evaluate((el) => el.scrollLeft);
-		await session.send("Input.synthesizeScrollGesture", {
-			x,
-			y,
-			xDistance: -100,
-			yDistance: 0,
-			gestureSourceType: "touch",
-		});
+		await swipeTouch(page, session, { x, y }, { x: x - 100, y });
 		await expect
 			.poll(() => reader.evaluate((el) => el.scrollLeft))
 			.toBeGreaterThan(leftBefore);

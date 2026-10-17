@@ -29,6 +29,12 @@ describe("embedded Maket server", () => {
 	it("admits only the configured HTTPS proxy context across HTTP, browser exports and WebSocket", async () => {
 		const dataDir = mkdtempSync(join(tmpdir(), "maket-trusted-origin-"));
 		directories.push(dataDir);
+		const publicDir = join(dataDir, "public");
+		mkdirSync(publicDir);
+		writeFileSync(
+			join(publicDir, "index.html"),
+			"<!doctype html><title>Origin test</title>",
+		);
 		const origin = "https://maket.example.ts.net:18448";
 		const authority = new URL(origin).host;
 		const config = createConfig({
@@ -36,6 +42,7 @@ describe("embedded Maket server", () => {
 				MAKET_DATA_DIR: dataDir,
 				MAKET_SETTINGS_FILE: join(dataDir, "settings.json"),
 				MAKET_PORT: "0",
+				MAKET_PUBLIC_DIR: publicDir,
 				MAKET_TRUSTED_ORIGINS: JSON.stringify([origin]),
 			},
 		});

@@ -1,4 +1,5 @@
 import type { StructuredWorkspaceView } from "@maket/shared";
+import { swipeTouch } from "./touch-gesture";
 import {
 	createDocument,
 	expect,
@@ -67,13 +68,12 @@ test("document opt-in reflows every reader page, survives a bundle, and preserve
 	const box = await reader.boundingBox();
 	if (!box) throw new Error("Missing reader viewport");
 	const session = await page.context().newCDPSession(page);
-	await session.send("Input.synthesizeScrollGesture", {
-		x: box.x + box.width / 2,
-		y: box.y + box.height * 0.7,
-		yDistance: -1400,
-		speed: 1500,
-		gestureSourceType: "touch",
-	});
+	await swipeTouch(
+		page,
+		session,
+		{ x: box.x + box.width / 2, y: box.y + box.height * 0.7 },
+		{ x: box.x + box.width / 2, y: box.y + box.height * 0.25 },
+	);
 	await expect
 		.poll(() => reader.evaluate((el) => el.scrollTop))
 		.toBeGreaterThan(0);
