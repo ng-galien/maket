@@ -26,6 +26,71 @@
 	}
 }
 
+/* The consultation controls keep a finger-sized target on phones, including
+   the Fold cover screen, without changing desktop toolbar density. */
+@media (pointer: coarse) {
+	[data-collection-toolbar] {
+		min-height: 48px;
+		gap: 4px;
+		padding-inline: 8px;
+	}
+
+	[data-collection-toolbar] button {
+		min-width: 40px;
+		min-height: 40px;
+	}
+
+	[data-structured-workspaces-list] button {
+		min-height: 40px;
+	}
+
+	[data-structured-index-search] input {
+		min-height: 40px;
+	}
+}
+
+@media (max-width: 639px) {
+	[data-workspace-header] {
+		height: auto;
+		min-height: 56px;
+		flex-wrap: wrap;
+		row-gap: 4px;
+		padding-block: 8px;
+	}
+
+	[data-workspace-header] > div:first-child {
+		flex-basis: 100%;
+	}
+
+	[data-workspace-header] > div:last-child {
+		margin-left: auto;
+	}
+
+	[data-document-context] {
+		flex-wrap: wrap;
+	}
+
+	[data-document-context] > nav {
+		flex: 0 0 100%;
+		overflow-x: auto;
+		white-space: nowrap;
+	}
+
+	[data-document-context] > nav button {
+		flex-shrink: 0;
+		min-height: 32px;
+	}
+
+	[data-document-context] > span[aria-hidden] {
+		display: none;
+	}
+
+	[data-document-context] > [data-reader-document-picker] {
+		flex: 1;
+		max-width: none;
+	}
+}
+
 @theme {
   /* ---------- Fonts ---------- */
   --font-display: "Raleway", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -148,10 +213,12 @@ body {
   color: var(--color-text-1);
   overflow: hidden;
   height: 100vh;
+  height: 100dvh;
 }
 
 #root {
   height: 100vh;
+  height: 100dvh;
 }
 
 /* Electron lets the shared header carry the native window chrome. Interactive
@@ -668,3 +735,103 @@ button[data-library-pin]:focus-visible {
 
 .page-canvas[data-auto-height="true"] .maket-json-forms { height: auto; }
 .page-canvas[data-auto-height="true"] .page-authored-content { height: auto; display: flow-root; }
+
+/* Reader navigation reserves a full row for choosing a document on phones,
+   including unfolded narrow screens; output/page actions remain on the next row. */
+@media (max-width: 767px) {
+  [data-reader-navigation] { height: auto; max-width: none; width: calc(100% - 16px); flex-wrap: wrap; row-gap: 4px; }
+  [data-reader-navigation] .reader-bar-document { order: -1; flex: 1 1 calc(100% - 48px); width: auto; }
+  [data-reader-navigation] .reader-bar-document > button { min-height: 44px; }
+  [data-reader-navigation] .reader-bar-exit { order: -1; }
+  [data-reading-workspace][data-bar-position="top"] { padding-top: 116px; }
+}
+
+
+/* The connected mobile reader keeps library destinations in a bottom bar.
+   Its full-width library is navigation, never a compressed desktop panel. */
+[data-mobile-reader] [data-library-panel][data-library-mode="compact"],
+[data-mobile-reader] [data-library-overlay-rail],
+[data-mobile-reader] [data-library-panel]:not([data-mobile-explorer]) > div:first-child {
+ display: none;
+}
+[data-mobile-reader] [data-library-panel][data-library-mode="extended"] {
+ position: absolute; inset: 0; width: 100% !important; max-width: none; border: 0;
+}
+[data-mobile-reader] [data-workspace-header] {
+ height: auto; min-height: 64px; padding: 8px 12px; gap: 4px;
+}
+[data-mobile-reader] [data-document-context] { flex-wrap: wrap; gap: 2px; }
+[data-mobile-reader] [data-document-context] > nav {
+ flex: 0 0 100%; overflow-x: auto; white-space: nowrap; font-size: 12px;
+}
+[data-mobile-reader] [data-document-context] > nav button { flex-shrink: 0; min-height: 32px; }
+[data-mobile-reader] [data-document-context] > span[aria-hidden] { display: none; }
+[data-mobile-reader] [data-reader-document-picker] { flex: 1; max-width: none; }
+[data-mobile-reader] [data-collection-toolbar] { min-height: 44px; }
+[data-mobile-reader] [data-collection-toolbar] button { min-height: 40px; min-width: 40px; }
+[data-mobile-reader] [data-reading-workspace] { touch-action: pan-x pan-y; padding-bottom: 76px; }
+[data-mobile-reader] [data-structured-index-search] { padding: 8px 12px; }
+[data-mobile-reader] [data-structured-index-search] input { min-height: 44px; }
+@media (prefers-reduced-motion: no-preference) {
+ [data-mobile-reader] [data-structured-item-pane] { animation: mobile-reader-enter 160ms ease-out; }
+ @keyframes mobile-reader-enter { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: translateX(0); } }
+}
+
+[data-mobile-reader] [data-reader-zoom-controls] {
+ bottom: calc(4.25rem + env(safe-area-inset-bottom));
+}
+[data-mobile-reader] [data-library-pin],
+[data-mobile-reader] [role="separator"][aria-orientation="vertical"] { display: none; }
+
+[data-mobile-reader] [data-mobile-simple-header] { min-height: 64px; }
+[data-mobile-reader] [data-collection-document-title] { display: none; }
+[data-mobile-reader] [data-structured-index-pane] [data-collection-toolbar] { display: none; }
+[data-mobile-reader] [data-mobile-explorer] input { font-size: 16px; }
+
+/* Keep the connected phone libraries tactile without changing desktop panels. */
+[data-mobile-reader] #panel-exchange [data-message-heading] { flex-wrap: wrap; }
+[data-mobile-reader] #panel-exchange [data-message-heading] > button { flex-basis: 100%; min-height: 44px; }
+[data-mobile-reader] #panel-exchange [data-message-heading] > button span { font-size: 16px; line-height: 1.5; }
+[data-mobile-reader] #panel-exchange button { min-width: 44px; min-height: 44px; }
+[data-mobile-reader] #panel-exchange button svg { width: 20px; height: 20px; }
+[data-mobile-reader] #panel-exchange [data-library-search] input { height: 48px; padding-right: 48px; }
+[data-mobile-reader] #panel-exchange [data-library-search] button { right: 0; }
+[data-mobile-reader] #panel-exchange [data-message-id] p { font-size: 16px; line-height: 1.5; }
+[data-mobile-reader] #panel-exchange [data-message-id] button span { white-space: normal; }
+[data-mobile-reader] [data-settings-page] button { min-height: 44px; }
+[data-mobile-reader] [data-settings-page] [role="group"] { flex-wrap: wrap; gap: 4px; }
+[data-mobile-reader] [data-settings-page] [role="group"] button { flex: 1 0 auto; font-size: 14px; }
+[data-mobile-reader] [data-settings-page] h3 { font-size: 16px; }
+[data-mobile-reader] [data-settings-page] p { font-size: 14px; line-height: 1.5; }
+
+[data-mobile-reader], [data-mobile-ui] {
+ --text-2xs: 12px;
+ --text-xs: 12px;
+ --text-sm: 14px;
+ --text-base: 16px;
+ --text-lg: 18px;
+}
+
+[data-mobile-reader] [data-settings-page] button,
+[data-mobile-reader] [data-settings-page] [data-accent-custom] { min-width: 44px; min-height: 44px; }
+[data-mobile-reader] [data-reader-document-picker] > button { min-height: 44px; }
+[data-reader-menu][data-mobile-ui] button { min-width: 44px; min-height: 44px; }
+[data-reader-menu][data-mobile-ui] [role="option"] { min-height: 56px; padding-right: 52px; }
+[data-reader-menu][data-mobile-ui] [data-open-document-pin] { right: 4px; }
+[data-reader-menu][data-mobile-ui] [data-open-document-close] { right: 4px; }
+[data-reader-menu][data-mobile-ui] div:has(> [data-open-document-pin]):has(> [data-open-document-close]) > [role="option"] { padding-right: 100px; }
+[data-reader-menu][data-mobile-ui] div:has(> [data-open-document-close]) > [data-open-document-pin] { right: 52px; }
+[data-reader-menu][data-mobile-ui] button svg { width: 20px; height: 20px; }
+
+/* The mobile search field owns focus across its icon, input and clear action. */
+[data-mobile-explorer-search] > label:focus-within {
+	border-color: var(--color-accent);
+}
+[data-mobile-explorer-search] input:focus-visible,
+[data-mobile-explorer-search] button:focus-visible {
+	outline: 0;
+}
+
+[data-mobile-explorer-search] input::-webkit-search-cancel-button {
+	display: none;
+}

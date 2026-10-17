@@ -27,6 +27,7 @@ import {
 } from "../desktopConfiguration";
 import { useDesktopUpdates } from "../desktopUpdates";
 import { getLang, useT } from "../i18n/useT";
+import { useMobileReader } from "../lib/mobileReader";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { ChartesTab } from "./ChartesTab";
@@ -72,6 +73,7 @@ export function LibraryPanel({
 	onOverlayChange?: (overlay: boolean) => void;
 }) {
 	const t = useT();
+	const mobileReader = useMobileReader();
 	const open = useStore((state) => state.libraryOpen);
 	const view = useStore((state) => state.libraryView);
 	const pinned = useStore((state) => state.libraryPinned);
@@ -88,8 +90,9 @@ export function LibraryPanel({
 	const [width, setWidth] = useState(() => loadPanelWidth("library"));
 	const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
 	const overlay =
-		collectionNavigation &&
-		viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH;
+		mobileReader ||
+		(collectionNavigation &&
+			viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH);
 	useLayoutEffect(() => onOverlayChange?.(overlay), [onOverlayChange, overlay]);
 	const preferredWidth = useRef(width);
 	const panelRef = useRef<HTMLElement>(null);
@@ -194,8 +197,10 @@ export function LibraryPanel({
 						onTogglePinned={toggleLibraryPinned}
 						onCollectionNavigate={() => {
 							if (
-								useStore.getState().structuredWorkspaceLayout === "split" &&
-								viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH
+								mobileReader ||
+								viewportWidth < 960 ||
+								(useStore.getState().structuredWorkspaceLayout === "split" &&
+									viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH)
 							)
 								closeLastPanel();
 						}}
@@ -316,7 +321,7 @@ function ExtendedLibrary({
 				data-library-content
 				className="min-h-0 flex-1 overflow-hidden bg-panel"
 			>
-				{view === "docs" && <DocsTab />}
+				{view === "docs" && <DocsTab onNavigate={onCollectionNavigate} />}
 				{view === "chartes" && <ChartesTab />}
 				{view === "photos" && <PhotosTab />}
 				{view === "collections" && <CollectionsTab />}

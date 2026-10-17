@@ -25,6 +25,7 @@ import {
 	resolveDarkMode,
 	type ThemeMode,
 } from "../lib/colorScheme";
+import { beginMobileNavigation, beginMobileReturn } from "../lib/mobileHistory";
 import {
 	collectionHasChanged,
 	sortedCollectionMembers,
@@ -334,6 +335,8 @@ interface ShellSlice {
 	documentCategoryFilterRequest: { path: string } | null;
 	structuredWorkspaceFilterRequest: { workspaceId: string | null } | null;
 	workspaceView: WorkspaceView;
+	/** Transient connected-reader presentation; never persisted in documents. */
+	mobileReading: boolean;
 	themeMode: ThemeMode;
 	darkMode: boolean;
 	accentColor: string;
@@ -772,6 +775,7 @@ export const useStore = create<AppState>((set, get) => ({
 	settingsOpen: false,
 	documentCategoryFilterRequest: null,
 	structuredWorkspaceFilterRequest: null,
+	mobileReading: false,
 	workspaceView:
 		localStorage.getItem("maket-workspace-view") === "reading"
 			? "reading"
@@ -1228,7 +1232,7 @@ export const useStore = create<AppState>((set, get) => ({
 				addToWorkspace &&
 				ownership &&
 				ownership.role !== "template";
-			if (navigating) {
+			if (navigating && !s.mobileReading) {
 				const workspace = s.structuredWorkspaces.find(
 					(candidate) => candidate.id === ownership.workspaceId,
 				);
@@ -1251,6 +1255,7 @@ export const useStore = create<AppState>((set, get) => ({
 						? [index.documentName, doc.name]
 						: [doc.name];
 			} else if (
+				!s.mobileReading &&
 				ownership?.role === "collection" &&
 				(inWorkspace || addToWorkspace)
 			) {
@@ -1557,6 +1562,11 @@ export const useStore = create<AppState>((set, get) => ({
 	},
 
 	openWorkspaceDocument: (docName, structuredWorkspace) => {
+		beginMobileNavigation({
+			focusedDocName: docName,
+			libraryOpen: false,
+			settingsOpen: false,
+		});
 		let state = get();
 		if (
 			state.workspaceView === "reading" &&
@@ -1622,7 +1632,7 @@ export const useStore = create<AppState>((set, get) => ({
 		const incompatible = state.workspaceDocNames.filter((name) =>
 			allowed ? !allowed.has(name) : ownedNames.has(name),
 		);
-		if (incompatible.length > 0) {
+		if (!state.mobileReading && incompatible.length > 0) {
 			state.closeWorkspaceDocuments(incompatible, {
 				returnToCollection: false,
 			});
@@ -1648,7 +1658,11 @@ export const useStore = create<AppState>((set, get) => ({
 					collectionId: index.collectionId,
 				});
 		}
-		if (structuredWorkspace || !state.workspaceDocNames.includes(docName)) {
+		if (
+			structuredWorkspace ||
+			!state.workspaceDocNames.includes(docName) ||
+			!state.docs.has(docName)
+		) {
 			sendLoadDoc(docName, structuredWorkspace);
 			return;
 		}
@@ -1742,11 +1756,13 @@ export const useStore = create<AppState>((set, get) => ({
 	setEditingElement: (id) => set({ editingElementId: id }),
 
 	setLibraryView: (libraryView) => {
+		beginMobileNavigation();
 		localStorage.setItem("maket-library-view", libraryView);
 		localStorage.setItem("maket-library-open", "true");
 		set({ libraryView, libraryOpen: true, settingsOpen: false });
 	},
 	filterDocumentsByCategory: (path) => {
+		beginMobileNavigation();
 		localStorage.setItem("maket-library-view", "docs");
 		localStorage.setItem("maket-library-open", "true");
 		set({
@@ -1759,6 +1775,7 @@ export const useStore = create<AppState>((set, get) => ({
 	clearDocumentCategoryFilterRequest: () =>
 		set({ documentCategoryFilterRequest: null }),
 	filterStructuredWorkspaces: (workspaceId) => {
+		beginMobileNavigation();
 		get().setLibraryView("structured-workspaces");
 		set({ structuredWorkspaceFilterRequest: { workspaceId } });
 	},
@@ -1766,6 +1783,7 @@ export const useStore = create<AppState>((set, get) => ({
 		set({ structuredWorkspaceFilterRequest: null }),
 	toggleLibrary: () =>
 		set((s) => {
+			beginMobileNavigation();
 			const libraryOpen = s.settingsOpen ? true : !s.libraryOpen;
 			localStorage.setItem("maket-library-open", String(libraryOpen));
 			return { libraryOpen, settingsOpen: false };
@@ -1780,6 +1798,7 @@ export const useStore = create<AppState>((set, get) => ({
 		}),
 	closeLastPanel: () =>
 		set((s) => {
+			beginMobileReturn();
 			if (s.settingsOpen) return { settingsOpen: false };
 			if (s.libraryOpen) {
 				localStorage.setItem("maket-library-open", "false");
@@ -1789,6 +1808,8 @@ export const useStore = create<AppState>((set, get) => ({
 		}),
 	toggleSettings: () =>
 		set((s) => {
+			if (s.settingsOpen) beginMobileReturn();
+			else beginMobileNavigation();
 			const settingsOpen = !s.settingsOpen;
 			if (settingsOpen) localStorage.setItem("maket-library-open", "false");
 			return {
@@ -1796,7 +1817,10 @@ export const useStore = create<AppState>((set, get) => ({
 				libraryOpen: settingsOpen ? false : s.libraryOpen,
 			};
 		}),
-	closeSettings: () => set({ settingsOpen: false }),
+	closeSettings: () => {
+		beginMobileReturn();
+		set({ settingsOpen: false });
+	},
 	setWorkspaceView: (workspaceView) => {
 		localStorage.setItem("maket-workspace-view", workspaceView);
 		set({ workspaceView, settingsOpen: false });
@@ -1851,12 +1875,17 @@ export const useStore = create<AppState>((set, get) => ({
 	removePending: (id) => {
 		return wsSend({ type: "annotation_remove", id });
 	},
-	openMessageField: (anchor) =>
+	openMessageField: (anchor) => {
+		beginMobileNavigation();
 		set({
 			messageAnchor: anchor,
 			selectedIds: anchor.elementId ? [anchor.elementId] : [],
-		}),
-	closeMessageField: () => set({ messageAnchor: null, selectedIds: [] }),
+		});
+	},
+	closeMessageField: () => {
+		beginMobileReturn();
+		set({ messageAnchor: null, selectedIds: [] });
+	},
 
 	// Deprecated — calls upsertDoc for backward compat
 	setServerState: (doc, docList, charteCss) => {

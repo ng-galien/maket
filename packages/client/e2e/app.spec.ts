@@ -25,16 +25,19 @@ test.describe("Workspace shell", () => {
 		).toBeVisible();
 	});
 
-	test("points to Annotate instead of a panel note composer", async ({
+	test("explains deferred message handling and exposes explicit composition", async ({
 		page,
 	}) => {
 		await openWorkspace(page);
 		await page.getByRole("button", { name: /^(exchanges|échanges)$/i }).click();
 		await expect(
-			page.getByText(/Turn on Annotate|Active Annoter/i),
+			page.getByText("The agent reads your messages on its next visit.", {
+				exact: false,
+			}),
 		).toBeVisible();
 		await expect(
-			page.getByPlaceholder(/Message for the agent|Message pour l’agent/i),
-		).toHaveCount(0);
+			page.getByRole("button", { name: "Write a message", exact: true }),
+		).toBeVisible();
+		await expect(page.getByPlaceholder("Write a message…")).toHaveCount(0);
 	});
 });

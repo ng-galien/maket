@@ -28,7 +28,7 @@ async function cleanupMessage(mcp: McpTestClient, text: string) {
 }
 
 test.describe("Document annotations", () => {
-	test("keeps the annotation popover inside the workspace and viewport", async ({
+	test("keeps the desktop annotation popover inside the workspace and viewport", async ({
 		baseURL,
 		page,
 	}) => {
@@ -100,7 +100,7 @@ test.describe("Document annotations", () => {
 			});
 			await expectPopoverBounds(page, popover, library);
 
-			await page.setViewportSize({ width: 860, height: 620 });
+			await page.setViewportSize({ width: 960, height: 620 });
 			await expect(library).toHaveAttribute("data-library-mode", "extended");
 			await expectPopoverBounds(page, popover, library);
 		} finally {

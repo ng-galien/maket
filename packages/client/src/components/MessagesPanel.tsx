@@ -2,17 +2,20 @@ import {
 	Eye,
 	Images,
 	LoaderCircle,
-	MessageSquareText,
+	MessageCircle,
 	Pencil,
 	Trash2,
 	Type,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getLang, useT } from "../i18n/useT";
+import { useMobileHistoryState } from "../lib/mobileHistory";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { sendLoadDoc } from "../store/ws";
 import { requestFit } from "../store/zoomBridge";
+import { GeneralMessageComposer } from "./GeneralMessageComposer";
+import { MobileMessageComposer } from "./MobileMessageComposer";
 import { HoldToDelete } from "./shared/HoldToDelete";
 import { LibrarySearchField } from "./shared/LibrarySearchField";
 import {
@@ -64,8 +67,13 @@ function revealMessageTarget(msg: PendingMessage) {
 	if (!msg.docName) return;
 	const pageIndex = msg.pageIndex ?? 0;
 	const state = useStore.getState();
-	state.addDocToWorkspace(msg.docName);
-	state.setWorkspaceView("canvas");
+	if (state.mobileReading) {
+		state.openWorkspaceDocument(msg.docName);
+		state.closeLastPanel();
+	} else {
+		state.addDocToWorkspace(msg.docName);
+		state.setWorkspaceView("canvas");
+	}
 	state.setFocusedPage(msg.docName, pageIndex);
 	requestFit({ docName: msg.docName, pageIndex });
 	requestAnimationFrame(() =>
@@ -175,7 +183,7 @@ function MessageScope({ msg }: { msg: PendingMessage }) {
 	if (!hasDoc && !hasPage && !hasEl)
 		return (
 			<span className="truncate text-[13px] font-semibold text-text-1">
-				{t("scope_workspace")}
+				{t(msg.type === "note" ? "pending_general_scope" : "scope_workspace")}
 			</span>
 		);
 
@@ -227,18 +235,29 @@ function MessageBody({ msg }: { msg: PendingMessage }) {
 }
 
 function MessageEditor({
+	documentName,
+	context,
+	error,
 	initial,
 	saving,
 	onSave,
 	onCancel,
 }: {
+	documentName: string;
+	context?: string;
+	error?: string | null;
 	initial: string;
 	saving: boolean;
 	onSave: (text: string) => void;
 	onCancel: () => void;
 }) {
 	const t = useT();
-	const [value, setValue] = useState(initial);
+	const [value, setValue] = useMobileHistoryState(
+		`message-edit:${documentName}:${initial}`,
+		initial,
+		"context",
+	);
+	const mobile = useStore((state) => state.mobileReading);
 	const fieldRef = useRef<HTMLTextAreaElement>(null);
 	useEffect(() => {
 		const field = fieldRef.current;
@@ -256,6 +275,20 @@ function MessageEditor({
 		if (!value.trim() || saving) return;
 		onSave(value);
 	};
+	if (mobile)
+		return (
+			<MobileMessageComposer
+				documentName={documentName}
+				context={context}
+				value={value}
+				onChange={setValue}
+				onCancel={onCancel}
+				onSubmit={commit}
+				saving={saving}
+				error={error}
+				submitLabel={t("pending_edit_save")}
+			/>
+		);
 	return (
 		<div className="flex flex-col gap-1.5">
 			<textarea
@@ -329,9 +362,13 @@ function MessageCard({
 	const [busy, setBusy] = useState<"opening" | "deleting" | "saving" | null>(
 		null,
 	);
-	const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
+	const [mode, setMode] = useMobileHistoryState<"view" | "edit" | "delete">(
+		`message:${msg.id}:mode`,
+		"view",
+	);
 	const [error, setError] = useState<string | null>(null);
 	const editable = msg.type === "note";
+	const hasTarget = Boolean(msg.docName) || msg.type !== "note";
 	useEffect(
 		() => () => {
 			highlightElement(msg, false);
@@ -389,47 +426,39 @@ function MessageCard({
 			onMouseEnter={() => highlightElement(msg, true)}
 			onMouseLeave={() => highlightElement(msg, false)}
 		>
-			<div className="flex min-w-0 items-start gap-2">
-				<button
-					type="button"
-					onClick={openTarget}
-					disabled={busy !== null}
-					title={t("pending_open_target")}
-					className="flex min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-				>
-					<MessageScope msg={msg} />
-				</button>
+			<div data-message-heading className="flex min-w-0 items-start gap-2">
+				<MessageHeading
+					msg={msg}
+					hasTarget={hasTarget}
+					busy={busy !== null}
+					onOpen={openTarget}
+				/>
 				<div className="ml-auto flex shrink-0 items-center gap-0.5">
-					<span className="mr-1 flex flex-col items-end text-xs font-medium tabular-nums text-text-3">
-						<time>{formatTime(msg.ts)}</time>
-						{msg.edited && msg.editedAt && (
-							<span data-message-edited="" className="text-2xs font-normal">
-								{t("pending_edited", { time: formatTime(msg.editedAt) })}
-							</span>
-						)}
-					</span>
-					<button
-						type="button"
-						onClick={openTarget}
-						disabled={busy !== null}
-						aria-label={
-							busy === "opening"
-								? t("pending_opening")
-								: t("pending_open_target")
-						}
-						title={t("pending_open_target")}
-						className={`${iconButton} hover:bg-panel hover:text-text-1 focus-visible:ring-accent`}
-					>
-						{busy === "opening" ? (
-							<LoaderCircle
-								size={14}
-								className="animate-spin"
-								aria-hidden="true"
-							/>
-						) : (
-							<Eye size={14} aria-hidden="true" />
-						)}
-					</button>
+					<MessageTimestamp msg={msg} />
+					{hasTarget && (
+						<button
+							type="button"
+							onClick={openTarget}
+							disabled={busy !== null}
+							aria-label={
+								busy === "opening"
+									? t("pending_opening")
+									: t("pending_open_target")
+							}
+							title={t("pending_open_target")}
+							className={`${iconButton} hover:bg-panel hover:text-text-1 focus-visible:ring-accent`}
+						>
+							{busy === "opening" ? (
+								<LoaderCircle
+									size={14}
+									className="animate-spin"
+									aria-hidden="true"
+								/>
+							) : (
+								<Eye size={14} aria-hidden="true" />
+							)}
+						</button>
+					)}
 					{editable && (
 						<button
 							type="button"
@@ -478,6 +507,13 @@ function MessageCard({
 				<div className="min-w-0 flex-1 text-[15px] leading-[21px]">
 					{mode === "edit" && editable ? (
 						<MessageEditor
+							documentName={msg.docName ?? t("pending_general_scope")}
+							context={
+								typeof msg.pageIndex === "number"
+									? `${t("page")} ${msg.pageIndex + 1}${msg.elementId ? ` · ${msg.elementId}` : ""}`
+									: undefined
+							}
+							error={error}
 							initial={msg.text ?? ""}
 							saving={busy === "saving"}
 							onSave={saveEdit}
@@ -510,7 +546,15 @@ function MessageCard({
 // MessagesPanel is an adapter over the pending queue: queue ownership stays in Zustand while the panel only renders and dispatches UI commands.
 export function MessagesPanel() {
 	const t = useT();
-	const [search, setSearch] = useState("");
+	const [composing, setComposing] = useMobileHistoryState(
+		"messages:compose",
+		false,
+	);
+	const [search, setSearch] = useMobileHistoryState(
+		"messages:search",
+		"",
+		"context",
+	);
 	const pending = useStore((s) => s.pending);
 	const editPending = useStore((s) => s.editPending);
 	const removePending = useStore((s) => s.removePending);
@@ -564,7 +608,23 @@ export function MessagesPanel() {
 						</p>
 					</LibraryToolbarActions>
 				</LibraryToolbarRow>
+				<button
+					type="button"
+					onClick={() => setComposing(true)}
+					className="mt-2 flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-contrast"
+				>
+					<MessageCircle size={20} aria-hidden="true" />
+					{t("mobile_document_write_message")}
+				</button>
 			</LibraryToolbar>
+			<GeneralMessageComposer
+				open={composing}
+				onClose={() => setComposing(false)}
+				onCreated={() => {
+					setSearch("");
+					setComposing(false);
+				}}
+			/>
 			<div
 				data-messages-scroll
 				onScroll={showLibraryScrollActivity}
@@ -573,7 +633,7 @@ export function MessagesPanel() {
 				{pending.length === 0 ? (
 					<div className="flex-1 flex flex-col items-center justify-center gap-2 text-text-3 text-sm text-center px-4">
 						<span className="w-10 h-10 rounded-full bg-input flex items-center justify-center">
-							<MessageSquareText size={18} />
+							<MessageCircle size={18} />
 						</span>
 						<span className="whitespace-pre-line leading-relaxed">
 							{t("pending_empty")}
@@ -595,5 +655,52 @@ export function MessagesPanel() {
 				)}
 			</div>
 		</section>
+	);
+}
+
+function MessageTimestamp({ msg }: { msg: PendingMessage }) {
+	const t = useT();
+	return (
+		<span className="mr-1 flex flex-col items-end text-xs font-medium tabular-nums text-text-3">
+			<time>{formatTime(msg.ts)}</time>
+			{msg.edited && msg.editedAt && (
+				<span data-message-edited="" className="text-2xs font-normal">
+					{t("pending_edited", { time: formatTime(msg.editedAt) })}
+				</span>
+			)}
+		</span>
+	);
+}
+
+function MessageHeading({
+	msg,
+	hasTarget,
+	busy,
+	onOpen,
+}: {
+	msg: PendingMessage;
+	hasTarget: boolean;
+	busy: boolean;
+	onOpen: () => void;
+}) {
+	const t = useT();
+	return (
+		<>
+			{hasTarget ? (
+				<button
+					type="button"
+					onClick={onOpen}
+					disabled={busy}
+					title={t("pending_open_target")}
+					className="flex min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+				>
+					<MessageScope msg={msg} />
+				</button>
+			) : (
+				<div className="min-w-0 flex-1">
+					<MessageScope msg={msg} />
+				</div>
+			)}
+		</>
 	);
 }

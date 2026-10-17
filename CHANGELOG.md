@@ -13,11 +13,16 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
-## [2.2.0] - 2026-10-13
+## [2.2.0] - 2026-10-17
 
 This version is prepared on main for desktop snapshots; it has not yet been published to npm or tagged.
 
 ### Added
+
+- Mobile reading provides document/category and workspace navigation, top-aligned full-frame previews, photos with explicit upload, and accessible settings. System Back follows actual navigation history; the Documents destination returns to the catalogue root and parent controls follow the hierarchy. Desktop open documents and connected forms are preserved.
+- The same document menu in the mobile catalogue and reader offers title/link copying, document messages, PDF sharing and renaming when available. PDF preparation uses a cancellable full-screen indicator without an intermediate share dialog; unsupported file sharing exports explicitly, and a cold export may be refused by the browser's transient-activation limit.
+- Messages can be written directly from the shared Messages view without a document, or attached to a document from its menu. Mobile composition fills the screen; general notes retain the existing persistent agent queue and acknowledgements. Message icons are consistent and the pending count remains visible at zero.
+- Documents can opt in to fluid Reader layout through `responsive` metadata, including workspace templates and their projections; authored print/PDF geometry remains unchanged. Private HTTPS proxies can be declared through exact `MAKET_TRUSTED_ORIGINS`, with the same host/origin policy on HTTP, WebSocket and browser exports.
 
 - Connected Reader and collection detail documents have an explicit Annotate toggle in their own document toolbar. Notes preserve document/page/element context in the agent queue; annotation does not enable HTML or state editing. The queue can be read for one exact document with `maket_workspace action=list_messages doc=<name>`.
 - Structured Workspace browsing defaults to Reader in both panes, with a 28/72 list/detail split and normal scrolling. An icon-only Square/PanelLeft toggle in the general toolbar switches layouts, replacing the separate view-choice bar. AUTO collection indexes keep all items on one continuous page. Narrow-window library overlays preserve readable documents and pin preferences.
@@ -48,6 +53,8 @@ This version is prepared on main for desktop snapshots; it has not yet been publ
 - The database moves to SQLite schema v19 (`document_states.revision_retention`, then `documents.pinned_at`, null for existing documents). Once this version has opened a workspace, earlier versions refuse to open it; back up `documents.db` before upgrading.
 
 ### Internal
+
+- MCP Reader builds invoke the installed Vite CLI through Node directly, avoiding Windows `npx` executable resolution failures in desktop snapshots. Mobile acceptance tests cover the final navigation, document actions and general-message workflows.
 
 - The client recentering rule (`packages/client/src/store/code-moniker.fragment.toml`) lists the page-link navigation module among the explicit commands allowed to fit the view immediately, since following a page link in the canvas is a user command.
 

@@ -2,9 +2,11 @@ import { Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
 import { elementBox } from "../lib/annotationMarkers";
+import { useMobileHistoryState } from "../lib/mobileHistory";
 import type { MessageAnchor } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { randomId } from "../utils";
+import { MobileMessageComposer } from "./MobileMessageComposer";
 
 const SENT_VISIBLE_MS = 900;
 const FIELD_MAX_HEIGHT = 168;
@@ -21,8 +23,52 @@ interface AnchorRect {
 /** The message field a person opens on an element or a page for the agent. */
 export function Popover() {
 	const model = usePopoverModel();
+	const mobile = useStore((state) => state.mobileReading);
 	if (!model) return null;
+	if (mobile) return <MobileAnnotationComposer model={model} />;
 	return <PopoverView {...model} />;
+}
+
+function MobileAnnotationComposer({
+	model,
+}: {
+	model: NonNullable<ReturnType<typeof usePopoverModel>>;
+}) {
+	const t = useT();
+	return (
+		<MobileMessageComposer
+			documentName={model.docName}
+			context={
+				model.isPageAnchor
+					? model.pageLabel
+					: `${model.pageLabel} · ${model.anchorLabel}`
+			}
+			value={model.note}
+			onChange={model.setNote}
+			onCancel={model.cancel}
+			onSubmit={() => void model.submitNote()}
+			saving={model.saving}
+			sent={model.sent}
+			error={model.error}
+		>
+			{model.pendingHere.length > 0 && !model.sent && (
+				<p className="whitespace-pre-wrap rounded-xl bg-input p-3 text-base text-text-2">
+					{model.pendingHere.at(-1)?.text}
+				</p>
+			)}
+			{!model.isPageAnchor && (
+				<button
+					type="button"
+					onClick={() => void model.toggleDelete()}
+					disabled={model.saving || model.sent}
+					aria-pressed={model.flaggedDelete}
+					className="min-h-12 rounded-xl px-3 text-left text-base text-danger disabled:opacity-40"
+				>
+					{model.flaggedDelete ? t("flagged_delete") : t("delete")}
+				</button>
+			)}
+		</MobileMessageComposer>
+	);
 }
 
 function anchorPage(anchor: MessageAnchor): HTMLElement | null {
@@ -101,7 +147,11 @@ function usePopoverModel() {
 	const inaccessible = readOnly || anchorDoc?.meta?.locked === true;
 	const addPending = useStore((s) => s.addPending);
 	const pending = useStore((s) => s.pending);
-	const [note, setNote] = useState("");
+	const [note, setNote] = useMobileHistoryState(
+		`annotation:${anchor?.docName}:${anchor?.pageIndex}:${anchor?.elementId ?? "page"}`,
+		"",
+		"context",
+	);
 	const [saving, setSaving] = useState(false);
 	const [sent, setSent] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -109,7 +159,6 @@ function usePopoverModel() {
 	const pos = usePopoverPosition(anchor, popover);
 
 	useEffect(() => {
-		setNote("");
 		setError(null);
 		setSaving(false);
 		setSent(false);
@@ -117,12 +166,12 @@ function usePopoverModel() {
 
 	useEffect(() => {
 		if (!sent) return;
-		const timeout = window.setTimeout(
-			() => closeField(anchor, false),
-			SENT_VISIBLE_MS,
-		);
+		const timeout = window.setTimeout(() => {
+			setNote("");
+			closeField(anchor, false);
+		}, SENT_VISIBLE_MS);
 		return () => window.clearTimeout(timeout);
-	}, [anchor, sent]);
+	}, [anchor, sent, setNote]);
 
 	useEffect(() => {
 		if (inaccessible && anchor) useStore.getState().closeMessageField();

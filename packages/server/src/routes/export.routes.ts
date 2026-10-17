@@ -13,7 +13,7 @@ import {
 	type CollectionRenderOptions,
 	cursorRenderOptions,
 } from "../lib/collection-render.js";
-import { requireBrowserContextLoopback } from "../lib/local-origin.js";
+import { requireBrowserContext } from "../lib/local-origin.js";
 import { decodeBundle } from "../lib/maket-format.js";
 
 // Cap on `.maket` bundle uploads. v2 bundles carry asset binaries, so the
@@ -25,6 +25,7 @@ const PRINT_AUTOSTART_SCRIPT =
 import type { BundleExportService } from "../services/bundle-export.js";
 import type { BundleImportService } from "../services/bundle-import.js";
 import type { CollectionCursors } from "../services/collection-cursor.js";
+import type { Config } from "../services/config.js";
 import {
 	renderDocumentSettled,
 	type SettlingDocumentRenderer,
@@ -34,6 +35,7 @@ import { buildPrintHtml, type PdfService } from "../services/pdf.js";
 import type { Document } from "../types.js";
 
 export interface ExportRouterDeps {
+	config: Pick<Config, "TRUSTED_ORIGINS">;
 	documents: Documents;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
@@ -46,16 +48,23 @@ function safeName(raw: string): string {
 	return raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) || "export";
 }
 
+// HTTP route composition intentionally delegates rendering and bundle work to their services.
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function createExportRouter(deps: ExportRouterDeps): Router {
-	const { documents, bundleExportService, bundleImportService, pdfService } =
-		deps;
+	const {
+		config,
+		documents,
+		bundleExportService,
+		bundleImportService,
+		pdfService,
+	} = deps;
 	const documentRenderer = deps.documentRenderer ?? {
 		render: (doc: Document) => doc,
 	};
 	const collectionCursors = deps.collectionCursors ?? { resolve: () => null };
 	const router = createRouter();
 
-	router.use(requireBrowserContextLoopback);
+	router.use(requireBrowserContext(config.TRUSTED_ORIGINS));
 
 	router.get("/auto-page-size.js", (_req, res) => {
 		res.type("application/javascript").send(AUTO_PAGE_SIZE_SCRIPT);

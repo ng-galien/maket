@@ -25,7 +25,9 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
+import { useMobileHistoryState } from "../lib/mobileHistory";
 import { pinnedDocuments } from "../lib/pinnedDocuments";
 import { exitReadingSession } from "../store/readingSession";
 import type { DocSummary, Document } from "../store/types";
@@ -77,8 +79,8 @@ export function readingScale(
 	return fit === "fill" ? scale : Math.min(1, scale);
 }
 
-export function ReadingWorkspace() {
-	const model = useConnectedReaderModel();
+export function ReadingWorkspace({ shell = false }: { shell?: boolean } = {}) {
+	const model = useConnectedReaderModel(shell);
 	if (!model) return null;
 	return (
 		<div className="relative h-full w-full">
@@ -86,13 +88,13 @@ export function ReadingWorkspace() {
 				key={model.doc.id || model.doc.name}
 				doc={model.doc}
 				dataSource="connected"
-				barPosition="top"
+				barPosition={shell ? undefined : "top"}
 				initialPageIndex={model.initialReaderPageIndex}
 				onVisiblePage={model.onVisiblePage}
 				onNavigatePage={model.bar.onPageChange}
 			/>
-			<ReaderBar model={model.bar} />
-			<Popover />
+			{!shell && <ReaderBar model={model.bar} />}
+			{!shell && <Popover />}
 		</div>
 	);
 }
@@ -118,7 +120,7 @@ interface ConnectedReaderModel {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // This hook is the connected Reader shell adapter: it composes Zustand selectors and navigation commands while ReaderSurface owns presentation.
-function useConnectedReaderModel(): ConnectedReaderModel | null {
+function useConnectedReaderModel(shell: boolean): ConnectedReaderModel | null {
 	const doc = useFocusedDoc();
 	const collections = useStore((state) => state.collections);
 	const workspaceDocNames = useStore((state) => state.workspaceDocNames);
@@ -179,8 +181,8 @@ function useConnectedReaderModel(): ConnectedReaderModel | null {
 	);
 
 	const returnToCanvasView = useCallback(() => {
-		exitReadingSession();
-	}, []);
+		if (!shell) exitReadingSession();
+	}, [shell]);
 	const handleVisiblePage = useCallback(
 		(logicalIndex: number, sourcePageIndex: number) => {
 			if (!doc) return;
@@ -280,12 +282,13 @@ export function ReaderSurface({
 }) {
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const initiallyPositioned = useRef(false);
+	const responsive = doc.meta?.responsive === true && !canvasNavigation;
 	const board = useReaderBoard({
 		doc,
 		rootRef: scrollRef,
 		canvasNavigation,
-		rememberZoom,
-		fit,
+		rememberZoom: responsive ? false : rememberZoom,
+		fit: responsive ? "actual" : fit,
 	});
 	useEffect(() => onZoomChange?.(board.scale), [board.scale, onZoomChange]);
 	useEffect(() => {
@@ -321,6 +324,7 @@ export function ReaderSurface({
 			ref={scrollRef}
 			data-reading-workspace
 			data-reader-appearance={embedded ? "embed" : "app"}
+			data-responsive-reading={responsive ? "true" : undefined}
 			data-bar-position={barPosition}
 			data-reader-pannable={board.pannable ? "" : undefined}
 			data-reader-panning={board.panning ? "" : undefined}
@@ -332,8 +336,16 @@ export function ReaderSurface({
 			className={`absolute inset-0 overflow-auto ${embedded ? "bg-transparent px-0" : "bg-[var(--color-app)]"} ${toolbarClearance} ${board.panning ? "cursor-grabbing" : board.pannable ? "cursor-grab" : ""}`}
 		>
 			{status}
-			<div className="mx-auto flex min-h-full w-max min-w-full justify-center">
-				<div data-reader-zoom style={{ zoom: board.scale }}>
+			<div
+				className={`mx-auto flex min-h-full ${responsive ? "w-full" : "w-max min-w-full"} justify-center`}
+			>
+				<div
+					data-reader-zoom
+					style={{
+						zoom: board.scale,
+						...(responsive ? { width: "100%" } : {}),
+					}}
+				>
 					<WorkspaceDoc
 						docName={doc.name}
 						zoomK={1}
@@ -341,6 +353,7 @@ export function ReaderSurface({
 						showPageLabels
 						surface="reader"
 						dataSource={dataSource}
+						responsive={responsive}
 					/>
 				</div>
 			</div>
@@ -467,6 +480,9 @@ function useReaderBoard({
 	const [manualScale, setManualScale] = useState<number | null>(() =>
 		rememberZoom ? storedReaderZoom(documentId) : null,
 	);
+	useEffect(() => {
+		if (doc.meta?.responsive === true && fit === "actual") setManualScale(null);
+	}, [doc.meta?.responsive, fit]);
 	const [panning, setPanning] = useState(false);
 	const anchorRef = useRef<ZoomAnchor | null>(null);
 	const minimum = Math.min(READER_MIN_SCALE, fitScale);
@@ -643,12 +659,48 @@ function useReaderPinch({
 			const gesture = event as WebKitGestureEvent;
 			zoomTo(gestureStart * gesture.scale, gesture);
 		};
+
+		let pinch: { distance: number; scale: number } | null = null;
+		const touchGeometry = (event: TouchEvent) => {
+			const [a, b] = Array.from(event.touches);
+			return {
+				distance: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+				clientX: (a.clientX + b.clientX) / 2,
+				clientY: (a.clientY + b.clientY) / 2,
+			};
+		};
+		const onTouchStart = (event: TouchEvent) => {
+			if (event.touches.length !== 2) return;
+			const geometry = touchGeometry(event);
+			pinch = { distance: geometry.distance, scale: scaleRef.current };
+			event.preventDefault();
+		};
+		const onTouchMove = (event: TouchEvent) => {
+			if (!pinch || event.touches.length !== 2) return;
+			const geometry = touchGeometry(event);
+			event.preventDefault();
+			zoomTo(
+				(pinch.scale * geometry.distance) / Math.max(1, pinch.distance),
+				geometry,
+			);
+		};
+		const onTouchEnd = () => {
+			pinch = null;
+		};
+		root.addEventListener("touchstart", onTouchStart, { passive: false });
+		root.addEventListener("touchmove", onTouchMove, { passive: false });
+		root.addEventListener("touchend", onTouchEnd);
+		root.addEventListener("touchcancel", onTouchEnd);
 		root.addEventListener("wheel", onWheel, { passive: false });
 		root.addEventListener("gesturestart", onGestureStart, { passive: false });
 		root.addEventListener("gesturechange", onGestureChange, {
 			passive: false,
 		});
 		return () => {
+			root.removeEventListener("touchstart", onTouchStart);
+			root.removeEventListener("touchmove", onTouchMove);
+			root.removeEventListener("touchend", onTouchEnd);
+			root.removeEventListener("touchcancel", onTouchEnd);
 			root.removeEventListener("wheel", onWheel);
 			root.removeEventListener("gesturestart", onGestureStart);
 			root.removeEventListener("gesturechange", onGestureChange);
@@ -828,6 +880,7 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 	return (
 		<nav
 			aria-label={t("reader_navigation")}
+			data-reader-navigation
 			className={`fixed left-1/2 z-[var(--z-bar)] flex h-12 w-[calc(100%-1rem)] max-w-max -translate-x-1/2 items-center gap-0.5 rounded-lg border border-border/80 bg-panel/95 p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] backdrop-blur-lg sm:w-auto ${model.position === "top" ? "top-[max(0.5rem,env(safe-area-inset-top))]" : "bottom-[max(0.5rem,env(safe-area-inset-bottom))]"}`}
 		>
 			<ReaderButton
@@ -847,7 +900,7 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				docName={model.docName}
 				position={model.position}
 				onDocumentChange={model.onDocumentChange}
-				className="min-w-0 flex-1 sm:w-[clamp(13rem,28vw,19rem)] sm:flex-none"
+				className="reader-bar-document min-w-0 flex-1 sm:w-[clamp(13rem,28vw,19rem)] sm:flex-none"
 			/>
 			<ReaderButton
 				label={t("next_document")}
@@ -873,7 +926,11 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
 			<DocumentOutputButtons docName={model.docName} surface="reader" />
 			{doc && <AnnotationToggle doc={doc} />}
-			<ReaderButton label={t("close_reader")} onClick={model.onExit}>
+			<ReaderButton
+				label={t("close_reader")}
+				onClick={model.onExit}
+				className="reader-bar-exit flex"
+			>
 				<X size={17} strokeWidth={1.8} />
 			</ReaderButton>
 		</nav>
@@ -914,6 +971,7 @@ export function ReaderDocumentPicker({
 	return (
 		<div
 			ref={model.rootRef}
+			data-reader-document-picker
 			className={`relative ${className}`}
 			onBlur={model.closeOnBlur}
 			onKeyDown={(event) => {
@@ -995,7 +1053,7 @@ function useReaderDocumentPicker({
 	docName: string;
 	onDocumentChange: (name: string) => void;
 }): ReaderDocumentPickerModel {
-	const [open, setOpen] = useState(false);
+	const [open, setOpen] = useMobileHistoryState("reader:document-menu", false);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -1146,9 +1204,50 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 		onCloseAll,
 	} = props;
 	const t = useT();
-	return (
+	const [mobileFrame, setMobileFrame] = useState<{
+		top: number;
+		left: number;
+		width: number;
+		height: number;
+	} | null>(null);
+	useLayoutEffect(() => {
+		const viewport = window.visualViewport;
+		const place = () => {
+			const width = viewport?.width ?? window.innerWidth;
+			if (width >= 768) {
+				setMobileFrame(null);
+				return;
+			}
+			const height = viewport?.height ?? window.innerHeight;
+			const offsetTop = viewport?.offsetTop ?? 0;
+			const top = Math.max(
+				offsetTop + 8,
+				Math.min(
+					(model.triggerRef.current?.getBoundingClientRect().bottom ?? 0) + 8,
+					offsetTop + height - 100,
+				),
+			);
+			setMobileFrame({
+				top,
+				left: (viewport?.offsetLeft ?? 0) + 8,
+				width: width - 16,
+				height: offsetTop + height - top - 8,
+			});
+		};
+		place();
+		window.addEventListener("resize", place);
+		viewport?.addEventListener("resize", place);
+		viewport?.addEventListener("scroll", place);
+		return () => {
+			window.removeEventListener("resize", place);
+			viewport?.removeEventListener("resize", place);
+			viewport?.removeEventListener("scroll", place);
+		};
+	}, [model.triggerRef]);
+	const menu = (
 		<div
 			data-reader-menu
+			data-mobile-ui={mobileFrame !== null || undefined}
 			className={`absolute left-0 z-[var(--z-popover)] min-w-full w-[min(22rem,calc(100vw-1rem))] overflow-hidden border border-border bg-panel shadow-[0_18px_56px_rgba(0,0,0,0.2)] ${
 				variant === "header" ? "rounded-lg p-1" : "rounded-xl p-1.5"
 			} ${
@@ -1158,7 +1257,23 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 						: "top-full mt-2"
 					: "bottom-full mb-2"
 			}`}
-			style={{ animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
+			style={{
+				animation: "popoverIn 140ms cubic-bezier(0.16, 1, 0.3, 1)",
+				...(mobileFrame === null
+					? {}
+					: {
+							position: "fixed",
+							left: mobileFrame.left,
+							right: "auto",
+							top: mobileFrame.top,
+							bottom: "auto",
+							width: mobileFrame.width,
+							minWidth: 0,
+							maxHeight: mobileFrame.height,
+							overflowY: "auto",
+							margin: 0,
+						}),
+			}}
 		>
 			<div className="flex items-center justify-between gap-4 border-b border-border px-2.5 py-2">
 				<span className="text-sm font-semibold text-text-1">
@@ -1235,6 +1350,7 @@ function ReaderDocumentList(props: ReaderDocumentListProps) {
 			</div>
 		</div>
 	);
+	return mobileFrame ? createPortal(menu, document.body) : menu;
 }
 
 function DocumentListCommand({
@@ -1369,6 +1485,7 @@ function ReaderDocumentOption({
 			{onCloseDocument && (
 				<button
 					type="button"
+					data-open-document-close={name}
 					onClick={() => onCloseDocument(name)}
 					aria-label={t("close_document", { name })}
 					title={t("close_document", { name })}

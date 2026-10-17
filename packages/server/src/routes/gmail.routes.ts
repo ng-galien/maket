@@ -11,7 +11,7 @@
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import express, { Router as createRouter, type Router } from "express";
-import { requireBrowserContextLoopback } from "../lib/local-origin.js";
+import { requireBrowserContext } from "../lib/local-origin.js";
 import type { Config } from "../services/config.js";
 import type { GmailClient } from "../services/gmail-client.js";
 
@@ -195,7 +195,7 @@ export function createGmailRouter({
 }: GmailRouterDeps): Router {
 	const router = createRouter();
 
-	router.use(requireBrowserContextLoopback);
+	router.use(requireBrowserContext(config.TRUSTED_ORIGINS));
 
 	router.use(express.urlencoded({ extended: false, limit: "64kb" }));
 

@@ -46,35 +46,72 @@ export function isLoopbackOrigin(origin: string | undefined | null): boolean {
 	}
 }
 
-/** True if the Referer URL points to a loopback host. Empty / absent referer
- *  is treated as "no claim" (caller decides whether to allow). */
-export function isLoopbackReferer(referer: string | undefined | null): boolean {
-	if (!referer) return false;
-	try {
-		const url = new URL(referer);
-		return isLoopbackHost(url.host);
-	} catch {
-		return false;
-	}
-}
-
 /**
- * Reject browser-initiated requests whose Referer points outside loopback.
+ * Reject browser-initiated requests whose Referer points outside the allowed request context.
  * The global Origin/Host middleware already blocks XHR/fetch from any other
  * origin, but a top-level navigation (`window.open`, `location.href`) carries
  * no Origin header — only Referer. This guard catches that vector.
  *
  * Native HTTP clients (curl, the MCP bridge) send neither header and pass.
  */
-export function requireBrowserContextLoopback(
-	req: Request,
-	res: Response,
-	next: NextFunction,
-): void {
-	const referer = req.headers.referer;
-	if (referer && !isLoopbackReferer(referer)) {
-		res.status(403).end();
-		return;
+export function requireBrowserContext(trustedOrigins: readonly string[] = []) {
+	return (req: Request, res: Response, next: NextFunction): void => {
+		const referer = req.headers.referer;
+		if (referer) {
+			let origin: string;
+			try {
+				origin = new URL(referer).origin;
+			} catch {
+				res.status(403).end();
+				return;
+			}
+			if (!isAllowedRequestOrigin(req.headers.host, origin, trustedOrigins)) {
+				res.status(403).end();
+				return;
+			}
+		}
+		next();
+	};
+}
+
+/** Explicit external origins only; the built-in loopback policy stays the default. */
+export function parseTrustedOrigins(raw: string | undefined): string[] {
+	if (!raw) return [];
+	const values: unknown = JSON.parse(raw);
+	if (!Array.isArray(values))
+		throw new Error(
+			"MAKET_TRUSTED_ORIGINS must be a JSON array of HTTPS origins",
+		);
+	for (const value of values) {
+		if (typeof value !== "string")
+			throw new Error("MAKET_TRUSTED_ORIGINS must contain HTTPS origins");
+		const url = new URL(value);
+		if (
+			url.protocol !== "https:" ||
+			url.origin !== value ||
+			url.username ||
+			url.password ||
+			value.includes("*")
+		)
+			throw new Error(
+				"MAKET_TRUSTED_ORIGINS must contain exact canonical HTTPS origins",
+			);
 	}
-	next();
+	return [...new Set(values as string[])];
+}
+
+/** A trusted HTTPS reverse proxy may preserve its authority or forward loopback Host. */
+export function isAllowedRequestOrigin(
+	host: string | undefined,
+	origin: string | undefined,
+	trustedOrigins: readonly string[] = [],
+): boolean {
+	if (isLoopbackHost(host) && (!origin || isLoopbackOrigin(origin)))
+		return true;
+	return trustedOrigins.some((trusted) => {
+		const authority = new URL(trusted).host;
+		return origin
+			? origin === trusted && (host === authority || isLoopbackHost(host))
+			: host === authority;
+	});
 }

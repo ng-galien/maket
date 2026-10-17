@@ -34,11 +34,37 @@ export type LibraryView =
 	| "structured-workspaces"
 	| "exchange";
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// This acceptance helper drives the public library navigation for either shell.
 export async function openLibraryView(
 	page: Page,
 	view: LibraryView,
 ): Promise<Locator> {
 	const panel = page.locator("[data-library-panel]");
+	if (await page.locator("[data-mobile-reading-navigation]").count()) {
+		const label =
+			view === "structured-workspaces"
+				? "Workspaces"
+				: view === "docs"
+					? "Documents"
+					: view === "photos"
+						? "Photos"
+						: view === "exchange"
+							? "Exchanges"
+							: null;
+		if (label) {
+			if (
+				(await panel.getAttribute("data-library-mode")) !== "extended" ||
+				(await panel.getAttribute("data-library-view")) !== view
+			)
+				await page
+					.locator("[data-mobile-reading-navigation]")
+					.getByRole("button", { name: label, exact: true })
+					.click();
+			await expect(panel).toBeVisible();
+			return panel;
+		}
+	}
 	if ((await panel.getAttribute("data-library-mode")) === "compact") {
 		await panel.locator(`[data-library-rail-view="${view}"]`).click();
 	} else if ((await panel.getAttribute("data-library-view")) !== view) {

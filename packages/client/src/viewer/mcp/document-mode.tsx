@@ -45,6 +45,7 @@ export interface DocumentOpening {
 			margins?: Document["canvas"]["margins"];
 		};
 		pageCount: number;
+		responsive?: boolean;
 		pages: { number: number; name: string }[];
 	};
 	display: {
@@ -203,6 +204,9 @@ function readerDocument(
 		})),
 		activePage: 0,
 		meta: {
+			...(document.responsive === undefined
+				? {}
+				: { responsive: document.responsive }),
 			...(content.charteCss ? { charte: CHARTE_NAME } : {}),
 			...(locked ? { locked: true } : {}),
 		},

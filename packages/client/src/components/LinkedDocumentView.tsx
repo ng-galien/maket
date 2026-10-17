@@ -15,11 +15,17 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 	const ready = useStore((state) => state.settingsHydrated);
 	const docList = useStore((state) => state.docList);
 	const docs = useStore((state) => state.docs);
+	const focusedDocName = useStore((state) => state.focusedDocName);
 	const requested = useRef<string | null>(null);
 	const [pageIndex, setPageIndex] = useState(0);
 	const [timedOut, setTimedOut] = useState(false);
 	const summary = docList.find((entry) => entry.id === documentId);
-	const doc = [...docs.values()].find((entry) => entry.id === documentId);
+	const sourceDocument = [...docs.values()].find(
+		(entry) => entry.id === documentId,
+	);
+	const doc =
+		(requested.current ? docs.get(focusedDocName ?? "") : undefined) ??
+		sourceDocument;
 	const collections = useStore((state) => state.collections);
 	const pageLabel = t("page");
 	const rowLabel = t("collection_row_lower");
@@ -94,6 +100,28 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 	return (
 		<div data-linked-document={doc.id} className="relative h-full w-full">
 			<header className="fixed inset-x-0 top-0 z-[var(--z-bar)] flex min-h-14 items-center gap-3 border-b border-border bg-panel/95 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-lg">
+				{doc.id !== documentId && summary && (
+					<button
+						type="button"
+						aria-label={t("linked_document_back")}
+						title={t("linked_document_back")}
+						className="grid h-10 w-10 shrink-0 place-items-center rounded-md hover:bg-input"
+						onClick={() => {
+							const params = new URLSearchParams(window.location.search);
+							const workspaceId = params.get("workspace");
+							const collectionId = params.get("collection");
+							sendLoadDoc(
+								summary.name,
+								workspaceId
+									? { workspaceId, ...(collectionId ? { collectionId } : {}) }
+									: undefined,
+							);
+							setPageIndex(0);
+						}}
+					>
+						<ChevronLeft size={19} />
+					</button>
+				)}
 				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-text-1">
 					{doc.name}
 				</h1>
@@ -127,6 +155,7 @@ export function LinkedDocumentView({ documentId }: { documentId: string }) {
 				)}
 			</header>
 			<ReaderSurface
+				key={doc.id}
 				doc={doc}
 				dataSource="connected"
 				barPosition="top"

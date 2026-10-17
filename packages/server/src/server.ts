@@ -19,7 +19,7 @@ import { type BootstrapInputs, createAppContainer } from "./bootstrap.js";
 import { assertActivityContract } from "./core/activity-contract.js";
 import type { ToolHandler } from "./core/container.js";
 import { registerToolPacks } from "./core/tool-pack-registry.js";
-import { isLoopbackHost, isLoopbackOrigin } from "./lib/local-origin.js";
+import { isAllowedRequestOrigin } from "./lib/local-origin.js";
 import { mountRoutes } from "./routes/index.js";
 import { registerServerEvents } from "./server-events.js";
 import type { Annotations } from "./services/annotations.js";
@@ -251,17 +251,20 @@ function assertManifestMatchesRegistry(
 	}
 }
 
-function localRequestGuard(req: Request, res: Response, next: NextFunction) {
-	if (!isLoopbackHost(req.headers.host)) {
-		res.status(403).end();
-		return;
-	}
-	const origin = req.headers.origin;
-	if (origin && !isLoopbackOrigin(origin)) {
-		res.status(403).end();
-		return;
-	}
-	next();
+function localRequestGuard(trustedOrigins: readonly string[]) {
+	return (req: Request, res: Response, next: NextFunction) => {
+		if (
+			!isAllowedRequestOrigin(
+				req.headers.host,
+				req.headers.origin,
+				trustedOrigins,
+			)
+		) {
+			res.status(403).end();
+			return;
+		}
+		next();
+	};
 }
 
 function contentSecurityPolicy(
@@ -300,25 +303,32 @@ function createHttpApp(config: Config, container: AppContainer): Express {
 		}
 		parseJson(req, res, next);
 	});
-	app.use(localRequestGuard);
+	app.use(localRequestGuard(config.TRUSTED_ORIGINS));
 	app.use(contentSecurityPolicy);
 	mountRoutes(app, container);
 	app.use(express.static(config.PUBLIC_DIR, { maxAge: "1d" }));
 	return app;
 }
 
-function acceptsWebSocketRequest(req: IncomingMessage): boolean {
-	return (
-		isLoopbackHost(req.headers.host) &&
-		(!req.headers.origin || isLoopbackOrigin(req.headers.origin))
+function acceptsWebSocketRequest(
+	req: IncomingMessage,
+	trustedOrigins: readonly string[],
+): boolean {
+	return isAllowedRequestOrigin(
+		req.headers.host,
+		req.headers.origin,
+		trustedOrigins,
 	);
 }
 
-function createWebSocketServer(http: HttpServer): WebSocketServer {
+function createWebSocketServer(
+	http: HttpServer,
+	trustedOrigins: readonly string[],
+): WebSocketServer {
 	return new WebSocketServer({
 		server: http,
 		verifyClient: ({ req }, callback) => {
-			if (acceptsWebSocketRequest(req)) {
+			if (acceptsWebSocketRequest(req, trustedOrigins)) {
 				callback(true);
 				return;
 			}
@@ -427,7 +437,12 @@ async function startTransports(
 ): Promise<RunningTransports> {
 	const app = createHttpApp(config, container);
 	const http = createServer(app);
-	const wss = configureWebSocketServer(http, services, log);
+	const wss = configureWebSocketServer(
+		http,
+		services,
+		log,
+		config.TRUSTED_ORIGINS,
+	);
 	try {
 		const url = await listen(http, config);
 		log(`[boot] HTTP listening on ${new URL(url).host}`);
@@ -457,8 +472,9 @@ function configureWebSocketServer(
 	http: HttpServer,
 	services: RuntimeServices,
 	log: ServerLog,
+	trustedOrigins: readonly string[],
 ): WebSocketServer {
-	const wss = createWebSocketServer(http);
+	const wss = createWebSocketServer(http, trustedOrigins);
 	wss.on("error", (error) =>
 		log(
 			`WebSocket server error: ${error instanceof Error ? error.message : String(error)}`,

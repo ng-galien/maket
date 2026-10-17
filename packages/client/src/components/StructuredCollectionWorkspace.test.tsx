@@ -206,9 +206,14 @@ describe("StructuredCollectionWorkspace reader navigation", () => {
 				disconnect() {}
 			},
 		);
-		const width = vi
-			.spyOn(HTMLElement.prototype, "clientWidth", "get")
-			.mockReturnValue(400);
+		let paneWidth = 400;
+		vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
+			function (this: HTMLElement) {
+				return this.parentElement?.hasAttribute("data-structured-navigation")
+					? 1000
+					: paneWidth;
+			},
+		);
 		seed();
 		const user = userEvent.setup();
 		render(<StructuredCollectionWorkspace />);
@@ -221,7 +226,7 @@ describe("StructuredCollectionWorkspace reader navigation", () => {
 		expect(Number(content.style.zoom)).toBeCloseTo(
 			readingScale(400, 80, "fill"),
 		);
-		width.mockReturnValue(640);
+		paneWidth = 640;
 		act(() => {
 			for (const refit of observers) refit();
 		});

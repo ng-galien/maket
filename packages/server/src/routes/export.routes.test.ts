@@ -140,6 +140,7 @@ describe("export routes — .maket bundle", () => {
 		const app = express();
 		app.use(
 			createExportRouter({
+				config,
 				documents,
 				bundleExportService,
 				bundleImportService,
@@ -632,6 +633,7 @@ describe("export routes — .maket bundle", () => {
 		const targetApp = express();
 		targetApp.use(
 			createExportRouter({
+				config: targetConfig,
 				documents: targetDocuments,
 				bundleExportService: targetBundleExportService,
 				bundleImportService: targetBundleImportService,
@@ -1150,6 +1152,7 @@ describe("export routes — .maket bundle", () => {
 		const app2 = express();
 		app2.use(
 			createExportRouter({
+				config: config2,
 				documents: documents2,
 				bundleExportService: createBundleExportService({
 					documents: documents2,

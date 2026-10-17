@@ -11,6 +11,7 @@ import { homedir as osHomedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SETTINGS_FILE } from "@maket/shared";
+import { parseTrustedOrigins } from "../lib/local-origin.js";
 
 export interface Config {
 	/** Detect compiled binary mode — false in Node.js mode. */
@@ -38,6 +39,8 @@ export interface Config {
 	/** HTTP/WS bind address. Defaults to 127.0.0.1; set MAKET_BIND_HOST=0.0.0.0
 	 *  only if you intentionally want to expose Maket on the LAN. */
 	HOST: string;
+	/** Explicit HTTPS reverse-proxy origins; empty keeps loopback-only access. */
+	TRUSTED_ORIGINS: string[];
 	/** Browser URL prefix when a gateway strips it before forwarding to Maket. */
 	BASE_PATH: string;
 	/** Application name shown in UI. */
@@ -91,6 +94,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 	const portRaw = env.MAKET_PORT;
 	const PORT = portRaw ? Number(portRaw) : DEFAULT_PORT;
 	const HOST = env.MAKET_BIND_HOST || "127.0.0.1";
+	const TRUSTED_ORIGINS = parseTrustedOrigins(env.MAKET_TRUSTED_ORIGINS);
 	const BASE_PATH = env.MAKET_BASE_PATH || "";
 	if (BASE_PATH && !/^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]+$/.test(BASE_PATH)) {
 		throw new Error(
@@ -119,6 +123,7 @@ export function createConfig(inputs: ConfigInputs = {}): Config {
 		DB_PATH,
 		PORT,
 		HOST,
+		TRUSTED_ORIGINS,
 		BASE_PATH,
 		APP_TITLE,
 		APP_SUBTITLE,

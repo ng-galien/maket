@@ -215,6 +215,7 @@ interface Props {
 	collection?: Collection | null;
 	preview?: CollectionPagePreview;
 	policy?: PresentationPolicy;
+	responsive?: boolean;
 }
 
 export interface CollectionPagePreview {
@@ -250,6 +251,7 @@ export const PageCanvas = memo(function PageCanvas({
 	collection = null,
 	preview,
 	policy,
+	responsive = false,
 }: Props) {
 	const t = useT();
 	const pageRef = useRef<HTMLDivElement>(null);
@@ -1310,6 +1312,7 @@ export const PageCanvas = memo(function PageCanvas({
 					messageAnchor && !messageAnchor.elementId ? "" : undefined
 				}
 				data-auto-height={canvas.format === "AUTO" ? "true" : undefined}
+				data-responsive-page={responsive ? "true" : undefined}
 				data-document-mode={doc.dataModel}
 				aria-busy={liveState ? stateDocumentPending : undefined}
 				style={{
@@ -1324,6 +1327,19 @@ export const PageCanvas = memo(function PageCanvas({
 					lineHeight: "normal",
 					fontFamily: "initial",
 					...charteVars,
+					...(responsive
+						? {
+								width: "100%",
+								height: "auto",
+								minHeight: "1mm",
+								display: "flow-root",
+								fontSize: "16px",
+								contentVisibility: "visible",
+								containerType: "inline-size",
+								overflow: "auto",
+								containIntrinsicSize: "none",
+							}
+						: {}),
 				}}
 			>
 				<AuthoredPageHtml ref={contentRef} html={renderHtml} />

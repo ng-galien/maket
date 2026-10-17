@@ -62,6 +62,7 @@ interface Props {
 	showPageLabels?: boolean;
 	surface?: PresentationSurface;
 	dataSource?: PresentationDataSource;
+	responsive?: boolean;
 }
 
 export function collectionPageViews(
@@ -229,6 +230,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 	showPageLabels = true,
 	surface = "canvas",
 	dataSource = "connected",
+	responsive = false,
 }: Props) {
 	const doc = useDocByName(docName);
 	const charteCss = useStore((s) => s.chartesCss.get(docName) ?? "");
@@ -358,7 +360,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 			data-doc={docName}
 			onClick={() => setFocused(docName)}
 			className={`flex flex-col items-center shrink-0 ${surface === "reader" ? "select-text" : "select-none"}`}
-			style={{ gap: PAGE_GAP }}
+			style={{ gap: PAGE_GAP, ...(responsive ? { width: "100%" } : {}) }}
 		>
 			{missingReaderCollections.map((name) => (
 				<div
@@ -395,6 +397,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 					}
 					onClick={() => setFocusedPage(docName, view.pageIndex)}
 					className="relative flex flex-col items-center"
+					style={responsive ? { width: "100%" } : undefined}
 				>
 					<PageCanvas
 						doc={doc}
@@ -404,6 +407,7 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						collection={view.collection}
 						preview={view.preview}
 						policy={policy}
+						responsive={responsive}
 					/>
 					{surface === "canvas" &&
 						isFocused &&

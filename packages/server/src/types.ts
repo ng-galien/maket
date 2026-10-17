@@ -64,6 +64,8 @@ export function normalizeCanvas(canvas: Canvas): Canvas {
 }
 
 export interface DocMeta {
+	/** Opt-in fluid browser reading; authored canvas and print dimensions stay unchanged. */
+	responsive?: boolean;
 	designNotes?: string;
 	teamNotes?: string;
 	rating?: number;

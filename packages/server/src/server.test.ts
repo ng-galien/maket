@@ -1,6 +1,6 @@
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
+import { createServer, request } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -26,6 +26,98 @@ afterEach(() => {
 });
 
 describe("embedded Maket server", () => {
+	it("admits only the configured HTTPS proxy context across HTTP, browser exports and WebSocket", async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), "maket-trusted-origin-"));
+		directories.push(dataDir);
+		const origin = "https://maket.example.ts.net:18448";
+		const authority = new URL(origin).host;
+		const config = createConfig({
+			env: {
+				MAKET_DATA_DIR: dataDir,
+				MAKET_SETTINGS_FILE: join(dataDir, "settings.json"),
+				MAKET_PORT: "0",
+				MAKET_TRUSTED_ORIGINS: JSON.stringify([origin]),
+			},
+		});
+		const server = await startMaketServer({
+			config,
+			bootstrap: { store: createSQLiteStore(":memory:"), browserPool },
+			loadEnvironment: false,
+			log: () => {},
+		});
+		const status = (path: string, headers: Record<string, string>) =>
+			new Promise<number>((resolve, reject) => {
+				const call = request(
+					`${server.url}${path}`,
+					{ headers },
+					(response) => {
+						response.resume();
+						response.on("end", () => resolve(response.statusCode ?? 0));
+					},
+				);
+				call.on("error", reject);
+				call.end();
+			});
+		try {
+			for (const host of [authority, new URL(server.url).host]) {
+				const headers = {
+					Host: host,
+					Origin: origin,
+					Referer: `${origin}/workspaces`,
+				};
+				expect(await status("/", headers)).toBe(200);
+				expect(await status("/auto-page-size.js", headers)).toBe(200);
+				const socket = new WebSocket(server.url.replace(/^http/, "ws"), {
+					headers,
+				});
+				const received = once(socket, "message");
+				await once(socket, "open");
+				const [payload] = await received;
+				expect(JSON.parse(String(payload))).toMatchObject({
+					type: "state",
+					structuredWorkspaces: expect.any(Array),
+				});
+				socket.close();
+				await once(socket, "close");
+			}
+			const rejectedHeaders: Record<string, string>[] = [
+				{ Host: "attacker.example", Origin: origin },
+				{ Host: authority, Origin: "https://attacker.example" },
+				{ Host: authority, Origin: "http://127.0.0.1" },
+				{ Host: "maket.example.ts.net:18449", Origin: origin },
+				{ Host: authority, Origin: `${origin}/path` },
+				{
+					Host: "attacker.example",
+					"X-Forwarded-Host": authority,
+					"X-Forwarded-Proto": "https",
+				},
+			];
+			for (const headers of rejectedHeaders) {
+				expect(await status("/", headers), JSON.stringify(headers)).toBe(403);
+				const socket = new WebSocket(server.url.replace(/^http/, "ws"), {
+					headers,
+				});
+				const rejected = new Promise<number>((resolve) =>
+					socket.once("unexpected-response", (_req, response) => {
+						resolve(response.statusCode ?? 0);
+						socket.terminate();
+					}),
+				);
+				socket.on("error", () => {});
+				expect(await rejected).toBe(403);
+			}
+			expect(
+				(
+					await fetch(`${server.url}/auto-page-size.js`, {
+						headers: { Host: authority, Referer: "https://attacker.example/" },
+					})
+				).status,
+			).toBe(403);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("exposes current settings and notifies its embedding host after a browser change", async () => {
 		const dataDir = mkdtempSync(join(tmpdir(), "maket-embedded-settings-"));
 		directories.push(dataDir);

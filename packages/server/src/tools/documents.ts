@@ -29,7 +29,10 @@ import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
 import type { Store } from "../services/store.js";
-import { isStructuredWorkspaceItem } from "../services/structured-workspace-policy.js";
+import {
+	canUpdateDocumentMetadata,
+	isStructuredWorkspaceItem,
+} from "../services/structured-workspace-policy.js";
 import {
 	computeCanvasDims,
 	createDocument,
@@ -122,6 +125,12 @@ const MaketDocSchema = z.object({
 		.describe(
 			"For new/meta: name of an existing charte to associate with this document. The charte itself is applied later via maket_charte view.",
 		),
+	responsive: z
+		.boolean()
+		.optional()
+		.describe(
+			"For new/meta: opt this entire document into fluid browser reading at its available pane width. Default false; canvas authoring and PDF keep their physical dimensions. On a Workspace template only this field may be changed through meta; then sync_template propagates it to projections.",
+		),
 	margins: z
 		.object({
 			top: z.number(),
@@ -184,7 +193,7 @@ const DESCRIPTION = [
 	"  delete    — remove `doc` permanently; refused if it's the only document left.",
 	"  duplicate — clone `doc` → `name` (format variants, A/B copies).",
 	"  rename    — rename `doc` → `name`.",
-	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte.",
+	"  meta      — update `doc`'s metadata: designNotes, teamNotes, rating, category, charte, responsive. The responsive flag applies to every browser-reader page while canvas/PDF keep authored dimensions. Owned Workspace templates accept responsive alone; sync_template propagates it.",
 	"  pin       — pin `doc` at the top of the document lists (desktop library, Reader navigation, list). The most recently pinned document comes first; pinning an already pinned doc keeps its place. Allowed on locked documents. Workspace item pins appear under their collection in the Workspace sidebar; indexes and templates cannot be pinned.",
 	"  unpin     — remove `doc`'s pin; free documents return to their category and Workspace items disappear from the pinned shortcuts.",
 	"  export    — write a portable `.maket` bundle to EXPORTS_DIR. By default the bundle embeds referenced asset binaries (images, SVGs) so it survives transfer to another machine or a fresh datadir. Pass `include_assets=false` for a lighter structure-only snapshot. Include `doc` for a single document, `docs` for a list, or omit both to export every document. Referenced chartes, collections, and current document-state snapshots (with their revision retention) are embedded automatically; revision history stays local. Override the filename with `output`.",
@@ -292,7 +301,10 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 			bg: args.background || "#ffffff",
 			margins: args.margins,
 		},
-		meta: { charte: args.charte },
+		meta: {
+			charte: args.charte,
+			...(args.responsive === undefined ? {} : { responsive: args.responsive }),
+		},
 	});
 	documents.all().set(args.doc, newDoc);
 	documents.persist(args.doc);
@@ -425,6 +437,9 @@ function runLookup(args: Args, documents: Documents, store: Store) {
 			doc.dataModel === "state"
 				? (store.loadCurrentDocumentState(doc.id)?.revision ?? null)
 				: null,
+		...(doc.meta.responsive === undefined
+			? {}
+			: { responsive: doc.meta.responsive }),
 	});
 }
 
@@ -635,15 +650,25 @@ function runMeta(args: Args, documents: Documents, bus: Bus) {
 	if (!args.doc) return text("doc is required for action=meta", true);
 	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
-	if (d.meta.structuredWorkspace) {
+	if (
+		!canUpdateDocumentMetadata(d, {
+			responsive: args.responsive,
+			designNotes: args.designNotes,
+			teamNotes: args.teamNotes,
+			rating: args.rating,
+			charte: args.charte,
+			category: args.category,
+		})
+	) {
 		return text(
-			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace.workspaceId}" and cannot be changed through maket_doc.`,
+			`Document "${d.name}" belongs to Workspace "${d.meta.structuredWorkspace?.workspaceId}" and cannot be changed through maket_doc.`,
 			true,
 		);
 	}
 	const locked = lockGuard(d);
 	if (locked) return locked;
 	if (!d.meta) d.meta = {};
+	if (args.responsive !== undefined) d.meta.responsive = args.responsive;
 	if (args.designNotes != null) d.meta.designNotes = args.designNotes;
 	if (args.teamNotes != null) d.meta.teamNotes = args.teamNotes;
 	if (args.rating != null)

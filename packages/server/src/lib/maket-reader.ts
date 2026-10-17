@@ -70,6 +70,7 @@ export interface MaketReaderOpening {
 		name: string;
 		category: string;
 		canvas: Canvas;
+		responsive?: boolean;
 		pageCount: number;
 		pages: { number: number; name: string }[];
 	};
@@ -118,6 +119,9 @@ export function readerOpening(
 			name: document.name,
 			category: document.category,
 			canvas: document.canvas,
+			...(document.meta.responsive === undefined
+				? {}
+				: { responsive: document.meta.responsive }),
 			pageCount: document.pages.length,
 			pages: document.pages.map((page, index) => ({
 				number: index + 1,

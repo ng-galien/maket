@@ -1,7 +1,16 @@
-import { BookOpen, MousePointer2, Pin, Scan, Search, X } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+	ArrowLeft,
+	BookOpen,
+	MousePointer2,
+	Pin,
+	Scan,
+	Search,
+	X,
+} from "lucide-react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/shallow";
 import { useT } from "../i18n/useT";
+import { useMobileReader } from "../lib/mobileReader";
 import type { Document } from "../store/types";
 import { structuredWindowKey, useStore } from "../store/useStore";
 import {
@@ -21,6 +30,8 @@ import { collectionPageViews } from "./WorkspaceDoc";
 
 type StoreState = ReturnType<typeof useStore.getState>;
 
+/** Below this pane width, preserve the desktop preference but show one readable pane. */
+const COLLECTION_SPLIT_MIN_WIDTH = 900;
 const DEFAULT_INDEX_RATIO = 28;
 const SPLIT_RATIO_KEY = "maket-structured-reader-split-ratio";
 
@@ -36,14 +47,18 @@ export function selectStructuredCollectionNavigation(state: StoreState) {
 		(candidate) => candidate.collectionId === ownership.collectionId,
 	);
 	if (!index) return null;
-	const item = state.workspaceDocNames.find((name) => {
-		const owner = state.docs.get(name)?.meta?.structuredWorkspace;
-		return (
-			owner?.role === "item" &&
-			owner.workspaceId === workspace.id &&
-			owner.collectionId === index.collectionId
-		);
-	});
+	const item = state.mobileReading
+		? ownership.role === "item"
+			? focused?.name
+			: undefined
+		: state.workspaceDocNames.find((name) => {
+				const owner = state.docs.get(name)?.meta?.structuredWorkspace;
+				return (
+					owner?.role === "item" &&
+					owner.workspaceId === workspace.id &&
+					owner.collectionId === index.collectionId
+				);
+			});
 	return {
 		workspaceId: workspace.id,
 		collectionId: index.collectionId,
@@ -56,10 +71,31 @@ export function selectStructuredCollectionNavigation(state: StoreState) {
 /** A collection is a navigation context, not a growing board of documents. */
 export function StructuredCollectionWorkspace() {
 	const navigation = useStore(useShallow(selectStructuredCollectionNavigation));
+	const mobileReader = useMobileReader();
 	const layout = useStore((state) => state.structuredWorkspaceLayout);
 	const close = useStore((state) => state.closeWorkspaceDocuments);
 	const t = useT();
 	const gridRef = useRef<HTMLDivElement>(null);
+	const [narrow, setNarrow] = useState(
+		window.innerWidth - 56 < COLLECTION_SPLIT_MIN_WIDTH,
+	);
+	useLayoutEffect(() => {
+		const grid = gridRef.current;
+		if (!grid) return;
+		const measure = () =>
+			setNarrow(grid.clientWidth < COLLECTION_SPLIT_MIN_WIDTH);
+		measure();
+		const observer =
+			typeof ResizeObserver === "undefined"
+				? null
+				: new ResizeObserver(measure);
+		observer?.observe(grid);
+		window.addEventListener("resize", measure);
+		return () => {
+			observer?.disconnect();
+			window.removeEventListener("resize", measure);
+		};
+	}, [navigation?.workspaceId]);
 	const [ratio, setRatio] = useState(() => {
 		const saved = Number(localStorage.getItem(SPLIT_RATIO_KEY));
 		return saved >= 20 && saved <= 80 ? saved : DEFAULT_INDEX_RATIO;
@@ -70,7 +106,7 @@ export function StructuredCollectionWorkspace() {
 		localStorage.setItem(SPLIT_RATIO_KEY, String(bounded));
 	};
 	if (!navigation) return null;
-	const split = layout === "split";
+	const split = layout === "split" && !narrow && !mobileReader;
 	return (
 		<div
 			data-structured-navigation
@@ -121,7 +157,16 @@ export function StructuredCollectionWorkspace() {
 								key={navigation.item.id}
 								doc={navigation.item}
 								fit={split ? "fill" : "shrink"}
-								onClose={() => close([navigation.item?.name ?? ""])}
+								onClose={() =>
+									mobileReader
+										? useStore
+												.getState()
+												.openWorkspaceDocument(navigation.indexName, {
+													workspaceId: navigation.workspaceId,
+													collectionId: navigation.collectionId,
+												})
+										: close([navigation.item?.name ?? ""])
+								}
 							/>
 						) : (
 							<div className="flex h-full items-center justify-center p-6 text-center text-sm text-text-3">
@@ -151,6 +196,7 @@ function CollectionDocument({
 	collection?: { workspaceId: string; collectionId: string };
 }) {
 	const t = useT();
+	const mobileReader = useMobileReader();
 	const [zoom, setZoom] = useState(1);
 	const [canvasNavigation, setCanvasNavigation] = useState(false);
 	const setFocusedDoc = useStore((state) => state.setFocusedDoc);
@@ -187,25 +233,38 @@ function CollectionDocument({
 	return (
 		<div
 			onPointerDownCapture={() => setFocusedDoc(doc.name)}
-			data-collection-document-mode={canvasNavigation ? "canvas" : "reader"}
+			data-collection-document-mode={
+				!mobileReader && canvasNavigation ? "canvas" : "reader"
+			}
 			className="flex h-full min-h-0 flex-col"
 		>
-			<div className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-panel px-3 text-sm">
+			<div
+				data-collection-toolbar
+				className="flex h-10 shrink-0 items-center gap-2 border-b border-border bg-panel px-3 text-sm"
+			>
 				<div className="flex min-w-0 items-center gap-1">
-					<span className="min-w-0 truncate font-semibold" title={doc.name}>
+					<span
+						data-collection-document-title
+						className="min-w-0 truncate font-semibold"
+						title={doc.name}
+					>
 						{doc.name}
 					</span>
 					{onClose && (
 						<button
 							type="button"
 							onClick={onClose}
-							aria-label={t("structured_item_close", { document: doc.name })}
+							aria-label={
+								mobileReader
+									? t("mobile_back_to_list")
+									: t("structured_item_close", { document: doc.name })
+							}
 							className="grid h-7 w-7 shrink-0 place-items-center rounded text-text-2 hover:bg-input"
 						>
-							<X size={15} />
+							{mobileReader ? <ArrowLeft size={20} /> : <X size={15} />}
 						</button>
 					)}
-					{onClose && !readOnly && (
+					{onClose && !readOnly && !mobileReader && (
 						<button
 							type="button"
 							aria-label={t(pinned ? "unpin_document" : "pin_document", {
@@ -219,23 +278,25 @@ function CollectionDocument({
 						</button>
 					)}
 				</div>
-				{onClose && <AnnotationToggle doc={doc} />}
-				<button
-					type="button"
-					onClick={() => {
-						setCanvasNavigation(!canvasNavigation);
-						fitReadingDocument(doc.name);
-					}}
-					aria-label={t(canvasNavigation ? "reading_view" : "canvas_view")}
-					title={t(canvasNavigation ? "reading_view" : "canvas_view")}
-					className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded text-text-2 hover:bg-input"
-				>
-					{canvasNavigation ? (
-						<BookOpen size={15} />
-					) : (
-						<MousePointer2 size={15} />
-					)}
-				</button>
+				{onClose && !mobileReader && <AnnotationToggle doc={doc} />}
+				{!mobileReader && (
+					<button
+						type="button"
+						onClick={() => {
+							setCanvasNavigation(!canvasNavigation);
+							fitReadingDocument(doc.name);
+						}}
+						aria-label={t(canvasNavigation ? "reading_view" : "canvas_view")}
+						title={t(canvasNavigation ? "reading_view" : "canvas_view")}
+						className="ml-auto grid h-7 w-7 shrink-0 place-items-center rounded text-text-2 hover:bg-input"
+					>
+						{canvasNavigation ? (
+							<BookOpen size={15} />
+						) : (
+							<MousePointer2 size={15} />
+						)}
+					</button>
+				)}
 				<button
 					type="button"
 					onClick={() => fitReadingDocument(doc.name)}
@@ -252,8 +313,8 @@ function CollectionDocument({
 				<ReaderSurface
 					doc={doc}
 					dataSource="connected"
-					canvasNavigation={canvasNavigation}
-					zoomControls={false}
+					canvasNavigation={!mobileReader && canvasNavigation}
+					zoomControls={mobileReader}
 					rememberZoom={false}
 					fit={fit}
 					onZoomChange={setZoom}

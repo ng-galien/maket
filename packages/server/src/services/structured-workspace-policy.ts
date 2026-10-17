@@ -1,5 +1,24 @@
 import type { Document, Page } from "../types.js";
 
+/** Projections inherit presentation from their template; only this one
+ * document-level option may be updated directly on an owned template. */
+export function canUpdateDocumentMetadata(
+	document: Document,
+	changes: Record<string, unknown>,
+): boolean {
+	if (
+		changes.responsive !== undefined &&
+		typeof changes.responsive !== "boolean"
+	)
+		return false;
+	const owner = document.meta.structuredWorkspace;
+	if (!owner) return true;
+	const keys = Object.keys(changes).filter((key) => changes[key] !== undefined);
+	return (
+		owner.role === "template" && keys.length === 1 && keys[0] === "responsive"
+	);
+}
+
 export function templateControlledPageMessage(
 	document: Document,
 	page: Page,

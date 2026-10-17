@@ -4,6 +4,7 @@ import {
 	initializePwa,
 	promptPwaInstall,
 	resetPwaForTests,
+	verifyPwaInstallation,
 } from "./pwa";
 
 describe("PWA installation", () => {
@@ -61,6 +62,8 @@ describe("PWA installation", () => {
 
 		await promptPwaInstall();
 		expect(nativePrompt).toHaveBeenCalledOnce();
+		expect(getPwaInstallStatus()).toBe("installing");
+		window.dispatchEvent(new Event("appinstalled"));
 		expect(getPwaInstallStatus()).toBe("installed");
 		dispose();
 	});
@@ -71,5 +74,51 @@ describe("PWA installation", () => {
 		initializePwa();
 
 		expect(register).not.toHaveBeenCalled();
+	});
+	it("reports registration failure and retries after resources recover", async () => {
+		register.mockRejectedValueOnce(new Error("Service worker HTTP 404"));
+		const dispose = initializePwa();
+		await Promise.resolve();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url) =>
+				String(url).includes("manifest")
+					? new Response(
+							JSON.stringify({
+								name: "Maket",
+								start_url: "/",
+								display: "standalone",
+								icons: [
+									{ src: "/icon-192.png", sizes: "192x192" },
+									{ src: "/icon-512.png", sizes: "512x512" },
+								],
+							}),
+						)
+					: new Response("icon"),
+			),
+		);
+		try {
+			await verifyPwaInstallation();
+			expect(register).toHaveBeenCalledTimes(2);
+			expect(getPwaInstallStatus()).toBe("browser");
+		} finally {
+			vi.unstubAllGlobals();
+			dispose();
+		}
+	});
+
+	it("does not conceal a failed installation resource", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => new Response("Unavailable", { status: 503 })),
+		);
+		try {
+			await expect(verifyPwaInstallation()).rejects.toThrow(
+				"Manifest HTTP 503",
+			);
+			expect(register).not.toHaveBeenCalled();
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

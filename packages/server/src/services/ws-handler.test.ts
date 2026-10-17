@@ -47,6 +47,56 @@ function makeDoc(name: string, category = "general") {
 	});
 }
 
+it("admits boolean responsive metadata and keeps template-only and projection guards on WS", () => {
+	const { store, documents, handler, dispose } = fixture();
+	const plain = makeDoc("responsive plain");
+	const template = makeDoc("responsive template");
+	template.meta.structuredWorkspace = {
+		role: "template",
+		workspaceId: "responsive",
+		templateRoles: [],
+	};
+	const projection = makeDoc("responsive projection");
+	projection.meta.structuredWorkspace = {
+		role: "collection",
+		workspaceId: "responsive",
+		collectionId: "items",
+	};
+	for (const doc of [plain, template, projection]) store.saveDoc(doc);
+	documents.loadAll();
+	handler(
+		{ type: "update_meta", docName: plain.name, responsive: true },
+		STUB_WS,
+	);
+	expect(store.loadOne(plain.name)?.meta.responsive).toBe(true);
+	handler(
+		{ type: "update_meta", docName: template.name, responsive: true },
+		STUB_WS,
+	);
+	expect(store.loadOne(template.name)?.meta.responsive).toBe(true);
+	handler(
+		{
+			type: "update_meta",
+			docName: template.name,
+			responsive: false,
+			rating: 5,
+		},
+		STUB_WS,
+	);
+	expect(store.loadOne(template.name)?.meta.responsive).toBe(true);
+	handler(
+		{ type: "update_meta", docName: projection.name, responsive: true },
+		STUB_WS,
+	);
+	expect(store.loadOne(projection.name)?.meta.responsive).toBeUndefined();
+	handler(
+		{ type: "update_meta", docName: plain.name, responsive: "yes" } as never,
+		STUB_WS,
+	);
+	expect(store.loadOne(plain.name)?.meta.responsive).toBe(true);
+	dispose();
+});
+
 function settingsStub(): SettingsService {
 	let current: Settings = { ...DEFAULT_SETTINGS };
 	return {

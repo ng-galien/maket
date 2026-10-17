@@ -285,6 +285,7 @@ export interface OpenOnboardingCommand {
 export interface UpdateDocumentMetadataCommand {
 	type: "update_meta";
 	docName: string;
+	responsive?: boolean;
 	designNotes?: string;
 	teamNotes?: string;
 	rating?: number;

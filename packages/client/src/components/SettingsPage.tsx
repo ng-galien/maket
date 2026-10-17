@@ -31,7 +31,12 @@ import {
 } from "../desktopUpdates";
 import { getLang, setLang, useT } from "../i18n/useT";
 import type { ThemeMode } from "../lib/colorScheme";
-import { promptPwaInstall, usePwaInstallStatus } from "../pwa";
+import {
+	promptPwaInstall,
+	usePwaInstallStatus,
+	usePwaRegistrationError,
+	verifyPwaInstallation,
+} from "../pwa";
 import { useStore } from "../store/useStore";
 import { sendSettings } from "../store/ws";
 import { copyToClipboard } from "../utils";
@@ -46,6 +51,7 @@ const ACCENT_PRESETS = [
 
 export function SettingsPage() {
 	const t = useT();
+	const mobile = useStore((state) => state.mobileReading);
 	const closeSettings = useStore((state) => state.closeSettings);
 
 	return (
@@ -62,9 +68,11 @@ export function SettingsPage() {
 						<h1 className="text-xl font-bold tracking-tight text-text-1">
 							{t("settings")}
 						</h1>
-						<p className="mt-1 max-w-2xl text-sm leading-5 text-text-2">
-							{t("settings_description")}
-						</p>
+						{!mobile && (
+							<p className="mt-1 max-w-2xl text-sm leading-5 text-text-2">
+								{t("settings_description")}
+							</p>
+						)}
 					</div>
 					<button
 						type="button"
@@ -95,30 +103,99 @@ export function SettingsPage() {
 	);
 }
 
+// Settings compose the browser-owned PWA state with shared settings controls;
+// resource verification and installation behavior remain in pwa.ts.
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 function PwaSettings() {
 	const t = useT();
+	const mobile = useStore((state) => state.mobileReading);
 	const status = usePwaInstallStatus();
+	const registrationError = usePwaRegistrationError();
+	const [checking, setChecking] = useState(false);
+	const [checked, setChecked] = useState(false);
+	const [installError, setInstallError] = useState<string | null>(null);
+	const fail = (error: unknown) =>
+		setInstallError(error instanceof Error ? error.message : String(error));
 	if (window.maketDesktop) return null;
 	return (
 		<SettingsSection
 			title={t("settings_pwa")}
-			description={t("settings_pwa_description")}
+			description={t(
+				mobile ? "mobile_settings_pwa_description" : "settings_pwa_description",
+			)}
 		>
 			<SettingRow
 				label={t("settings_pwa_install")}
-				description={t(`settings_pwa_status_${status}`)}
+				description={t(
+					mobile && status === "installable"
+						? "mobile_settings_pwa_status_installable"
+						: `settings_pwa_status_${status}`,
+				)}
 			>
 				{status === "installable" ? (
-					<UpdateActionButton onClick={() => void promptPwaInstall()}>
+					<UpdateActionButton
+						onClick={() => {
+							setInstallError(null);
+							void promptPwaInstall().catch(fail);
+						}}
+					>
 						<Download size={13} />
 						{t("settings_pwa_install_action")}
 					</UpdateActionButton>
-				) : status === "installed" ? (
+				) : status === "installed" || status === "installing" ? (
 					<span className="text-xs font-semibold text-accent">
-						{t("settings_pwa_installed")}
+						{t(
+							status === "installed"
+								? "settings_pwa_installed"
+								: "settings_pwa_installing",
+						)}
 					</span>
-				) : null}
+				) : (
+					<div className="flex flex-col items-end gap-2 max-sm:items-start">
+						<span
+							role="status"
+							data-pwa-install-status="browser"
+							className="text-xs font-semibold text-text-2"
+						>
+							{t("settings_pwa_not_offered")}
+						</span>
+						<UpdateActionButton
+							disabled={checking}
+							onClick={() => {
+								setChecking(true);
+								setInstallError(null);
+								setChecked(false);
+								void verifyPwaInstallation()
+									.then(() => setChecked(true))
+									.catch(fail)
+									.finally(() => setChecking(false));
+							}}
+						>
+							<RefreshCw size={13} className={checking ? "animate-spin" : ""} />
+							{t("settings_pwa_check")}
+						</UpdateActionButton>
+					</div>
+				)}
 			</SettingRow>
+			{(installError || registrationError) && (
+				<p role="alert" className="text-sm text-danger">
+					{t("settings_pwa_check_error", {
+						detail: installError || registrationError || "",
+					})}
+				</p>
+			)}
+			{checked &&
+				status === "browser" &&
+				!installError &&
+				!registrationError && (
+					<p
+						role="status"
+						data-pwa-check-result
+						className="text-sm text-text-2"
+					>
+						{t("settings_pwa_check_ready")}
+					</p>
+				)}
 		</SettingsSection>
 	);
 }
@@ -456,7 +533,6 @@ function agentStatusText(
 
 function AppearanceSettings() {
 	const t = useT();
-	const language = getLang();
 	const themeMode = useStore((state) => state.themeMode);
 	const setThemeMode = useStore((state) => state.setThemeMode);
 	const accentColor = useStore((state) => state.accentColor);
@@ -466,23 +542,7 @@ function AppearanceSettings() {
 			title={t("settings_appearance")}
 			description={t("settings_appearance_description")}
 		>
-			<SettingRow
-				label={t("language")}
-				description={t("settings_language_description")}
-			>
-				<ChoiceGroup label={t("language")}>
-					<ChoiceButton
-						active={language === "fr"}
-						label="Français"
-						onClick={() => selectLanguage("fr")}
-					/>
-					<ChoiceButton
-						active={language === "en"}
-						label="English"
-						onClick={() => selectLanguage("en")}
-					/>
-				</ChoiceGroup>
-			</SettingRow>
+			<LanguageSettings />
 			<SettingRow
 				label={t("settings_theme")}
 				description={t("settings_theme_description")}
@@ -560,7 +620,10 @@ function AccentChoices({
 					</button>
 				);
 			})}
-			<label className="relative grid h-8 w-8 cursor-pointer place-items-center overflow-hidden rounded-sm border border-border bg-input focus-within:ring-2 focus-within:ring-accent">
+			<label
+				data-accent-custom
+				className="relative grid h-8 w-8 cursor-pointer place-items-center overflow-hidden rounded-sm border border-border bg-input focus-within:ring-2 focus-within:ring-accent"
+			>
 				<span
 					className="h-5 w-5 rounded-sm border border-black/10"
 					style={{ backgroundColor: value }}
@@ -778,14 +841,16 @@ function SettingRow({
 	children,
 }: {
 	label: string;
-	description: string;
+	description?: string;
 	children: ReactNode;
 }) {
 	return (
 		<div className="flex min-w-0 items-center gap-6 py-4 first:pt-0 last:pb-0 max-sm:items-start max-sm:flex-col max-sm:gap-3">
 			<div className="min-w-0 flex-1">
 				<h3 className="text-sm font-semibold text-text-1">{label}</h3>
-				<p className="mt-0.5 text-xs leading-4 text-text-2">{description}</p>
+				{description && (
+					<p className="mt-0.5 text-xs leading-4 text-text-2">{description}</p>
+				)}
 			</div>
 			<div className="shrink-0 max-sm:w-full">{children}</div>
 		</div>
@@ -857,5 +922,31 @@ function ThemeChoice({
 			icon={icon}
 			onClick={() => onSelect(mode)}
 		/>
+	);
+}
+
+function LanguageSettings() {
+	const t = useT();
+	const mobile = useStore((state) => state.mobileReading);
+	const languageLabel = t(mobile ? "mobile_settings_language" : "language");
+	const language = getLang();
+	return (
+		<SettingRow
+			label={languageLabel}
+			description={mobile ? undefined : t("settings_language_description")}
+		>
+			<ChoiceGroup label={languageLabel}>
+				<ChoiceButton
+					active={language === "fr"}
+					label="Français"
+					onClick={() => selectLanguage("fr")}
+				/>
+				<ChoiceButton
+					active={language === "en"}
+					label="English"
+					onClick={() => selectLanguage("en")}
+				/>
+			</ChoiceGroup>
+		</SettingRow>
 	);
 }

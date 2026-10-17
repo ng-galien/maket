@@ -16,7 +16,7 @@ const build = join(views, ".build");
 
 // A production build whoever runs it: a test runner sets NODE_ENV=test,
 // which would ship React's development build.
-execFileSync("npx", ["vite", "build", "--mode", "mcp-view"], {
+execFileSync(process.execPath, [join(root, "node_modules", "vite", "bin", "vite.js"), "build", "--mode", "mcp-view"], {
   cwd: join(root, "packages", "client"),
   stdio: "inherit",
   env: { ...process.env, NODE_ENV: "production" },

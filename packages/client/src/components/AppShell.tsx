@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n/useT";
+import { useMobileReader } from "../lib/mobileReader";
+import { useMobileNavigation } from "../lib/useMobileNavigation";
 import { useStore } from "../store/useStore";
 import { Board } from "./Board";
 import {
@@ -7,7 +9,10 @@ import {
 	selectCollectionWorkspaceLayout,
 } from "./CollectionWorkspace";
 import { LibraryPanel } from "./LibraryPanel";
+import { MobileExplorer } from "./MobileExplorer";
+import { MobileReadingNavigation } from "./MobileReadingNavigation";
 import { Popover } from "./Popover";
+import { ReadingWorkspace } from "./ReadingWorkspace";
 import { SettingsPage } from "./SettingsPage";
 import { StateWorkspace } from "./StateWorkspace";
 import {
@@ -20,6 +25,13 @@ import { WorkspaceHeader } from "./WorkspaceHeader";
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 export function AppShell({ locked }: { locked: boolean }) {
 	const t = useT();
+	const mobileReader = useMobileReader();
+	useMobileNavigation(mobileReader);
+	const focusedDocName = useStore((state) => state.focusedDocName);
+	useEffect(() => {
+		if (mobileReader && !focusedDocName && !useStore.getState().libraryOpen)
+			useStore.getState().setLibraryView("structured-workspaces");
+	}, [mobileReader, focusedDocName]);
 	const canvasRef = useRef<HTMLDivElement>(null);
 	const [libraryOverlay, setLibraryOverlay] = useState(false);
 	const libraryOpen = useStore((state) => state.libraryOpen);
@@ -45,16 +57,18 @@ export function AppShell({ locked }: { locked: boolean }) {
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [closeLastPanel, libraryOpen, settingsOpen]);
 
-	const expandedDocumentPreview = collectionLayout === "expanded-linked";
-	const dataOnly = collectionLayout === "expanded-data";
+	const expandedDocumentPreview =
+		!mobileReader && collectionLayout === "expanded-linked";
+	const dataOnly = !mobileReader && collectionLayout === "expanded-data";
 	return (
 		<div
 			data-app-shell
+			data-mobile-reader={mobileReader || undefined}
 			className="relative flex h-full w-full flex-col overflow-hidden bg-app"
 		>
-			<WorkspaceHeader />
+			{!(mobileReader && libraryOpen && !settingsOpen) && <WorkspaceHeader />}
 			<div data-shell-workarea className="relative flex min-h-0 flex-1">
-				{libraryOpen && (!libraryPinned || libraryOverlay) && (
+				{libraryOpen && (mobileReader || !libraryPinned || libraryOverlay) && (
 					<button
 						type="button"
 						aria-label={t("close_active_panel")}
@@ -62,21 +76,29 @@ export function AppShell({ locked }: { locked: boolean }) {
 						className={`absolute inset-0 z-[calc(var(--z-panel)-1)] bg-black/15 backdrop-blur-[1px] ${libraryOverlay ? "" : "hidden max-[959px]:block"}`}
 					/>
 				)}
-				<LibraryPanel
-					collectionNavigation={
-						structuredNavigation &&
-						structuredLayout === "split" &&
-						!settingsOpen
-					}
-					onOverlayChange={setLibraryOverlay}
-				/>
+				{mobileReader ? (
+					<MobileExplorer />
+				) : (
+					<LibraryPanel
+						collectionNavigation={
+							structuredNavigation &&
+							structuredLayout === "split" &&
+							!settingsOpen
+						}
+						onOverlayChange={setLibraryOverlay}
+					/>
+				)}
 				<section
 					data-workspace-surface
 					onPointerDownCapture={() => {
-						if (libraryOpen && (!libraryPinned || libraryOverlay))
+						if (
+							libraryOpen &&
+							(mobileReader || !libraryPinned || libraryOverlay)
+						)
 							closeLastPanel();
 					}}
-					className="relative flex min-w-0 flex-1 flex-col"
+					inert={mobileReader && libraryOpen && !settingsOpen}
+					className={`relative flex min-w-0 flex-1 flex-col ${mobileReader && libraryOpen && !settingsOpen ? "invisible pointer-events-none" : ""}`}
 				>
 					{settingsOpen ? (
 						<SettingsPage />
@@ -97,6 +119,8 @@ export function AppShell({ locked }: { locked: boolean }) {
 							>
 								{structuredNavigation ? (
 									<StructuredCollectionWorkspace />
+								) : mobileReader ? (
+									<ReadingWorkspace shell />
 								) : (
 									<Board locked={locked} />
 								)}
@@ -112,12 +136,17 @@ export function AppShell({ locked }: { locked: boolean }) {
 									</button>
 								)}
 							</div>
-							<CollectionWorkspace layout={collectionLayout} />
-							<StateWorkspace />
+							{!mobileReader && (
+								<>
+									<CollectionWorkspace layout={collectionLayout} />
+									<StateWorkspace />
+								</>
+							)}
 						</>
 					)}
 				</section>
 			</div>
+			{mobileReader && <MobileReadingNavigation />}
 			<Popover />
 		</div>
 	);

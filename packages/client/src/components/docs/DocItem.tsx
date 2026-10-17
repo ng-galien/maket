@@ -246,7 +246,7 @@ export function DocCardThumb({ model, meta, actions }: DocItemRenderProps) {
 				src={thumbSrc}
 				alt={doc.name}
 				loading="lazy"
-				className={`absolute inset-0 h-full w-full ${doc.format === "AUTO" ? "object-contain" : "object-cover"}`}
+				className="absolute inset-0 h-full w-full object-cover object-top"
 				style={{ background: "#fff" }}
 				draggable={false}
 			/>

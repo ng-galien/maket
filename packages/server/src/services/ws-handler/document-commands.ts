@@ -9,7 +9,10 @@ import {
 } from "@maket/shared";
 import type WebSocket from "ws";
 import { createDocument, type Document } from "../../types.js";
-import { documentDuplicationBlockMessage } from "../structured-workspace-policy.js";
+import {
+	canUpdateDocumentMetadata,
+	documentDuplicationBlockMessage,
+} from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 
 export function handleLoadDocument(
@@ -116,7 +119,16 @@ export function handleUpdateMeta(
 ): void {
 	const d = ctx.wsDoc(msg);
 	if (!d) return;
-	if (d.meta.structuredWorkspace) {
+	if (
+		!canUpdateDocumentMetadata(d, {
+			responsive: msg.responsive,
+			designNotes: msg.designNotes,
+			teamNotes: msg.teamNotes,
+			rating: msg.rating,
+			charte: msg.charte,
+			category: msg.category,
+		})
+	) {
 		ctx.bus.emit("toast", {
 			key: "toast_detail",
 			params: { detail: `Document "${d.name}" belongs to a Workspace.` },
@@ -133,6 +145,7 @@ export function handleUpdateMeta(
 		return;
 	}
 	if (!d.meta) d.meta = {};
+	if (msg.responsive !== undefined) d.meta.responsive = msg.responsive;
 	if (msg.designNotes !== undefined) d.meta.designNotes = msg.designNotes;
 	if (msg.teamNotes !== undefined) d.meta.teamNotes = msg.teamNotes;
 	if (msg.rating !== undefined)

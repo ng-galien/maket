@@ -1,4 +1,5 @@
 import {
+	ArrowLeft,
 	BookOpen,
 	Lock,
 	Maximize,
@@ -9,6 +10,7 @@ import {
 import { openReadingView } from "../desktopCommands";
 import { useT } from "../i18n/useT";
 import { browserPath } from "../lib/browserBasePath";
+import { useMobileReader } from "../lib/mobileReader";
 import { displayWorkspaceCategorySegment } from "../lib/workspaceCategoryDisplay";
 import type { Document } from "../store/types";
 import { useFocusedDoc, useStore } from "../store/useStore";
@@ -17,6 +19,7 @@ import { fitToView } from "../store/zoomBridge";
 import { AnnotationToggle } from "./AnnotationToggle";
 import { CollectionDockButton } from "./CollectionDataControls";
 import { DocumentOutputButtons } from "./DocumentOutputControls";
+import { MobileDocumentActions } from "./MobileDocumentActions";
 import { fitReadingDocument, ReaderDocumentPicker } from "./ReadingWorkspace";
 import { StateDockButton } from "./StateDataControls";
 import { selectStructuredCollectionNavigation } from "./StructuredCollectionWorkspace";
@@ -31,6 +34,7 @@ export function WorkspaceHeader({
 	onDocumentLock?: (name: string, locked: boolean) => void;
 } = {}) {
 	const t = useT();
+	const mobileReader = useMobileReader();
 	const connected = useStore((state) => state.connected);
 	const focusedDoc = useFocusedDoc();
 	const docs = useStore((state) => state.docs);
@@ -122,6 +126,9 @@ export function WorkspaceHeader({
 		);
 	}
 
+	if (mobileReader)
+		return <MobileDocumentHeader doc={focusedDoc} connected={connected} />;
+
 	return (
 		<header
 			data-workspace-header
@@ -181,12 +188,16 @@ export function WorkspaceHeader({
 							{t("open_document")}
 						</button>
 					)}
-					<CollectionDockButton />
-					<StateDockButton />
+					{!mobileReader && (
+						<>
+							<CollectionDockButton />
+							<StateDockButton />
+						</>
+					)}
 				</div>
 			</div>
 
-			{focusedDoc && (
+			{focusedDoc && !mobileReader && (
 				<div className="flex shrink-0 items-center gap-0.5 overflow-x-auto">
 					<ReadingButton doc={focusedDoc} />
 					{!structuredNavigation && <AnnotationToggle doc={focusedDoc} />}
@@ -327,7 +338,7 @@ function ReadingButton({ doc }: { doc: Document }) {
 				aria-pressed={split}
 				title={label}
 				onClick={() => setLayout(split ? "single" : "split")}
-				className={WORKSPACE_ICON_BUTTON_CLASS}
+				className={`${WORKSPACE_ICON_BUTTON_CLASS} max-[955px]:hidden`}
 			>
 				{split ? (
 					<PanelLeft size={19} strokeWidth={1.8} />
@@ -401,5 +412,69 @@ function DocumentLockButton({
 				<Lock size={19} strokeWidth={1.8} />
 			)}
 		</button>
+	);
+}
+
+function MobileDocumentHeader({
+	doc,
+	connected,
+}: {
+	doc: Document | null;
+	connected: boolean;
+}) {
+	const t = useT();
+	const workspaces = useStore((s) => s.structuredWorkspaces);
+	const owner = doc?.meta?.structuredWorkspace;
+	const workspace = workspaces.find((w) => w.id === owner?.workspaceId);
+	const collection = owner?.collectionId
+		? workspace?.representationSchema.collections[owner.collectionId]
+		: null;
+	const context =
+		collection?.name ??
+		doc?.category?.split("/").filter(Boolean).at(-1) ??
+		t("documents");
+	const navigate = () =>
+		owner
+			? useStore.getState().filterStructuredWorkspaces(owner.workspaceId)
+			: useStore.getState().filterDocumentsByCategory(doc?.category ?? "");
+	return (
+		<header
+			data-workspace-header
+			data-mobile-simple-header
+			className="flex shrink-0 items-center gap-2 border-b border-border bg-panel px-3 py-2"
+		>
+			<span
+				role="status"
+				aria-label={connected ? t("maket_connected") : t("maket_disconnected")}
+				className={`size-2 shrink-0 rounded-full ${connected ? "bg-accent" : "bg-danger"}`}
+			/>
+			<button
+				type="button"
+				onClick={navigate}
+				aria-label={t(owner ? "mobile_open_workspace" : "mobile_open_folder", {
+					name: owner ? (workspace?.name ?? context) : context,
+				})}
+				className="flex min-h-12 min-w-0 flex-1 items-center gap-3 text-left"
+			>
+				<ArrowLeft size={22} className="shrink-0" />
+				<span className="min-w-0 flex-1">
+					<span className="block truncate text-[13px] text-text-3">
+						{context}
+					</span>
+					<span className="line-clamp-2 break-words text-[16px] font-semibold leading-snug text-text-1">
+						{doc?.name ?? t("open_document")}
+					</span>
+				</span>
+			</button>
+			{doc && (
+				<MobileDocumentActions
+					key={doc.id}
+					doc={doc}
+					placement="reader"
+					workspaceId={owner?.workspaceId}
+					collectionId={owner?.collectionId}
+				/>
+			)}
+		</header>
 	);
 }

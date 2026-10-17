@@ -130,3 +130,59 @@ library uses an overlay instead of shrinking both documents below a readable
 width. Selecting a document closes that overlay but preserves the pin choice;
 searching or expanding folders keeps the library open. A wide window retains
 the docked library, using its user-selected width.
+
+
+## Connected mobile reading
+
+Narrow windows (below 960 CSS px) and primary-touch devices always use the
+connected Reader shell, including an unfolded phone and a landscape tablet.
+This is a transient presentation policy: it does not set document read-only,
+change the desktop preference, or alter paper/PDF geometry. Existing writable
+JSON Forms and bound state controls remain connected and persistent. The
+standalone document-link route retains its separate read-only contract.
+
+Documents, Photos, Workspaces, Messages and Settings are mobile reading destinations.
+Collection navigation shows one page at a time. System Back restores the actual
+previous navigation and its context; it does not always return to a list.
+The Documents button explicitly opens the catalogue root, while the parent
+control follows the category hierarchy independently of browser history. The
+hidden list stays mounted to preserve its scroll position and context. Motion
+respects reduced-motion. The editor and Canvas navigation toggle are not
+mobile destinations. One finger scrolls the reader; a two-finger pinch zooms
+its document around the gesture centre without changing document content.
+
+
+The mobile explorer navigates one hierarchy level at a time: Workspaces then
+collections, or document categories then their children. A tap always navigates
+to the selected document; repeating the tap does not close it. Only the current
+document is marked active. Preview and list presentations share that behavior;
+previews use the existing first-page thumbnail route. The full-width search
+field stays near the bottom of the explorer and matches names and categories
+within its library, with provenance shown on results. A short context/return
+control replaces the desktop breadcrumb and multi-document picker on mobile.
+This presentation does not close the desktop's open documents or reset forms.
+
+Mobile PDF sharing keeps a prepared PDF for the current document, invalidating
+it when its content, state revision or charte changes. A single Share PDF action
+hands that file to the browser's native share sheet. While an export is still
+being prepared, an accessible full-screen activity indicator offers cancellation;
+there is no intermediate share button or residual dialog. Browsers without file
+sharing export the PDF instead and state that fallback explicitly.
+
+Native sharing requires the browser's transient user activation. A cold export
+that outlasts that activation cannot open the native sheet automatically: Maket
+reports the refusal without claiming a share or offering a second intermediate
+button. Pre-preparation reduces this case but does not remove the browser limit.
+
+
+The document menu is shared by catalogue rows and the current reader: copy the
+title and link, write a document message, share its PDF, or rename it when the
+existing document policy permits. Unavailable renaming is omitted. Folders do
+not receive document actions. Previews fill their frame and show the top of the
+first page on both mobile and desktop.
+
+The Messages view also offers a general message without any document, even when
+a document is open. Its scope is displayed as General message; the existing
+persistent queue and agent `maket_workspace list_messages` / `ack_messages`
+contract apply. The agent reads it on its next visit. Mobile composition uses
+the visible screen including keyboard resizing; errors retain the draft.

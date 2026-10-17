@@ -1475,6 +1475,7 @@ function replaceDefinition(
 			{
 				document,
 				pages: synchronizedPages(workspace.id, template, document.pages),
+				template,
 			},
 		];
 	});
@@ -1522,7 +1523,7 @@ function replaceDefinition(
 			} finally {
 				document.pages = previousPages;
 			}
-			return [{ document, record, concreteSchema, pages }];
+			return [{ document, record, concreteSchema, pages, template }];
 		});
 
 	const updated = deps.store.updateStructuredWorkspace(
@@ -1535,6 +1536,7 @@ function replaceDefinition(
 	reconcileTemplateOwnership(deps, updated);
 	for (const plan of collectionPlans) {
 		plan.document.pages = plan.pages;
+		syncResponsivePresentation(plan.document, plan.template);
 		plan.document.activePage = Math.min(
 			plan.document.activePage,
 			Math.max(0, plan.document.pages.length - 1),
@@ -1550,6 +1552,7 @@ function replaceDefinition(
 	}
 	for (const plan of plans) {
 		plan.document.pages = plan.pages;
+		syncResponsivePresentation(plan.document, plan.template);
 		deps.documentStates.mirror(
 			plan.document.name,
 			Number(plan.record.revision),
@@ -2013,6 +2016,7 @@ function syncTemplates(
 			document.activePage,
 			Math.max(0, document.pages.length - 1),
 		);
+		syncResponsivePresentation(document, template);
 		deps.documents.persist(document.name);
 		deps.bus.emit("document:loaded", { docName: document.name });
 		updated += 1;
@@ -2052,6 +2056,7 @@ function syncTemplates(
 				state.current.schema,
 				state.current.data,
 			);
+			syncResponsivePresentation(document, template);
 			deps.documents.persist(document.name);
 		} catch (error) {
 			document.pages = previousPages;
@@ -2783,6 +2788,14 @@ function workspaceIntegrity(
 	return issues.length === 0
 		? { status: "ready", issues: [] }
 		: { status: "incomplete", issues };
+}
+
+function syncResponsivePresentation(
+	document: Document,
+	template: Document,
+): void {
+	if (template.meta.responsive === undefined) delete document.meta.responsive;
+	else document.meta.responsive = template.meta.responsive;
 }
 
 /** A template's meta for a document instantiated from it: never the marker

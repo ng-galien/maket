@@ -134,9 +134,13 @@ test.describe("Maket V2 shared shell", () => {
 		await expect(library.locator("[data-library-toolbar-row]")).toHaveCount(1);
 		await expect(library.locator("[data-library-search]")).toHaveCount(1);
 		await expectSearchAligned();
-		expect((await toolbar.boundingBox())?.height).toBeCloseTo(
+		const compose = toolbar.getByRole("button", {
+			name: "Write a message",
+			exact: true,
+		});
+		await expect(compose).toBeVisible();
+		expect((await toolbar.boundingBox())?.height).toBeGreaterThan(
 			toolbarBox?.height ?? 0,
-			0,
 		);
 		await expect(library.locator("[data-messages-scroll]")).toHaveCSS(
 			"overflow-y",
@@ -144,50 +148,28 @@ test.describe("Maket V2 shared shell", () => {
 		);
 	});
 
-	test("uses the same icon rail and content drawer below 960 pixels", async ({
+	test("uses full-width libraries and direct destinations below 960 pixels", async ({
 		page,
 	}) => {
 		await page.setViewportSize({ width: 820, height: 740 });
 		await openWorkspace(page);
 		const library = await openLibraryView(page, "docs");
-		const resizeHandle = library.getByRole("separator", {
-			name: /Resize library panel|Redimensionner le panneau de bibliothèque/i,
-		});
-		await expect(resizeHandle).toBeVisible();
-		const panelBeforeResize = await library.boundingBox();
-		const handleBox = await resizeHandle.boundingBox();
-		expect(panelBeforeResize).not.toBeNull();
-		expect(handleBox).not.toBeNull();
-		if (!panelBeforeResize || !handleBox) return;
-		await page.mouse.move(
-			handleBox.x + handleBox.width / 2,
-			handleBox.y + handleBox.height / 2,
-		);
-		await page.mouse.down();
-		await page.mouse.move(handleBox.x + handleBox.width / 2 + 80, handleBox.y, {
-			steps: 2,
-		});
-		await expect(library).toHaveAttribute("data-resizing", "true");
-		await expect(library).toHaveCSS("transition-property", "none");
-		const panelDuringResize = await library.boundingBox();
-		expect(panelDuringResize?.width).toBeGreaterThan(
-			panelBeforeResize.width + 60,
-		);
-		await page.mouse.up();
-		await expect(library).not.toHaveAttribute("data-resizing");
-
-		await page.getByRole("button", { name: /^(exchanges|échanges)$/i }).click();
+		await expect(library.getByRole("separator")).toHaveCount(0);
+		expect((await library.boundingBox())?.width).toBe(820);
+		const navigation = page.locator("[data-mobile-reading-navigation]");
+		await expect(navigation.getByRole("button")).toHaveCount(5);
+		await navigation
+			.getByRole("button", { name: "Exchanges", exact: true })
+			.click();
 		await expect(page.locator("#panel-exchange")).toBeVisible();
-		await expect(page.locator("[data-library-panel]")).toHaveAttribute(
-			"data-library-mode",
-			"extended",
-		);
-
-		await page.getByRole("button", { name: /^(exchanges|échanges)$/i }).click();
+		expect((await library.boundingBox())?.width).toBe(820);
+		await navigation
+			.getByRole("button", { name: "Documents", exact: true })
+			.click();
 		await expect(page.locator("#panel-exchange")).toHaveCount(0);
-		await expect(page.locator("[data-library-panel]")).toHaveAttribute(
-			"data-library-mode",
-			"compact",
-		);
+		await expect(
+			library.getByRole("heading", { name: "Documents", exact: true }),
+		).toBeVisible();
+		expect((await library.boundingBox())?.width).toBe(820);
 	});
 });

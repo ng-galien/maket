@@ -17,6 +17,7 @@ import {
 	applyColorScheme,
 	resolveDarkMode,
 } from "./lib/colorScheme";
+import { useMobileReader } from "./lib/mobileReader";
 import { initializePwa } from "./pwa";
 import { knownStructuredItems, useStore } from "./store/useStore";
 import { initWs } from "./store/ws";
@@ -27,6 +28,11 @@ import { initWs } from "./store/ws";
 export default function App() {
 	const linkedDocumentId = readLinkedDocumentId(window.location.pathname);
 	const desktop = window.maketDesktop !== undefined;
+	const mobileReader = useMobileReader();
+	useEffect(() => {
+		useStore.setState({ mobileReading: mobileReader });
+		return () => useStore.setState({ mobileReading: false });
+	}, [mobileReader]);
 	const configuration = useDesktopConfiguration();
 	const setupMode =
 		desktop && configuration.plan?.runtime.status === "action-required";
@@ -153,7 +159,10 @@ export default function App() {
 					<LinkedDocumentView
 						documentId={decodeURIComponent(linkedDocumentId)}
 					/>
-				) : workspaceView === "reading" && hasFocusedDoc && !settingsOpen ? (
+				) : !mobileReader &&
+					workspaceView === "reading" &&
+					hasFocusedDoc &&
+					!settingsOpen ? (
 					<ReadingWorkspace />
 				) : (
 					<AppShell locked={locked} />

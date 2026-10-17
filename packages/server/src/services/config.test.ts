@@ -5,6 +5,29 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createConfig, ensureDirs, loadEnvFile } from "./config.js";
 
 describe("createConfig", () => {
+	it("keeps remote access opt-in and accepts only exact canonical HTTPS origins", () => {
+		expect(createConfig({ env: {} }).TRUSTED_ORIGINS).toEqual([]);
+		const origin = "https://maket.example.ts.net:18448";
+		expect(
+			createConfig({ env: { MAKET_TRUSTED_ORIGINS: JSON.stringify([origin]) } })
+				.TRUSTED_ORIGINS,
+		).toEqual([origin]);
+		for (const value of [
+			"not json",
+			"{}",
+			"[42]",
+			'["http://maket.example.ts.net"]',
+			'["https://*.ts.net"]',
+			'["https://user:pass@maket.example.ts.net"]',
+			'["https://maket.example.ts.net/path"]',
+			'["https://maket.example.ts.net/"]',
+			'["https://maket.example.ts.net?x=1"]',
+		])
+			expect(() =>
+				createConfig({ env: { MAKET_TRUSTED_ORIGINS: value } }),
+			).toThrow();
+	});
+
 	it("accepts a gateway browser base path and rejects unsafe paths", () => {
 		expect(
 			createConfig({ env: { MAKET_BASE_PATH: "/mobile/apps/maket" } })

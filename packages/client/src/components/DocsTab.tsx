@@ -50,8 +50,8 @@ function saveCollapsed(set: Set<string>): void {
 	} catch {}
 }
 
-export function DocsTab() {
-	const model = useDocsTabModel();
+export function DocsTab({ onNavigate }: { onNavigate?: () => void } = {}) {
+	const model = useDocsTabModel(onNavigate);
 	return <DocsTabView model={model} />;
 }
 
@@ -59,7 +59,7 @@ export function DocsTab() {
 // Docs tab shell adapter: useDocsTabModel's job is to wire store, WS load,
 // selection, and pure factories (toolbar/category/item). Cross-owner calls
 // are composition, not logic that should move into documents or the store.
-function useDocsTabModel(): DocsTabModel {
+function useDocsTabModel(onNavigate?: () => void): DocsTabModel {
 	const t = useT();
 	const docList = useStore((state) => state.docList);
 	const workspaceDocNames = useWorkspaceDocNames();
@@ -121,9 +121,15 @@ function useDocsTabModel(): DocsTabModel {
 	const isOnWorkspace = (name: string) => workspaceDocNames.includes(name);
 	const openDoc = (name: string) => {
 		if (isOnWorkspace(name)) closeWorkspaceDocuments([name]);
-		else openWorkspaceDocument(name);
+		else {
+			openWorkspaceDocument(name);
+			onNavigate?.();
+		}
 	};
-	const focusDoc = openWorkspaceDocument;
+	const focusDoc = (name: string) => {
+		openWorkspaceDocument(name);
+		onNavigate?.();
+	};
 
 	const selection = {
 		selected,
