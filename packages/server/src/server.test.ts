@@ -10,6 +10,7 @@ import WebSocket from "ws";
 import { startMaketServer } from "./server.js";
 import { createConfig } from "./services/config.js";
 import { createSQLiteStore } from "./services/store.js";
+import { createDocument } from "./types.js";
 
 const directories: string[] = [];
 const browserPool = {
@@ -163,6 +164,86 @@ describe("embedded Maket server", () => {
 		} finally {
 			socket.close();
 			await once(socket, "close");
+			await server.close();
+		}
+	});
+
+	it("opens a connection without imposing a document and answers a connection check to its sender only", async () => {
+		const dataDir = mkdtempSync(join(tmpdir(), "maket-connection-state-"));
+		directories.push(dataDir);
+		const config = createConfig({
+			packageDir: resolve(import.meta.dirname, "../../.."),
+			packaged: true,
+			env: {
+				MAKET_DATA_DIR: dataDir,
+				MAKET_SETTINGS_FILE: join(dataDir, "settings.json"),
+				MAKET_PORT: "0",
+				MAKET_BIND_HOST: "127.0.0.1",
+			},
+		});
+		const store = createSQLiteStore(":memory:");
+		store.saveDoc(
+			createDocument({
+				name: "first in list",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+			}),
+		);
+		const server = await startMaketServer({
+			config,
+			bootstrap: { store, browserPool },
+			loadEnvironment: false,
+			log: () => {},
+		});
+		const url = server.url.replace(/^http/, "ws");
+		const reader = new WebSocket(url);
+		const other = new WebSocket(url);
+		const received = {
+			reader: [] as { type: string }[],
+			other: [] as { type: string }[],
+		};
+		reader.on("message", (raw) =>
+			received.reader.push(JSON.parse(String(raw))),
+		);
+		other.on("message", (raw) => received.other.push(JSON.parse(String(raw))));
+
+		try {
+			await Promise.all([once(reader, "open"), once(other, "open")]);
+			await vi.waitFor(() => {
+				expect(received.reader).toHaveLength(2);
+				expect(received.other).toHaveLength(2);
+			});
+			const [state, settings] = received.reader as [
+				{ type: string; doc: unknown; docList: { name: string }[] },
+				{ type: string },
+			];
+			expect(state.type).toBe("state");
+			expect(state.doc).toBeNull();
+			expect(state.docList.map((doc) => doc.name)).toEqual(["first in list"]);
+			expect(settings.type).toBe("settings");
+
+			reader.send(
+				JSON.stringify({ type: "connection_check", requestId: "r1" }),
+			);
+			await vi.waitFor(() =>
+				expect(received.reader.at(-1)).toEqual({
+					type: "connection_checked",
+					requestId: "r1",
+				}),
+			);
+			expect(received.other.map((message) => message.type)).toEqual([
+				"state",
+				"settings",
+			]);
+		} finally {
+			reader.close();
+			other.close();
+			await Promise.all([once(reader, "close"), once(other, "close")]);
 			await server.close();
 		}
 	});

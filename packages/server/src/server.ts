@@ -349,7 +349,6 @@ function handleWebSocketConnection(
 		collections,
 		collectionCursors,
 		documents,
-		documentRenderer,
 		itemWindows,
 		pending,
 		settings,
@@ -358,25 +357,17 @@ function handleWebSocketConnection(
 		wsRegistry,
 	} = services;
 	wsRegistry.add(ws as unknown as WsLike, { viewer });
-	const docs = documents.all();
-	const firstDoc = viewer
-		? null
-		: ([...docs.values()].find(
-				(document) => !document.meta.structuredWorkspace,
-			) ?? null);
 	const initialState: WorkspaceStateSignal = {
 		type: "state",
-		doc: documents.lightView(
-			firstDoc ? documentRenderer.render(firstDoc) : null,
-		),
-		documentState: firstDoc ? documentRenderer.stateView(firstDoc) : null,
+		doc: null,
+		documentState: null,
 		docList: documents.list({ includeWorkspaceDocuments: viewer }),
 		collections: viewer ? undefined : collections.loadAll(),
 		structuredWorkspaces: viewer ? undefined : structuredWorkspaces.listViews(),
 		structuredWindows: viewer ? undefined : itemWindows.all(),
 		collectionCursors: viewer ? undefined : collectionCursors.snapshot(),
 		annotations: viewer ? undefined : pending.all(),
-		charteCss: documents.charteCss(firstDoc ?? null),
+		charteCss: "",
 		addToWorkspace: !viewer,
 	};
 	ws.send(JSON.stringify(initialState));

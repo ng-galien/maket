@@ -235,7 +235,7 @@ describe("workspace focus invariant", () => {
 		);
 	});
 
-	it("prefers a loaded document over a restored placeholder", async () => {
+	it("prefers a loaded document over a placeholder still missing once the workspace is hydrated", async () => {
 		render(<App />);
 
 		act(() => {
@@ -243,12 +243,29 @@ describe("workspace focus invariant", () => {
 				docs: new Map([["alpha", makeDoc("alpha")]]),
 				workspaceDocNames: ["alpha", "unloaded-beta"],
 				focusedDocName: "unloaded-beta",
+				workspaceHydrated: true,
 			});
 		});
 
 		await waitFor(() =>
 			expect(useStore.getState().focusedDocName).toBe("alpha"),
 		);
+	});
+
+	it("keeps the remembered document while the workspace is still loading", async () => {
+		render(<App />);
+
+		act(() => {
+			useStore.setState({
+				docs: new Map([["alpha", makeDoc("alpha")]]),
+				workspaceDocNames: ["alpha", "remembered-beta"],
+				focusedDocName: "remembered-beta",
+				workspaceHydrated: false,
+			});
+		});
+
+		await act(async () => {});
+		expect(useStore.getState().focusedDocName).toBe("remembered-beta");
 	});
 
 	it("clears a stale focus when the workspace becomes empty", async () => {

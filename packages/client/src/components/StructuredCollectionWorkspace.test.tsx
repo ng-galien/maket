@@ -5,6 +5,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -105,6 +106,45 @@ afterEach(() => {
 });
 
 describe("StructuredCollectionWorkspace reader navigation", () => {
+	it("reopens the detail at the remembered offset and remembers where it is read", async () => {
+		const { item } = seed();
+		useStore.setState({
+			focusedDocName: item.name,
+			focusedPageIndex: 1,
+			readingPosition: { docName: item.name, pageIndex: 1, offset: 0.5 },
+		});
+		const writes: Array<[Element, number]> = [];
+		vi.spyOn(Element.prototype, "scrollTop", "set").mockImplementation(
+			function (this: Element, value: number) {
+				writes.push([this, value]);
+			},
+		);
+		let secondPageTop = 1000;
+		vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+			function (this: Element) {
+				const page = (this as HTMLElement).dataset.readerPageIndex;
+				const top = page === "1" ? secondPageTop : page ? 200 : 0;
+				return DOMRect.fromRect({ x: 0, y: top, width: 600, height: 800 });
+			},
+		);
+		const { container } = render(<StructuredCollectionWorkspace />);
+		const root = container.querySelector(
+			"[data-structured-item-pane] [data-reading-workspace]",
+		) as HTMLElement;
+
+		await waitFor(() => expect(writes).toContainEqual([root, 1400]));
+
+		secondPageTop = -200;
+		fireEvent.scroll(root);
+		await waitFor(() =>
+			expect(useStore.getState().readingPosition).toEqual({
+				docName: item.name,
+				pageIndex: 1,
+				offset: 0.25,
+			}),
+		);
+	});
+
 	it("switches layouts from the icon-only general toolbar and keeps annotations in the detail toolbar", async () => {
 		seed();
 		const user = userEvent.setup();

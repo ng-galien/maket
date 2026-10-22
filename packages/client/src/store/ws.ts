@@ -325,8 +325,82 @@ export function ensureCharteFonts(charteCss: string): void {
 }
 
 export function initWs(): void {
+	installConnectionChecks();
 	if (ws) return;
 	connect();
+}
+
+const CONNECTION_CHECK_MS = 3000;
+const RECONNECT_DELAY_MS = 2000;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let connectionCheck: {
+	requestId: string;
+	timer: ReturnType<typeof setTimeout>;
+} | null = null;
+let connectionChecksInstalled = false;
+
+/** A socket can die silently while the page sleeps in the background, so the
+ * client asks the server for an answer when it becomes visible again or when
+ * the network comes back, and replaces a socket that stays silent. */
+function installConnectionChecks(): void {
+	if (connectionChecksInstalled || typeof window === "undefined") return;
+	connectionChecksInstalled = true;
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "visible") checkConnection();
+	});
+	window.addEventListener("pageshow", checkConnection);
+	window.addEventListener("online", checkConnection);
+}
+
+export function checkConnection(): void {
+	if (isLinkedReaderPath()) return;
+	if (!ws) {
+		if (reconnectTimer) {
+			clearTimeout(reconnectTimer);
+			reconnectTimer = null;
+			connect();
+		}
+		return;
+	}
+	if (ws.readyState === 2 || ws.readyState === 3) {
+		replaceSilentSocket(ws);
+		return;
+	}
+	if (ws.readyState !== 1 || connectionCheck) return;
+	const requestId = crypto.randomUUID();
+	const socket = ws;
+	connectionCheck = {
+		requestId,
+		timer: setTimeout(() => replaceSilentSocket(socket), CONNECTION_CHECK_MS),
+	};
+	if (!wsSend({ type: "connection_check", requestId }))
+		replaceSilentSocket(socket);
+}
+
+function settleConnectionCheck(requestId?: string): void {
+	if (!connectionCheck) return;
+	if (requestId !== undefined && connectionCheck.requestId !== requestId)
+		return;
+	clearTimeout(connectionCheck.timer);
+	connectionCheck = null;
+}
+
+function replaceSilentSocket(socket: WebSocket): void {
+	if (ws !== socket) return;
+	socket.onopen = null;
+	socket.onclose = null;
+	socket.onmessage = null;
+	socket.onerror = null;
+	closeQuietly(socket);
+	closeConnection(0);
+}
+
+function closeQuietly(socket: WebSocket): void {
+	try {
+		socket.close();
+	} catch {
+		return;
+	}
 }
 
 function connect(): void {
@@ -338,6 +412,7 @@ function connect(): void {
 			: "";
 	const linkedReader = isLinkedReaderPath();
 	const url = `${protocol}://${location.host}${path}${linkedReader ? "?viewer=1" : ""}`;
+	reconnectTimer = null;
 	ws = new WebSocket(url);
 	ws.onopen = handleWsOpen;
 	ws.onclose = handleWsClose;
@@ -362,13 +437,19 @@ function handleWsOpen(): void {
 }
 
 function handleWsClose(): void {
+	closeConnection(RECONNECT_DELAY_MS);
+}
+
+function closeConnection(reconnectDelay: number): void {
+	settleConnectionCheck();
 	useStore.getState().setConnected(false);
 	useStore.getState().clearStatePatches();
 	settleAllAnnotationCreates(
 		"The connection closed before the note was saved.",
 	);
 	ws = null;
-	setTimeout(connect, 2000);
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	reconnectTimer = setTimeout(connect, reconnectDelay);
 }
 
 function handleWsMessage(e: MessageEvent): void {
@@ -466,6 +547,9 @@ function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 			break;
 		case "settings":
 			applyServerSettings(msg.settings);
+			break;
+		case "connection_checked":
+			settleConnectionCheck(msg.requestId);
 			break;
 		case "annotations_changed":
 			useStore.setState({ pending: msg.annotations as PendingMessage[] });
@@ -649,6 +733,8 @@ function applyRenamedDocument(
 		);
 }
 
+/** The connection's first state never moves the reading: the client keeps
+ * its own document, page and scroll, and only refreshes its documents. */
 function applyInitialState(
 	doc: Document,
 	docList: DocSummary[],
@@ -658,7 +744,6 @@ function applyInitialState(
 	useStore.getState().upsertDoc(doc, docList, charteCss, false, false);
 	for (const name of useStore.getState().workspaceDocNames) {
 		if (name !== doc.name) sendBackgroundLoadDoc(name);
-		else useStore.getState().upsertDoc(doc, docList, charteCss, true, true);
 	}
 }
 

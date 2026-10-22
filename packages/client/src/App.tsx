@@ -123,7 +123,10 @@ export default function App() {
 		if (
 			focusedDocName &&
 			workspaceDocNames.includes(focusedDocName) &&
-			(docs.has(focusedDocName) ||
+			// Until the workspace is hydrated, the remembered document is still
+			// on its way from the server and keeps the focus.
+			(!workspaceHydrated ||
+				docs.has(focusedDocName) ||
 				workspaces.some((workspace) =>
 					[
 						...workspace.collectionDocuments,
@@ -145,6 +148,7 @@ export default function App() {
 		linkedDocumentId,
 		setFocusedDoc,
 		workspaceDocNames,
+		workspaceHydrated,
 		workspaces,
 	]);
 

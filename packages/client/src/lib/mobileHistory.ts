@@ -17,6 +17,8 @@ type Adapter = {
 	read: () => Shell;
 	restore: (state: Shell) => void;
 	subscribe: (listener: () => void) => () => void;
+	/** Shell of an entry placed beneath the first one of a new session. */
+	base?: (shell: Shell) => Shell | null;
 };
 const FIELD = "maketMobileNavigation";
 const values = new Map<string, unknown>();
@@ -205,15 +207,34 @@ export function installMobileHistory(nextAdapter: Adapter): () => void {
 		apply(held);
 	else {
 		const initial = snapshot();
+		const session = crypto.randomUUID();
+		const base = nextAdapter.base?.(initial.shell);
+		if (base) {
+			const beneath = {
+				...initial,
+				shell: { ...initial.shell, ...base },
+				scroll: {},
+			};
+			write(
+				{
+					version: 1,
+					session,
+					index: 0,
+					snapshot: beneath,
+					key: navigationKey(beneath),
+				},
+				false,
+			);
+		}
 		write(
 			{
 				version: 1,
-				session: crypto.randomUUID(),
-				index: 0,
+				session,
+				index: base ? 1 : 0,
 				snapshot: initial,
 				key: navigationKey(initial),
 			},
-			false,
+			Boolean(base),
 		);
 	}
 	const onPop = (event: PopStateEvent) => {
