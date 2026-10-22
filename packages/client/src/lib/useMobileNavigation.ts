@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "../store/useStore";
 import { cancelDocumentLoads } from "../store/ws";
 import { installMobileHistory } from "./mobileHistory";
@@ -18,9 +18,17 @@ const fields = [
 	"annotationDocName",
 ] as const;
 
-/** Restores presentation context only; never replays an annotation or document edit. */
+/** Restores presentation context only; never replays an annotation or document
+ * edit. Installed once the first hydration is done, then kept for the page's
+ * life, so a lost connection neither replays nor truncates the session stack. */
 export function useMobileNavigation(active: boolean) {
-	const ready = useStore((state) => state.settingsHydrated && state.connected);
+	const hydrated = useStore(
+		(state) => state.settingsHydrated && state.connected,
+	);
+	const [ready, setReady] = useState(false);
+	useEffect(() => {
+		if (hydrated) setReady(true);
+	}, [hydrated]);
 	useEffect(() => {
 		if (!active || !ready) return;
 		return installMobileHistory({
@@ -62,6 +70,7 @@ export function useMobileNavigation(active: boolean) {
 				loadRestoredDocument(restored);
 			},
 			subscribe: useStore.subscribe,
+			base: catalogueBeneathReading,
 		});
 	}, [active, ready]);
 }
@@ -81,4 +90,13 @@ function loadRestoredDocument(
 					}
 				: undefined,
 		);
+}
+
+/** A session that starts on a restored reading keeps the catalogue beneath it. */
+function catalogueBeneathReading(
+	shell: Record<string, unknown>,
+): Record<string, unknown> | null {
+	return shell.focusedDocName && !shell.libraryOpen && !shell.settingsOpen
+		? { libraryOpen: true }
+		: null;
 }

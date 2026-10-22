@@ -10,7 +10,7 @@
  * targeting a specific page.
  */
 
-import type { WorkspaceCommand } from "@maket/shared";
+import type { ConnectionCheckedSignal, WorkspaceCommand } from "@maket/shared";
 import type WebSocket from "ws";
 import { localizedOf } from "../../lib/message-error.js";
 import { createCollectionCursors } from "../collection-cursor.js";
@@ -126,6 +126,14 @@ function dispatchWorkspaceCommand(
 			break;
 		case "settings_set":
 			ctx.settings.patch(msg.settings);
+			break;
+		case "connection_check":
+			ws.send(
+				JSON.stringify({
+					type: "connection_checked",
+					requestId: msg.requestId,
+				} satisfies ConnectionCheckedSignal),
+			);
 			break;
 		case "update_meta":
 			handleUpdateMeta(ctx, msg);

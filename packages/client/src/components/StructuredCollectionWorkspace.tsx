@@ -24,6 +24,7 @@ import {
 	type ReaderFit,
 	ReaderSurface,
 	scrollToReadingPage,
+	useReadingOffsetMemory,
 } from "./ReadingWorkspace";
 import { ResizeHandleFeedback } from "./shared/ResizeHandleFeedback";
 import { collectionPageViews } from "./WorkspaceDoc";
@@ -219,6 +220,13 @@ function CollectionDocument({
 			),
 		[doc, collections, pageLabel, rowLabel],
 	);
+	const readingPageIndex = Math.max(
+		0,
+		pageViews.findIndex((view) => view.pageIndex === focusedPageIndex),
+	);
+	const { initialPageOffset, onReadingOffset } = useReadingOffsetMemory(
+		doc.name,
+	);
 	const rememberVisiblePage = useCallback(
 		(_logicalIndex: number, sourcePageIndex: number) =>
 			setFocusedPage(doc.name, sourcePageIndex, { focus: false }),
@@ -318,10 +326,12 @@ function CollectionDocument({
 					rememberZoom={false}
 					fit={fit}
 					onZoomChange={setZoom}
-					initialPageIndex={Math.max(
-						0,
-						pageViews.findIndex((view) => view.pageIndex === focusedPageIndex),
-					)}
+					initialPageIndex={readingPageIndex}
+					readingMemory={{
+						initialPageOffset,
+						pageIndex: readingPageIndex,
+						onOffset: onReadingOffset,
+					}}
 					onVisiblePage={rememberVisiblePage}
 					onNavigatePage={(index) => {
 						setFocusedPage(doc.name, pageViews[index]?.pageIndex ?? 0);

@@ -451,6 +451,18 @@ export interface SettingsSignal {
 	settings: Settings;
 }
 
+/** Asks the server to confirm the socket still carries messages. */
+export interface ConnectionCheckCommand {
+	type: "connection_check";
+	requestId: string;
+}
+
+/** Answer to `connection_check`, sent to the requesting socket only. */
+export interface ConnectionCheckedSignal {
+	type: "connection_checked";
+	requestId: string;
+}
+
 /** Partial update; omitted fields keep their persisted value. */
 export interface SetSettingsCommand {
 	type: "settings_set";
@@ -479,7 +491,8 @@ export type WorkspaceSignal =
 	| CollectionsChangedSignal
 	| CollectionCursorsSignal
 	| FitViewSignal
-	| SettingsSignal;
+	| SettingsSignal
+	| ConnectionCheckedSignal;
 
 export type WorkspaceCommand =
 	| LoadDocumentCommand
@@ -509,6 +522,7 @@ export type WorkspaceCommand =
 	| RemoveAnnotationCommand
 	| EditAnnotationCommand
 	| UpdateWorkspaceCommand
-	| SetSettingsCommand;
+	| SetSettingsCommand
+	| ConnectionCheckCommand;
 
 export type WorkspaceMessage = WorkspaceSignal | WorkspaceCommand;

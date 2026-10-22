@@ -387,6 +387,8 @@ interface AppState
 	workspaceDocNames: string[];
 	focusedDocName: string | null;
 	focusedPageIndex: number;
+	/** Where the client last read: survives reconnections and relaunches. */
+	readingPosition: ReadingPosition | null;
 
 	// Global
 	docList: DocSummary[];
@@ -407,6 +409,11 @@ interface AppState
 
 	// Actions
 	setConnected: (v: boolean) => void;
+	setReadingOffset: (
+		docName: string,
+		pageIndex: number,
+		offset: number,
+	) => void;
 	setWorkspaceHydrated: (v: boolean) => void;
 	upsertDoc: (
 		doc: Document,
@@ -475,6 +482,42 @@ function saveWorkspace(names: string[]) {
 function saveFocusedDoc(name: string) {
 	if (useStore.getState().readOnly) return;
 	localStorage.setItem("maket-focused-doc", name);
+}
+
+/** Document, page and the distance from that page's top to the top of the
+ * reader, as a fraction of the page height (negative below the top). */
+export interface ReadingPosition {
+	docName: string;
+	pageIndex: number;
+	offset: number;
+}
+
+const READING_POSITION_KEY = "maket-reading-position";
+
+function loadReadingPosition(): ReadingPosition | null {
+	try {
+		const value = JSON.parse(
+			localStorage.getItem(READING_POSITION_KEY) || "null",
+		) as Partial<ReadingPosition> | null;
+		if (
+			typeof value?.docName !== "string" ||
+			!Number.isInteger(value.pageIndex) ||
+			typeof value.offset !== "number"
+		)
+			return null;
+		return {
+			docName: value.docName,
+			pageIndex: Math.max(0, value.pageIndex as number),
+			offset: Math.min(1, Math.max(-1, value.offset)),
+		};
+	} catch {
+		return null;
+	}
+}
+
+function saveReadingPosition(position: ReadingPosition) {
+	if (useStore.getState().readOnly) return;
+	localStorage.setItem(READING_POSITION_KEY, JSON.stringify(position));
 }
 
 function reconcileCollectionDrafts(
@@ -664,6 +707,16 @@ function stateDockForFocus(
 
 const _savedWorkspace = loadWorkspace();
 const _savedFocused = localStorage.getItem("maket-focused-doc") || null;
+const _initialFocus = resolveWorkspaceFocus(
+	_savedWorkspace,
+	_savedFocused,
+	null,
+);
+const _savedReading = loadReadingPosition();
+const _initialReading =
+	_savedReading && _savedReading.docName === _initialFocus
+		? _savedReading
+		: null;
 let assetLoadPromise: Promise<void> | null = null;
 let assetReloadQueued = false;
 let assetCategoryRevision = 0;
@@ -691,8 +744,9 @@ export const useStore = create<AppState>((set, get) => ({
 	settingsHydrated: false,
 	docs: new Map(),
 	workspaceDocNames: _savedWorkspace,
-	focusedDocName: resolveWorkspaceFocus(_savedWorkspace, _savedFocused, null),
-	focusedPageIndex: 0,
+	focusedDocName: _initialFocus,
+	focusedPageIndex: _initialReading?.pageIndex ?? 0,
+	readingPosition: _initialReading,
 	focusedCollectionName: null,
 	dataDockMode: "split",
 	collectionCursors: {},
@@ -795,6 +849,25 @@ export const useStore = create<AppState>((set, get) => ({
 				: { connected, workspaceHydrated: false, settingsHydrated: false },
 		),
 	setWorkspaceHydrated: (workspaceHydrated) => set({ workspaceHydrated }),
+	setReadingOffset: (docName, pageIndex, offset) =>
+		set((s) => {
+			if (s.focusedDocName !== docName || s.focusedPageIndex !== pageIndex)
+				return {};
+			const position = {
+				docName,
+				pageIndex,
+				offset: Math.min(1, Math.max(-1, offset)),
+			};
+			const current = s.readingPosition;
+			if (
+				current?.docName === position.docName &&
+				current.pageIndex === position.pageIndex &&
+				Math.abs(current.offset - position.offset) < 0.001
+			)
+				return {};
+			saveReadingPosition(position);
+			return { readingPosition: position };
+		}),
 	setStructuredWorkspaces: (structuredWorkspaces) => {
 		const previous = get();
 		const items = knownStructuredItems(previous);
@@ -1290,15 +1363,27 @@ export const useStore = create<AppState>((set, get) => ({
 			} else {
 				focusedDocName = s.focusedDocName ?? (inWorkspace ? doc.name : null);
 			}
+			// While the document being read is still on its way, its page stays
+			// the one the client remembers, not the server's active page.
+			const awaitedFocus =
+				!previousFocusedDoc &&
+				focusedDocName !== null &&
+				focusedDocName === s.focusedDocName &&
+				(focusedDocName !== doc.name ||
+					s.readingPosition?.docName === doc.name);
 			const focusedPageIndex =
 				focusedDocName === doc.name &&
 				(acceptServerFocus || focusedDocName !== s.focusedDocName)
 					? clampPageIndex(doc, doc.activePage)
-					: preservePageIndex(
-							previousFocusedDoc,
-							docs.get(focusedDocName ?? ""),
-							s.focusedPageIndex,
-						);
+					: awaitedFocus
+						? focusedDocName === doc.name
+							? clampPageIndex(doc, s.focusedPageIndex)
+							: s.focusedPageIndex
+						: preservePageIndex(
+								previousFocusedDoc,
+								docs.get(focusedDocName ?? ""),
+								s.focusedPageIndex,
+							);
 			const chartesCss = new Map(s.chartesCss);
 			if (charteCss !== undefined) chartesCss.set(doc.name, charteCss);
 			saveWorkspace(workspaceDocNames);
@@ -1919,3 +2004,18 @@ export function useCursorFor(docName: string | null, pageIndex: number) {
 		useShallow((s) => (docName ? cursorForPage(s, docName, pageIndex) : null)),
 	);
 }
+
+/** Remembers the document and page being read whenever the focus moves. */
+useStore.subscribe((state) => {
+	const docName = state.focusedDocName;
+	if (!docName || !state.docs.has(docName)) return;
+	const current = state.readingPosition;
+	if (
+		current?.docName === docName &&
+		current.pageIndex === state.focusedPageIndex
+	)
+		return;
+	const position = { docName, pageIndex: state.focusedPageIndex, offset: 0 };
+	saveReadingPosition(position);
+	useStore.setState({ readingPosition: position });
+});

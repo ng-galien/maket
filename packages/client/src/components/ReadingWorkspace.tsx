@@ -90,6 +90,11 @@ export function ReadingWorkspace({ shell = false }: { shell?: boolean } = {}) {
 				dataSource="connected"
 				barPosition={shell ? undefined : "top"}
 				initialPageIndex={model.initialReaderPageIndex}
+				readingMemory={{
+					initialPageOffset: model.initialPageOffset,
+					pageIndex: model.bar.pageIndex,
+					onOffset: model.onReadingOffset,
+				}}
 				onVisiblePage={model.onVisiblePage}
 				onNavigatePage={model.bar.onPageChange}
 			/>
@@ -114,7 +119,9 @@ interface ReaderBarModel {
 interface ConnectedReaderModel {
 	doc: Document;
 	initialReaderPageIndex: number;
+	initialPageOffset: number;
 	onVisiblePage: (logicalIndex: number, sourcePageIndex: number) => void;
+	onReadingOffset: (sourcePageIndex: number, offset: number) => void;
 	bar: ReaderBarModel;
 }
 
@@ -131,6 +138,9 @@ function useConnectedReaderModel(shell: boolean): ConnectedReaderModel | null {
 		(state) => state.openWorkspaceDocument,
 	);
 	const setFocusedPage = useStore((state) => state.setFocusedPage);
+	const { initialPageOffset, onReadingOffset } = useReadingOffsetMemory(
+		doc?.name ?? null,
+	);
 	const t = useT();
 	const pageLabel = t("page");
 	const rowLabel = t("collection_row_lower");
@@ -191,7 +201,6 @@ function useConnectedReaderModel(shell: boolean): ConnectedReaderModel | null {
 		},
 		[doc, setFocusedPage],
 	);
-
 	useReadingKeyboard({
 		pageCount: pageViews.length,
 		pageIndex: readerPageIndex,
@@ -204,7 +213,9 @@ function useConnectedReaderModel(shell: boolean): ConnectedReaderModel | null {
 	return {
 		doc,
 		initialReaderPageIndex,
+		initialPageOffset,
 		onVisiblePage: handleVisiblePage,
+		onReadingOffset,
 		bar: {
 			position: "top",
 			documents,
@@ -222,6 +233,27 @@ function useConnectedReaderModel(shell: boolean): ConnectedReaderModel | null {
 			onExit: returnToCanvasView,
 		},
 	};
+}
+
+/** The remembered offset into the page being read, for a reader showing
+ * `docName`, and the callback that keeps it up to date. */
+export function useReadingOffsetMemory(docName: string | null) {
+	const setReadingOffset = useStore((state) => state.setReadingOffset);
+	const initialPageOffset = useStore((state) =>
+		docName &&
+		state.focusedDocName === docName &&
+		state.readingPosition?.docName === docName &&
+		state.readingPosition.pageIndex === state.focusedPageIndex
+			? state.readingPosition.offset
+			: 0,
+	);
+	const onReadingOffset = useCallback(
+		(sourcePageIndex: number, offset: number) => {
+			if (docName) setReadingOffset(docName, sourcePageIndex, offset);
+		},
+		[docName, setReadingOffset],
+	);
+	return { initialPageOffset, onReadingOffset };
 }
 
 /** Reader navigation order: pinned documents first, most recently pinned
@@ -252,6 +284,7 @@ export function ReaderSurface({
 	embedded = false,
 	barPosition,
 	initialPageIndex = 0,
+	readingMemory = null,
 	onVisiblePage,
 	onNavigatePage,
 	status,
@@ -266,6 +299,8 @@ export function ReaderSurface({
 	embedded?: boolean;
 	barPosition?: "top" | "bottom";
 	initialPageIndex?: number;
+	/** Connected readers resume and record their offset; others pass none. */
+	readingMemory?: ReadingMemory | null;
 	onVisiblePage?: (logicalIndex: number, sourcePageIndex: number) => void;
 	/** Show a logical reader page; page links inside the document use it. */
 	onNavigatePage: (logicalIndex: number) => void;
@@ -299,14 +334,33 @@ export function ReaderSurface({
 		return () => window.removeEventListener("maket:reader-fit", reset);
 	}, [doc.name, board.reset]);
 
+	const initialOffset = useRef(readingMemory?.initialPageOffset ?? 0);
 	useLayoutEffect(() => {
 		if (initiallyPositioned.current) return;
 		const frame = requestAnimationFrame(() => {
 			initiallyPositioned.current = true;
-			scrollToReadingPage(doc.name, initialPageIndex, "auto");
+			const root = scrollRef.current;
+			const page = root
+				? readerPageElement(root, doc.name, initialPageIndex)
+				: undefined;
+			if (!root || !page || !initialOffset.current) {
+				scrollToReadingPage(doc.name, initialPageIndex, "auto");
+				return;
+			}
+			const bounds = page.getBoundingClientRect();
+			root.scrollTop +=
+				bounds.top -
+				root.getBoundingClientRect().top +
+				initialOffset.current * bounds.height;
 		});
 		return () => cancelAnimationFrame(frame);
 	}, [doc.name, initialPageIndex]);
+	useReadingOffset({
+		doc,
+		rootRef: scrollRef,
+		positioned: initiallyPositioned,
+		memory: readingMemory,
+	});
 
 	useVisiblePage({ doc, rootRef: scrollRef, onVisiblePage });
 	useReaderPageLinks({ doc, rootRef: scrollRef, onNavigatePage });
@@ -366,6 +420,68 @@ export function ReaderSurface({
 			)}
 		</div>
 	);
+}
+
+function readerPageElement(
+	root: HTMLElement,
+	docName: string,
+	logicalPageIndex: number,
+): HTMLElement | undefined {
+	return readingPageElements(root, docName).find(
+		(element) => Number(element.dataset.readerPageIndex) === logicalPageIndex,
+	);
+}
+
+/** Where a connected reader resumes, and how it reports its offset. */
+export interface ReadingMemory {
+	/** Remembered distance into the initial page, as a fraction of its height. */
+	initialPageOffset: number;
+	/** Logical page whose offset `onOffset` reports. */
+	pageIndex: number;
+	onOffset: (sourcePageIndex: number, offset: number) => void;
+}
+
+/** Reports how far the reader sits into its current page, after scrolling
+ * settles and whenever the current page changes. */
+function useReadingOffset({
+	doc,
+	rootRef,
+	positioned,
+	memory,
+}: {
+	doc: Document;
+	rootRef: RefObject<HTMLDivElement | null>;
+	positioned: RefObject<boolean>;
+	memory: ReadingMemory | null;
+}) {
+	const pageIndex = memory?.pageIndex;
+	const onReadingOffset = memory?.onOffset;
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!root || !onReadingOffset || pageIndex === undefined) return;
+		const report = () => {
+			if (!positioned.current) return;
+			const page = readerPageElement(root, doc.name, pageIndex);
+			const sourcePageIndex = Number(page?.dataset.pageView);
+			if (!page || !Number.isInteger(sourcePageIndex)) return;
+			const bounds = page.getBoundingClientRect();
+			if (bounds.height <= 0) return;
+			const offset =
+				(root.getBoundingClientRect().top - bounds.top) / bounds.height;
+			onReadingOffset(sourcePageIndex, offset);
+		};
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const onScroll = () => {
+			clearTimeout(timer);
+			timer = setTimeout(report, 150);
+		};
+		report();
+		root.addEventListener("scroll", onScroll, { passive: true });
+		return () => {
+			clearTimeout(timer);
+			root.removeEventListener("scroll", onScroll);
+		};
+	}, [doc.name, onReadingOffset, pageIndex, positioned, rootRef]);
 }
 
 /** Follow page links dispatched by the page canvases of this surface. */
