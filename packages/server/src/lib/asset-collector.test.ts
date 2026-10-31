@@ -115,6 +115,17 @@ describe("loadAssetsFromDir", () => {
 		expect(missing).toEqual(["ghost.jpg"]);
 	});
 
+	it("resolves a percent-encoded reference to its file name, never across a separator", () => {
+		writeFileSync(join(dir, "a #1?50%.png"), Buffer.from([0x89]));
+		const encoded = encodeURIComponent("a #1?50%.png");
+		const { assets, missing } = loadAssetsFromDir(
+			[encoded, encodeURIComponent("../logo.png")],
+			dir,
+		);
+		expect(assets.map((asset) => asset.relPath)).toEqual(["a #1?50%.png"]);
+		expect(missing).toEqual([encodeURIComponent("../logo.png")]);
+	});
+
 	it("rejects paths with separators (defensive)", () => {
 		writeFileSync(join(dir, "logo.png"), Buffer.from([0x89]));
 		const { assets, missing } = loadAssetsFromDir(

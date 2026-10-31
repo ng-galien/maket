@@ -96,4 +96,36 @@ describe("placed elements", () => {
 		]);
 		expect(placedContainer(content)).toBe(content);
 	});
+
+	it("keeps placed elements in a root only when that root keeps the page origin", () => {
+		const node = (id: string | null, style: string | null = null) => ({
+			children: [] as unknown[],
+			getAttribute: (name: string) =>
+				name === "data-id" ? id : name === "style" ? style : null,
+		});
+		const content = (...children: ReturnType<typeof node>[]) => ({
+			children,
+			getAttribute: () => null,
+		});
+		for (const style of [
+			null,
+			"width:210mm;height:297mm;padding:15mm;display:flex",
+			"position:relative;width:100%;height:100%;margin:0;padding:0",
+		]) {
+			const root = node("page", style);
+			expect(placedContainer(content(root))).toBe(root);
+		}
+		for (const style of [
+			"position:relative;width:120mm;height:80mm",
+			"position:relative;width:100%;height:100%;margin:10mm",
+			"position:absolute;left:0;top:0",
+			"width:100%;transform:scale(0.5)",
+		]) {
+			const page = content(node("page", style));
+			expect(placedContainer(page)).toBe(page);
+		}
+		const legacy = node("p4", "position:relative;width:90mm;height:90mm");
+		const page = content(legacy);
+		expect(placedContainer(page)).toBe(page);
+	});
 });

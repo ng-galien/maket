@@ -17,6 +17,22 @@ import type { BundleAsset } from "./maket-format.js";
 // extensions the rest of the pipeline accepts (jpeg/png/webp/svg/gif).
 const ASSET_REF = /\/assets\/([\w.\-()% ]+\.(?:jpe?g|png|webp|svg|gif))/gi;
 
+/** File name candidates for an `/assets/` reference: the reference as
+ * written, then its URL-decoded form (a name with `#`, `?` or `%` is
+ * percent-encoded in a `src`). A decoded name with a path separator is
+ * dropped. */
+export function assetFileCandidates(reference: string): string[] {
+	let decoded = reference;
+	try {
+		decoded = decodeURIComponent(reference);
+	} catch {
+		return [reference];
+	}
+	return decoded === reference || basename(decoded) !== decoded
+		? [reference]
+		: [reference, decoded];
+}
+
 export interface CollectAssetsResult {
 	assets: BundleAsset[];
 	missing: string[];
@@ -47,13 +63,18 @@ export function loadAssetsFromDir(
 			missing.push(name);
 			continue;
 		}
-		const abs = join(assetsDir, flat);
-		if (!existsSync(abs)) {
+		const file = assetFileCandidates(flat).find((candidate) =>
+			existsSync(join(assetsDir, candidate)),
+		);
+		if (!file) {
 			missing.push(name);
 			continue;
 		}
 		try {
-			assets.push({ relPath: flat, bytes: readFileSync(abs) });
+			assets.push({
+				relPath: file,
+				bytes: readFileSync(join(assetsDir, file)),
+			});
 		} catch {
 			missing.push(name);
 		}

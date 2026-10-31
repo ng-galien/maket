@@ -40,6 +40,23 @@ describe("inlineImages", () => {
 		cleanup();
 	});
 
+	it("inlines a percent-encoded reference to a file whose name has # ? %", async () => {
+		const { dir, cleanup } = withTmp();
+		writeFileSync(
+			join(dir, "a #1?50%.png"),
+			Buffer.from(TINY_PNG_B64, "base64"),
+		);
+		const src = `/assets/${encodeURIComponent("a #1?50%.png")}`;
+		const out = await inlineImages(`<img src="${src}">`, {
+			assetsDir: dir,
+			pageMm: { w: 210, h: 297 },
+			dpi: 96,
+			mimeFromExt: () => "image/png",
+		});
+		expect(out).toMatch(/^<img src="data:image\/png;base64,/);
+		cleanup();
+	});
+
 	it("inlines svg as image/svg+xml", async () => {
 		const { dir, cleanup } = withTmp();
 		const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';

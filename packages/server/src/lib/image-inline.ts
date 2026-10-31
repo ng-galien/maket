@@ -12,6 +12,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
+import { assetFileCandidates } from "./asset-collector.js";
 
 export interface InlineImagesOptions {
 	/** Directory where `/assets/<file>` maps to `<assetsDir>/<file>`. */
@@ -73,8 +74,11 @@ async function dataUriForAsset(
 	maxH: number,
 	Jimp: JimpCtor,
 ): Promise<string | null> {
-	const absPath = join(opts.assetsDir, filename);
-	if (!existsSync(absPath)) return null;
+	const file = assetFileCandidates(filename).find((candidate) =>
+		existsSync(join(opts.assetsDir, candidate)),
+	);
+	if (!file) return null;
+	const absPath = join(opts.assetsDir, file);
 	try {
 		const ext = extname(filename).toLowerCase();
 		if (ext === ".svg") {

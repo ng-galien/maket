@@ -203,7 +203,7 @@ function placedElementHtml(
 	if (spec.kind === "text")
 		return `<div data-id="${id}" style="${style}">${escapeHtml(spec.text?.trim() || "Text")}</div>`;
 	if (spec.kind === "image")
-		return `<img data-id="${id}" ${decoration} src="/assets/${escapeHtml(spec.asset ?? "")}" alt="" style="${style}">`;
+		return `<img data-id="${id}" ${decoration} src="/assets/${escapeHtml(encodeURIComponent(spec.asset ?? ""))}" alt="" style="${style}">`;
 	return `<div data-id="${id}" ${decoration} style="${style}"></div>`;
 }
 

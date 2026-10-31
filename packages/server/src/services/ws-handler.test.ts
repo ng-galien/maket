@@ -2642,4 +2642,94 @@ describe("ws-handler — hand composition", () => {
 		).toHaveLength(3);
 		dispose();
 	});
+
+	it("percent-encodes the library image name in the src of a placed image", () => {
+		const { store, documents, handler, assetsDir, dispose } = fixture();
+		writeFileSync(
+			join(assetsDir, "hero #1?50%.png"),
+			Buffer.from([0x89, 0x50]),
+		);
+		store.saveDoc(makeDoc("hand"));
+		documents.loadAll();
+
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "image",
+				asset: "hero #1?50%.png",
+				box,
+			},
+			STUB_WS,
+		);
+
+		expect(pageHtml(documents, "hand")).toContain(
+			'src="/assets/hero%20%231%3F50%25.png"',
+		);
+		dispose();
+	});
+
+	it("places elements against the page origin whatever root the agent wrote", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const pages = {
+			flowRoot:
+				'<div data-id="page" style="width:210mm;height:297mm;padding:15mm;display:flex"><h1 data-id="title">T</h1></div>',
+			offsetRoot:
+				'<div data-id="page" style="position:relative;margin:20mm;width:120mm;height:80mm"><h1 data-id="title">T</h1></div>',
+			legacyRoot: '<main data-id="p4"><h1 data-id="title">T</h1></main>',
+		};
+		for (const [name, html] of Object.entries(pages))
+			store.saveDoc(
+				createDocument({
+					name,
+					canvas: {
+						format: "A4",
+						orientation: "portrait",
+						w: 210,
+						h: 297,
+						bg: "#fff",
+					},
+					pages: [{ name: "P1", elements: [], html }],
+				}),
+			);
+		documents.loadAll();
+		for (const name of Object.keys(pages))
+			handler(
+				{
+					type: "element_add",
+					docName: name,
+					pageIndex: 0,
+					kind: "frame",
+					box,
+				},
+				STUB_WS,
+			);
+
+		expect(pageHtml(documents, "flowRoot")).toMatch(
+			/<h1 data-id="title">T<\/h1><div data-id="frame-[0-9a-f]{8}"[^>]*><\/div><\/div>$/,
+		);
+		expect(pageHtml(documents, "legacyRoot")).toMatch(
+			/<h1 data-id="title">T<\/h1><div data-id="frame-[0-9a-f]{8}"[^>]*><\/div><\/main>$/,
+		);
+		expect(pageHtml(documents, "offsetRoot")).toMatch(
+			/<\/h1><\/div><div data-id="frame-[0-9a-f]{8}"[^>]*><\/div>$/,
+		);
+		const frameId =
+			/data-id="(frame-[0-9a-f]{8})"/.exec(
+				pageHtml(documents, "offsetRoot"),
+			)?.[1] ?? "";
+		handler(
+			{
+				type: "element_box_set",
+				docName: "offsetRoot",
+				pageIndex: 0,
+				elementId: frameId,
+				box: { left: 5, top: 5, width: 10, height: 10 },
+			},
+			STUB_WS,
+		);
+		expect(pageHtml(documents, "offsetRoot")).toContain("left:5mm;top:5mm");
+		dispose();
+	});
 });

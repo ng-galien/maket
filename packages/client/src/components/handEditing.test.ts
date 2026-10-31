@@ -112,4 +112,19 @@ describe("hand editing geometry", () => {
 			placedElementAt(content, content.querySelector('[data-id="page"]')),
 		).toBeNull();
 	});
+
+	it("treats elements beside a root that does not keep the page origin as placed on the page", () => {
+		const content = document.createElement("div");
+		content.innerHTML = [
+			'<div data-id="page" style="position:relative;margin:20mm;width:120mm;height:80mm"><h1 data-id="title">T</h1></div>',
+			'<div data-id="frame-1" style="position:absolute;left:10mm;top:10mm;width:20mm;height:20mm"></div>',
+		].join("");
+		expect(
+			placedElementAt(content, content.querySelector('[data-id="frame-1"]'))
+				?.dataset.id,
+		).toBe("frame-1");
+		expect(
+			placedElementAt(content, content.querySelector('[data-id="title"]')),
+		).toBeNull();
+	});
 });

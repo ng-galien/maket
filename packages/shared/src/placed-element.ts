@@ -32,25 +32,62 @@ interface ContainerNode {
 	getAttribute(name: string): string | null;
 }
 
-/** The element placed elements belong to, inside the page content: the
- * canonical `data-id="page"` root, else the single top-level block that is
- * not itself placed, else the page content. Server and browser apply the
- * same rule to their own DOM. */
+const ZERO_LENGTH = /^0(?:mm|px|cm|in|pt)?$/;
+const OFFSET_PROPERTIES = [
+	"margin",
+	"margin-top",
+	"margin-left",
+	"border",
+	"border-width",
+	"border-top",
+	"border-left",
+	"top",
+	"left",
+	"inset",
+];
+
+/** True when a root with this inline style keeps the page's top-left corner
+ * as the origin of its absolutely positioned children: either it is not
+ * positioned (children are laid out against the page itself), or it is the
+ * page-covering `position:relative` root with no offset, margin or border. */
+function anchorsAtPageOrigin(style: string | null): boolean {
+	const declarations = new Map(parseInlineStyle(style ?? ""));
+	if (declarations.has("transform") || declarations.has("translate"))
+		return false;
+	const position = declarations.get("position");
+	if (!position || position === "static") return true;
+	if (position !== "relative") return false;
+	if (declarations.get("width") !== "100%") return false;
+	if (declarations.get("height") !== "100%") return false;
+	return OFFSET_PROPERTIES.every((name) => {
+		const value = declarations.get(name);
+		return value === undefined || ZERO_LENGTH.test(value);
+	});
+}
+
+/** The element placed elements belong to, inside the page content. It is
+ * the page root that layout measurement reads (the `data-id="page"` block,
+ * else the single top-level block that is not itself placed) when that root
+ * keeps the page origin (see `anchorsAtPageOrigin`); otherwise the page
+ * content itself, so millimetre offsets always count from the page corner.
+ * Server and browser apply the same rule to their own DOM. */
 export function placedContainer<T extends ContainerNode>(content: T): T {
 	const children = Array.from(content.children) as T[];
-	const canonical = children.find(
+	const blocks = children.filter((child) => child.getAttribute("data-id"));
+	const canonical = blocks.find(
 		(child) => child.getAttribute("data-id") === PAGE_ROOT_ID,
 	);
-	if (canonical) return canonical;
-	const blocks = children.filter((child) => child.getAttribute("data-id"));
 	const [only] = blocks;
-	if (
-		blocks.length === 1 &&
+	const root =
+		canonical ??
+		(blocks.length === 1 &&
 		only &&
 		!placedBoxFromStyle(only.getAttribute("style"))
-	)
-		return only;
-	return content;
+			? only
+			: null);
+	return root && anchorsAtPageOrigin(root.getAttribute("style"))
+		? root
+		: content;
 }
 
 /** Formats a page can be composed by hand on: every fixed format. */
