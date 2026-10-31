@@ -40,6 +40,7 @@ import { createItemWindows } from "./services/item-windows.js";
 import { createLayoutService } from "./services/layout.js";
 import { createMcpAppViews } from "./services/mcp-app-views.js";
 import { createMermaidDiagrams } from "./services/mermaid-diagrams.js";
+import { createPageComposition } from "./services/page-composition.js";
 import { createPageFlow } from "./services/page-flow.js";
 import { createPdfService } from "./services/pdf.js";
 import { createSettings } from "./services/settings.js";
@@ -137,6 +138,7 @@ export function createAppContainer(
 
 		wsRegistry: asFunction(createWsRegistry).singleton(),
 
+		pageComposition: asFunction(createPageComposition).singleton(),
 		wsHandler: asFunction(createWsHandler).singleton(),
 
 		assets: asFunction(() =>

@@ -1,13 +1,15 @@
-import { FolderOpen, Upload, X } from "lucide-react";
+import { FilePlus, FolderOpen, Upload, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { translate, useT } from "../../i18n/useT";
+import { sendCreateDocument } from "../../store/ws";
 import { LibrarySearchField } from "../shared/LibrarySearchField";
 import {
 	LibraryToolbarActions,
 	LibraryToolbarRow,
 } from "../shared/LibraryToolbar";
 import { LibraryViewToggle } from "../shared/LibraryViewToggle";
+import { InlineNameEditor } from "./DocMenu";
 import {
 	applySearchSuggestion,
 	buildQueryChips,
@@ -82,6 +84,7 @@ function handleImportDrop(
 
 export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 	const t = useT();
+	const [creating, setCreating] = useState(false);
 	return (
 		<div className="flex flex-col gap-1.5">
 			<LibraryToolbarRow>
@@ -94,6 +97,15 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					onChange={model.handleImportInput}
 				/>
 				<LibraryToolbarActions>
+					<button
+						type="button"
+						onClick={() => setCreating(true)}
+						aria-label={t("doc_new")}
+						title={t("doc_new")}
+						className="flex h-8 w-8 items-center justify-center rounded-md bg-input text-text-3 transition hover:text-text-1"
+					>
+						<FilePlus size={13} />
+					</button>
 					<ImportButton model={model} />
 					<LibraryViewToggle
 						view={model.view}
@@ -103,6 +115,19 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					/>
 				</LibraryToolbarActions>
 			</LibraryToolbarRow>
+			{creating && (
+				<InlineNameEditor
+					initial=""
+					placeholder={t("doc_new_placeholder")}
+					onCommit={(value) => {
+						const name = value.trim();
+						if (name)
+							sendCreateDocument(name, model.categoryScope ?? "general");
+						setCreating(false);
+					}}
+					onCancel={() => setCreating(false)}
+				/>
+			)}
 			{model.importError && (
 				<button
 					type="button"

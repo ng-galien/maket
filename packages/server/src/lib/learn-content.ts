@@ -817,9 +817,20 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 			"Layout validation escape hatch",
 			'`data-maket-layout="ignore"` excludes exactly one marked non-interactive leaf block from overflow, overlap, clipping, and margin checks. The target must have no child elements or text. Controls, links, `data-maket-bind` elements, focusable elements, and ARIA-role elements are ineligible.',
 			"Use it only for an intentional non-content decoration after inspecting a snapshot. It does not apply to descendants and must never hide page structure, text, controls, or uncertain defects.",
-			"Do not place it in `action=set` or inside insert, replace, or content HTML. Add it surgically; that enabling operation must be the only operation in the patch request:",
+			"Do not place it in `action=set` on a new element, nor inside insert, replace, or content HTML. `action=set` keeps it only on a `data-id` that already carries it in the stored page, so copying the HTML of `action=get` back keeps it. Add it surgically; that enabling operation must be the only operation in the patch request:",
 			'```text\nmaket_html action=patch doc=<doc> page=<n> ops=[{"id":"decoration-id","attr":{"data-maket-layout":"ignore"}}]\n```',
 			"Then run `maket_html action=check` again.",
+		),
+		section(
+			"Hand-composed pages",
+			[
+				'The person can compose a page by hand in the canvas: a text block, a library image, and a frame (rectangle), each moved with the mouse and resized with handles. Each one is ordinary page HTML: a child of the page root `<div data-id="page">` with a stable `data-id` (`text-…`, `image-…`, `frame-…`) and an inline `position:absolute` box with `left`, `top`, `width` and `height` in mm from the page\'s top-left corner. A page composed by hand starts with that root at `width:100%;height:100%`, so it follows the format.',
+				"- Keep that shape when you edit such an element, so the person can still move and resize it: change its box with `maket_html action=patch` and `style` ops in mm (`left`, `top`, `width`, `height`), its text with a `content` op.",
+				'- The frame and the image carry `data-noedit` and `data-maket-layout="ignore"`. They are empty decorations: a text laid over them is not reported as an overlap. `action=set` accepts the attribute on those same `data-id`s when you copy the HTML of `action=get` and change other parts; it refuses it anywhere else.',
+				"- An exempt frame or image is reported neither as an overlap nor as an overflow. After a format change, compare their `left + width` and `top + height` with the page width and height yourself; the other elements are measured by `action=check` as usual.",
+				"- `action=set` replaces the whole page: elements left out of the HTML disappear from it.",
+			].join("\n"),
+			'```html\n<div data-id="page" style="position:relative;width:100%;height:100%;margin:0;padding:0">\n<div data-id="frame-1a2b3c4d" data-noedit="" data-maket-layout="ignore" style="position:absolute;box-sizing:border-box;margin:0;padding:0;border:0.5mm solid #334155;left:20mm;top:30mm;width:80mm;height:40mm"></div>\n<div data-id="text-5e6f7a8b" style="position:absolute;box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3;left:25mm;top:35mm;width:70mm;height:15mm">Title</div>\n</div>\n```',
 		),
 		section(
 			"Layout measurement report",
@@ -1253,6 +1264,10 @@ const HUMAN_CONTENT: Record<LearnTopic, LearnDocument> = {
 		section(
 			"Output",
 			"The same authored HTML drives live preview, print, and PDF.",
+		),
+		section(
+			"Composing by hand",
+			"You can create a document, add pages, choose the format, and place text, images and frames on a page yourself. The assistant then reads and edits that page like any other, and keeps your elements movable.",
 		),
 		section(
 			"Layout report",

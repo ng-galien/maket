@@ -2,12 +2,7 @@
  * Text edit, onboarding, layout and workspace display handlers.
  */
 
-import {
-	validateDocumentStatePageTemplate,
-	type WorkspaceCommand,
-	type WorkspaceStateSignal,
-} from "@maket/shared";
-import { parseHTML } from "linkedom";
+import type { WorkspaceCommand, WorkspaceStateSignal } from "@maket/shared";
 import type WebSocket from "ws";
 import {
 	createOnboardingDocument,
@@ -15,11 +10,7 @@ import {
 	onboardingDocumentName,
 	onboardingLocale,
 } from "../../lib/onboarding-document.js";
-import { stripActiveHtml } from "../../lib/strip-active-html.js";
 import type { Document } from "../../types.js";
-import { validateStateTemplateUpdate } from "../document-states.js";
-import { flowSourcePageId, isFlowContinuation } from "../page-flow.js";
-import { templateControlledPageMessage } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
 
@@ -71,10 +62,6 @@ export function handleWorkspaceUpdate(
 	}
 }
 
-// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
-// text_edit is a WS adapter workflow: resolve doc/page, patch HTML via
-// linkedom, strip active markup, persist, broadcast. Coordinating those
-// owners is intentional edge glue, not feature envy of Document alone.
 export function handleTextEdit(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "text_edit" }>,
@@ -85,86 +72,24 @@ export function handleTextEdit(
 		);
 		return;
 	}
-	const d = ctx.documents.resolveOrLoad(msg.docName);
-	if (!d) {
-		log(`[text_edit] FAIL: doc not found: ${msg.docName}`);
-		return;
-	}
-	if (d.meta?.locked === true) {
-		log(`[text_edit] FAIL: document is locked: ${msg.docName}`);
-		ctx.broadcastState(d);
-		return;
-	}
+	const doc = ctx.documents.resolveOrLoad(msg.docName);
 	const shownIndex =
-		typeof msg.pageIndex === "number" ? msg.pageIndex : d.activePage;
-	const pi = authoredPageIndex(ctx, d, shownIndex);
-	if (pi === null) {
-		log(
-			`[text_edit] FAIL: page ${shownIndex} of ${msg.docName} is a generated continuation page`,
-		);
-		ctx.broadcastState(d);
-		return;
-	}
-	const page = d.pages[pi];
-	if (!page?.html) {
-		log(`[text_edit] FAIL: no page html for ${msg.docName} page ${pi}`);
-		return;
-	}
-	const controlled = templateControlledPageMessage(d, page);
-	if (controlled) {
-		log(`[text_edit] FAIL: ${controlled}`);
-		ctx.broadcastState(d);
-		return;
-	}
-	const { document: dom } = parseHTML(`<html><body>${page.html}</body></html>`);
-	const el = dom.body.querySelector(`[data-id="${msg.elementId}"]`);
-	if (!el) {
-		log(`[text_edit] FAIL: element not found: ${msg.elementId}`);
-		return;
-	}
-	log(
-		`[text_edit] OK: ${msg.docName} → ${msg.elementId} (${msg.html.length} chars) activePage:${d.activePage} pages:${d.pages.length} page.html.length:${page.html.length}`,
+		typeof msg.pageIndex === "number" ? msg.pageIndex : (doc?.activePage ?? 0);
+	const result = ctx.pageComposition.editElementHtml(
+		msg.docName,
+		shownIndex,
+		msg.elementId,
+		msg.html,
 	);
-	el.innerHTML = (msg.html as string).replace(/<style[\s\S]*?<\/style>/gi, "");
-	const nextHtml = stripActiveHtml(dom.body.innerHTML);
-	try {
-		validateDocumentStatePageTemplate({ ...page, html: nextHtml });
-		validateStateTemplateUpdate(d, ctx.store, {
-			...page,
-			html: nextHtml,
-		});
-	} catch (error) {
-		log(
-			`[text_edit] FAIL: ${error instanceof Error ? error.message : String(error)}`,
-		);
-		ctx.broadcastState(d);
+	if (result.ok) {
+		log(`[text_edit] OK: ${msg.docName} → ${msg.elementId}`);
 		return;
 	}
-	page.html = nextHtml;
-	log(`[text_edit] updated page.html length: ${page.html.length}`);
-	ctx.documents.persist(d.name);
-	ctx.broadcastState(d);
-}
-
-/** Runtime shape check for `charte_save` payloads. Returns an error message
- * when the payload would persist malformed data, `null` when it's safe. The
- * MCP tool path has zod; this is the WS equivalent. */
-
-/** The authored page behind a page index of the rendered document, which
- * differs when a state list flows onto continuation pages; null for a
- * continuation page. */
-function authoredPageIndex(
-	ctx: Pick<WsHandlerContext, "documentRenderer">,
-	doc: Document,
-	shownIndex: number,
-): number | null {
-	if (doc.dataModel !== "state") return shownIndex;
-	const shown = ctx.documentRenderer.render(doc).pages;
-	if (shown.length === doc.pages.length) return shownIndex;
-	const shownPage = shown[shownIndex];
-	if (!shownPage) return shownIndex;
-	if (isFlowContinuation(shownPage)) return null;
-	const sourceId = flowSourcePageId(shownPage);
-	const index = doc.pages.findIndex((page) => page.id === sourceId);
-	return index >= 0 ? index : shownIndex;
+	log(`[text_edit] FAIL: ${result.refusal.message}`);
+	if (
+		doc &&
+		result.refusal.code !== "not_found" &&
+		result.refusal.code !== "element_not_found"
+	)
+		ctx.broadcastState(doc);
 }

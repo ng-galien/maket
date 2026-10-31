@@ -1,6 +1,7 @@
 import type { ActivityKey } from "./activity.js";
 import type { DocumentStateClientView } from "./document-state.js";
 import type { LocalizedMessage } from "./messages.js";
+import type { PlacedBox, PlacedElementKind } from "./placed-element.js";
 import type { Settings } from "./settings.js";
 import type {
 	StructuredCollectionFilter,
@@ -387,6 +388,57 @@ export interface EditTextCommand {
 	pageIndex?: number;
 }
 
+/** Creates a blank static document: A4 portrait, one empty page. */
+export interface CreateDocumentCommand {
+	type: "document_create";
+	name: string;
+	category: string;
+}
+
+/** Appends a blank page at the end of a document. */
+export interface AddPageCommand {
+	type: "page_add";
+	docName: string;
+}
+
+/** Sets the document's fixed format and orientation; AUTO is refused. */
+export interface SetCanvasFormatCommand {
+	type: "canvas_format_set";
+	docName: string;
+	format: string;
+	orientation: "portrait" | "landscape";
+}
+
+/** Places a new element on a page; the server assigns its `data-id`. `box`
+ * is in millimetres. `asset` names a library image for `kind: "image"`;
+ * `text` is the initial content of `kind: "text"`. */
+export interface AddPlacedElementCommand {
+	type: "element_add";
+	docName: string;
+	pageIndex: number;
+	kind: PlacedElementKind;
+	box: PlacedBox;
+	asset?: string;
+	text?: string;
+}
+
+/** Moves or resizes a placed element. */
+export interface SetPlacedElementBoxCommand {
+	type: "element_box_set";
+	docName: string;
+	pageIndex: number;
+	elementId: string;
+	box: PlacedBox;
+}
+
+/** Removes a placed element from its page. */
+export interface RemovePlacedElementCommand {
+	type: "element_remove";
+	docName: string;
+	pageIndex: number;
+	elementId: string;
+}
+
 export interface PatchDocumentStateCommand {
 	type: "state_patch";
 	requestId: string;
@@ -517,6 +569,12 @@ export type WorkspaceCommand =
 	| ClearPageCollectionCommand
 	| SetCollectionCursorCommand
 	| EditTextCommand
+	| CreateDocumentCommand
+	| AddPageCommand
+	| SetCanvasFormatCommand
+	| AddPlacedElementCommand
+	| SetPlacedElementBoxCommand
+	| RemovePlacedElementCommand
 	| PatchDocumentStateCommand
 	| CreateAnnotationCommand
 	| RemoveAnnotationCommand

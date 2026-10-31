@@ -3,6 +3,8 @@ import type {
 	Collection,
 	DocumentStateClientView,
 	LocalizedMessage,
+	PlacedBox,
+	PlacedElementKind,
 	Settings,
 	ToastKey,
 	WorkspaceCommand,
@@ -63,6 +65,52 @@ export function sendTextEdit(
 	html: string,
 ): void {
 	wsSend({ type: "text_edit", docName, pageIndex, elementId, html });
+}
+
+export function sendCreateDocument(name: string, category: string): void {
+	wsSend({ type: "document_create", name, category });
+}
+
+export function sendAddPage(docName: string): void {
+	wsSend({ type: "page_add", docName });
+}
+
+export function sendCanvasFormat(
+	docName: string,
+	format: string,
+	orientation: "portrait" | "landscape",
+): void {
+	wsSend({ type: "canvas_format_set", docName, format, orientation });
+}
+
+export function sendAddPlacedElement(
+	docName: string,
+	pageIndex: number,
+	element: {
+		kind: PlacedElementKind;
+		box: PlacedBox;
+		asset?: string;
+		text?: string;
+	},
+): void {
+	wsSend({ type: "element_add", docName, pageIndex, ...element });
+}
+
+export function sendPlacedElementBox(
+	docName: string,
+	pageIndex: number,
+	elementId: string,
+	box: PlacedBox,
+): void {
+	wsSend({ type: "element_box_set", docName, pageIndex, elementId, box });
+}
+
+export function sendRemovePlacedElement(
+	docName: string,
+	pageIndex: number,
+	elementId: string,
+): void {
+	wsSend({ type: "element_remove", docName, pageIndex, elementId });
 }
 
 /** A state patch command, as the Maket form sends it. */

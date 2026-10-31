@@ -15,6 +15,7 @@ import type WebSocket from "ws";
 import { localizedOf } from "../../lib/message-error.js";
 import { createCollectionCursors } from "../collection-cursor.js";
 import { createCollections } from "../collections.js";
+import { createPageComposition } from "../page-composition.js";
 import {
 	handleDeleteAsset,
 	handleMoveAssetCategory,
@@ -28,6 +29,14 @@ import {
 	handleCollectionDelete,
 	handleCollectionSave,
 } from "./collection-commands.js";
+import {
+	handleAddPage,
+	handleAddPlacedElement,
+	handleCreateDocument,
+	handleRemovePlacedElement,
+	handleSetCanvasFormat,
+	handleSetPlacedElementBox,
+} from "./composition-commands.js";
 import type {
 	WorkspaceCommandHandler,
 	WsHandlerContext,
@@ -77,6 +86,15 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 	const collectionCursors =
 		deps.collectionCursors ??
 		createCollectionCursors({ bus, documents, store });
+	const pageComposition =
+		deps.pageComposition ??
+		createPageComposition({
+			assets,
+			bus,
+			documentRenderer,
+			documents,
+			store,
+		});
 	const ctx: WsHandlerContext = {
 		assets,
 		bus,
@@ -92,6 +110,7 @@ export function createWsHandler(deps: WsHandlerDeps): WorkspaceCommandHandler {
 		store,
 		structuredWorkspaces,
 		wsRegistry,
+		pageComposition,
 		wsDoc: (msg) => (msg.docName ? documents.resolveOrLoad(msg.docName) : null),
 		broadcastState: (d) => {
 			if (!d) return;
@@ -197,6 +216,24 @@ function dispatchWorkspaceCommand(
 			break;
 		case "text_edit":
 			handleTextEdit(ctx, msg);
+			break;
+		case "document_create":
+			handleCreateDocument(ctx, msg);
+			break;
+		case "page_add":
+			handleAddPage(ctx, msg);
+			break;
+		case "canvas_format_set":
+			handleSetCanvasFormat(ctx, msg);
+			break;
+		case "element_add":
+			handleAddPlacedElement(ctx, msg);
+			break;
+		case "element_box_set":
+			handleSetPlacedElementBox(ctx, msg);
+			break;
+		case "element_remove":
+			handleRemovePlacedElement(ctx, msg);
 			break;
 		case "state_patch":
 			handleStatePatch(ctx, msg, ws);

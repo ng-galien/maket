@@ -15,6 +15,7 @@ import type { DocumentStateMutations } from "../document-state-mutations.js";
 import type { DocumentStates } from "../document-states.js";
 import type { Documents } from "../documents.js";
 import type { ItemWindows } from "../item-windows.js";
+import type { PageComposition } from "../page-composition.js";
 import type { SettingsService } from "../settings.js";
 import type { Store } from "../store.js";
 import type { StructuredWorkspaces } from "../structured-workspaces.js";
@@ -40,12 +41,17 @@ export interface WsHandlerDeps {
 	store: Store;
 	structuredWorkspaces: StructuredWorkspaces;
 	wsRegistry: WsRegistry;
+	pageComposition?: PageComposition;
 }
 
 export interface WsHandlerContext
-	extends Omit<WsHandlerDeps, "collections" | "collectionCursors"> {
+	extends Omit<
+		WsHandlerDeps,
+		"collections" | "collectionCursors" | "pageComposition"
+	> {
 	collections: Collections;
 	collectionCursors: CollectionCursors;
+	pageComposition: PageComposition;
 	broadcastState(d: Document | null): void;
 	wsDoc(msg: { docName?: string }): Document | null;
 }

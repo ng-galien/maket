@@ -2153,3 +2153,148 @@ describe("PageCanvas select options from a state list", () => {
 		expect(sendPatch).toHaveBeenCalledWith("alpha", "/agent", 3, "reviewer");
 	});
 });
+
+describe("PageCanvas hand composition", () => {
+	const placed =
+		'<div data-id="frame-1" data-noedit="" data-maket-layout="ignore" style="position:absolute;left:20mm;top:30mm;width:80mm;height:40mm"></div>';
+
+	function bar() {
+		return document.body.querySelector("[data-hand-compose-bar]");
+	}
+
+	it("shows the composition bar with format, page addition and palette on the focused writable page", () => {
+		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
+		const doc = makeDoc(placed);
+		doc.canvas.format = "A4";
+		doc.canvas.orientation = "portrait";
+		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
+
+		const toolbar = bar();
+		if (!(toolbar instanceof HTMLElement)) throw new Error("bar missing");
+		const format = within(toolbar).getByLabelText(
+			"Format",
+		) as HTMLSelectElement;
+		expect(format.value).toBe("A4");
+		expect([...format.options].map((option) => option.value)).not.toContain(
+			"AUTO",
+		);
+		expect(within(toolbar).getByText("Add a page")).toBeTruthy();
+		expect(within(toolbar).getByText("Add text")).toBeTruthy();
+		expect(within(toolbar).getByText("Add an image")).toBeTruthy();
+		expect(within(toolbar).getByText("Add a frame")).toBeTruthy();
+
+		const setFormat = vi
+			.spyOn(ws, "sendCanvasFormat")
+			.mockImplementation(() => {});
+		const addElement = vi
+			.spyOn(ws, "sendAddPlacedElement")
+			.mockImplementation(() => {});
+		fireEvent.change(format, { target: { value: "A5" } });
+		fireEvent.click(within(toolbar).getByText("Add a frame"));
+		expect(setFormat).toHaveBeenCalledWith("alpha", "A5", "portrait");
+		expect(addElement).toHaveBeenCalledWith("alpha", 0, {
+			kind: "frame",
+			box: { left: 75, top: 128.5, width: 60, height: 40 },
+		});
+		setFormat.mockRestore();
+		addElement.mockRestore();
+	});
+
+	it("keeps the format selector on an AUTO document without offering AUTO, and hides the palette", () => {
+		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
+		const doc = makeDoc("");
+		doc.canvas.format = "AUTO";
+		doc.canvas.w = 180;
+		doc.canvas.h = 1;
+		const { rerender } = render(
+			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
+		);
+
+		let toolbar = bar() as HTMLElement;
+		const format = within(toolbar).getByLabelText(
+			"Format",
+		) as HTMLSelectElement;
+		expect(format.value).toBe("AUTO");
+		const auto = [...format.options].find((option) => option.value === "AUTO");
+		expect(auto?.disabled).toBe(true);
+		expect(within(toolbar).queryByText("Add text")).toBeNull();
+		expect(
+			within(toolbar).getByText("Choose a fixed format to place elements"),
+		).toBeTruthy();
+
+		const a4 = makeDoc("");
+		a4.canvas.format = "A4";
+		rerender(<PageCanvas doc={a4} pageIndex={0} charteCss="" focused={true} />);
+		toolbar = bar() as HTMLElement;
+		expect(within(toolbar).getByText("Add text")).toBeTruthy();
+	});
+
+	it.each([
+		[
+			"Reader",
+			presentationPolicy({
+				surface: "reader",
+				dataSource: "connected",
+				access: "writable",
+			}),
+		],
+		[
+			"standalone viewer",
+			presentationPolicy({
+				surface: "canvas",
+				dataSource: "static",
+				access: "read-only",
+			}),
+		],
+		[
+			"locked document",
+			presentationPolicy({
+				surface: "canvas",
+				dataSource: "connected",
+				access: "locked",
+			}),
+		],
+	])("shows no composition bar or handles in the %s", async (_name, policy) => {
+		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(placed)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+				policy={policy}
+			/>,
+		);
+		const frame = container.querySelector('[data-id="frame-1"]');
+		if (!frame) throw new Error("frame missing");
+		await act(async () => {
+			fireEvent.click(frame);
+		});
+		expect(bar()).toBeNull();
+		expect(container.querySelector("[data-placed-selection]")).toBeNull();
+	});
+
+	it("selects a placed element with a mm selection frame, handles and a delete action", async () => {
+		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
+		const { container } = render(
+			<PageCanvas
+				doc={makeDoc(placed)}
+				pageIndex={0}
+				charteCss=""
+				focused={true}
+			/>,
+		);
+		const frame = container.querySelector('[data-id="frame-1"]');
+		if (!frame) throw new Error("frame missing");
+		await act(async () => {
+			fireEvent.click(frame);
+		});
+		const selection = container.querySelector(
+			'[data-placed-selection="frame-1"]',
+		) as HTMLElement | null;
+		expect(selection?.style.left).toBe("20mm");
+		expect(selection?.style.width).toBe("80mm");
+		expect(selection?.querySelectorAll("[data-resize-handle]")).toHaveLength(8);
+		expect(screen.getByLabelText("Hold to delete the element")).toBeTruthy();
+	});
+});

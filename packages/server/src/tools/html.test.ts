@@ -189,6 +189,74 @@ describe("maket_html — action=set", () => {
 		store.close();
 	});
 
+	it("keeps a layout exemption the stored page already grants to the same data-id", async () => {
+		const { store, documents, layout, assets } = fixture();
+		const stored = [
+			'<div data-id="frame-1" data-noedit="" data-maket-layout="ignore" style="position:absolute;left:10mm;top:10mm;width:80mm;height:40mm;border:0.5mm solid #334155"></div>',
+			'<img data-id="image-1" data-noedit="" data-maket-layout="ignore" src="/assets/photo.png" alt="" style="position:absolute;left:100mm;top:10mm;width:60mm;height:40mm">',
+			'<div data-id="text-1" style="position:absolute;left:15mm;top:15mm;width:70mm;height:15mm">Hello</div>',
+		].join("");
+		store.saveDoc(makeDoc("hand", stored));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{
+				action: "set",
+				doc: "hand",
+				page: 1,
+				html: stored
+					.replace("Hello", "Bonjour")
+					.replace("left:15mm", "left:20mm"),
+			},
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBeUndefined();
+		const html = documents.resolve("hand")?.pages[0]?.html ?? "";
+		expect(html).toContain("Bonjour");
+		expect(html).toContain("left:20mm");
+		expect(html.match(/data-maket-layout="ignore"/g)).toHaveLength(2);
+		store.close();
+	});
+
+	it.each([
+		[
+			"a data-id the stored page does not exempt",
+			'<div data-id="text-1" data-maket-layout="ignore"></div>',
+		],
+		[
+			"a new element",
+			'<div data-id="frame-1" data-maket-layout="ignore"></div><div data-id="new" data-maket-layout="ignore"></div>',
+		],
+		["another value", '<div data-id="frame-1" data-maket-layout="skip"></div>'],
+		[
+			"an element that is no longer a leaf",
+			'<div data-id="frame-1" data-maket-layout="ignore">text</div>',
+		],
+		[
+			"an element that became interactive",
+			'<div data-id="frame-1" data-maket-layout="ignore" tabindex="0"></div>',
+		],
+	])("refuses a layout exemption in set on %s", async (_case, html) => {
+		const { store, documents, layout, assets } = fixture();
+		const stored =
+			'<div data-id="frame-1" data-maket-layout="ignore"></div><div data-id="text-1">Hello</div>';
+		store.saveDoc(makeDoc("hand", stored));
+		documents.loadAll();
+		const tool = createMaketHtmlTool({ documents, store, layout, assets });
+
+		const res = await tool.handler(
+			{ action: "set", doc: "hand", page: 1, html },
+			NO_EXTRA,
+		);
+
+		expect(res.isError).toBe(true);
+		expect(documents.resolve("hand")?.pages[0]?.html).toBe(stored);
+		expect(layout.measure).not.toHaveBeenCalled();
+		store.close();
+	});
+
 	it("errors when doc missing", async () => {
 		const { store, documents, layout, assets } = fixture();
 		const tool = createMaketHtmlTool({ documents, store, layout, assets });

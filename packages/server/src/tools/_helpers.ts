@@ -10,7 +10,10 @@
  */
 
 import type { CallToolResult } from "@modelcontextprotocol/server";
-import { templateControlledPageMessage } from "../services/structured-workspace-policy.js";
+import {
+	lockedDocumentMessage,
+	templateControlledPageMessage,
+} from "../services/structured-workspace-policy.js";
 import type { Document, Page } from "../types.js";
 
 export interface TextOpts {
@@ -106,11 +109,8 @@ export function json(value: unknown, opts: JsonOpts = {}): CallToolResult {
  * resolving the doc and short-circuit on a non-null return value.
  */
 export function lockGuard(d: Document): CallToolResult | null {
-	if (d.meta?.locked !== true) return null;
-	return text(
-		`🔒 Document "${d.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_workspace action=lock doc=${d.name} locked=false`,
-		true,
-	);
+	const message = lockedDocumentMessage(d);
+	return message ? text(message, true) : null;
 }
 
 export function templatePageGuard(

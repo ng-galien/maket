@@ -2,10 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createPageComposition } from "../services/page-composition.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { createMaketPageTool, pagesPack } from "./pages.js";
+
+function compositionFor(
+	store: ReturnType<typeof createSQLiteStore>,
+	bus: ReturnType<typeof createBus>,
+	documents: ReturnType<typeof createDocuments>,
+) {
+	return createPageComposition({
+		assets: { exists: () => true },
+		bus,
+		documentRenderer: { render: (doc) => doc },
+		documents,
+		store,
+	});
+}
 
 function fixture() {
 	const store = createSQLiteStore(":memory:");
@@ -68,7 +83,11 @@ describe("maket_page — action=add", () => {
 			},
 			{ subject: "Portfolio", answers: [], choice: "Developers", note: "" },
 		);
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const first = {
 			uischema: {
 				type: "Control",
@@ -158,7 +177,11 @@ describe("maket_page — action=add", () => {
 		const listener = vi.fn();
 		bus.on("document:loaded", listener);
 
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{
 				action: "add",
@@ -181,7 +204,11 @@ describe("maket_page — action=add", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d"));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{
 				action: "add",
@@ -201,7 +228,11 @@ describe("maket_page — action=add", () => {
 
 	it("errors when the document is missing", async () => {
 		const { store, bus, documents } = fixture();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "add", doc: "ghost", name: "x", html: "<p></p>" },
 			NO_EXTRA,
@@ -214,7 +245,11 @@ describe("maket_page — action=add", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d"));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler({ action: "add", doc: "d" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();
@@ -224,7 +259,11 @@ describe("maket_page — action=add", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d"));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		await tool.handler(
 			{
 				action: "add",
@@ -243,7 +282,11 @@ describe("maket_page — action=add", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d"));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const added = await tool.handler(
 			{
@@ -287,7 +330,11 @@ describe("maket_page — action=add", () => {
 		page.html = '<h1 data-id="title">Sign up</h1>';
 		store.saveDoc(doc);
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const read = await tool.handler(
 			{ action: "get_form", doc: "d", page: 1 },
@@ -323,7 +370,11 @@ describe("maket_page — action=add", () => {
 			{ title: "Safe" },
 		);
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const result = await tool.handler(
 			{
@@ -353,7 +404,11 @@ describe("maket_page — action=add", () => {
 		};
 		store.saveDoc(doc);
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const result = await tool.handler(
 			{
@@ -379,7 +434,11 @@ describe("maket_page — action=remove", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d", 1));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "remove", doc: "d", page: 1 },
 			NO_EXTRA,
@@ -395,7 +454,11 @@ describe("maket_page — action=remove", () => {
 		store.saveDoc(d);
 		documents.loadAll();
 
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "remove", doc: "d", page: 3 },
 			NO_EXTRA,
@@ -411,7 +474,11 @@ describe("maket_page — action=remove", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d", 2));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "remove", doc: "d", page: 99 },
 			NO_EXTRA,
@@ -440,7 +507,11 @@ describe("maket_page — Structured Workspace template protection", () => {
 		};
 		store.saveDoc(doc);
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const removed = await tool.handler(
 			{ action: "remove", doc: "instance", page: 1 },
@@ -474,7 +545,11 @@ describe("maket_page — Structured Workspace template protection", () => {
 		}
 		store.saveDoc(doc);
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		const result = await tool.handler(
 			{ action: "reorder", doc: "instance", from: 3, to: 1 },
@@ -493,7 +568,11 @@ describe("maket_page — action=rename", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d", 2));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "rename", doc: "d", page: 2, name: "Cover" },
 			NO_EXTRA,
@@ -505,7 +584,11 @@ describe("maket_page — action=rename", () => {
 
 	it("errors when the document is missing", async () => {
 		const { store, bus, documents } = fixture();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "rename", doc: "ghost", page: 1, name: "x" },
 			NO_EXTRA,
@@ -523,7 +606,11 @@ describe("maket_page — action=reorder", () => {
 		store.saveDoc(d);
 		documents.loadAll();
 
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "reorder", doc: "d", from: 1, to: 3 },
 			NO_EXTRA,
@@ -539,7 +626,11 @@ describe("maket_page — action=reorder", () => {
 		const { store, bus, documents } = fixture();
 		store.saveDoc(makeDoc("d", 2));
 		documents.loadAll();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ action: "reorder", doc: "d", from: 99, to: 1 },
 			NO_EXTRA,
@@ -557,7 +648,11 @@ describe("maket_page — action=list", () => {
 		store.saveDoc(d);
 		documents.loadAll();
 
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler({ action: "list", doc: "d" }, NO_EXTRA);
 		const text = (res.content[0] as any).text as string;
 		expect(text).toMatch(/3 pages:/);
@@ -567,7 +662,11 @@ describe("maket_page — action=list", () => {
 
 	it("errors when the document is missing", async () => {
 		const { store, bus, documents } = fixture();
-		const tool = createMaketPageTool({ bus, documents });
+		const tool = createMaketPageTool({
+			bus,
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler({ action: "list", doc: "ghost" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();

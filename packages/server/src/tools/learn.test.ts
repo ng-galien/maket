@@ -53,7 +53,13 @@ describe("maket_learn", () => {
 		expect(htmlBody).toContain("data-collection-marker");
 		expect(htmlBody).toContain('data-maket-layout="ignore"');
 		expect(htmlBody).toContain("maket_html action=patch");
-		expect(htmlBody).toContain("Do not place it in `action=set`");
+		expect(htmlBody).toContain(
+			"Do not place it in `action=set` on a new element",
+		);
+		expect(htmlBody).toContain("## Hand-composed pages");
+		expect(htmlBody).toContain(
+			"reported neither as an overlap nor as an overflow",
+		);
 		expect(htmlBody).toContain("only operation in the patch request");
 		expect(htmlBody).toContain("no child elements or text");
 		expect(htmlBody).toContain("`data-maket-bind` elements");

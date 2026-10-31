@@ -19,6 +19,12 @@ export function canUpdateDocumentMetadata(
 	);
 }
 
+/** Refusal for any edit of a locked document; null when it is unlocked. */
+export function lockedDocumentMessage(document: Document): string | null {
+	if (document.meta?.locked !== true) return null;
+	return `🔒 Document "${document.name}" is locked — edits are refused. Ask the user to unlock it, or call: maket_workspace action=lock doc=${document.name} locked=false`;
+}
+
 export function templateControlledPageMessage(
 	document: Document,
 	page: Page,

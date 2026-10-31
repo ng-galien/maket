@@ -47,6 +47,7 @@ import {
 import { createDocuments, type Documents } from "../services/documents.js";
 import { createItemSources } from "../services/item-sources/item-sources.js";
 import { createItemWindows } from "../services/item-windows.js";
+import { createPageComposition } from "../services/page-composition.js";
 import type { PdfService } from "../services/pdf.js";
 import { createStateRenderer } from "../services/state-renderer.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
@@ -331,6 +332,7 @@ describe("export routes — .maket bundle", () => {
 			config,
 			bundleExportService,
 			bundleImportService,
+			pageComposition: compositionFor(store, bus, documents),
 		});
 		const deleted = await tool.handler(
 			{ action: "delete", doc: importedName },
@@ -439,6 +441,7 @@ describe("export routes — .maket bundle", () => {
 			config,
 			bundleExportService,
 			bundleImportService,
+			pageComposition: compositionFor(store, bus, documents),
 		});
 		const mcpResponse = await tool.handler(
 			{
@@ -680,6 +683,11 @@ describe("export routes — .maket bundle", () => {
 				config: targetConfig,
 				bundleExportService: targetBundleExportService,
 				bundleImportService: targetBundleImportService,
+				pageComposition: compositionFor(
+					targetStore,
+					targetBus,
+					targetDocuments,
+				),
 			});
 			const deleted = await targetTool.handler(
 				{ action: "delete", doc: collectionName },
@@ -932,6 +940,7 @@ describe("export routes — .maket bundle", () => {
 			config,
 			bundleExportService,
 			bundleImportService,
+			pageComposition: compositionFor(store, bus, documents),
 		});
 		const mcpResponse = await tool.handler(
 			{
@@ -1018,6 +1027,7 @@ describe("export routes — .maket bundle", () => {
 			config,
 			bundleExportService,
 			bundleImportService,
+			pageComposition: compositionFor(store, bus, documents),
 		});
 		const mcpResponse = await tool.handler(
 			{ action: "export", doc: "missing" },
@@ -1439,4 +1449,18 @@ function structuredWorkspacesWithSources(
 		itemWindows,
 	});
 	return workspaces;
+}
+
+function compositionFor(
+	store: Parameters<typeof createPageComposition>[0]["store"],
+	bus: Parameters<typeof createPageComposition>[0]["bus"],
+	documents: Parameters<typeof createPageComposition>[0]["documents"],
+) {
+	return createPageComposition({
+		assets: { exists: () => true },
+		bus,
+		documentRenderer: { render: (doc) => doc },
+		documents,
+		store,
+	});
 }

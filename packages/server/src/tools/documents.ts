@@ -28,6 +28,7 @@ import type {
 import type { Bus } from "../services/bus.js";
 import type { Config } from "../services/config.js";
 import type { Documents } from "../services/documents.js";
+import type { PageComposition } from "../services/page-composition.js";
 import type { Store } from "../services/store.js";
 import {
 	canUpdateDocumentMetadata,
@@ -48,6 +49,7 @@ export interface DocumentsDeps {
 	config: Config;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
+	pageComposition: PageComposition;
 }
 
 const ActionSchema = z.enum([
@@ -216,6 +218,7 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 		config,
 		bundleExportService,
 		bundleImportService,
+		pageComposition,
 	} = deps;
 	return {
 		metadata: {
@@ -231,6 +234,7 @@ export function createMaketDocTool(deps: DocumentsDeps): ToolHandler {
 				config,
 				bundleExportService,
 				bundleImportService,
+				pageComposition,
 			}),
 	};
 }
@@ -244,6 +248,7 @@ interface MaketDocToolDeps {
 	config: Config;
 	bundleExportService: BundleExportService;
 	bundleImportService: BundleImportService;
+	pageComposition: PageComposition;
 }
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
@@ -252,7 +257,7 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 	const args = MaketDocSchema.parse(rawArgs);
 	switch (args.action) {
 		case "new":
-			return runNew(args, deps.documents, deps.bus);
+			return runNew(args, deps.pageComposition);
 		case "list":
 			return runList(deps.documents);
 		case "lookup":
@@ -279,10 +284,8 @@ async function handleMaketDocTool(rawArgs: unknown, deps: MaketDocToolDeps) {
 
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // MCP tool action `runNew`: edge adapter over services/store/bus, not domain ownership.
-function runNew(args: Args, documents: Documents, bus: Bus) {
+function runNew(args: Args, pageComposition: PageComposition) {
 	if (!args.doc) return text("doc is required for action=new", true);
-	if (documents.nameTaken(args.doc))
-		return text(`Document "${args.doc}" already exists`, true);
 	const fmt = args.format || "A3";
 	const orient = args.orientation || "portrait";
 	if (fmt === "AUTO" && args.width === undefined)
@@ -290,7 +293,7 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 	if (fmt !== "AUTO" && args.width !== undefined)
 		return text("width is only supported with AUTO format.", true);
 	const { w, h } = computeCanvasDims(fmt, orient, args.width);
-	const newDoc = createDocument({
+	const created = pageComposition.createDocument({
 		name: args.doc,
 		category: args.category || "general",
 		canvas: {
@@ -306,17 +309,11 @@ function runNew(args: Args, documents: Documents, bus: Bus) {
 			...(args.responsive === undefined ? {} : { responsive: args.responsive }),
 		},
 	});
-	documents.all().set(args.doc, newDoc);
-	documents.persist(args.doc);
+	if (!created.ok) return text(created.refusal.message, true);
+	const newDoc = created.value;
 	const charteMsg = newDoc.meta.charte
 		? `\nCharte: "${newDoc.meta.charte}"`
 		: "";
-	bus.emit("document:created", { docName: args.doc });
-	bus.emit("toast", {
-		key: "toast_document_created",
-		params: { doc: String(args.doc), format: fmt, orientation: orient },
-		level: "success",
-	});
 	const next = newDoc.meta.charte
 		? [
 				`maket_charte view name=${newDoc.meta.charte}`,
@@ -858,6 +855,7 @@ export const documentsPack: ToolPack = {
 		"config",
 		"bundleExportService",
 		"bundleImportService",
+		"pageComposition",
 	],
 	declaresTools: ["maket_doc"],
 	register(container) {

@@ -6,21 +6,21 @@
  * pack have moved: get_state → maket_doc.state; open_preview + snapshot →
  * maket_preview.
  *
- * Deps: `documents` (lookup + persist), `bus` (canvas:changed).
+ * Deps: `documents` (lookup), `pageComposition` (persist + canvas:changed).
  */
 
 import { asFunction } from "awilix";
 import { z } from "zod";
 import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
-import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
+import type { PageComposition } from "../services/page-composition.js";
 import { computeCanvasDims } from "../types.js";
 import { lockGuard, text } from "./_helpers.js";
 
 export interface CanvasDeps {
 	documents: Documents;
-	bus: Bus;
+	pageComposition: PageComposition;
 }
 
 const FormatSchema = z.enum([
@@ -88,7 +88,7 @@ type CanvasArgs = z.infer<typeof MaketCanvasSchema>;
 function runCanvasSetup(
 	args: CanvasArgs,
 	documents: Documents,
-	bus: Bus,
+	pageComposition: PageComposition,
 ): ReturnType<typeof text> {
 	const d = documents.resolveOrLoad(args.doc);
 	if (!d) return text(`Document "${args.doc}" not found`, true);
@@ -101,16 +101,15 @@ function runCanvasSetup(
 	if (fmt !== "AUTO" && args.width !== undefined)
 		return text("width is only supported with AUTO format.", true);
 	const { w, h } = computeCanvasDims(fmt, orient, args.width ?? d.canvas.w);
-	d.canvas = {
+	const updated = pageComposition.setCanvas(d.name, {
 		format: fmt,
 		orientation: orient,
 		w,
 		h,
 		bg: args.background || d.canvas.bg,
 		margins: args.margins ?? d.canvas.margins,
-	};
-	documents.persist(d.name);
-	bus.emit("canvas:changed", { docName: d.name });
+	});
+	if (!updated.ok) return text(updated.refusal.message, true);
 	const m = d.canvas.margins;
 	const mDesc = m
 		? `  margins:{t:${m.top} r:${m.right} b:${m.bottom} l:${m.left}}mm`
@@ -121,7 +120,7 @@ function runCanvasSetup(
 }
 
 export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
-	const { documents, bus } = deps;
+	const { documents, pageComposition } = deps;
 	return {
 		metadata: {
 			name: "maket_canvas",
@@ -130,7 +129,7 @@ export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 		},
 		handler: async (rawArgs) => {
 			const args = MaketCanvasSchema.parse(rawArgs);
-			return runCanvasSetup(args, documents, bus);
+			return runCanvasSetup(args, documents, pageComposition);
 		},
 	};
 }
@@ -138,7 +137,7 @@ export function createMaketCanvasTool(deps: CanvasDeps): ToolHandler {
 export const canvasPack: ToolPack = {
 	id: "canvas",
 	name: "Canvas",
-	requires: ["documents", "bus"],
+	requires: ["documents", "pageComposition"],
 	declaresTools: ["maket_canvas"],
 	register(container) {
 		container.register({

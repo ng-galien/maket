@@ -16,6 +16,7 @@ import {
 import type { Config } from "../services/config.js";
 import { createDocumentStates } from "../services/document-states.js";
 import { createDocuments } from "../services/documents.js";
+import { createPageComposition } from "../services/page-composition.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import {
@@ -26,7 +27,7 @@ import {
 
 type TestDocumentsDeps = Omit<
 	DocumentsDeps,
-	"bundleExportService" | "bundleImportService"
+	"bundleExportService" | "bundleImportService" | "pageComposition"
 > & {
 	collections: Collections;
 };
@@ -35,6 +36,13 @@ function createMaketDocTool(deps: TestDocumentsDeps) {
 	const { collections, ...toolDeps } = deps;
 	return createMaketDocToolFactory({
 		...toolDeps,
+		pageComposition: createPageComposition({
+			assets: { exists: () => true },
+			bus: deps.bus,
+			documentRenderer: { render: (document) => document },
+			documents: deps.documents,
+			store: deps.store,
+		}),
 		bundleExportService: createBundleExportService({
 			documents: deps.documents,
 			documentRenderer: { render: (document) => document },

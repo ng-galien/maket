@@ -3,12 +3,14 @@ import {
 	fitBoundTextareaHeight,
 	hasJsonFormSlot,
 	markCollectionPlaceholders,
+	type PlacedBox,
 	parseDeclaredStateValue,
+	placedCompositionFormat,
 	readJsonPointer,
 	resolveCollectionText,
 	stateActionValueAttribute,
 } from "@maket/shared";
-import { MessageCircle, Pencil } from "lucide-react";
+import { MessageCircle, Pencil, Trash2 } from "lucide-react";
 import {
 	forwardRef,
 	memo,
@@ -36,8 +38,24 @@ import {
 	statePatchKey,
 	useStore,
 } from "../store/useStore";
-import { sendStateValuePatch, sendTextEdit } from "../store/ws";
+import {
+	sendPlacedElementBox,
+	sendRemovePlacedElement,
+	sendStateValuePatch,
+	sendTextEdit,
+} from "../store/ws";
 import { scopePageStyles } from "../viewer/scope-page-styles";
+import { HandComposeBar } from "./HandComposeBar";
+import {
+	applyPlacedBox,
+	millimetresPerPixel,
+	movedBox,
+	placedBoxOf,
+	placedElementAt,
+	RESIZE_HANDLES,
+	type ResizeHandle,
+	resizedBox,
+} from "./handEditing";
 import {
 	dispatchPageLink,
 	followCanvasPageLink,
@@ -53,6 +71,7 @@ import {
 	StateEnumSelect,
 	type StateEnumSelectState,
 } from "./StateEnumSelect";
+import { HoldToDelete } from "./shared/HoldToDelete";
 
 export function parseCSSVars(css: string): Record<string, string> {
 	const vars: Record<string, string> = {};
@@ -233,6 +252,8 @@ interface ToolbarState {
 	screenTop: number;
 	screenRight: number;
 	editable: boolean;
+	/** The element is a placed element the person can move, resize, delete. */
+	placed: boolean;
 }
 
 interface StateValueEditorState {
@@ -323,6 +344,12 @@ export const PageCanvas = memo(function PageCanvas({
 	const templateControlled = page?.provenance?.kind === "template";
 	const canEditTemplate =
 		canInteract && !templateControlled && preview?.mode !== "rendered";
+	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
+	const canCompose =
+		canEditTemplate && !responsive && activePolicy.surface === "canvas";
+	const canPlace = canCompose && placedCompositionFormat(canvas.format ?? "");
+	const showComposeBar =
+		canCompose && focused && pageIndex === focusedPageIndex;
 	const canPersistState =
 		activePolicy.stateControls === "persist" && !structuredCollection;
 	const canUseStateControls =
@@ -486,6 +513,101 @@ export const PageCanvas = memo(function PageCanvas({
 	);
 
 	const dismissToolbar = useCallback(() => setToolbar(null), []);
+	const suppressClickRef = useRef(false);
+	const [placedBox, setPlacedBox] = useState<PlacedBox | null>(null);
+	const [deletingPlaced, setDeletingPlaced] = useState(false);
+	const selectedPlacedId = toolbar?.placed ? toolbar.id : null;
+
+	useLayoutEffect(() => {
+		setDeletingPlaced(false);
+		if (!selectedPlacedId || !contentRef.current) {
+			setPlacedBox(null);
+			return;
+		}
+		const element = contentRef.current.querySelector<HTMLElement>(
+			`[data-id="${CSS.escape(selectedPlacedId)}"]`,
+		);
+		setPlacedBox(element ? placedBoxOf(element) : null);
+	}, [selectedPlacedId, renderHtml]);
+
+	const runPlacedGesture = useCallback(
+		(
+			event: PointerEvent | React.PointerEvent,
+			element: HTMLElement,
+			next: (dx: number, dy: number) => PlacedBox,
+		) => {
+			const page = pageRef.current;
+			const id = element.dataset.id;
+			if (!page || !id) return;
+			const perPixel = millimetresPerPixel(
+				canvas.w,
+				page.getBoundingClientRect().width,
+			);
+			const startX = event.clientX;
+			const startY = event.clientY;
+			let moved = false;
+			let box: PlacedBox | null = null;
+			const onMove = (move: PointerEvent) => {
+				const travelX = move.clientX - startX;
+				const travelY = move.clientY - startY;
+				if (!moved && Math.hypot(travelX, travelY) < 3) return;
+				moved = true;
+				box = next(travelX * perPixel, travelY * perPixel);
+				applyPlacedBox(element, box);
+				if (id === selectedPlacedId) setPlacedBox(box);
+			};
+			const onUp = () => {
+				window.removeEventListener("pointermove", onMove);
+				window.removeEventListener("pointerup", onUp);
+				window.removeEventListener("pointercancel", onUp);
+				if (!moved || !box) return;
+				suppressClickRef.current = true;
+				sendPlacedElementBox(doc.name, pageIndex, id, box);
+			};
+			window.addEventListener("pointermove", onMove);
+			window.addEventListener("pointerup", onUp);
+			window.addEventListener("pointercancel", onUp);
+		},
+		[canvas.w, doc.name, pageIndex, selectedPlacedId],
+	);
+
+	useEffect(() => {
+		const page = pageRef.current;
+		if (!page || !focused || !canPlace) return;
+		const onPointerDown = (event: PointerEvent) =>
+			startPlacedMove(event, {
+				content: editingRef.current ? null : contentRef.current,
+				page: { w: canvas.w, h: canvas.h },
+				run: runPlacedGesture,
+			});
+		const onDragStart = (event: DragEvent) => {
+			if (
+				contentRef.current &&
+				placedElementAt(contentRef.current, event.target)
+			)
+				event.preventDefault();
+		};
+		page.addEventListener("pointerdown", onPointerDown);
+		page.addEventListener("dragstart", onDragStart);
+		return () => {
+			page.removeEventListener("pointerdown", onPointerDown);
+			page.removeEventListener("dragstart", onDragStart);
+		};
+	}, [canPlace, canvas.h, canvas.w, focused, runPlacedGesture]);
+
+	const startResize = (event: React.PointerEvent, handle: ResizeHandle) => {
+		if (event.button !== 0 || !selectedPlacedId || !contentRef.current) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const element = contentRef.current.querySelector<HTMLElement>(
+			`[data-id="${CSS.escape(selectedPlacedId)}"]`,
+		);
+		const box = element ? placedBoxOf(element) : null;
+		if (!element || !box) return;
+		runPlacedGesture(event, element, (dx, dy) =>
+			resizedBox(box, handle, dx, dy, { w: canvas.w, h: canvas.h }),
+		);
+	};
 
 	useEffect(() => {
 		if (!toolbar) return;
@@ -1252,6 +1374,11 @@ export const PageCanvas = memo(function PageCanvas({
 		const onClick = (e: MouseEvent) => {
 			if ((e.target as HTMLElement).closest(".element-toolbar")) return;
 			if (editingRef.current) return;
+			if (suppressClickRef.current) {
+				suppressClickRef.current = false;
+				e.stopPropagation();
+				return;
+			}
 			const target = (e.target as HTMLElement).closest(
 				"[data-id]",
 			) as HTMLElement | null;
@@ -1282,6 +1409,10 @@ export const PageCanvas = memo(function PageCanvas({
 				screenTop: rect.top,
 				screenRight: window.innerWidth - rect.right,
 				editable: canEditTemplate && isTextEditable(target),
+				placed:
+					canPlace &&
+					contentRef.current !== null &&
+					placedElementAt(contentRef.current, target) === target,
 			});
 		};
 
@@ -1295,6 +1426,7 @@ export const PageCanvas = memo(function PageCanvas({
 		focused,
 		toolbar?.id,
 		canEditTemplate,
+		canPlace,
 		canInteract,
 		doc.name,
 		pageIndex,
@@ -1403,6 +1535,29 @@ export const PageCanvas = memo(function PageCanvas({
 						}}
 					/>
 				)}
+				{canPlace && placedBox && (
+					<div
+						data-placed-selection={selectedPlacedId ?? ""}
+						aria-hidden="true"
+						className="placed-selection"
+						style={{
+							left: `${placedBox.left}mm`,
+							top: `${placedBox.top}mm`,
+							width: `${placedBox.width}mm`,
+							height: `${placedBox.height}mm`,
+						}}
+					>
+						{RESIZE_HANDLES.map((handle) => (
+							<div
+								key={handle}
+								data-resize-handle={handle}
+								title={t("hand_resize")}
+								className={`placed-handle placed-handle-${handle}`}
+								onPointerDown={(event) => startResize(event, handle)}
+							/>
+						))}
+					</div>
+				)}
 				{activePolicy.showDiagnostics && collectionRender.error && (
 					<div className="absolute top-2 left-2 right-2 z-[10000] rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] font-semibold text-danger shadow-sm">
 						{t("collection_preview_error")}: {collectionRender.error}
@@ -1455,6 +1610,31 @@ export const PageCanvas = memo(function PageCanvas({
 								)}
 							</>
 						)}
+						{toolbar.placed && !deletingPlaced && (
+							<button
+								type="button"
+								className="tb-btn tb-delete"
+								title={t("hand_delete_element")}
+								aria-label={t("hand_delete_element")}
+								onClick={(e) => {
+									e.stopPropagation();
+									setDeletingPlaced(true);
+								}}
+							>
+								<Trash2 size={12} />
+							</button>
+						)}
+						{toolbar.placed && deletingPlaced && (
+							<HoldToDelete
+								label={t("hand_delete_element")}
+								onConfirm={() => {
+									sendRemovePlacedElement(doc.name, pageIndex, toolbar.id);
+									setDeletingPlaced(false);
+									setToolbar(null);
+								}}
+								onCancel={() => setDeletingPlaced(false)}
+							/>
+						)}
 						<button
 							type="button"
 							className="tb-btn tb-comment"
@@ -1470,6 +1650,7 @@ export const PageCanvas = memo(function PageCanvas({
 					</div>,
 					document.body,
 				)}
+			{showComposeBar && <HandComposeBar doc={doc} pageIndex={pageIndex} />}
 			{stateEditor &&
 				stateView &&
 				createPortal(
@@ -1743,6 +1924,30 @@ function StateValueEditor({
 			</div>
 		</form>
 	);
+}
+
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Pointer adapter: resolves the placed element under the pointer with the
+// hand-editing geometry helpers and hands the move to the canvas gesture.
+/** Starts moving the placed element under a primary pointer press. */
+function startPlacedMove(
+	event: PointerEvent,
+	context: {
+		content: HTMLElement | null;
+		page: { w: number; h: number };
+		run: (
+			event: PointerEvent,
+			element: HTMLElement,
+			next: (dx: number, dy: number) => PlacedBox,
+		) => void;
+	},
+): void {
+	if (event.button !== 0 || !context.content) return;
+	const element = placedElementAt(context.content, event.target);
+	const box = element ? placedBoxOf(element) : null;
+	if (!element || !box) return;
+	event.preventDefault();
+	context.run(event, element, (dx, dy) => movedBox(box, dx, dy, context.page));
 }
 
 /** The pointer position on a page, in the page's own unscaled pixels. */

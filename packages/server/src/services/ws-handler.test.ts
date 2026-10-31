@@ -7,7 +7,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_SETTINGS, type Settings } from "@maket/shared";
+import {
+	BLANK_PAGE_HTML,
+	DEFAULT_SETTINGS,
+	type Settings,
+} from "@maket/shared";
 import { describe, expect, it, vi } from "vitest";
 import { onboardingDocumentName } from "../lib/onboarding-document.js";
 import { registerServerEvents } from "../server-events.js";
@@ -2210,3 +2214,432 @@ function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
 	if (!windows) throw new Error("engine built without item windows");
 	return windows;
 }
+
+describe("ws-handler — hand composition", () => {
+	const box = { left: 20, top: 30, width: 80, height: 40 };
+
+	function pageHtml(
+		documents: ReturnType<typeof fixture>["documents"],
+		name: string,
+		index = 0,
+	): string {
+		return documents.resolve(name)?.pages[index]?.html ?? "";
+	}
+
+	function placedIds(html: string): string[] {
+		return [...html.matchAll(/data-id="([^"]+)"/g)].map((match) => match[1]!);
+	}
+
+	it("creates a blank A4 portrait document in the given category and refuses a taken name", () => {
+		const { documents, bus, handler, dispose } = fixture();
+		const created = vi.fn();
+		const toast = vi.fn();
+		bus.on("document:created", created);
+		bus.on("toast", toast);
+
+		handler(
+			{ type: "document_create", name: "Affiche", category: "essais" },
+			STUB_WS,
+		);
+
+		const doc = documents.resolve("Affiche");
+		expect(doc?.category).toBe("essais");
+		expect(doc?.canvas).toMatchObject({
+			format: "A4",
+			orientation: "portrait",
+			w: 210,
+			h: 297,
+		});
+		expect(doc?.pages).toHaveLength(1);
+		expect(doc?.pages[0]?.html).toBe(BLANK_PAGE_HTML);
+		expect(created).toHaveBeenCalledWith({ docName: "Affiche" });
+
+		handler(
+			{ type: "document_create", name: "Affiche", category: "general" },
+			STUB_WS,
+		);
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({
+				key: "toast_document_name_taken",
+				params: { name: "Affiche" },
+			}),
+		);
+		expect(documents.resolve("Affiche")?.category).toBe("essais");
+		dispose();
+	});
+
+	it("appends a blank page and sets a fixed format, refusing AUTO as a target", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
+		store.saveDoc(makeDoc("hand"));
+		documents.loadAll();
+		const loaded = vi.fn();
+		const canvas = vi.fn();
+		bus.on("document:loaded", loaded);
+		bus.on("canvas:changed", canvas);
+
+		handler({ type: "page_add", docName: "hand" }, STUB_WS);
+		expect(documents.resolve("hand")?.pages.map((page) => page.name)).toEqual([
+			"Page 1",
+			"Page 2",
+		]);
+		expect(pageHtml(documents, "hand", 1)).toBe(BLANK_PAGE_HTML);
+		expect(loaded).toHaveBeenCalledWith({ docName: "hand" });
+
+		handler(
+			{
+				type: "canvas_format_set",
+				docName: "hand",
+				format: "A5",
+				orientation: "landscape",
+			},
+			STUB_WS,
+		);
+		expect(store.loadOne("hand")?.canvas).toMatchObject({
+			format: "A5",
+			orientation: "landscape",
+			w: 210,
+			h: 148,
+		});
+		expect(canvas).toHaveBeenCalledWith({ docName: "hand" });
+
+		for (const format of ["AUTO", "B9"]) {
+			handler(
+				{
+					type: "canvas_format_set",
+					docName: "hand",
+					format,
+					orientation: "portrait",
+				},
+				STUB_WS,
+			);
+		}
+		expect(store.loadOne("hand")?.canvas.format).toBe("A5");
+		dispose();
+	});
+
+	it("moves an AUTO document to a fixed format, after which elements can be placed", () => {
+		const { store, documents, handler, dispose } = fixture();
+		const auto = makeDoc("auto");
+		auto.canvas = {
+			format: "AUTO",
+			orientation: "portrait",
+			w: 180,
+			h: 1,
+			bg: "#fff",
+		};
+		store.saveDoc(auto);
+		documents.loadAll();
+
+		handler(
+			{
+				type: "element_add",
+				docName: "auto",
+				pageIndex: 0,
+				kind: "frame",
+				box,
+			},
+			STUB_WS,
+		);
+		expect(pageHtml(documents, "auto")).toBe("");
+
+		handler(
+			{
+				type: "canvas_format_set",
+				docName: "auto",
+				format: "A4",
+				orientation: "portrait",
+			},
+			STUB_WS,
+		);
+		expect(documents.resolve("auto")?.canvas).toMatchObject({
+			format: "A4",
+			w: 210,
+			h: 297,
+		});
+		handler(
+			{
+				type: "element_add",
+				docName: "auto",
+				pageIndex: 0,
+				kind: "frame",
+				box,
+			},
+			STUB_WS,
+		);
+		expect(placedIds(pageHtml(documents, "auto"))).toEqual([
+			"page",
+			expect.stringMatching(/^frame-/),
+		]);
+		dispose();
+	});
+
+	it("places text, image and frame as absolute mm HTML, moves, resizes, removes and edits them", () => {
+		const { store, documents, bus, handler, assetsDir, dispose } = fixture();
+		writeFileSync(join(assetsDir, "photo.png"), Buffer.from([0x89, 0x50]));
+		store.saveDoc(makeDoc("hand"));
+		documents.loadAll();
+		const saved = vi.fn();
+		bus.on("document:saved", saved);
+
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "frame",
+				box,
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "image",
+				asset: "photo.png",
+				box: { left: 110, top: 30, width: 60, height: 40 },
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "text",
+				text: "Bonjour",
+				box: { left: 25, top: 35, width: 70, height: 15 },
+			},
+			STUB_WS,
+		);
+		let html = store.loadOne("hand")?.pages[0]?.html ?? "";
+		expect(
+			html.startsWith('<div data-id="page" style="position:relative;'),
+		).toBe(true);
+		const [rootId, frameId, imageId, textId] = placedIds(html);
+		expect(rootId).toBe("page");
+		expect(frameId).toMatch(/^frame-[0-9a-f]{8}$/);
+		expect(imageId).toMatch(/^image-[0-9a-f]{8}$/);
+		expect(textId).toMatch(/^text-[0-9a-f]{8}$/);
+		expect(html).toContain(
+			"position:absolute;box-sizing:border-box;margin:0;padding:0;border:0.5mm solid #334155;left:20mm;top:30mm;width:80mm;height:40mm",
+		);
+		expect(html).toContain('src="/assets/photo.png"');
+		expect(html.match(/data-maket-layout="ignore"/g)).toHaveLength(2);
+		expect(html.match(/data-noedit=""/g)).toHaveLength(2);
+		expect(html).toContain(">Bonjour</div>");
+		expect(saved).toHaveBeenCalledTimes(3);
+
+		handler(
+			{
+				type: "element_box_set",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: textId!,
+				box: { left: 30.04, top: 40, width: 90, height: 20 },
+			},
+			STUB_WS,
+		);
+		html = pageHtml(documents, "hand");
+		expect(html).toContain(
+			`data-id="${textId}" style="position:absolute;box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3;left:30mm;top:40mm;width:90mm;height:20mm"`,
+		);
+
+		handler(
+			{
+				type: "text_edit",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: textId!,
+				html: "Salut",
+			},
+			STUB_WS,
+		);
+		expect(pageHtml(documents, "hand")).toContain(">Salut</div>");
+
+		handler(
+			{
+				type: "text_edit",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: frameId!,
+				html: "Texte dans le cadre",
+			},
+			STUB_WS,
+		);
+		expect(pageHtml(documents, "hand")).not.toContain("Texte dans le cadre");
+
+		handler(
+			{
+				type: "element_remove",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: imageId!,
+			},
+			STUB_WS,
+		);
+		expect(placedIds(store.loadOne("hand")?.pages[0]?.html ?? "")).toEqual([
+			"page",
+			frameId,
+			textId,
+		]);
+		dispose();
+	});
+
+	it("refuses a missing image, a box outside the page, and a flow element", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
+		store.saveDoc(
+			createDocument({
+				name: "hand",
+				canvas: {
+					format: "A4",
+					orientation: "portrait",
+					w: 210,
+					h: 297,
+					bg: "#fff",
+				},
+				pages: [{ name: "P1", elements: [], html: '<p data-id="flow">x</p>' }],
+			}),
+		);
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "image",
+				asset: "missing.png",
+				box,
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "element_add",
+				docName: "hand",
+				pageIndex: 0,
+				kind: "frame",
+				box: { left: 200, top: 0, width: 40, height: 40 },
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "element_box_set",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: "flow",
+				box,
+			},
+			STUB_WS,
+		);
+		handler(
+			{
+				type: "element_remove",
+				docName: "hand",
+				pageIndex: 0,
+				elementId: "flow",
+			},
+			STUB_WS,
+		);
+
+		expect(pageHtml(documents, "hand")).toBe('<p data-id="flow">x</p>');
+		expect(toast).toHaveBeenCalledTimes(4);
+		expect(toast).toHaveBeenCalledWith(
+			expect.objectContaining({ key: "toast_page_edit_refused" }),
+		);
+		dispose();
+	});
+
+	it("refuses every edit on a locked document and element edits on a template-controlled page", () => {
+		const { store, documents, bus, handler, dispose } = fixture();
+		const placed =
+			'<div data-id="frame-1" data-maket-layout="ignore" style="position:absolute;left:10mm;top:10mm;width:20mm;height:20mm"></div>';
+		const locked = createDocument({
+			name: "locked",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			meta: { locked: true },
+			pages: [{ name: "P1", elements: [], html: placed }],
+		});
+		const controlled = createDocument({
+			name: "controlled",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [
+				{
+					name: "P1",
+					elements: [],
+					html: placed,
+					provenance: {
+						kind: "template",
+						workspaceId: "workspace-1",
+						templateDocumentId: "template-1",
+						templatePageId: "template-page-1",
+					},
+				},
+			],
+		});
+		store.saveDocs([locked, controlled]);
+		documents.loadAll();
+		const toast = vi.fn();
+		bus.on("toast", toast);
+
+		for (const docName of ["locked", "controlled"]) {
+			handler(
+				{ type: "element_add", docName, pageIndex: 0, kind: "frame", box },
+				STUB_WS,
+			);
+			handler(
+				{
+					type: "element_box_set",
+					docName,
+					pageIndex: 0,
+					elementId: "frame-1",
+					box,
+				},
+				STUB_WS,
+			);
+			handler(
+				{ type: "element_remove", docName, pageIndex: 0, elementId: "frame-1" },
+				STUB_WS,
+			);
+			expect(pageHtml(documents, docName)).toBe(placed);
+		}
+		handler({ type: "page_add", docName: "locked" }, STUB_WS);
+		handler(
+			{
+				type: "canvas_format_set",
+				docName: "locked",
+				format: "A5",
+				orientation: "portrait",
+			},
+			STUB_WS,
+		);
+		expect(documents.resolve("locked")?.pages).toHaveLength(1);
+		expect(documents.resolve("locked")?.canvas.format).toBe("A4");
+
+		const keys = toast.mock.calls.map(([event]) => event.key);
+		expect(
+			keys.filter((key) => key === "toast_document_locked_edit"),
+		).toHaveLength(5);
+		expect(
+			keys.filter((key) => key === "toast_page_template_controlled"),
+		).toHaveLength(3);
+		dispose();
+	});
+});

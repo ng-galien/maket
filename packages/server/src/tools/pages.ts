@@ -8,7 +8,6 @@
  * re-fetches the doc tree after structural changes).
  */
 
-import crypto from "node:crypto";
 import {
 	hasJsonFormSlot,
 	type JsonFormsTemplate,
@@ -23,6 +22,7 @@ import { templatedPageLinkError } from "../lib/page-links.js";
 import { stripActiveHtml } from "../lib/strip-active-html.js";
 import type { Bus } from "../services/bus.js";
 import type { Documents } from "../services/documents.js";
+import type { PageComposition } from "../services/page-composition.js";
 import type { Document, Page } from "../types.js";
 import { json, lockGuard, templatePageGuard, text } from "./_helpers.js";
 import { normalizeImageSrc } from "./html.js";
@@ -30,6 +30,7 @@ import { normalizeImageSrc } from "./html.js";
 export interface PagesDeps {
 	documents: Documents;
 	bus: Bus;
+	pageComposition: PageComposition;
 }
 
 const ActionSchema = z.enum([
@@ -120,7 +121,7 @@ async function handleMaketPageTool(
 	}
 	switch (args.action) {
 		case "add":
-			return runAdd(args, d, documents, bus);
+			return runAdd(args, d, deps.pageComposition);
 		case "remove":
 			return runRemove(args, d, documents, bus);
 		case "rename":
@@ -152,7 +153,7 @@ type Args = z.infer<typeof MaketPageSchema>;
 // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
 // Page creation is MCP adapter orchestration across normalization, guarded
 // persistence, and the post-commit bus notification.
-function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
+function runAdd(args: Args, d: Document, pageComposition: PageComposition) {
 	if (!args.name) return text("name is required for action=add", true);
 	if (args.html == null && args.json_forms == null) {
 		return text("action=add requires html or json_forms", true);
@@ -170,33 +171,13 @@ function runAdd(args: Args, d: Document, documents: Documents, bus: Bus) {
 			: stripActiveHtml(normalizeImageSrc(args.html));
 	const pageLinkError = html ? templatedPageLinkError(html) : null;
 	if (pageLinkError) return text(pageLinkError, true);
-	const page: Page = {
-		id: crypto.randomUUID(),
+	const added = pageComposition.appendPage(d.name, {
 		name: args.name,
-		elements: [],
 		html,
 		jsonForms: args.json_forms as JsonFormsTemplate | undefined,
-		provenance: d.meta.structuredWorkspace
-			? {
-					kind: "instance",
-					workspaceId: d.meta.structuredWorkspace.workspaceId,
-				}
-			: undefined,
-	};
-	try {
-		if (d.dataModel === "state") validateDocumentStatePageTemplate(page);
-	} catch (error) {
-		return text(error instanceof Error ? error.message : String(error), true);
-	}
-	d.pages.push(page);
-	d.activePage = d.pages.length - 1;
-	try {
-		documents.persist(d.name);
-	} catch (error) {
-		return text(error instanceof Error ? error.message : String(error), true);
-	}
+	});
+	if (!added.ok) return text(added.refusal.message, true);
 	const count = args.html ? (args.html.match(/data-id=/g) || []).length : 0;
-	bus.emit("document:loaded", { docName: d.name });
 	return text(
 		`Added page "${args.name}" (${d.pages.length} pages total, page ${d.pages.length}) — ${count} elements`,
 	);
@@ -388,7 +369,7 @@ function runList(d: Document) {
 export const pagesPack: ToolPack = {
 	id: "pages",
 	name: "Pages",
-	requires: ["documents", "bus"],
+	requires: ["documents", "bus", "pageComposition"],
 	declaresTools: ["maket_page"],
 	register(container) {
 		container.register({

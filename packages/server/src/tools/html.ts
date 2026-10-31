@@ -114,6 +114,51 @@ function containsLayoutControlAttribute(html: string): boolean {
 	return document.body.querySelector(`[${LAYOUT_CONTROL_ATTRIBUTE}]`) !== null;
 }
 
+/** The layout exemption survives `set` only where the stored page already
+ * grants it: same `data-id`, value `ignore`, still a non-interactive leaf.
+ * Any other occurrence is refused, so `set` cannot grant a new exemption. */
+function layoutControlSetError(
+	html: string,
+	storedHtml: string | undefined,
+): string | null {
+	if (!containsLayoutControlAttribute(html)) return null;
+	const granted = new Set<string>();
+	if (storedHtml) {
+		const { document: stored } = parseHTML(
+			`<html><body>${storedHtml}</body></html>`,
+		);
+		for (const el of stored.body.querySelectorAll(
+			`[${LAYOUT_CONTROL_ATTRIBUTE}]`,
+		) as Iterable<DomEl>) {
+			const id = el.getAttribute("data-id");
+			if (
+				id &&
+				el.getAttribute(LAYOUT_CONTROL_ATTRIBUTE) === LAYOUT_IGNORE_VALUE
+			)
+				granted.add(id);
+		}
+	}
+	const { document: next } = parseHTML(`<html><body>${html}</body></html>`);
+	for (const el of next.body.querySelectorAll(
+		`[${LAYOUT_CONTROL_ATTRIBUTE}]`,
+	) as Iterable<DomEl>) {
+		const id = el.getAttribute("data-id");
+		const kept =
+			id &&
+			granted.has(id) &&
+			el.getAttribute(LAYOUT_CONTROL_ATTRIBUTE) === LAYOUT_IGNORE_VALUE;
+		if (!kept)
+			return `${LAYOUT_CONTROL_ATTRIBUTE} is allowed in action=set only on a data-id that already carries ${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" in the stored page. ${LAYOUT_IGNORE_PATCH_GUIDANCE}`;
+		if (
+			el.children?.length > 0 ||
+			el.textContent?.trim() ||
+			isInteractiveLayoutTarget(el)
+		)
+			return `${LAYOUT_CONTROL_ATTRIBUTE}="${LAYOUT_IGNORE_VALUE}" is allowed only on a non-interactive leaf decoration with no child elements or text content.`;
+	}
+	return null;
+}
+
 function hasLayoutControlAttr(op: PatchOp): boolean {
 	return Object.keys(op.attr ?? {}).some(
 		(name) => name.toLowerCase() === LAYOUT_CONTROL_ATTRIBUTE,
@@ -463,7 +508,7 @@ const MaketHtmlSchema = z.object({
 		.array(PatchOpSchema)
 		.optional()
 		.describe(
-			'For patch: list of surgical ops by data-id. Each op has `id` plus one of: style (object), content (string), attr (object), insert (html) + optional position, replace (outerHTML), remove (true), clone (newId), moveTo (targetId) + optional position. To exclude one intentional non-interactive leaf decoration with no child elements or text from layout validation, patch that existing element with attr: {"data-maket-layout":"ignore"}; controls, links, data-maket-bind and focusable/ARIA elements are ineligible. This override is rejected in set/insert/replace/content HTML, and its enabling op must be the only op in the patch request.',
+			'For patch: list of surgical ops by data-id. Each op has `id` plus one of: style (object), content (string), attr (object), insert (html) + optional position, replace (outerHTML), remove (true), clone (newId), moveTo (targetId) + optional position. To exclude one intentional non-interactive leaf decoration with no child elements or text from layout validation, patch that existing element with attr: {"data-maket-layout":"ignore"}; controls, links, data-maket-bind and focusable/ARIA elements are ineligible. This override is rejected in insert/replace/content HTML, and in set HTML except on a data-id that already carries it in the stored page (so a get → set round trip keeps it), and its enabling op must be the only op in the patch request.',
 		),
 	format: z
 		.enum(["html", "text"])
@@ -756,12 +801,8 @@ async function runSet(context: HtmlSetContext): Promise<CallToolResult> {
 		rendering,
 	} = context;
 	if (args.html == null) return text("html is required for action=set", true);
-	if (containsLayoutControlAttribute(args.html)) {
-		return text(
-			`${LAYOUT_CONTROL_ATTRIBUTE} is not allowed in action=set. ${LAYOUT_IGNORE_PATCH_GUIDANCE}`,
-			true,
-		);
-	}
+	const layoutControlError = layoutControlSetError(args.html, page.html);
+	if (layoutControlError) return text(layoutControlError, true);
 
 	if (doc.meta?.charte) {
 		const charte = store.loadCharte(doc.meta.charte);

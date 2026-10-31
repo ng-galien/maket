@@ -1,9 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
 import { createBus } from "../services/bus.js";
 import { createDocuments } from "../services/documents.js";
+import { createPageComposition } from "../services/page-composition.js";
 import { createSQLiteStore } from "../services/store.js";
 import { createDocument } from "../types.js";
 import { canvasPack, createMaketCanvasTool } from "./canvas.js";
+
+function compositionFor(
+	store: ReturnType<typeof createSQLiteStore>,
+	bus: ReturnType<typeof createBus>,
+	documents: ReturnType<typeof createDocuments>,
+) {
+	return createPageComposition({
+		assets: { exists: () => true },
+		bus,
+		documentRenderer: { render: (doc) => doc },
+		documents,
+		store,
+	});
+}
 
 function fixture() {
 	const store = createSQLiteStore(":memory:");
@@ -31,7 +46,7 @@ describe("canvasPack — registration", () => {
 	it("declares id and deps", () => {
 		expect(canvasPack.id).toBe("canvas");
 		expect(canvasPack.requires).toEqual(
-			expect.arrayContaining(["documents", "bus"]),
+			expect.arrayContaining(["documents", "pageComposition"]),
 		);
 	});
 });
@@ -45,7 +60,10 @@ describe("maket_canvas (setup)", () => {
 		const listener = vi.fn();
 		bus.on("canvas:changed", listener);
 
-		const tool = createMaketCanvasTool({ documents, bus });
+		const tool = createMaketCanvasTool({
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler(
 			{ doc: "d", format: "A3", orientation: "landscape" },
 			NO_EXTRA,
@@ -90,7 +108,10 @@ describe("maket_canvas (setup)", () => {
 
 		const listener = vi.fn();
 		bus.on("canvas:changed", listener);
-		const tool = createMaketCanvasTool({ documents, bus });
+		const tool = createMaketCanvasTool({
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 
 		await expect(
 			tool.handler(
@@ -116,7 +137,10 @@ describe("maket_canvas (setup)", () => {
 
 	it("errors when document missing", async () => {
 		const { store, bus, documents } = fixture();
-		const tool = createMaketCanvasTool({ documents, bus });
+		const tool = createMaketCanvasTool({
+			documents,
+			pageComposition: compositionFor(store, bus, documents),
+		});
 		const res = await tool.handler({ doc: "ghost", format: "A4" }, NO_EXTRA);
 		expect(res.isError).toBe(true);
 		store.close();
