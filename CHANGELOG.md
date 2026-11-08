@@ -13,6 +13,18 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-08
+
+### Fixed
+
+- MCP App page navigation preserves image backgrounds and HTML attributes instead of crashing when changing pages. Quoted asset filenames can contain parentheses; ordinary HTML attributes and SVG namespaces remain intact.
+
+### Internal
+
+- Property-based tests cover HTML/CSS image references and successive DOM updates, with reproducible reduced counterexamples. A browser regression exercises next/previous page, page selection and layout switching through the MCP App host.
+- The document-library acceptance test waits for the new category suggestion before committing its search filter, including when the server response arrives later.
+- Published stable update feeds can be restored through the manual Pages workflow without rebuilding installers or moving release tags.
+
 ## [2.2.1] - 2026-11-08
 
 ### Added
@@ -703,7 +715,9 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/ng-galien/maket/compare/v2.2.1...v2.3.0
+[2.2.1]: https://github.com/ng-galien/maket/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/ng-galien/maket/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/ng-galien/maket/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ng-galien/maket/compare/v1.7.4...v2.0.0

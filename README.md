@@ -420,6 +420,8 @@ Match the CI prerequisites: Node 26, dependencies installed with `npm install --
 
 These are the same test suites and settings, not identical operating systems: CI runs on Ubuntu. Desktop packaging uses Node 22 from `.desktop-node-version` and native macOS, Windows and Linux runners. The [release workflow](.github/workflows/publish.yml) also runs `npm run test:package` and builds the distributable installers; `verify:release` does not claim to validate other operating systems or a real installed-app upgrade. Coverage badges and uploaded reports are CI publication steps, not additional tests.
 
+Client property-based tests use [fast-check](https://fast-check.dev/docs/core-blocks/runners/) inside Vitest, so `quality` and CI run them too. They generate HTML/CSS delimiter and DOM attribute variations, then check structure, resource URLs and namespace preservation. Failures print a reduced counterexample, seed and shrink path. Replay one failing property with `FAST_CHECK_SEED=<seed> FAST_CHECK_PATH='<path>' npm run test -- <test-file> -t '<test-name>'`. Keep a browser regression for the reported interaction alongside these generated cases.
+
 More scripts: `dev:watch` (rebuilds client into `public/`), `dev:server`, `dev:client`, `build:client`, `lint:fix`, `test:coverage`. See [`package.json`](package.json) for the full list.
 
 ## Contributing

@@ -1,5 +1,16 @@
 import "@testing-library/jest-dom/vitest";
+import fc from "fast-check";
 import { afterEach, beforeEach, vi } from "vitest";
+
+// A failing property prints both values; select that test with Vitest -t
+// when replaying its shrink path.
+const propertySeed = process.env.FAST_CHECK_SEED;
+if (propertySeed && !Number.isInteger(Number(propertySeed)))
+	throw new Error("FAST_CHECK_SEED must be an integer");
+fc.configureGlobal({
+	...(propertySeed ? { seed: Number(propertySeed) } : {}),
+	...(process.env.FAST_CHECK_PATH ? { path: process.env.FAST_CHECK_PATH } : {}),
+});
 
 // Node 22+ ships an experimental `localStorage` global that vitest 4 surfaces
 // via --localstorage-file (no path → getItem is undefined). It shadows jsdom's

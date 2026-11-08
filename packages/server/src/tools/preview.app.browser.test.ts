@@ -351,6 +351,81 @@ async function clickIn(tab: Page, frame: Frame, selector: string) {
 }
 
 describe("the Maket reader in a minimal MCP Apps host", () => {
+	it("keeps navigation and background photos intact when the next page loads its image", async () => {
+		const host = await maketHost();
+		const doc = createDocument({
+			name: "Background photo journal",
+			canvas: A4,
+			pages: Array.from({ length: 14 }, (_, index) => ({
+				name: `Page ${index + 1}`,
+				elements: [],
+				html: `<h1 data-id="page-${index + 1}">Page ${index + 1}</h1>${index === 1 ? '<figure data-id="photo" aria-label="Group photo" style="height:160px;background-image:url(\'/assets/img-0.png\');background-size:cover"></figure>' : ""}`,
+			})),
+		});
+		host.documents.all().set(doc.name, doc);
+		host.documents.persist(doc.name);
+		const { tab, view } = await openReader(host, {
+			action: "show",
+			doc: doc.name,
+			layout: "page",
+		});
+		const errors: string[] = [];
+		tab.on("pageerror", (error) => errors.push(String(error)));
+		const visible = (number: number) =>
+			until(
+				() =>
+					view.evaluate(
+						(n) => Boolean(document.querySelector(`[data-id="page-${n}"]`)),
+						number,
+					),
+				Boolean,
+				`page ${number}`,
+			);
+		try {
+			await visible(1);
+			await clickIn(tab, view, '[aria-label^="Next page"]');
+			const photo = await until(
+				async () => ({
+					errors,
+					background: await view.evaluate(() => {
+						const figure = document.querySelector('[data-id="photo"]');
+						return figure ? getComputedStyle(figure).backgroundImage : "";
+					}),
+				}),
+				(result) =>
+					result.errors.length > 0 || result.background.includes("data:image/"),
+				"background image on page 2",
+			);
+			expect(photo.errors).toEqual([]);
+			expect(photo.background).toContain("data:image/");
+			await visible(2);
+			expect(
+				await view.$eval('[data-id="photo"]', (node) =>
+					node.getAttributeNames().sort(),
+				),
+			).toEqual(["aria-label", "data-id", "style"]);
+			await clickIn(tab, view, '[aria-label^="Previous page"]');
+			await visible(1);
+			await view.select("[data-maket-reader-contents]", "14");
+			await visible(14);
+			await clickIn(tab, view, '[data-maket-reader-layout="page"]');
+			await until(
+				() => view.$('[data-maket-reader-layout="scroll"]'),
+				Boolean,
+				"scroll layout",
+			);
+			await view.select("[data-maket-reader-contents]", "2");
+			await visible(2);
+			await clickIn(tab, view, '[data-maket-reader-layout="scroll"]');
+			await visible(2);
+			expect(errors).toEqual([]);
+		} finally {
+			await tab.close();
+			await host.client.close();
+			host.store.close();
+		}
+	}, 60_000);
+
 	it("pages through a large A4 document on demand: page 3 shows its twenty images, every answer under 100 000 characters, a Mermaid diagram renders, and the five links run no script", async () => {
 		const host = await maketHost();
 		const atlas = createDocument({

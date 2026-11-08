@@ -443,6 +443,9 @@ test.describe("Document library", () => {
 		await category.press("Enter");
 
 		await search.fill("@clients/launch");
+		await expect(
+			page.getByRole("option", { name: /@clients\/launch/ }),
+		).toBeVisible();
 		await search.press("Enter");
 		await expect(docRow(panel, "Acme launch proposal")).toBeVisible();
 		await expect(docRow(panel, "Acme invoice")).toBeVisible();

@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { morphHtml } from "./morph-html";
 
@@ -8,6 +9,70 @@ function container(html: string): HTMLDivElement {
 }
 
 describe("morphHtml", () => {
+	it("preserves ordinary attributes, including colon names, over successive updates", () => {
+		fc.assert(
+			fc.property(
+				fc.array(
+					fc.dictionary(
+						fc.constantFrom("title", "lang", "data:label", "xml:lang", "xmlns"),
+						fc.string({ maxLength: 24 }),
+					),
+					{ minLength: 1, maxLength: 6 },
+				),
+				(updates) => {
+					const root = container('<p data-id="stable">Text</p>');
+					const element = root.firstElementChild;
+					for (const attributes of updates) {
+						const next = document.createElement("p");
+						next.dataset.id = "stable";
+						next.textContent = "Text";
+						for (const [name, value] of Object.entries(attributes))
+							next.setAttribute(name, value);
+						// Parsing the target independently is the DOM contract, not an
+						// expectation about the morph implementation.
+						const target = container(next.outerHTML);
+						morphHtml(root, next.outerHTML);
+						expect(root.firstElementChild).toBe(element);
+						expect(root.isEqualNode(target)).toBe(true);
+					}
+				},
+			),
+			{ numRuns: 200 },
+		);
+	});
+
+	it("retains SVG attributes in their real namespaces across updates", () => {
+		fc.assert(
+			fc.property(
+				fc.array(fc.uuid(), { minLength: 1, maxLength: 5 }),
+				(ids) => {
+					const root = container('<svg><use data-id="icon"/></svg>');
+					const icon = root.querySelector("use");
+					for (const id of ids) {
+						morphHtml(
+							root,
+							`<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use data-id="icon" xlink:href="#${id}"/></svg>`,
+						);
+						expect(root.querySelector("use")).toBe(icon);
+						expect(
+							icon?.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+						).toBe(`#${id}`);
+						expect(
+							root
+								.querySelector("svg")
+								?.getAttributeNS("http://www.w3.org/2000/xmlns/", "xlink"),
+						).toBe("http://www.w3.org/1999/xlink");
+					}
+					morphHtml(root, '<svg><use data-id="icon"/></svg>');
+					expect(
+						icon?.hasAttributeNS("http://www.w3.org/1999/xlink", "href"),
+					).toBe(false);
+				},
+			),
+			{ numRuns: 100 },
+		);
+	});
+
 	it("reorders keyed elements without recreating them and drops removed ones", () => {
 		const root = container(
 			'<ul><li data-id="a">A</li><li data-id="b">B</li><li data-id="c">C</li></ul>',

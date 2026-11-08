@@ -62,11 +62,15 @@ function syncAttributes(element: Element, target: Element): void {
 			element.getAttributeNS(attribute.namespaceURI, attribute.localName) !==
 			attribute.value
 		) {
-			element.setAttributeNS(
-				attribute.namespaceURI,
-				attribute.name,
-				attribute.value,
-			);
+			if (attribute.namespaceURI) {
+				element.setAttributeNS(
+					attribute.namespaceURI,
+					attribute.name,
+					attribute.value,
+				);
+			} else {
+				element.setAttribute(attribute.name, attribute.value);
+			}
 		}
 	}
 }

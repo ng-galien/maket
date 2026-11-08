@@ -224,10 +224,11 @@ export function rewriteAssetRefs(
 			},
 		)
 		.replace(
-			/url\(\s*(["']?)\/assets\/(?:(?:thumb|preview|print)\/)?([^"')]+)\1\s*\)/gi,
-			(match, _quote, file) => {
-				const url = resolve(file);
-				return url ? `url("${url}")` : match;
+			/url\(\s*(?:(["'])\/assets\/(?:(?:thumb|preview|print)\/)?(.*?)\1|\/assets\/(?:(?:thumb|preview|print)\/)?([^\s)"']+))\s*\)/gi,
+			(match, delimiter, quotedFile, bareFile) => {
+				const url = resolve(quotedFile ?? bareFile);
+				const quote = delimiter ?? "";
+				return url ? `url(${quote}${url}${quote})` : match;
 			},
 		);
 }
