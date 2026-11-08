@@ -31,6 +31,7 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 - Pinned libraries remain open when selecting a document, including narrow split layouts.
 - Plain HTML text accepts dynamic page fields. Placed elements retain the page origin and image filenames with special characters resolve correctly.
 - Mobile reading resumes after reconnection or relaunch.
+- Web installation resources load correctly when Maket's public directory is inside a hidden directory.
 
 ### Data
 

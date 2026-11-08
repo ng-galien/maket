@@ -82,10 +82,11 @@ for (const width of [344, 360, 768, 1440]) {
 		).toBeVisible();
 		await nav.getByRole("button", { name: "Settings", exact: true }).click();
 		await expect(page.locator("[data-settings-page]")).toBeVisible();
-		await page
-			.locator("[data-settings-page]")
-			.getByRole("button", { name: "Close settings", exact: true })
-			.click();
+		await nav.getByRole("button", { name: "Documents", exact: true }).click();
+		await expect(page.locator("[data-settings-page]")).toHaveCount(0);
+		await expect(
+			explorer.getByRole("heading", { name: "Documents", exact: true }),
+		).toBeVisible();
 		expect(
 			await page.evaluate(() => document.documentElement.scrollWidth),
 		).toBeLessThanOrEqual(width);

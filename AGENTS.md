@@ -14,7 +14,8 @@ Visual design tool for Codex: compose HTML/CSS documents with live preview, mana
 ```bash
 npm run dev       # server --watch + Vite HMR; normal development path
 npm run dev:watch # server --watch + Vite build --watch into public/
-npm run quality   # lint + smell review + typecheck + tests + version alignment
+npm run quality   # lint + smell review + typecheck + Vitest coverage + versions (no Playwright)
+npm run verify:release # full CI quality/build and browser coverage commands, with CI=1
 npm run lint:fix  # Biome autofix
 ```
 
@@ -29,6 +30,7 @@ Node `>=22`. The server must already be running before Codex connects; the human
 - Automated browser tests use isolated runtimes: `3399` and `.e2e-maket` in `playwright.config.ts`, or a per-test random port and temporary directory through `e2e/isolated-test.ts`. Never point these suites at development or desktop data.
 
 - `npm run quality` is the required local gate before review and again after addressing findings.
+- Before delivery, run `npm run verify:release`: it runs `verify:quality` (the CI quality job command) and the complete `test:e2e:coverage` (the CI browser job command), with CI settings. Targeted Playwright runs during iteration do not satisfy this gate. See README, “Local checks and CI”, for prerequisites and the separate native packaging checks. Report which suites ran and any retries; never describe Vitest alone as all tests.
 - The pre-commit hook runs staged Biome fixes, typecheck, and tests in parallel. It is a commit guard, not a substitute for `quality`.
 - Tests are co-located (`foo.ts` + `foo.test.ts`). Database tests use `createSQLiteStore(":memory:")`; never use the filesystem.
 - Coverage configuration lives in `packages/server/vitest.config.ts` and `packages/client/vitest.config.ts`.

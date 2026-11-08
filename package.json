@@ -49,6 +49,8 @@
     "test:e2e:coverage": "node scripts/run-e2e-coverage.mjs",
     "e2e:server": "node scripts/dev.mjs e2e:server",
     "quality": "npm run lint && npm run smell:review && npm run typecheck && npm run test:coverage && npm run version:check",
+    "verify:quality": "npm run build:mcp-view && npm run quality && npm run build:client && npm run build:pages",
+    "verify:release": "node scripts/verify-release.mjs",
     "version:check": "node scripts/check-versions.mjs",
     "version:bump": "node scripts/bump-version.mjs",
     "prepare": "lefthook install"

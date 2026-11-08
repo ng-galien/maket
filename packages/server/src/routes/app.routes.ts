@@ -38,7 +38,7 @@ export function createAppRouter({ config }: AppRouterDeps): Router {
 	for (const filename of ["manifest.webmanifest", "service-worker.js"]) {
 		router.get(`/${filename}`, (_req, res) => {
 			res.setHeader("Cache-Control", "no-cache");
-			res.sendFile(join(config.PUBLIC_DIR, filename));
+			res.sendFile(filename, { root: config.PUBLIC_DIR });
 		});
 	}
 

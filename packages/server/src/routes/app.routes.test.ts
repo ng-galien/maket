@@ -14,7 +14,7 @@ describe("app routes", () => {
 	let config: Config;
 
 	beforeEach(async () => {
-		publicDir = mkdtempSync(join(tmpdir(), "maket-app-route-"));
+		publicDir = mkdtempSync(join(tmpdir(), ".maket-app-route-"));
 		writeFileSync(
 			join(publicDir, "index.html"),
 			"<html><head><title>{{TITLE}}</title></head><body>{{SUBTITLE}}</body></html>",
@@ -71,7 +71,7 @@ describe("app routes", () => {
 	});
 
 	it.each(["manifest.webmanifest", "service-worker.js"])(
-		"serves %s without a stale application identity cache",
+		"serves %s from a hidden install directory without a stale application identity cache",
 		async (filename) => {
 			const res = await fetch(`${baseUrl}/${filename}`);
 			expect(res.status).toBe(200);

@@ -397,11 +397,28 @@ See [`CLAUDE.md`](CLAUDE.md) for the full architectural guide.
 
 ```bash
 npm run dev         # Server + Vite HMR (most common)
-npm run quality     # Lint + typecheck + tests (must pass before commit)
-npm run test        # vitest
+npm run quality     # Lint + architecture + typecheck + Vitest coverage + versions
+npm run test        # Vitest only
+npm run verify:release # Both CI test jobs and their builds, including all browser tests
 ```
 
 Pre-commit: `lefthook` runs `biome`, `tsc -b`, and `vitest` — all three must pass.
+
+### Local checks and CI
+
+`quality` and the commit hook do not run Playwright. Targeted browser tests are useful during iteration, but do not replace the full delivery check:
+
+| Command | Scope | CI job |
+| --- | --- | --- |
+| `npm run verify:quality` | MCP reader build, `quality`, client build, Pages build | Quality & Coverage |
+| `npm run test:e2e:coverage` | All Chromium workflows, PDF checks, client and server coverage reports | End-to-end (Chromium) |
+| `npm run verify:release` | Both commands above, with `CI=1` | Both jobs, sequentially locally |
+
+Before delivery, run `npm run verify:release` from the repository root. It stops on failure, rejects focused tests, starts isolated test servers instead of reusing one, and uses the CI retry/report settings. Review retries in the Playwright report; a successful retry is not proof that a failure was harmless. Tests use `.e2e-maket` or temporary directories, never development or installed-app data.
+
+Match the CI prerequisites: Node 26, dependencies installed with `npm install --no-audit --loglevel=error`, Code Moniker 0.8.0 on `PATH` (or `CODE_MONIKER_BIN`), the Chromium revision installed by `npx playwright install chromium`, and Poppler (`pdfinfo` and `pdftoppm`; `brew install poppler` on macOS, `poppler-utils` on Ubuntu). Linux also needs Playwright system dependencies (`npx playwright install --with-deps chromium`). The authoritative job setup is [ci.yml](.github/workflows/ci.yml).
+
+These are the same test suites and settings, not identical operating systems: CI runs on Ubuntu. Desktop packaging uses Node 22 from `.desktop-node-version` and native macOS, Windows and Linux runners. The [release workflow](.github/workflows/publish.yml) also runs `npm run test:package` and builds the distributable installers; `verify:release` does not claim to validate other operating systems or a real installed-app upgrade. Coverage badges and uploaded reports are CI publication steps, not additional tests.
 
 More scripts: `dev:watch` (rebuilds client into `public/`), `dev:server`, `dev:client`, `build:client`, `lint:fix`, `test:coverage`. See [`package.json`](package.json) for the full list.
 
@@ -412,7 +429,7 @@ Contributions are welcome. To get started:
 1. Fork the repo and create a feature branch.
 2. Run `npm install && npm run dev` to set up your environment.
 3. Make your changes; keep them scoped (a bug fix doesn't need surrounding cleanup).
-4. Run `npm run quality` — it must pass.
+4. Run `npm run verify:release` — both CI test suites must pass.
 5. Open a PR with a clear description of the change and motivation.
 
 Found a bug, have an idea, or want to discuss something before building it? Open an [issue](https://github.com/ng-galien/maket/issues) or start a [discussion](https://github.com/ng-galien/maket/discussions).
