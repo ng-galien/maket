@@ -20,6 +20,8 @@ A release tag passes version, ancestry and changelog checks before building all 
 
 The feed deployment verifies macOS archive signatures again, writes architecture-specific Sparkle appcasts and Linux SHA-512 download metadata, and preserves newer releases already present in either channel. Routine website deployments preserve these feeds. Update archives are versioned GitHub Release assets; they are not copied into the website.
 
+If a stable release is published but its feeds are missing or stale, run **Deploy GitHub Pages** manually on `main` with `release_tag` set to its existing `vX.Y.Z` tag. This restores the feeds from published assets, verifies their signatures and version, and preserves any newer feeds. It does not rebuild installers or move the release tag. Leave `release_tag` empty for a routine website deployment. Check the public appcast and Linux feed URLs after deployment; a successful workflow alone does not prove the new content is being served.
+
 The five canonical human downloads remain DMG for macOS arm64/x64, Setup.exe for Windows x64, and DEB/RPM for Linux x64. They are needed for initial installation.
 
 ## Release verification

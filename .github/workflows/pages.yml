@@ -14,6 +14,11 @@ on:
       - "package-lock.json"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Published stable release whose update feeds should be restored (vX.Y.Z)"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -35,6 +40,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Validate release feed restoration
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" || ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Restore feeds from main with a stable vX.Y.Z release tag."
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,isPrerelease | jq -e '.isDraft == false and .isPrerelease == false'
+
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
@@ -55,6 +73,19 @@ jobs:
 
       - name: Preserve candidate update feed
         run: npx tsx scripts/preserve-candidate-update-feed.ts docs/updates/candidate
+
+      - name: Restore feeds from published release assets
+        if: inputs.release_tag != ''
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir desktop-artifacts \
+            --pattern 'Maket-darwin-*.zip' --pattern 'sparkle-*.json' \
+            --pattern 'Maket-Linux-x64.deb' --pattern 'Maket-Linux-x64.rpm'
+          npx tsx scripts/prepare-desktop-update-feeds.ts prepare \
+            docs/updates desktop-artifacts "${RELEASE_TAG#v}"
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
