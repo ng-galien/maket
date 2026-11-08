@@ -26,7 +26,7 @@ for (const position of ["top", "bottom"] as const) {
 			})
 			.click();
 		await page
-			.locator("[data-settings-page]")
+			.locator("[data-workspace-header]")
 			.getByRole("button", { name: /Close settings|Fermer les paramètres/i })
 			.click();
 		await createDocument(mcp, docName);

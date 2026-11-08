@@ -1,8 +1,10 @@
-import { useRef } from "react";
+import { Plus } from "lucide-react";
+import { useRef, useState } from "react";
 import { useT } from "../../i18n/useT";
 import { displayWorkspaceCategoryPath } from "../../lib/workspaceCategoryDisplay";
 import type { DocSummary } from "../../store/types";
-import { wsSend } from "../../store/ws";
+import { useStore } from "../../store/useStore";
+import { sendCreateDocument, wsSend } from "../../store/ws";
 import {
 	LibraryCategoryHeader,
 	libraryCategoryGuideOffset,
@@ -15,6 +17,7 @@ import {
 } from "./CategoryMenu";
 import type { CategoryNode } from "./categoryTree";
 import { DocCard, DocRow } from "./DocItem";
+import { InlineNameEditor } from "./DocMenu";
 import type { DocItemProps, DocsCategoryModel, View } from "./types";
 import { DRAG_MIME } from "./types";
 
@@ -163,6 +166,8 @@ export function DocsCategory({ model }: { model: DocsCategoryModel }) {
 export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 	const t = useT();
 	const menuButtonRef = useRef<HTMLButtonElement>(null);
+	const [creating, setCreating] = useState(false);
+	const readOnly = useStore((s) => s.readOnly);
 	const displayPath = displayWorkspaceCategoryPath(
 		model.path,
 		t("structured_workspaces"),
@@ -179,17 +184,47 @@ export function DocsCategoryHeader({ model }: { model: DocsCategoryModel }) {
 				})
 			: t("category_document_total", { total: model.total });
 	return (
-		<LibraryCategoryHeader
-			model={{ ...model, name: displayName, activeTotal: model.openTotal }}
-			toggleLabel={t("category_toggle", { category: displayPath })}
-			countTitle={countTitle}
-			actions={
-				<>
-					<CategoryMenuButton model={model} anchorRef={menuButtonRef} />
-					<CategoryMenu model={model} anchorRef={menuButtonRef} />
-				</>
-			}
-		/>
+		<div>
+			<LibraryCategoryHeader
+				model={{ ...model, name: displayName, activeTotal: model.openTotal }}
+				toggleLabel={t("category_toggle", { category: displayPath })}
+				countTitle={countTitle}
+				actions={
+					<>
+						{!readOnly && (
+							<button
+								type="button"
+								aria-label={t("doc_new_in_category", { category: displayPath })}
+								title={t("doc_new_in_category", { category: displayPath })}
+								onClick={() => setCreating(true)}
+								className="flex h-7 w-7 items-center justify-center rounded-md text-text-3 hover:bg-input hover:text-text-1"
+							>
+								<Plus size={14} />
+							</button>
+						)}
+						<CategoryMenuButton model={model} anchorRef={menuButtonRef} />
+						<CategoryMenu model={model} anchorRef={menuButtonRef} />
+					</>
+				}
+			/>
+			{creating && (
+				<div className="ml-5 border-l border-border px-3 py-2">
+					<p className="mb-2 text-xs text-text-3">
+						{t("doc_new_in_category", { category: displayPath })}
+					</p>
+					<InlineNameEditor
+						initial=""
+						placeholder={t("doc_new_placeholder")}
+						onCommit={(value) => {
+							const name = value.trim();
+							if (name) sendCreateDocument(name, model.path);
+							setCreating(false);
+						}}
+						onCancel={() => setCreating(false)}
+					/>
+				</div>
+			)}
+		</div>
 	);
 }
 

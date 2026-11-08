@@ -24,13 +24,9 @@ export async function prepareCandidateUpdateFeed({
   const root = resolve(artifactsDir);
   const output = resolve(outputDir);
   const files = await listFiles(root);
-  await rm(output, { recursive: true, force: true });
-
-  await Promise.all([
-    prepareMacFeed(files, output, version, publishedAt, "x64"),
-    prepareMacFeed(files, output, version, publishedAt, "arm64"),
-    prepareWindowsFeed(files, output),
-  ]);
+  await prepareMacFeed(files, output, version, publishedAt, "x64");
+  await prepareMacFeed(files, output, version, publishedAt, "arm64");
+  await prepareWindowsFeed(files, output);
 }
 
 async function prepareMacFeed(
@@ -49,6 +45,9 @@ async function prepareMacFeed(
   const targetDir = join(output, "darwin", arch);
   const zipName = basename(zip);
   await mkdir(targetDir, { recursive: true });
+  for (const name of await readdir(targetDir)) {
+    if (name.endsWith(".zip")) await rm(join(targetDir, name));
+  }
   await copyFile(zip, join(targetDir, zipName));
 
   const updateUrl = new URL(`${CANDIDATE_UPDATE_ROOT}/darwin/${arch}/${encodeURIComponent(zipName)}`);
@@ -82,10 +81,11 @@ async function prepareWindowsFeed(files: string[], output: string): Promise<void
     "Windows installer",
   );
   const targetDir = join(output, "win32", "x64");
+  await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
-  await Promise.all(
-    [releases, packageFile, installer].map((source) => copyFile(source, join(targetDir, basename(source)))),
-  );
+  for (const source of [releases, packageFile, installer]) {
+    await copyFile(source, join(targetDir, basename(source)));
+  }
 }
 
 function preferCanonicalArtifact(

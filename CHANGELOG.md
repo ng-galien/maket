@@ -13,6 +13,29 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-08
+
+### Added
+
+- Compose documents directly on the canvas: place text, images and frames, edit text, adjust geometry and insert dynamic fields from the Composer sidebar. Add, select and delete pages with compact controls; adding a page focuses it.
+- Structured Workspaces can read items from an HTTP source, refresh their projections and retain stable item identities. Source-backed items remain read-only.
+- Automatic desktop updates without paid certificates: macOS uses Sparkle with Ed25519-signed archives, Windows retains Squirrel, and Linux DEB/RPM installations use their package updater. Downloaded updates install from the application and relaunch it; Linux may request system authorization. The first installation of this version on an existing ad-hoc macOS build is manual.
+
+### Changed
+
+- Composer uses a full-height sidebar with a saved, adjustable width. Selection actions and dynamic fields replace the floating element toolbar. Annotation and composition are mutually exclusive; toolbar order, tooltips and control sizes are consistent.
+- The Settings page no longer repeats a Close button beside its heading.
+
+### Fixed
+
+- Pinned libraries remain open when selecting a document, including narrow split layouts.
+- Plain HTML text accepts dynamic page fields. Placed elements retain the page origin and image filenames with special characters resolve correctly.
+- Mobile reading resumes after reconnection or relaunch.
+
+### Data
+
+- SQLite schema advances from 22 to 23 for HTTP item-source definitions. User data remains outside the desktop application bundle.
+
 ## [2.2.0] - 2026-10-17
 
 ### Added

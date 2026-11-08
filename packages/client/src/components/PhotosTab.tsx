@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../i18n/useT";
 import { browserPath } from "../lib/browserBasePath";
+import { photoMatchesQuery } from "../lib/photoQuery";
 import type { PendingMessage } from "../store/useStore";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
@@ -210,29 +211,6 @@ function usePhotoFilters(images: ImageAsset[], search: string) {
 		uncategorized,
 		searched,
 	};
-}
-
-function photoMatchesQuery(
-	img: ImageAsset,
-	query: ReturnType<typeof parseQuery>,
-): boolean {
-	const category = img.category?.toLowerCase() ?? "";
-	if (
-		query.categories.length > 0 &&
-		!query.categories.some(
-			(filter) => category === filter || category.startsWith(`${filter}/`),
-		)
-	)
-		return false;
-	if (!query.text) return true;
-	const values = [
-		img.file,
-		img.title,
-		img.description,
-		img.category,
-		...(img.tags ?? []),
-	];
-	return values.some((value) => value?.toLowerCase().includes(query.text));
 }
 
 function usePhotoRequests(t: ReturnType<typeof useT>) {

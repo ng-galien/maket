@@ -319,9 +319,10 @@ describe("Annotate button pending count", () => {
 			}),
 		);
 		expect(badge()).toHaveTextContent("2");
-		expect(toggle).toHaveAttribute(
-			"title",
-			"Leave messages · click an element or a page — 2 pending",
+		expect(toggle).not.toHaveAttribute("title");
+		fireEvent.mouseEnter(toggle.parentElement as HTMLElement);
+		expect(screen.getByRole("tooltip")).toHaveTextContent(
+			"Annotate — 2 pending",
 		);
 
 		act(() =>

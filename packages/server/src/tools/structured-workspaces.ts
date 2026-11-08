@@ -13,6 +13,7 @@ import type { ToolHandler } from "../core/container.js";
 import type { ToolPack } from "../core/tool-pack.js";
 import { documentReadingPath, readingLine } from "../lib/reading-link.js";
 import type { Config } from "../services/config.js";
+import { dataSourceSchema } from "../services/item-sources/http-source-definition.js";
 import {
 	isItemSourceError,
 	itemSourceError,
@@ -27,7 +28,8 @@ import { json, text } from "./_helpers.js";
 
 export interface StructuredWorkspacesToolDeps {
 	structuredWorkspaces: StructuredWorkspaces;
-	itemWindows: Pick<ItemWindows, "query" | "page">;
+	itemWindows: Pick<ItemWindows, "query" | "page"> &
+		Partial<Pick<ItemWindows, "prepare">>;
 	/** Base path of the reading links. */
 	config?: Pick<Config, "BASE_PATH">;
 }
@@ -103,6 +105,7 @@ const StructuredWorkspaceSchema = z.object({
 	new_name: z.string().optional(),
 	description: z.string().optional(),
 	data_schema: z.record(z.string(), z.unknown()).optional(),
+	data_source: dataSourceSchema.optional(),
 	representation_schema: RepresentationSchema.optional(),
 	item: z.string().optional(),
 	collection: z.string().optional(),
@@ -125,6 +128,7 @@ const StructuredWorkspaceSchema = z.object({
 });
 
 const DESCRIPTION = [
+	"HTTP read increment: create/update_definition accept data_source={kind:'http',baseUrl,collectionId,bindingId,auth?:'env:NAME',list:{path,params:{cursor,limit,sort,text?,filters?},itemsPointer,nextPointer,totalPointer?,revisionPointer?},get:{path:'items/{id}',dataPointer?,revisionPointer?}}. One collection/binding, declared identity and sortBy required; grouping unavailable. Query parameters carry text/cursor/limit verbatim, sort/filters as JSON. Item data is each list object; detail is the whole response or dataPointer. nextPointer gives a server token or null; no total unless declared. Bearer auth is resolved only in the server environment. Source records are fetched by requested batch; opening a detail rereads GET. HTTP is read-only in this increment (writes refuse read_only); revisions stay opaque. view retries an unavailable source, reopen refreshes a detail. No background poll or webhook.",
 	"When to use: create and operate a Structured Workspace — a schema-driven collection of items, listed in an index and opened as Maket documents built from templates.",
 	"",
 	'Method (full recipe: maket_learn action=topic topic=structured-workspaces): 1) create with a data_schema alone that has a required "id" property (string), one value per item: Maket identifies the items by "/id" — or declare another identity per collection, e.g. representation_schema={"collections":{"items":{"name":"Items","identity":"/code"}}} — and Maket writes the index, detail, card templates and the detail form itself, in the Workspace category; 2) add_item; 3) check, which must answer verdict ready. Inline template HTML (detailTemplateHtml, compactTemplateHtml, indexTemplateHtml, detailForm) or names of existing template documents are the optional second and third paths.',
@@ -198,6 +202,9 @@ const queryRefusals: ReadonlySet<string> = new Set([
 	"unknown_collection",
 	"query_unsupported",
 	"invalid_record",
+	"source_unreachable",
+	"read_only",
+	"unknown_item",
 ]);
 
 /** The answer to a failed call: a refused definition with its findings, a
@@ -354,6 +361,7 @@ function runUpdateDefinition(args: Args, workspaces: StructuredWorkspaces) {
 			args.expected_workspace_revision,
 			"expected_workspace_revision",
 		),
+		dataSource: args.data_source,
 		dataSchema: args.data_schema as StructuredWorkspaceDataSchema | undefined,
 		representationSchema: args.representation_schema as
 			| StructuredWorkspaceRepresentationInput
@@ -385,13 +393,13 @@ function runList(workspaces: StructuredWorkspaces) {
 					(sum, count) => sum + count,
 					0,
 				);
-				return `- [${verdict === "ready" ? "ready" : "incomplete"}] ${workspace.name} (${workspace.id}): ${items} item(s), revision ${workspace.revision}`;
+				return `- [${verdict === "ready" ? "ready" : "incomplete"}] ${workspace.name} (${workspace.id}): ${workspace.dataSource?.kind === "http" ? "HTTP source" : `${items} item(s)`}, revision ${workspace.revision}`;
 			})
 			.join("\n"),
 	);
 }
 
-function runView(args: Args, deps: StructuredWorkspacesToolDeps) {
+async function runView(args: Args, deps: StructuredWorkspacesToolDeps) {
 	const workspaces = deps.structuredWorkspaces;
 	const name = required(args.workspace, "workspace");
 	const workspace = workspaces.get(name);
@@ -400,9 +408,9 @@ function runView(args: Args, deps: StructuredWorkspacesToolDeps) {
 			"unknown_workspace",
 			`Structured Workspace "${name}" not found.`,
 		);
-	const check = workspaces.check(workspace.id);
 	const call = `maket_structured_workspace action=check workspace=${workspace.id}`;
-	const window = viewWindow(args, deps.itemWindows, workspace);
+	const window = await viewWindow(args, deps.itemWindows, workspace);
+	const check = workspaces.check(workspace.id);
 	const index = workspace.collectionDocuments.find(
 		(document) => document.collectionId === window?.collection,
 	);
@@ -443,7 +451,7 @@ function indexReading(
  * batch after it, statelessly, whatever the shared window does; with query
  * arguments, the first batch of that query, which becomes the shared window;
  * with neither, the first batch of the collection's own order. */
-function viewWindow(
+async function viewWindow(
 	args: Args,
 	itemWindows: StructuredWorkspacesToolDeps["itemWindows"],
 	workspace: StructuredWorkspaceView,
@@ -458,8 +466,15 @@ function viewWindow(
 			`Collection "${collectionId}" not found in Structured Workspace "${workspace.name}".`,
 		);
 	const query = viewQuery(args);
+	await itemWindows.prepare?.(
+		workspace.id,
+		collectionId,
+		{ ...query, ...(args.cursor === undefined ? {} : { cursor: args.cursor }) },
+		true,
+	);
 	const page =
-		args.cursor !== undefined || Object.keys(query).length === 0
+		args.cursor !== undefined ||
+		(Object.keys(query).length === 0 && workspace.dataSource?.kind !== "http")
 			? itemWindows.page(workspace.id, collectionId, {
 					...query,
 					...(args.cursor === undefined ? {} : { cursor: args.cursor }),
@@ -475,7 +490,9 @@ function viewWindow(
 	return {
 		collection: collectionId,
 		query,
-		items: page.items.map(viewItem),
+		items: page.items.map((item) =>
+			viewItem(item, workspace.dataSource?.kind === "http"),
+		),
 		...(page.next === undefined
 			? {}
 			: {
@@ -524,11 +541,11 @@ function moreCall(
 	].join(" ");
 }
 
-function viewItem(item: StructuredCollectionWindowItem) {
+function viewItem(item: StructuredCollectionWindowItem, remote = false) {
 	return {
 		id: item.id,
 		documentName: item.documentName,
-		revision: Number(item.revision),
+		revision: remote ? item.revision : Number(item.revision),
 		fields: item.fields,
 		...(item.issues ? { issues: item.issues } : {}),
 	};
@@ -539,6 +556,7 @@ function runCreate(args: Args, workspaces: StructuredWorkspaces) {
 	const workspace = workspaces.create({
 		name,
 		description: args.description,
+		dataSource: args.data_source,
 		dataSchema: (args.data_schema ?? {}) as StructuredWorkspaceDataSchema,
 		representationSchema: args.representation_schema as
 			| StructuredWorkspaceRepresentationInput

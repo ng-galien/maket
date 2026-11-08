@@ -1124,6 +1124,42 @@ describe("ws-handler — document and canvas flows", () => {
 		dispose();
 	});
 
+	it.each(["render", "stateView", "send"] as const)(
+		"contains load_document %s failures and keeps serving subsequent loads",
+		async (failure) => {
+			const documentRenderer = rendererStub();
+			const { store, bus, handler, dispose } = fixture({ documentRenderer });
+			const ws = { readyState: 1, send: vi.fn() } as any;
+			const toast = vi.fn();
+			bus.on("toast", toast);
+			const rejectOnce = () => {
+				throw new Error("Load failed");
+			};
+			if (failure === "send") ws.send.mockImplementationOnce(rejectOnce);
+			else
+				vi.spyOn(documentRenderer, failure).mockImplementationOnce(rejectOnce);
+			try {
+				store.saveDoc(makeDoc("recoverable"));
+				handler({ type: "load_document", name: "recoverable" }, ws);
+				await settled();
+				expect(toast).toHaveBeenCalledWith(
+					expect.objectContaining({
+						level: "error",
+						params: { detail: "Load failed" },
+					}),
+				);
+				handler({ type: "load_document", name: "recoverable" }, ws);
+				await settled();
+				expect(JSON.parse(ws.send.mock.lastCall[0])).toMatchObject({
+					type: "state",
+					doc: { name: "recoverable" },
+				});
+			} finally {
+				dispose();
+			}
+		},
+	);
+
 	it("load_document sends the rendered projection without replacing the persisted template", () => {
 		const render = vi.fn((doc: Document) => ({
 			...doc,
@@ -1659,6 +1695,21 @@ describe("ws-handler — text editing", () => {
 		expect(saved).not.toContain("javascript:");
 		expect(documents.resolve("editor")?.pages[1]?.html).toContain("untouched");
 		expect(savedEvt).toHaveBeenCalledWith({ docName: "editor" });
+		for (const field of ["page.number", "page.total", "client_name"]) {
+			handler(
+				{
+					type: "text_edit",
+					docName: "editor",
+					pageIndex: 0,
+					elementId: "a",
+					html: `{{ ${field} }}`,
+				},
+				STUB_WS,
+			);
+			expect(documents.resolve("editor")?.pages[0]?.html).toContain(
+				`{{ ${field} }}`,
+			);
+		}
 		dispose();
 	});
 
@@ -2216,6 +2267,69 @@ function windowsOf(workspaces: StructuredWorkspaces): ItemWindows {
 }
 
 describe("ws-handler — hand composition", () => {
+	it("confirms the exact created element only to the requesting socket and returns a correlated refusal", () => {
+		const { documents, handler, dispose } = fixture();
+		const doc = createDocument({
+			name: "placement-ack",
+			canvas: {
+				format: "A4",
+				orientation: "portrait",
+				w: 210,
+				h: 297,
+				bg: "#fff",
+			},
+			pages: [{ name: "Page 1", html: BLANK_PAGE_HTML, elements: [] }],
+		});
+		documents.all().set(doc.name, doc);
+		const socket = { ...STUB_WS, send: vi.fn() };
+		handler(
+			{
+				type: "element_add",
+				requestId: "place-1",
+				docName: doc.name,
+				pageIndex: 0,
+				kind: "text",
+				box: { left: 25, top: 35, width: 80, height: 15 },
+				text: "Confirmed text",
+			},
+			socket,
+		);
+		const answers = () =>
+			socket.send.mock.calls
+				.map(([raw]: [unknown]) => JSON.parse(String(raw)))
+				.filter(
+					(message: { type: string }) => message.type === "element_add_result",
+				);
+		const answer = answers()[0];
+		expect(answer).toMatchObject({
+			type: "element_add_result",
+			requestId: "place-1",
+			ok: true,
+			elementId: expect.any(String),
+		});
+		expect(doc.pages[0]?.html).toContain(`data-id="${answer.elementId}"`);
+		expect(doc.pages[0]?.html).toContain("Confirmed text");
+		doc.meta.locked = true;
+		handler(
+			{
+				type: "element_add",
+				requestId: "place-2",
+				docName: doc.name,
+				pageIndex: 0,
+				kind: "frame",
+				box: { left: 10, top: 10, width: 20, height: 20 },
+			},
+			socket,
+		);
+		expect(answers()[1]).toMatchObject({
+			requestId: "place-2",
+			ok: false,
+			error: expect.stringContaining("locked"),
+		});
+		expect(doc.pages[0]?.html).not.toContain("frame-");
+		dispose();
+	});
+
 	const box = { left: 20, top: 30, width: 80, height: 40 };
 
 	function pageHtml(
@@ -2314,6 +2428,73 @@ describe("ws-handler — hand composition", () => {
 			);
 		}
 		expect(store.loadOne("hand")?.canvas.format).toBe("A5");
+		dispose();
+	});
+
+	it("confirms the exact added page, removes it by identity, and protects the last or locked page", () => {
+		const { store, documents, handler, dispose } = fixture();
+		store.saveDoc(makeDoc("pages"));
+		documents.loadAll();
+		const send = vi.fn();
+		const client = { send } as unknown as typeof STUB_WS;
+		handler({ type: "page_add", docName: "pages", requestId: "add" }, client);
+		const doc = documents.resolve("pages");
+		if (!doc?.pages[0] || !doc.pages[1]) throw new Error("Pages missing");
+		const firstId = doc.pages[0].id;
+		const added = doc.pages[1];
+		expect(JSON.parse(send.mock.calls.at(-1)?.[0] ?? "{}")).toEqual({
+			type: "page_change_result",
+			requestId: "add",
+			ok: true,
+			pageId: added.id,
+		});
+		handler(
+			{
+				type: "page_remove",
+				docName: "pages",
+				pageId: added.id,
+				requestId: "remove",
+			},
+			client,
+		);
+		expect(store.loadOne("pages")?.pages).toHaveLength(1);
+		expect(JSON.parse(send.mock.calls.at(-1)?.[0] ?? "{}")).toMatchObject({
+			requestId: "remove",
+			ok: true,
+			pageId: firstId,
+		});
+		handler(
+			{
+				type: "page_remove",
+				docName: "pages",
+				pageId: firstId,
+				requestId: "last",
+			},
+			client,
+		);
+		expect(JSON.parse(send.mock.calls.at(-1)?.[0] ?? "{}")).toMatchObject({
+			requestId: "last",
+			ok: false,
+		});
+		handler(
+			{ type: "page_add", docName: "pages", requestId: "another" },
+			client,
+		);
+		doc.meta.locked = true;
+		handler(
+			{
+				type: "page_remove",
+				docName: "pages",
+				pageId: doc.pages[1]?.id ?? "missing",
+				requestId: "locked",
+			},
+			client,
+		);
+		expect(JSON.parse(send.mock.calls.at(-1)?.[0] ?? "{}")).toMatchObject({
+			requestId: "locked",
+			ok: false,
+		});
+		expect(doc.pages).toHaveLength(2);
 		dispose();
 	});
 
@@ -2443,7 +2624,7 @@ describe("ws-handler — hand composition", () => {
 		);
 		html = pageHtml(documents, "hand");
 		expect(html).toContain(
-			`data-id="${textId}" style="position:absolute;box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3;left:30mm;top:40mm;width:90mm;height:20mm"`,
+			`data-id="${textId}" style="position:absolute;box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3;color:var(--charte-color-text,var(--charte-color-ink,#1f2937));left:30mm;top:40mm;width:90mm;height:20mm"`,
 		);
 
 		handler(

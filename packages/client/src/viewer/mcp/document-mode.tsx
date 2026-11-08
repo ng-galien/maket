@@ -66,6 +66,7 @@ interface LoadedPage {
 	charteCss: string;
 	images: string[];
 	locked: boolean;
+	readOnly?: boolean;
 }
 
 interface PageAnswer {
@@ -73,6 +74,7 @@ interface PageAnswer {
 	charteCss?: string;
 	images?: string[];
 	locked?: boolean;
+	readOnly?: boolean;
 	state?: ReaderState;
 	tooLarge?: boolean;
 }
@@ -128,6 +130,7 @@ async function fetchPage(
 			charteCss: answer.charteCss ?? "",
 			images: answer.images ?? [],
 			locked: answer.locked === true,
+			readOnly: answer.readOnly === true,
 		},
 		state: answer.state,
 	};
@@ -187,6 +190,9 @@ function readerDocument(
 ): Document {
 	const { document } = opening;
 	const locked = [...content.loaded.values()].some((page) => page.locked);
+	const sourceReadOnly = [...content.loaded.values()].some(
+		(page) => page.readOnly,
+	);
 	return {
 		id: document.id,
 		name: document.name,
@@ -209,6 +215,7 @@ function readerDocument(
 				: { responsive: document.responsive }),
 			...(content.charteCss ? { charte: CHARTE_NAME } : {}),
 			...(locked ? { locked: true } : {}),
+			...(sourceReadOnly ? { sourceReadOnly: true } : {}),
 		},
 	};
 }

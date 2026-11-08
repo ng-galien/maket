@@ -27,6 +27,13 @@ export interface ItemWindowRequest extends StructuredCollectionQuery {
 }
 
 export interface ItemWindows {
+	/** Prepare an external batch without fetching more than the request; local reads need none. */
+	prepare(
+		workspaceId: string,
+		collectionId: string,
+		request: ItemWindowRequest,
+		stateless?: boolean,
+	): Promise<void> | undefined;
 	/** The window of a collection, opened on first read with the first batch
 	 * of the collection's own order. */
 	current(
@@ -106,8 +113,29 @@ export function createItemWindows(deps: ItemWindowsDeps): ItemWindows {
 			announce(store(window, workspace.revision));
 		}
 	};
-	deps.bus.on("structured-workspace:source-changed", ({ workspaceId }) =>
-		reread(workspaceId, false),
+	deps.bus.on(
+		"structured-workspace:source-changed",
+		({ workspaceId, scope, itemId }) => {
+			const workspace = deps.store.loadStructuredWorkspace(workspaceId);
+			if (
+				workspace?.dataSource?.kind === "http" &&
+				scope === "item" &&
+				itemId
+			) {
+				const record = deps.itemSources.sourceFor(workspaceId).get(itemId);
+				if (!record) return;
+				for (const entry of held.values()) {
+					if (entry.window.workspaceId !== workspaceId) continue;
+					const item = entry.window.items.find((item) => item.id === itemId);
+					if (!item) continue;
+					item.fields = record.data;
+					item.revision = record.revision;
+					announce(entry.window);
+				}
+				return;
+			}
+			reread(workspaceId, false);
+		},
 	);
 	deps.bus.on("structured-workspace:changed", ({ workspaceId }) =>
 		reread(workspaceId, true),
@@ -117,6 +145,23 @@ export function createItemWindows(deps: ItemWindowsDeps): ItemWindows {
 			if (entry.window.workspaceId === workspaceId) held.delete(key);
 	});
 	return {
+		prepare(workspaceId, collectionId, request, stateless = false) {
+			const workspace = requiredWorkspace(deps.store, workspaceId);
+			const current = held.get(keyOf(workspaceId, collectionId))?.window;
+			const { cursor, ...query } = request;
+			const effective =
+				cursor !== undefined && current && !stateless
+					? current.query
+					: normalizedQuery(query);
+			return deps.itemSources.sourceFor(workspaceId).prepare?.(
+				sourceQuery(workspace, {
+					collectionId,
+					query: effective,
+					...(cursor === undefined ? {} : { cursor }),
+					...(request.batch === undefined ? {} : { batch: request.batch }),
+				}),
+			);
+		},
 		current(workspaceId, collectionId) {
 			const existing = held.get(keyOf(workspaceId, collectionId));
 			if (existing) return existing.window;
@@ -284,34 +329,7 @@ function listBatch(
 		batch?: number;
 	},
 ): Pick<StructuredCollectionWindow, "items" | "next" | "total" | "groups"> {
-	const collection =
-		workspace.representationSchema.collections[target.collectionId];
-	const { query } = target;
-	const sort =
-		query.sort ??
-		(collection?.sortBy
-			? {
-					field: collection.sortBy,
-					direction: collection.sortDirection ?? "ascending",
-				}
-			: undefined);
-	const request: ItemQuery = {
-		collectionId: target.collectionId,
-		...(query.text ? { text: query.text } : {}),
-		...(query.filters ? { filters: query.filters } : {}),
-		...(sort ? { sort } : {}),
-		...(collection?.groupBy === undefined
-			? {}
-			: { groupBy: collection.groupBy }),
-		...(target.cursor === undefined ? {} : { cursor: target.cursor }),
-		limit: Math.min(
-			target.batch ??
-				query.batch ??
-				collection?.indexPageSize ??
-				structuredWorkspaceDefaultIndexPageSize,
-			structuredWorkspaceMaxBatch,
-		),
-	};
+	const request = sourceQuery(workspace, target);
 	const page = deps.itemSources.sourceFor(workspace.id).list(request);
 	return {
 		items: page.items.map(windowItem),
@@ -341,4 +359,44 @@ function requiredWorkspace(
 			`Structured Workspace "${workspaceId}" not found.`,
 		);
 	return workspace;
+}
+
+function sourceQuery(
+	workspace: StructuredWorkspaceDefinition,
+	target: {
+		collectionId: string;
+		query: StructuredCollectionQuery;
+		cursor?: string;
+		batch?: number;
+	},
+): ItemQuery {
+	const collection =
+		workspace.representationSchema.collections[target.collectionId];
+	const { query } = target;
+	const sort =
+		query.sort ??
+		(collection?.sortBy
+			? {
+					field: collection.sortBy,
+					direction: collection.sortDirection ?? "ascending",
+				}
+			: undefined);
+	const request: ItemQuery = {
+		collectionId: target.collectionId,
+		...(query.text ? { text: query.text } : {}),
+		...(query.filters ? { filters: query.filters } : {}),
+		...(sort ? { sort } : {}),
+		...(collection?.groupBy === undefined
+			? {}
+			: { groupBy: collection.groupBy }),
+		...(target.cursor === undefined ? {} : { cursor: target.cursor }),
+		limit: Math.min(
+			target.batch ??
+				query.batch ??
+				collection?.indexPageSize ??
+				structuredWorkspaceDefaultIndexPageSize,
+			structuredWorkspaceMaxBatch,
+		),
+	};
+	return request;
 }

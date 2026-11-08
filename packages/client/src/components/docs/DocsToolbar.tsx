@@ -2,6 +2,7 @@ import { FilePlus, FolderOpen, Upload, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { translate, useT } from "../../i18n/useT";
+import { useStore } from "../../store/useStore";
 import { sendCreateDocument } from "../../store/ws";
 import { LibrarySearchField } from "../shared/LibrarySearchField";
 import {
@@ -9,6 +10,7 @@ import {
 	LibraryToolbarRow,
 } from "../shared/LibraryToolbar";
 import { LibraryViewToggle } from "../shared/LibraryViewToggle";
+import { Tooltip } from "../shared/Tooltip";
 import { InlineNameEditor } from "./DocMenu";
 import {
 	applySearchSuggestion,
@@ -84,6 +86,7 @@ function handleImportDrop(
 
 export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 	const t = useT();
+	const readOnly = useStore((state) => state.readOnly);
 	const [creating, setCreating] = useState(false);
 	return (
 		<div className="flex flex-col gap-1.5">
@@ -97,15 +100,18 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					onChange={model.handleImportInput}
 				/>
 				<LibraryToolbarActions>
-					<button
-						type="button"
-						onClick={() => setCreating(true)}
-						aria-label={t("doc_new")}
-						title={t("doc_new")}
-						className="flex h-8 w-8 items-center justify-center rounded-md bg-input text-text-3 transition hover:text-text-1"
-					>
-						<FilePlus size={13} />
-					</button>
+					{!readOnly && (
+						<Tooltip label={t("doc_new")}>
+							<button
+								type="button"
+								onClick={() => setCreating(true)}
+								aria-label={t("doc_new")}
+								className="flex h-8 w-8 items-center justify-center rounded-md bg-input text-text-3 transition hover:text-text-1"
+							>
+								<FilePlus size={13} />
+							</button>
+						</Tooltip>
+					)}
 					<ImportButton model={model} />
 					<LibraryViewToggle
 						view={model.view}
@@ -115,7 +121,7 @@ export function DocsToolbar({ model }: { model: DocsToolbarModel }) {
 					/>
 				</LibraryToolbarActions>
 			</LibraryToolbarRow>
-			{creating && (
+			{creating && !readOnly && (
 				<InlineNameEditor
 					initial=""
 					placeholder={t("doc_new_placeholder")}

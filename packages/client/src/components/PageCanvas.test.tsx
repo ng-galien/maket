@@ -29,9 +29,11 @@ beforeEach(() => {
 
 afterEach(() => {
 	cleanup();
+	document.querySelector("[data-composer-panel]")?.remove();
 	vi.runOnlyPendingTimers();
 	vi.useRealTimers();
 	useStore.setState({
+		composerDocName: null,
 		readOnly: false,
 		pending: [],
 		editingElementId: null,
@@ -46,6 +48,18 @@ afterEach(() => {
 		statePatchErrors: {},
 	});
 });
+
+async function openSelectionComposer() {
+	if (!document.getElementById("hand-composer-host")) {
+		const panel = document.createElement("aside");
+		panel.setAttribute("data-composer-panel", "");
+		panel.id = "hand-composer-host";
+		document.body.append(panel);
+	}
+	await act(async () =>
+		useStore.setState({ composerDocName: "alpha", focusedPageIndex: 0 }),
+	);
+}
 
 describe("PageCanvas toolbar interactions", () => {
 	it("sends the built-in open-document action for a composed item card", async () => {
@@ -237,7 +251,7 @@ describe("PageCanvas toolbar interactions", () => {
 		},
 	);
 
-	it("selects an element and shows the toolbar", async () => {
+	it("selects an element without showing a floating toolbar", async () => {
 		render(
 			<PageCanvas
 				doc={makeDoc('<p data-id="a">Editable</p>')}
@@ -252,7 +266,7 @@ describe("PageCanvas toolbar interactions", () => {
 			fireEvent.click(target);
 		});
 		expect(useStore.getState().selectedIds).toEqual(["a"]);
-		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+		expect(document.querySelector(".element-toolbar")).toBeNull();
 		expect(target.classList.contains("selected")).toBe(true);
 	});
 
@@ -1057,8 +1071,11 @@ describe("PageCanvas toolbar interactions", () => {
 		const target = document.querySelector('[data-id="a"]') as HTMLElement;
 		expect(target.textContent).toContain("{{ state.title }}");
 		await act(async () => fireEvent.click(target));
-		expect(document.querySelector(".element-toolbar")).not.toBeNull();
-		expect(document.querySelector(".element-toolbar select")).toBeNull();
+		await openSelectionComposer();
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+		expect(
+			screen.queryByRole("combobox", { name: "Use collection placeholder" }),
+		).toBeNull();
 	});
 
 	it("keeps a Structured Workspace template-controlled page read-only in design mode", async () => {
@@ -1091,8 +1108,8 @@ describe("PageCanvas toolbar interactions", () => {
 		await act(async () =>
 			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement),
 		);
-		expect(document.querySelector(".element-toolbar")).not.toBeNull();
-		expect(document.querySelector(".tb-edit")).toBeNull();
+		expect(document.querySelector(".element-toolbar")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Edit text" })).toBeNull();
 	});
 
 	it("keeps a locked living document passive in both modes", async () => {
@@ -1218,9 +1235,12 @@ describe("PageCanvas toolbar interactions", () => {
 			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
 		});
 
-		expect(document.querySelector(".tb-edit")).toBeNull();
-		expect(document.querySelector(".element-toolbar select")).toBeNull();
-		expect(document.querySelector(".tb-comment")).not.toBeNull();
+		expect(screen.queryByRole("button", { name: "Edit text" })).toBeNull();
+		expect(
+			screen.queryByRole("combobox", { name: "Use collection placeholder" }),
+		).toBeNull();
+		await openSelectionComposer();
+		expect(screen.getByRole("button", { name: "Comment" })).toBeInTheDocument();
 	});
 
 	it("shows placeholder errors instead of silently falling back", () => {
@@ -1249,7 +1269,7 @@ describe("PageCanvas toolbar interactions", () => {
 		expect(document.body.textContent).toContain("Unknown collection field");
 	});
 
-	it("shows comment-only toolbar for non-editable elements", async () => {
+	it("offers commenting in Composer for non-editable elements", async () => {
 		render(
 			<PageCanvas
 				doc={makeDoc('<img data-id="hero" src="/assets/photo.jpg" />')}
@@ -1265,8 +1285,9 @@ describe("PageCanvas toolbar interactions", () => {
 			);
 		});
 
-		expect(document.querySelector(".tb-comment")).not.toBeNull();
-		expect(document.querySelector(".tb-edit")).toBeNull();
+		await openSelectionComposer();
+		expect(screen.getByRole("button", { name: "Comment" })).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Edit text" })).toBeNull();
 	});
 
 	it("dismisses the toolbar when clicking outside the canvas", async () => {
@@ -1282,7 +1303,7 @@ describe("PageCanvas toolbar interactions", () => {
 		await act(async () => {
 			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
 		});
-		expect(document.querySelector(".element-toolbar")).not.toBeNull();
+		expect(document.querySelector(".element-toolbar")).toBeNull();
 
 		await act(async () => {
 			fireEvent.click(document.body);
@@ -1303,8 +1324,9 @@ describe("PageCanvas toolbar interactions", () => {
 		await act(async () => {
 			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
 		});
+		await openSelectionComposer();
 		await act(async () => {
-			fireEvent.click(document.querySelector(".tb-comment") as HTMLElement);
+			fireEvent.click(screen.getByRole("button", { name: "Comment" }));
 		});
 
 		expect(useStore.getState().messageAnchor).toMatchObject({ elementId: "a" });
@@ -1865,7 +1887,7 @@ describe("PageCanvas rendering", () => {
 });
 
 describe("PageCanvas edit mode", () => {
-	it("starts inline editing from the toolbar for editable elements", async () => {
+	it("starts inline editing from Composer for editable elements", async () => {
 		render(
 			<PageCanvas
 				doc={makeDoc('<p data-id="a">original</p>')}
@@ -1878,8 +1900,9 @@ describe("PageCanvas edit mode", () => {
 		await act(async () => {
 			fireEvent.click(document.querySelector('[data-id="a"]') as HTMLElement);
 		});
+		await openSelectionComposer();
 		await act(async () => {
-			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+			fireEvent.click(screen.getByRole("button", { name: "Edit text" }));
 		});
 		await act(async () => {
 			vi.runAllTimers();
@@ -1904,8 +1927,9 @@ describe("PageCanvas edit mode", () => {
 		await act(async () => {
 			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
 		});
+		await openSelectionComposer();
 		await act(async () => {
-			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+			fireEvent.click(screen.getByRole("button", { name: "Edit text" }));
 		});
 		await act(async () => {
 			vi.runAllTimers();
@@ -1935,8 +1959,9 @@ describe("PageCanvas edit mode", () => {
 		await act(async () => {
 			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
 		});
+		await openSelectionComposer();
 		await act(async () => {
-			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+			fireEvent.click(screen.getByRole("button", { name: "Edit text" }));
 		});
 		await act(async () => {
 			vi.runAllTimers();
@@ -1967,8 +1992,9 @@ describe("PageCanvas edit mode", () => {
 		await act(async () => {
 			fireEvent.click(container.querySelector('[data-id="a"]') as HTMLElement);
 		});
+		await openSelectionComposer();
 		await act(async () => {
-			fireEvent.click(document.querySelector(".tb-edit") as HTMLElement);
+			fireEvent.click(screen.getByRole("button", { name: "Edit text" }));
 		});
 		await act(async () => {
 			vi.runAllTimers();
@@ -2159,75 +2185,8 @@ describe("PageCanvas hand composition", () => {
 		'<div data-id="frame-1" data-noedit="" data-maket-layout="ignore" style="position:absolute;left:20mm;top:30mm;width:80mm;height:40mm"></div>';
 
 	function bar() {
-		return document.body.querySelector("[data-hand-compose-bar]");
+		return document.body.querySelector("[data-hand-compose-panel]");
 	}
-
-	it("shows the composition bar with format, page addition and palette on the focused writable page", () => {
-		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
-		const doc = makeDoc(placed);
-		doc.canvas.format = "A4";
-		doc.canvas.orientation = "portrait";
-		render(<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />);
-
-		const toolbar = bar();
-		if (!(toolbar instanceof HTMLElement)) throw new Error("bar missing");
-		const format = within(toolbar).getByLabelText(
-			"Format",
-		) as HTMLSelectElement;
-		expect(format.value).toBe("A4");
-		expect([...format.options].map((option) => option.value)).not.toContain(
-			"AUTO",
-		);
-		expect(within(toolbar).getByText("Add a page")).toBeTruthy();
-		expect(within(toolbar).getByText("Add text")).toBeTruthy();
-		expect(within(toolbar).getByText("Add an image")).toBeTruthy();
-		expect(within(toolbar).getByText("Add a frame")).toBeTruthy();
-
-		const setFormat = vi
-			.spyOn(ws, "sendCanvasFormat")
-			.mockImplementation(() => {});
-		const addElement = vi
-			.spyOn(ws, "sendAddPlacedElement")
-			.mockImplementation(() => {});
-		fireEvent.change(format, { target: { value: "A5" } });
-		fireEvent.click(within(toolbar).getByText("Add a frame"));
-		expect(setFormat).toHaveBeenCalledWith("alpha", "A5", "portrait");
-		expect(addElement).toHaveBeenCalledWith("alpha", 0, {
-			kind: "frame",
-			box: { left: 75, top: 128.5, width: 60, height: 40 },
-		});
-		setFormat.mockRestore();
-		addElement.mockRestore();
-	});
-
-	it("keeps the format selector on an AUTO document without offering AUTO, and hides the palette", () => {
-		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
-		const doc = makeDoc("");
-		doc.canvas.format = "AUTO";
-		doc.canvas.w = 180;
-		doc.canvas.h = 1;
-		const { rerender } = render(
-			<PageCanvas doc={doc} pageIndex={0} charteCss="" focused={true} />,
-		);
-
-		let toolbar = bar() as HTMLElement;
-		const format = within(toolbar).getByLabelText(
-			"Format",
-		) as HTMLSelectElement;
-		expect(format.value).toBe("AUTO");
-		const auto = [...format.options].find((option) => option.value === "AUTO");
-		expect(auto?.disabled).toBe(true);
-		expect(within(toolbar).queryByText("Add text")).toBeNull();
-		expect(
-			within(toolbar).getByText("Choose a fixed format to place elements"),
-		).toBeTruthy();
-
-		const a4 = makeDoc("");
-		a4.canvas.format = "A4";
-		rerender(<PageCanvas doc={a4} pageIndex={0} charteCss="" focused={true} />);
-		toolbar = bar() as HTMLElement;
-		expect(within(toolbar).getByText("Add text")).toBeTruthy();
-	});
 
 	it.each([
 		[
@@ -2255,7 +2214,11 @@ describe("PageCanvas hand composition", () => {
 			}),
 		],
 	])("shows no composition bar or handles in the %s", async (_name, policy) => {
-		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
+		useStore.setState({
+			focusedDocName: "alpha",
+			focusedPageIndex: 0,
+			composerDocName: "alpha",
+		});
 		const { container } = render(
 			<PageCanvas
 				doc={makeDoc(placed)}
@@ -2272,29 +2235,5 @@ describe("PageCanvas hand composition", () => {
 		});
 		expect(bar()).toBeNull();
 		expect(container.querySelector("[data-placed-selection]")).toBeNull();
-	});
-
-	it("selects a placed element with a mm selection frame, handles and a delete action", async () => {
-		useStore.setState({ focusedDocName: "alpha", focusedPageIndex: 0 });
-		const { container } = render(
-			<PageCanvas
-				doc={makeDoc(placed)}
-				pageIndex={0}
-				charteCss=""
-				focused={true}
-			/>,
-		);
-		const frame = container.querySelector('[data-id="frame-1"]');
-		if (!frame) throw new Error("frame missing");
-		await act(async () => {
-			fireEvent.click(frame);
-		});
-		const selection = container.querySelector(
-			'[data-placed-selection="frame-1"]',
-		) as HTMLElement | null;
-		expect(selection?.style.left).toBe("20mm");
-		expect(selection?.style.width).toBe("80mm");
-		expect(selection?.querySelectorAll("[data-resize-handle]")).toHaveLength(8);
-		expect(screen.getByLabelText("Hold to delete the element")).toBeTruthy();
 	});
 });

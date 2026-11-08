@@ -51,3 +51,22 @@ describe("desktop update installation", () => {
     expect(startRuntime).not.toHaveBeenCalled();
   });
 });
+
+it("recovers the runtime after an asynchronous native installation refusal", async () => {
+  const stopRuntime = vi.fn(async () => {}),
+    startRuntime = vi.fn(async () => {}),
+    setQuitting = vi.fn();
+  await expect(
+    installDesktopUpdate({
+      prepareInstall: () => async () => {
+        throw new Error("Native installer refused");
+      },
+      stopRuntime,
+      startRuntime,
+      setQuitting,
+    }),
+  ).rejects.toThrow("Native installer refused");
+  expect(stopRuntime).toHaveBeenCalledOnce();
+  expect(startRuntime).toHaveBeenCalledOnce();
+  expect(setQuitting.mock.calls).toEqual([[true], [false]]);
+});

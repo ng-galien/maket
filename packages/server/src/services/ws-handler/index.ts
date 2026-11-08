@@ -33,6 +33,7 @@ import {
 	handleAddPage,
 	handleAddPlacedElement,
 	handleCreateDocument,
+	handleRemovePage,
 	handleRemovePlacedElement,
 	handleSetCanvasFormat,
 	handleSetPlacedElementBox,
@@ -221,13 +222,16 @@ function dispatchWorkspaceCommand(
 			handleCreateDocument(ctx, msg);
 			break;
 		case "page_add":
-			handleAddPage(ctx, msg);
+			handleAddPage(ctx, msg, ws);
+			break;
+		case "page_remove":
+			handleRemovePage(ctx, msg, ws);
 			break;
 		case "canvas_format_set":
 			handleSetCanvasFormat(ctx, msg);
 			break;
 		case "element_add":
-			handleAddPlacedElement(ctx, msg);
+			handleAddPlacedElement(ctx, msg, ws);
 			break;
 		case "element_box_set":
 			handleSetPlacedElementBox(ctx, msg);

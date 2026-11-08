@@ -5,6 +5,10 @@ import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppContainer } from "../bootstrap.js";
+import {
+	registerServerEvents,
+	type ServerEventDeps,
+} from "../server-events.js";
 import { createMaketStructuredWorkspaceTool } from "../tools/structured-workspaces.js";
 import { createConfig } from "./config.js";
 import type { Documents } from "./documents.js";
@@ -47,6 +51,7 @@ let store: Store;
 let workspaces: StructuredWorkspaces;
 let documents: Documents;
 let tool: ReturnType<typeof createMaketStructuredWorkspaceTool>;
+let appContainer: ReturnType<typeof createAppContainer>;
 
 beforeEach(() => {
 	tmp = mkdtempSync(join(tmpdir(), "maket-identity-"));
@@ -60,6 +65,7 @@ beforeEach(() => {
 			homedir: () => "/nowhere",
 		}),
 	});
+	appContainer = container;
 	documents = container.resolve<Documents>("documents");
 	documents.loadAll();
 	workspaces = container.resolve<StructuredWorkspaces>("structuredWorkspaces");
@@ -107,6 +113,95 @@ const add = (collectionId: string, data: Record<string, unknown>) =>
 	});
 
 describe("declared identity of a collection", () => {
+	it("repairs a legacy concrete schema through MCP without replacing items or annotations", async () => {
+		const concrete = {
+			type: "object",
+			properties: { id: { type: "string" }, title: { type: "string" } },
+			required: ["id", "title"],
+		};
+		const schema = { oneOf: [concrete] };
+		const workspace = workspaces.create({
+			name: "Legacy topics",
+			dataSchema: schema,
+			representationSchema: {
+				collections: {
+					topics: {
+						identity: "/id",
+						bindings: { topic: { schemaPath: "/oneOf/0" } },
+					},
+				},
+			},
+		});
+		const item = await workspaces.addItem({
+			workspace: workspace.id,
+			collectionId: "topics",
+			bindingId: "topic",
+			documentName: "Existing topic",
+			data: { id: "stable-topic", title: "Existing topic" },
+		});
+		const opened = workspaces.openItem(workspace.id, item.documentName);
+		if (!opened) throw new Error("Item did not open.");
+		store.saveAnnotation({
+			id: "existing-note",
+			docName: opened.name,
+			text: "Keep this annotation",
+			pageIndex: 0,
+			ts: 1,
+		});
+		const rows = store.loadStructuredWorkspaceItem(workspace.id, item.id);
+		const annotations = store.loadAnnotations();
+		const legacy = {
+			oneOf: [
+				{
+					type: "object",
+					properties: { title: { type: "string" } },
+					required: ["title"],
+				},
+			],
+			properties: { id: { type: "string" } },
+			required: ["id"],
+		};
+		const current = store.loadStructuredWorkspace(workspace.id);
+		if (!current) throw new Error("Missing workspace.");
+		const collection = workspaces.get(workspace.id)?.collectionDocuments[0];
+		if (!collection) throw new Error("Missing collection document.");
+		const state = store.loadCurrentDocumentState(collection.documentId);
+		if (!state) throw new Error("Missing collection state.");
+		store.replaceDocumentStateSchema(
+			collection.documentId,
+			state.revision,
+			{ type: "object", properties: { items: { type: "array" } } },
+			{},
+		);
+		registerServerEvents(appContainer.cradle as ServerEventDeps);
+		const broken = store.updateStructuredWorkspace(
+			workspace.id,
+			current.revision,
+			legacy,
+			current.representationSchema,
+		);
+		expect(workspaces.check(workspace.id).verdict).toBe("not ready");
+		const result = await tool.handler(
+			{
+				action: "update_definition",
+				workspace: workspace.id,
+				expected_workspace_revision: broken.revision,
+				data_schema: schema,
+			},
+			{} as never,
+		);
+		expect(textOf(result)).not.toContain("is incomplete");
+		expect(result.isError).toBeUndefined();
+		expect(workspaces.check(workspace.id).verdict).toBe("ready");
+		expect(store.loadStructuredWorkspaceItem(workspace.id, item.id)).toEqual(
+			rows,
+		);
+		expect(store.loadAnnotations()).toEqual(annotations);
+		expect(workspaces.openItem(workspace.id, item.documentName)?.id).toBe(
+			opened.id,
+		);
+	});
+
 	it("refuses create and update_definition for a collection without identity or with an unusable one, one fix each", async () => {
 		const created = await refusalOf(() =>
 			workspaces.create({ name: "Library", dataSchema: books }),

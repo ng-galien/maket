@@ -322,6 +322,8 @@ interface StructuredWorkspaceSlice {
 }
 
 interface ShellSlice {
+	composerDocName: string | null;
+	setComposerDocName: (name: string | null) => void;
 	libraryView:
 		| "chartes"
 		| "photos"
@@ -826,6 +828,14 @@ export const useStore = create<AppState>((set, get) => ({
 			| "exchange") || "docs",
 	libraryOpen: localStorage.getItem("maket-library-open") !== "false",
 	libraryPinned: localStorage.getItem("maket-library-pinned") === "true",
+	composerDocName: null,
+	setComposerDocName: (composerDocName) =>
+		set(() => ({
+			composerDocName,
+			...(composerDocName
+				? { annotationDocName: null, messageAnchor: null }
+				: {}),
+		})),
 	settingsOpen: false,
 	documentCategoryFilterRequest: null,
 	structuredWorkspaceFilterRequest: null,

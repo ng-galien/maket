@@ -47,7 +47,8 @@ export async function selectDesktopUpdateChannel(
 	if (
 		state.status === "checking" ||
 		state.status === "downloading" ||
-		state.status === "ready"
+		state.status === "ready" ||
+		state.status === "installing"
 	) {
 		return;
 	}

@@ -9,7 +9,7 @@ import {
 	sendSettings,
 	wsSend,
 } from "./store/ws";
-import { fitToView } from "./store/zoomBridge";
+import { fitToDoc, fitToView } from "./store/zoomBridge";
 
 export function installDesktopCommands(): () => void {
 	return (
@@ -97,4 +97,64 @@ export function toggleFocusedDocumentLock(
 		? state.docs.get(state.focusedDocName)
 		: null;
 	if (document) lockDocument(document.name, document.meta?.locked !== true);
+}
+
+/** Choosing a placement tool reveals its page only when it is outside the working surface. */
+export function revealComposerPage(): void {
+	const state = useStore.getState();
+	if (!state.focusedDocName) return;
+	const page = document.querySelector<HTMLElement>(
+		`[data-doc="${CSS.escape(state.focusedDocName)}"] .page-canvas[data-page="${state.focusedPageIndex}"]`,
+	);
+	const surface = document.querySelector<HTMLElement>(
+		"[data-canvas-workspace]",
+	);
+	if (!page || !surface) return;
+	const box = page.getBoundingClientRect();
+	const viewport = surface.getBoundingClientRect();
+	if (
+		box.right <= viewport.left ||
+		box.left >= viewport.right ||
+		box.bottom <= viewport.top ||
+		box.top >= viewport.bottom
+	)
+		fitToDoc(state.focusedDocName, state.focusedPageIndex);
+}
+
+/** Follow the exact page confirmed by an explicit Composer command. */
+export function focusComposerPage(docName: string, pageId: string): void {
+	const navigate = () => {
+		const state = useStore.getState();
+		if (state.focusedDocName !== docName || state.composerDocName !== docName)
+			return true;
+		const index =
+			state.docs.get(docName)?.pages.findIndex((page) => page.id === pageId) ??
+			-1;
+		if (index < 0) return false;
+		state.setFocusedPage(docName, index);
+		requestAnimationFrame(() =>
+			requestAnimationFrame(() => {
+				const current = useStore.getState();
+				if (
+					current.focusedDocName === docName &&
+					current.focusedPageIndex === index
+				)
+					fitToDoc(docName, index);
+			}),
+		);
+		return true;
+	};
+	if (navigate()) return;
+	const stop = useStore.subscribe((state) => {
+		if (
+			state.focusedDocName !== docName ||
+			state.composerDocName !== docName ||
+			state.docs.get(docName)?.pages.some((page) => page.id === pageId)
+		) {
+			stop();
+			clearTimeout(timeout);
+			navigate();
+		}
+	});
+	const timeout = setTimeout(stop, 10_000);
 }

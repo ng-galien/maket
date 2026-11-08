@@ -1,10 +1,11 @@
 const MIN_PANEL_WIDTH = 320;
 const MAX_PANEL_WIDTH = 760;
 
-export type ResizablePanel = "library";
+export type ResizablePanel = "library" | "composer";
 
 const PANEL_WIDTH_KEYS: Record<ResizablePanel, string> = {
 	library: "maket-library-width",
+	composer: "maket-composer-width",
 };
 
 /** Fit a width into the panel range. The minimum wins over the viewport so a
@@ -12,13 +13,13 @@ const PANEL_WIDTH_KEYS: Record<ResizablePanel, string> = {
 export function clampPanelWidth(
 	width: number,
 	viewportWidth = window.innerWidth,
+	panel: ResizablePanel = "library",
 ): number {
+	const minimum = panel === "composer" ? 240 : MIN_PANEL_WIDTH;
 	const available = Number.isFinite(viewportWidth)
-		? Math.max(MIN_PANEL_WIDTH, viewportWidth - 16)
+		? Math.max(minimum, viewportWidth - 16)
 		: MAX_PANEL_WIDTH;
-	const requested = Number.isFinite(width)
-		? Math.max(MIN_PANEL_WIDTH, width)
-		: MIN_PANEL_WIDTH;
+	const requested = Number.isFinite(width) ? Math.max(minimum, width) : minimum;
 	return Math.min(MAX_PANEL_WIDTH, available, requested);
 }
 
@@ -38,8 +39,10 @@ export function loadPanelWidth(
 ): number {
 	const stored = Number(localStorage.getItem(PANEL_WIDTH_KEYS[panel]));
 	return Number.isFinite(stored) && stored > 0
-		? clampPanelWidth(stored, viewportWidth)
-		: initialPanelWidth(viewportWidth);
+		? clampPanelWidth(stored, viewportWidth, panel)
+		: panel === "composer"
+			? clampPanelWidth(320, viewportWidth, panel)
+			: initialPanelWidth(viewportWidth);
 }
 
 export function savePanelWidth(panel: ResizablePanel, width: number): void {

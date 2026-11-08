@@ -35,7 +35,7 @@ interface CollectionNode {
 	id: string;
 	representation: StructuredWorkspaceCollectionRepresentation;
 	documentName?: string;
-	count: number;
+	count?: number;
 	pinned: StructuredWorkspacePinnedItem[];
 }
 
@@ -446,14 +446,16 @@ function StructuredCollectionNode({
 				<span className="min-w-0 flex-1 truncate font-semibold">
 					{collection.representation.name}
 				</span>
-				<span
-					className="shrink-0 text-xs tabular-nums"
-					title={t("structured_collection_item_count", {
-						count: collection.count,
-					})}
-				>
-					{collection.count}
-				</span>
+				{collection.count !== undefined && (
+					<span
+						className="shrink-0 text-xs tabular-nums"
+						title={t("structured_collection_item_count", {
+							count: collection.count,
+						})}
+					>
+						{collection.count}
+					</span>
+				)}
 			</button>
 			{collection.pinned.map((item) => (
 				<div
@@ -513,7 +515,10 @@ function collectionNodes(workspace: StructuredWorkspaceView): CollectionNode[] {
 				id,
 				representation,
 				documentName: document?.documentName,
-				count: workspace.itemCounts[id] ?? 0,
+				count:
+					workspace.dataSource?.kind === "http"
+						? undefined
+						: (workspace.itemCounts[id] ?? 0),
 				pinned: workspace.pinnedItems.filter(
 					(item) => item.collectionId === id,
 				),

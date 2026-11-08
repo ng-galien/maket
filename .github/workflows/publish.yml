@@ -357,6 +357,12 @@ jobs:
           packages/desktop/out/make desktop-artifacts
           ${{ matrix.platform }} ${{ matrix.arch }}
 
+      - name: Sign macOS automatic updates
+        if: runner.os == 'macOS'
+        env:
+          MAKET_UPDATE_PRIVATE_KEY: ${{ secrets.MAKET_UPDATE_PRIVATE_KEY }}
+        run: node scripts/sign-desktop-updates.mjs desktop-artifacts ${{ matrix.arch }}
+
       - uses: actions/upload-artifact@v6
         with:
           name: maket-app-${{ matrix.artifact }}
@@ -382,10 +388,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" desktop-artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
 
-  candidate-feed:
-    name: Deploy candidate update feed
-    if: github.ref_type == 'tag' && needs.preflight.outputs.prerelease == 'true'
-    needs: [preflight, publish, desktop-build]
+  update-feeds:
+    name: Deploy desktop update feeds
+    if: github.ref_type == 'tag'
+    needs: [preflight, publish, desktop-build, desktop-upload]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -417,7 +423,18 @@ jobs:
       - name: Build Pages artifact
         run: npm run build:pages
 
+      - name: Preserve published update feeds
+        run: |
+          npx tsx scripts/preserve-candidate-update-feed.ts docs/updates/candidate
+          npx tsx scripts/prepare-desktop-update-feeds.ts preserve docs/updates
+
+      - name: Prepare automatic desktop feeds
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: npx tsx scripts/prepare-desktop-update-feeds.ts prepare docs/updates desktop-artifacts "$VERSION"
+
       - name: Prepare candidate update feed
+        if: needs.preflight.outputs.prerelease == 'true'
         env:
           VERSION: ${{ needs.preflight.outputs.version }}
         run: npx tsx scripts/prepare-candidate-update-feed.ts desktop-artifacts docs/updates/candidate "$VERSION"
@@ -430,7 +447,7 @@ jobs:
         with:
           path: ./docs
 
-      - name: Deploy candidate feed
+      - name: Deploy desktop update feeds
         id: deployment
         uses: actions/deploy-pages@v5
         env:

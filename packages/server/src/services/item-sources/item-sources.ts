@@ -4,6 +4,8 @@
  * workspace is served by the local connector today.
  */
 
+import { createHttpItemSource } from "./http-item-source.js";
+import { validateDataSource } from "./http-source-definition.js";
 import type { ItemSource } from "./item-source.js";
 import {
 	createLocalItemSource,
@@ -19,19 +21,40 @@ export interface ItemSources {
 
 export type ItemSourcesDeps = LocalItemSourceDeps;
 
+// code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
+// Source registry owns connector selection and lifecycle across provider factories.
 export function createItemSources(deps: ItemSourcesDeps): ItemSources {
 	const open = new Map<string, ItemSource>();
+	const definitions = new Map<string, string>();
 	const sources: ItemSources = {
 		sourceFor(workspaceId) {
+			const workspace = deps.store.loadStructuredWorkspace(workspaceId);
+			const signature = JSON.stringify([
+				workspace?.dataSource,
+				workspace?.dataSchema,
+				workspace?.representationSchema,
+			]);
 			const existing = open.get(workspaceId);
-			if (existing) return existing;
-			const source = createLocalItemSource(deps, workspaceId);
+			if (existing && definitions.get(workspaceId) === signature)
+				return existing;
+			if (existing) void existing.close();
+			if (workspace)
+				validateDataSource(
+					workspace.dataSource,
+					workspace.representationSchema,
+				);
+			const source =
+				workspace?.dataSource?.kind === "http"
+					? createHttpItemSource(deps, workspace, workspace.dataSource)
+					: createLocalItemSource(deps, workspaceId);
+			definitions.set(workspaceId, signature);
 			open.set(workspaceId, source);
 			return source;
 		},
 		async close(workspaceId) {
 			const source = open.get(workspaceId);
 			open.delete(workspaceId);
+			definitions.delete(workspaceId);
 			await source?.close();
 		},
 	};

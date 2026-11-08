@@ -87,7 +87,7 @@ const runtime = new WorkspaceController({
   onSettingsChanged: (settings) => followLanguage(settings.language),
 });
 const updates = new UpdateController({
-  enabled: !isDevelopmentBuild && !isLocalInstallBuild && process.platform !== "linux",
+  enabled: !isDevelopmentBuild && !isLocalInstallBuild,
   disabledReason: isLocalInstallBuild ? "local-build" : "development-build",
   preferences: new UpdatePreferences(settingsPath),
 });

@@ -12,6 +12,7 @@
 import type {
 	StructuredWorkspaceGroupValue,
 	StructuredWorkspaceItemDataIssue,
+	StructuredWorkspaceItemReference,
 } from "@maket/shared";
 
 export interface ItemSourceCapabilities {
@@ -112,6 +113,11 @@ export interface ItemSourceError extends Error {
 }
 
 export interface ItemSource {
+	/** Fetch a requested batch before synchronous rendering; absent for local storage. */
+	prepare?(query: ItemQuery): Promise<void>;
+	/** References for remote records, without a local copy of their data. */
+	reference?(id: string): StructuredWorkspaceItemReference | null;
+	referenceForDocument?(name: string): StructuredWorkspaceItemReference | null;
 	/** What the source supports; the engine never asks for more. */
 	capabilities(): ItemSourceCapabilities;
 	/** One batch of item summaries matching the query, in index order. */

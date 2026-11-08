@@ -37,6 +37,7 @@ import { DocumentOutputButtons } from "./DocumentOutputControls";
 import { Popover } from "./Popover";
 import { PAGE_LINK_EVENT, type PageLinkEvent } from "./page-link-navigation";
 import type { PresentationDataSource } from "./presentation-policy";
+import { Tooltip } from "./shared/Tooltip";
 import { READER_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
 import {
 	collectionPageViews,
@@ -967,15 +968,17 @@ function ReaderZoomControls({
 			>
 				<Minus size={variant === "minimal" ? 14 : 16} />
 			</ReaderButton>
-			<button
-				type="button"
-				title={t("fit")}
-				aria-label={`${t("fit")} — ${percentage}%`}
-				onClick={zoom.reset}
-				className={`${variant === "minimal" ? "h-8 min-w-11 px-1" : "h-9 min-w-14 px-2"} rounded-md text-xs font-semibold tabular-nums text-text-2 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
-			>
-				{percentage}%
-			</button>
+			<Tooltip>
+				<button
+					type="button"
+					title={t("fit")}
+					aria-label={`${t("fit")} — ${percentage}%`}
+					onClick={zoom.reset}
+					className={`${variant === "minimal" ? "h-8 min-w-11 px-1" : "h-9 min-w-14 px-2"} rounded-md text-xs font-semibold tabular-nums text-text-2 transition-colors hover:bg-input hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40`}
+				>
+					{percentage}%
+				</button>
+			</Tooltip>
 			<ReaderButton
 				label={t("zoom_in")}
 				disabled={scale >= maximum}
@@ -1040,8 +1043,8 @@ function ReaderBar({ model }: { model: ReaderBarModel }) {
 				onPageChange={model.onPageChange}
 			/>
 			<div className="mx-0.5 hidden h-6 w-px shrink-0 bg-border sm:block" />
-			<DocumentOutputButtons docName={model.docName} surface="reader" />
 			{doc && <AnnotationToggle doc={doc} />}
+			<DocumentOutputButtons docName={model.docName} surface="reader" />
 			<ReaderButton
 				label={t("close_reader")}
 				onClick={model.onExit}
@@ -1687,16 +1690,18 @@ function ReaderButton({
 	className?: string;
 }) {
 	return (
-		<button
-			type="button"
-			title={label}
-			aria-label={label}
-			disabled={disabled}
-			onClick={onClick}
-			className={`${READER_ICON_BUTTON_CLASS} ${className || "flex"}`}
-		>
-			{children}
-		</button>
+		<Tooltip>
+			<button
+				type="button"
+				title={label}
+				aria-label={label}
+				disabled={disabled}
+				onClick={onClick}
+				className={`${READER_ICON_BUTTON_CLASS} ${className || "flex"}`}
+			>
+				{children}
+			</button>
+		</Tooltip>
 	);
 }
 

@@ -34,6 +34,7 @@ describe("UpdateController", () => {
   it("does not contact the update service for a local installer build", async () => {
     const startUpdates = vi.fn(() => ({ stopUpdates: vi.fn() }));
     const controller = new UpdateController({
+      platform: "win32",
       enabled: false,
       disabledReason: "local-build",
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
@@ -53,6 +54,7 @@ describe("UpdateController", () => {
 
   it("survives an updater that refuses the installation", async () => {
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
       startUpdates: () => {
@@ -69,6 +71,7 @@ describe("UpdateController", () => {
 
   it("still checks manually when the boot loop never left the checking state", async () => {
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
       startUpdates: () => ({ stopUpdates: vi.fn() }),
@@ -84,6 +87,7 @@ describe("UpdateController", () => {
 
   it("treats an unreachable release service as neutral unavailability", async () => {
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
       startUpdates: () => ({ stopUpdates: vi.fn() }),
@@ -117,6 +121,7 @@ describe("UpdateController", () => {
     const stopUpdates = vi.fn();
     const startUpdates = vi.fn(() => ({ stopUpdates }));
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: {
         getChannel: () => channel,
@@ -125,7 +130,7 @@ describe("UpdateController", () => {
         },
       },
       currentVersion: "2.0.0",
-      platform: "darwin",
+
       arch: "arm64",
       startUpdates,
     });
@@ -138,7 +143,7 @@ describe("UpdateController", () => {
     expect(startUpdates).toHaveBeenLastCalledWith(
       expect.objectContaining({
         updateSource: expect.objectContaining({
-          baseUrl: expect.stringContaining("/candidate/darwin/arm64"),
+          baseUrl: expect.stringContaining("/candidate/win32/arm64"),
         }),
       }),
     );
@@ -152,12 +157,15 @@ describe("UpdateController", () => {
   it("does not change channels while an update is being downloaded", () => {
     const setChannel = vi.fn();
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel },
       startUpdates: () => ({ stopUpdates: vi.fn() }),
     });
     controller.start();
-    updater.emit("update-available");
+    updater.emit("update-available", {});
+
+    expect(controller.getState()).toMatchObject({ status: "downloading", version: undefined });
 
     expect(() => controller.setChannel("candidate")).toThrow("cannot change while an update is in progress");
     expect(setChannel).not.toHaveBeenCalled();
@@ -165,6 +173,7 @@ describe("UpdateController", () => {
 
   it("exposes downloaded updates and installs only when ready", () => {
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
       startUpdates: () => ({ stopUpdates: vi.fn() }),
@@ -177,8 +186,9 @@ describe("UpdateController", () => {
     expect(updater.quitAndInstall).toHaveBeenCalledOnce();
   });
 
-  it("invalidates a prepared installation if updater state changes", () => {
+  it("invalidates a prepared installation if updater state changes", async () => {
     const controller = new UpdateController({
+      platform: "win32",
       enabled: true,
       preferences: { getChannel: () => "stable", setChannel: vi.fn() },
       startUpdates: () => ({ stopUpdates: vi.fn() }),
@@ -188,7 +198,23 @@ describe("UpdateController", () => {
     const install = controller.prepareInstall();
     updater.emit("error", new Error("download invalidated"));
 
-    expect(install).toThrow("no longer ready");
+    await expect(install()).rejects.toThrow("no longer ready");
     expect(updater.quitAndInstall).not.toHaveBeenCalled();
+  });
+
+  it("leaves the installing state when the native installer refuses", async () => {
+    const controller = new UpdateController({
+      platform: "win32",
+      enabled: true,
+      preferences: { getChannel: () => "stable", setChannel: vi.fn() },
+      startUpdates: () => ({ stopUpdates: vi.fn() }),
+    });
+    controller.start();
+    updater.emit("update-downloaded", {}, "notes", "3.0.0");
+    updater.quitAndInstall.mockRejectedValueOnce(new Error("Installation refused"));
+
+    await expect(controller.install()).rejects.toThrow("Installation refused");
+
+    expect(controller.getState()).toMatchObject({ status: "unavailable", reason: "service-unavailable" });
   });
 });

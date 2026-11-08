@@ -1,7 +1,7 @@
 {
   "name": "maket-app",
   "productName": "Maket",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "Desktop application for Maket",
   "author": "Alexandre Boyer",
   "repository": {
@@ -21,6 +21,7 @@
     "@maket/runtime": "*",
     "@maket/server": "*",
     "@maket/shared": "*",
+    "electron-updater": "^6.8.11",
     "update-electron-app": "^3.3.0"
   },
   "devDependencies": {
@@ -35,6 +36,7 @@
     "@electron/asar": "^3.4.1",
     "@types/node": "^26.1.2",
     "electron": "^43.7.9",
+    "electron-sparkle-updater": "^0.5.3",
     "typescript": "^7.0.2"
   }
 }

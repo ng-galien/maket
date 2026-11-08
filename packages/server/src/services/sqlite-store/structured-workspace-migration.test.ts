@@ -185,7 +185,7 @@ describe("schema v22: declared identity and insertion sequence", () => {
 		const said = log.mock.calls.map(([line]) => String(line));
 		log.mockRestore();
 
-		expect(rows(raw, "PRAGMA user_version")).toEqual([{ user_version: 22 }]);
+		expect(rows(raw, "PRAGMA user_version")).toEqual([{ user_version: 23 }]);
 		expect(said).toEqual(
 			expect.arrayContaining([
 				'SQLite: Structured Workspace "Plain" collection "items" identifies its items by "/id" (row ids copied there)\n',

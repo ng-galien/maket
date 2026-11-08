@@ -71,8 +71,8 @@ test.describe("Document annotations", () => {
 				`[data-doc="${docName}"] [data-id="wide-review-title"]`,
 			);
 			await expect(title).toBeVisible();
+			await page.getByRole("button", { name: "Annotate", exact: true }).click();
 			await title.click();
-			await page.locator(".tb-comment").click();
 
 			const popover = page.locator("[data-annotation-popover]");
 			await expect(popover).toBeVisible();
@@ -184,8 +184,8 @@ test.describe("Document annotations", () => {
 				).maketDomIdentity = "preserved";
 			});
 
+			await page.getByRole("button", { name: "Annotate", exact: true }).click();
 			await title.click();
-			await page.locator(".tb-comment").click();
 			await page
 				.getByPlaceholder(/Message pour l.agent|Message for the agent/i)
 				.fill(NOTE_TEXT);

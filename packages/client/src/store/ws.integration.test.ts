@@ -1553,3 +1553,56 @@ describe("structured navigation loads", () => {
 		expect(useStore.getState().focusedDocName).toBe("Second");
 	});
 });
+
+describe("placement confirmation", () => {
+	it("settles only the matching server-created id and refuses to guess from other updates", async () => {
+		const { initWs, sendAddPlacedElement } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		const outcome = sendAddPlacedElement("brief", 0, {
+			kind: "text",
+			box: { left: 20, top: 30, width: 80, height: 15 },
+		});
+		const command =
+			socket.lastSent<Extract<WorkspaceCommand, { type: "element_add" }>>();
+		expect(command.requestId).toEqual(expect.any(String));
+		let settled = false;
+		void outcome.then(() => {
+			settled = true;
+		});
+		socket.emit({
+			type: "element_add_result",
+			requestId: "another-client",
+			ok: true,
+			elementId: "wrong",
+		});
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		socket.emit({
+			type: "element_add_result",
+			requestId: String(command.requestId),
+			ok: true,
+			elementId: "text-confirmed",
+		});
+		await expect(outcome).resolves.toMatchObject({
+			ok: true,
+			elementId: "text-confirmed",
+		});
+	});
+	it("settles an in-flight placement when the connection closes", async () => {
+		const { initWs, sendAddPlacedElement } = await freshWsModule();
+		initWs();
+		const socket = MockWebSocket.last();
+		socket.open();
+		const outcome = sendAddPlacedElement("brief", 0, {
+			kind: "frame",
+			box: { left: 20, top: 30, width: 40, height: 40 },
+		});
+		socket.close();
+		await expect(outcome).resolves.toMatchObject({
+			ok: false,
+			error: expect.any(String),
+		});
+	});
+});

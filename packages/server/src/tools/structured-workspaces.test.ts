@@ -16,6 +16,7 @@ import {
 	createItemWindows,
 	type ItemWindows,
 } from "../services/item-windows.js";
+import { createPageComposition } from "../services/page-composition.js";
 import { createSQLiteStore, type Store } from "../services/store.js";
 import {
 	createStructuredWorkspaces,
@@ -874,6 +875,13 @@ function methodHarness() {
 		documents,
 		bus,
 		store,
+		pageComposition: createPageComposition({
+			assets: { exists: () => true },
+			bus,
+			documentRenderer: { render: (document) => document },
+			documents,
+			store,
+		}),
 	} as unknown as DocumentsDeps);
 	const run = async (
 		tool: string,

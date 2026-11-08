@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import type { Locator, Page } from "@playwright/test";
 import type { McpTestClient } from "./mcp-test-client";
@@ -42,20 +43,23 @@ async function pageSizeMm(canvas: Locator): Promise<{ w: number; h: number }> {
 
 /** Element box in mm relative to its page, measured on screen. */
 async function boxMm(
-	canvas: Locator,
+	_canvas: Locator,
 	element: Locator,
 	pageWidthMm: number,
 ): Promise<MmBox> {
-	const pageRect = await canvas.boundingBox();
-	const rect = await element.boundingBox();
-	if (!pageRect || !rect) throw new Error("box missing");
-	const scale = pageWidthMm / pageRect.width;
-	return {
-		left: (rect.x - pageRect.x) * scale,
-		top: (rect.y - pageRect.y) * scale,
-		width: rect.width * scale,
-		height: rect.height * scale,
-	};
+	return element.evaluate((element, widthMm) => {
+		const canvas = element.closest(".page-canvas");
+		if (!canvas) throw new Error("page missing");
+		const pageRect = canvas.getBoundingClientRect();
+		const rect = element.getBoundingClientRect();
+		const scale = widthMm / pageRect.width;
+		return {
+			left: (rect.x - pageRect.x) * scale,
+			top: (rect.y - pageRect.y) * scale,
+			width: rect.width * scale,
+			height: rect.height * scale,
+		};
+	}, pageWidthMm);
 }
 
 function expectBox(actual: MmBox, expected: MmBox, tolerance = 0.6) {
@@ -115,7 +119,7 @@ async function pxPerMm(canvas: Locator, pageWidthMm: number) {
 }
 
 function composeBar(page: Page): Locator {
-	return page.locator("[data-hand-compose-bar]");
+	return page.locator("[data-hand-compose-panel]");
 }
 
 async function focusPage(page: Page, doc: string, index = 0) {
@@ -123,7 +127,42 @@ async function focusPage(page: Page, doc: string, index = 0) {
 	const rect = await canvas.boundingBox();
 	if (!rect) throw new Error("page missing");
 	await page.mouse.click(rect.x + 8, rect.y + rect.height - 8);
+	const toggle = page.locator("[data-composer-toggle]");
+	if ((await toggle.getAttribute("aria-pressed")) !== "true")
+		await toggle.click();
 	await expect(composeBar(page)).toBeVisible();
+}
+
+/** Complete an already armed insertion using an explicit on-page gesture. */
+async function placeElement(
+	page: Page,
+	doc: string,
+	kind: "text" | "image" | "frame",
+	index = 0,
+) {
+	const canvas = pageCanvas(page, doc, index);
+	await expect(canvas).toHaveAttribute("data-hand-placement", kind);
+	const size = await pageSizeMm(canvas);
+	const width = kind === "text" ? 80 : 60;
+	const height = kind === "text" ? 15 : 40;
+	const rect = await canvas.boundingBox();
+	if (!rect) throw new Error("page missing");
+	const scale = rect.width / size.w;
+	const start = {
+		x: rect.x + (kind === "text" ? 10 : 20) * scale,
+		y: rect.y + (kind === "text" ? 32.5 : 20) * scale,
+	};
+	if (kind === "frame")
+		await dragBy(page, start, width * scale, height * scale);
+	else await page.mouse.click(start.x, start.y);
+	if (kind === "text") {
+		const text = canvas.locator('[contenteditable="true"]');
+		await expect(text).toBeFocused();
+		await composeBar(page)
+			.getByRole("button", { name: /Finish typing|Terminer la saisie/ })
+			.click();
+	}
+	await expect(canvas.locator("[data-placed-selection]")).toBeVisible();
 }
 
 /** Bounding box, in mm on a 96 dpi raster, of pixels close to `rgb`. */
@@ -176,6 +215,124 @@ async function rasterBoxMm(
 }
 
 test.describe("Hand editor", () => {
+	test("follows added pages, confirms deletion, and remembers the full-height Composer width", async ({
+		mcp,
+		page,
+	}, testInfo) => {
+		await page.setViewportSize({ width: 1400, height: 1000 });
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: "Composer pages",
+			format: "A4",
+		});
+		await openWorkspace(page);
+		const library = await openLibraryView(page, "docs");
+		await library
+			.getByRole("button", { name: "Composer pages", exact: true })
+			.click();
+		await focusPage(page, "Composer pages");
+		await closeLibrary(page);
+		const panel = page.locator("[data-composer-panel]");
+		const original = await panel.boundingBox();
+		if (!original) throw new Error("Composer missing");
+		expect(original.height).toBeGreaterThan(900);
+		const resize = panel.getByRole("separator", {
+			name: /Resize Composer|Redimensionner Composer/,
+		});
+		await resize.press("ArrowLeft");
+		expect((await panel.boundingBox())?.width).toBeGreaterThan(original.width);
+		await dragBy(page, await centre(resize), -48, 40);
+		const resized = await panel.boundingBox();
+		if (!resized) throw new Error("Composer missing");
+		expect(resized.height).toBe(original.height);
+		expect(resized.width).toBeGreaterThan(original.width + 48);
+		await page.locator("[data-composer-toggle]").click();
+		await page.locator("[data-composer-toggle]").click();
+		expect((await panel.boundingBox())?.width).toBe(resized.width);
+		await page.reload();
+		await focusPage(page, "Composer pages");
+		expect((await panel.boundingBox())?.width).toBe(resized.width);
+		await dragBy(page, await centre(resize), 1000, 0);
+		expect((await panel.boundingBox())?.width).toBe(240);
+		await page.reload();
+		await focusPage(page, "Composer pages");
+		expect((await panel.boundingBox())?.width).toBe(240);
+		await composeBar(page)
+			.getByRole("button", { name: /Add a page|Ajouter une page/ })
+			.click();
+		await expect(
+			composeBar(page).getByRole("combobox", { name: "Page", exact: true }),
+		).toHaveText("Page 2");
+		await expect
+			.poll(async () => {
+				const box = await pageCanvas(page, "Composer pages", 1).boundingBox();
+				return box && box.x >= 0 && box.y >= 0 && box.y + box.height <= 1000;
+			})
+			.toBeTruthy();
+		const pageSelect = composeBar(page).getByRole("combobox", {
+			name: "Page",
+			exact: true,
+		});
+		await pageSelect.click();
+		await expect(
+			page.getByRole("option", { name: "Page 2", exact: true }),
+		).toBeFocused();
+		await page.screenshot({
+			path: testInfo.outputPath("composer-pages-open.png"),
+		});
+		await page.getByRole("option", { name: "Page 1", exact: true }).click();
+		await expect(pageSelect).toHaveText("Page 1");
+		await expect
+			.poll(async () => {
+				const box = await pageCanvas(page, "Composer pages", 0).boundingBox();
+				return box && box.x >= 0 && box.y >= 0 && box.y + box.height <= 1000;
+			})
+			.toBeTruthy();
+		await pageSelect.press("ArrowDown");
+		await page
+			.getByRole("option", { name: "Page 1", exact: true })
+			.press("ArrowDown");
+		await page
+			.getByRole("option", { name: "Page 2", exact: true })
+			.press("Enter");
+		await expect(pageSelect).toHaveText("Page 2");
+		await composeBar(page)
+			.getByRole("button", { name: /^(Delete page|Supprimer la page)$/ })
+			.click();
+		const confirm = composeBar(page).getByRole("button", {
+			name: /Hold to delete the page|Maintenir pour supprimer la page/,
+		});
+		const box = await confirm.boundingBox();
+		if (!box) throw new Error("Confirmation missing");
+		await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+		await page.mouse.down();
+		await expect(
+			composeBar(page).getByRole("combobox", { name: "Page", exact: true }),
+		).toHaveText("Page 1");
+		await page.mouse.up();
+		await expect(
+			composeBar(page).getByRole("button", {
+				name: /^(Delete page|Supprimer la page)$/,
+			}),
+		).toBeDisabled();
+		await expect(pageCanvas(page, "Composer pages", 1)).toHaveCount(0);
+		await pageSelect.click();
+		await page
+			.getByRole("option", { name: "Page 1", exact: true })
+			.press("Escape");
+		await expect(
+			page.getByRole("listbox", { name: "Page", exact: true }),
+		).toHaveCount(0);
+		await expect(pageSelect).toBeFocused();
+		await expect(
+			composeBar(page).getByRole("heading", {
+				name: /Composer|Compose/,
+				exact: true,
+			}),
+		).toHaveCount(0);
+		await page.screenshot({ path: testInfo.outputPath("composer-pages.png") });
+	});
+
 	test("composes a document by hand, the agent takes it over, and the PDF keeps the geometry", async ({
 		baseURL,
 		browser,
@@ -198,10 +355,19 @@ test.describe("Hand editor", () => {
 		});
 		await openWorkspace(page);
 
-		// Criterion 1 — a blank document created from the Documents library.
+		// Criterion 1 — exact category destination, including nested categories.
+		await mcp.call("maket_doc", {
+			action: "new",
+			doc: "Category seed",
+			category: "Exemples/Formats/Affiches",
+			format: "A4",
+			orientation: "portrait",
+		});
 		const library = await openLibraryView(page, "docs");
 		await library
-			.getByRole("button", { name: /^(New document|Nouveau document)$/ })
+			.getByRole("button", {
+				name: /^(New document in|Nouveau document dans) Exemples\/Formats\/Affiches$/,
+			})
 			.click();
 		const nameInput = library.getByPlaceholder(
 			/^(Name of the new document|Nom du nouveau document)$/,
@@ -209,6 +375,16 @@ test.describe("Hand editor", () => {
 		await nameInput.fill(doc);
 		await nameInput.press("Enter");
 		await expect(library.getByText(doc, { exact: true })).toBeVisible();
+		await expect(page.locator("[data-composer-toggle]")).toHaveAttribute(
+			"aria-pressed",
+			"true",
+		);
+		await expect(composeBar(page)).toBeVisible();
+		const identity = await mcp.callText("maket_workspace", {
+			action: "state",
+			doc,
+		});
+		expect(identity).toContain("Exemples/Formats/Affiches");
 		await expect(pageCanvas(page, doc)).toBeVisible();
 		const listed = await mcp.callText("maket_doc", { action: "list" });
 		expect(listed).toContain(`${doc} (A4 portrait`);
@@ -230,14 +406,18 @@ test.describe("Hand editor", () => {
 		// Criterion 3 — format and orientation, persisted across a reload.
 		await focusPage(page, doc);
 		await composeBar(page)
-			.getByLabel(/^Format$/)
-			.selectOption("A5");
+			.getByRole("combobox", { name: "Format", exact: true })
+			.click();
+		await page.getByRole("option", { name: "A5", exact: true }).click();
 		await expect
 			.poll(async () => Math.round((await pageSizeMm(pageCanvas(page, doc))).h))
 			.toBe(210);
 		await composeBar(page)
-			.getByLabel(/^(Orientation)$/)
-			.selectOption("landscape");
+			.getByRole("combobox", { name: "Orientation", exact: true })
+			.click();
+		await page
+			.getByRole("option", { name: /Landscape|Paysage/, exact: true })
+			.click();
 		await expect
 			.poll(async () => {
 				const current = await pageSizeMm(pageCanvas(page, doc));
@@ -268,15 +448,19 @@ test.describe("Hand editor", () => {
 		await bar
 			.getByRole("button", { name: /^(Add a frame|Ajouter un cadre)$/ })
 			.click();
+		await placeElement(page, doc, "frame");
 		await expect(placed(page, doc, "frame")).toHaveCount(1);
 		await bar
 			.getByRole("button", { name: /^(Add an image|Ajouter une image)$/ })
 			.click();
-		await bar.getByRole("option", { name: "hand-hero.svg" }).click();
+		await page.getByRole("option", { name: "hand-hero.svg" }).click();
+		await expect(page.getByRole("listbox")).toHaveCount(0);
+		await placeElement(page, doc, "image");
 		await expect(placed(page, doc, "image")).toHaveCount(1);
 		await bar
 			.getByRole("button", { name: /^(Add text|Ajouter un texte)$/ })
 			.click();
+		await placeElement(page, doc, "text");
 		await expect(placed(page, doc, "text")).toHaveCount(1);
 		for (const prefix of ["frame", "image", "text"])
 			await expect(placed(observer, doc, prefix)).toHaveCount(1);
@@ -351,13 +535,16 @@ test.describe("Hand editor", () => {
 		await bar
 			.getByRole("button", { name: /^(Add a frame|Ajouter un cadre)$/ })
 			.click();
+		await placeElement(page, doc, "frame");
 		await expect(placed(page, doc, "frame")).toHaveCount(2);
 		const extra = placed(page, doc, "frame").nth(1);
 		const extraId = (await extra.getAttribute("data-id")) ?? "";
-		await page.mouse.click((await centre(extra)).x, (await centre(extra)).y);
-		await page.locator(".element-toolbar .tb-delete").click();
+		await expect(
+			canvas.locator(`[data-placed-selection="${extraId}"]`),
+		).toBeVisible();
+		await bar.getByRole("button", { name: /^(Delete|Supprimer)$/ }).click();
 		const hold = page
-			.locator(".element-toolbar")
+			.locator("[data-hand-compose-panel]")
 			.getByRole("button", { name: /Hold to delete|Maintenir pour supprimer/ });
 		const holdCentre = await centre(hold);
 		await page.mouse.move(holdCentre.x, holdCentre.y);
@@ -370,7 +557,7 @@ test.describe("Hand editor", () => {
 
 		// The text block edited in place through text_edit.
 		await text.click();
-		await page.locator(".element-toolbar .tb-edit").click();
+
 		await expect(text).toHaveAttribute("contenteditable", "true");
 		await page.keyboard.press("ControlOrMeta+A");
 		await page.keyboard.type("Fait main");
@@ -444,11 +631,17 @@ test.describe("Hand editor", () => {
 		expect(await text.getAttribute("data-id")).toBe(textId);
 
 		// The agent-edited block stays selectable, movable, resizable, editable.
+		await focusPage(page, doc);
+		await canvas.click({ position: { x: 8, y: 8 } });
 		await page.mouse.click((await centre(text)).x, (await centre(text)).y);
 		await expect(
 			canvas.locator(`[data-placed-selection="${textId}"]`),
 		).toBeVisible();
-		await dragBy(page, await centre(text), 10 * scale, 0);
+		await bar
+			.getByRole("button", { name: "Finish typing", exact: true })
+			.click();
+		const resumedScale = await pxPerMm(canvas, 210);
+		await dragBy(page, await centre(text), 10 * resumedScale, 0);
 		await expect
 			.poll(async () => storedBox(await pageHtml(mcp, doc), textId).left)
 			.toBeGreaterThan(textBox.left + 14);
@@ -457,12 +650,12 @@ test.describe("Hand editor", () => {
 			`[data-placed-selection="${textId}"] [data-resize-handle="e"]`,
 		);
 		await expect(east).toBeVisible();
-		await dragBy(page, await centre(east), -10 * scale, 0);
+		await dragBy(page, await centre(east), -10 * resumedScale, 0);
 		await expect
 			.poll(async () => storedBox(await pageHtml(mcp, doc), textId).width)
 			.toBeLessThan(textBox.width - 9);
 		// Still selected after the resize: the toolbar offers the text edit.
-		await page.locator(".element-toolbar .tb-edit").click();
+		await text.click();
 		await expect(text).toHaveAttribute("contenteditable", "true");
 		await page.keyboard.press("ControlOrMeta+A");
 		await page.keyboard.type("Après reprise");
@@ -475,7 +668,14 @@ test.describe("Hand editor", () => {
 
 		// Frame moved again by hand after the agent's patch.
 		const frameAfterPatch = storedBox(html, frameId);
-		await dragBy(page, await centre(frame), 5 * scale, 0);
+		const frameGrab = await frame.boundingBox();
+		if (!frameGrab) throw new Error("frame missing");
+		await dragBy(
+			page,
+			{ x: frameGrab.x + 5, y: frameGrab.y + frameGrab.height - 5 },
+			5 * resumedScale,
+			0,
+		);
 		await expect
 			.poll(async () => storedBox(await pageHtml(mcp, doc), frameId).left)
 			.toBeGreaterThan(frameAfterPatch.left + 4);
@@ -556,15 +756,15 @@ test.describe("Hand editor", () => {
 		await focusPage(page, doc);
 		const bar = composeBar(page);
 		const format = bar.getByLabel(/^Format$/);
-		await expect(format).toHaveValue("AUTO");
-		await expect(format.locator('option[value="AUTO"]')).toHaveAttribute(
-			"disabled",
-			"",
-		);
+		await expect(format).toHaveText("Auto height");
+		await format.click();
+		await expect(
+			page.getByRole("option", { name: "Auto height", exact: true }),
+		).toBeDisabled();
 		await expect(
 			bar.getByRole("button", { name: /^(Add text|Ajouter un texte)$/ }),
 		).toHaveCount(0);
-		await format.selectOption("A4");
+		await page.getByRole("option", { name: "A4", exact: true }).click();
 		await expect
 			.poll(async () => {
 				const current = await pageSizeMm(pageCanvas(page, doc));
@@ -577,6 +777,7 @@ test.describe("Hand editor", () => {
 		await bar
 			.getByRole("button", { name: /^(Add a frame|Ajouter un cadre)$/ })
 			.click();
+		await placeElement(page, doc, "frame");
 		await expect(placed(page, doc, "frame")).toHaveCount(1);
 		await page.reload();
 		await openWorkspace(page);
@@ -644,4 +845,460 @@ test.describe("Hand editor", () => {
 		expect(refused).toContain("is locked");
 		expect(await pageHtml(mcp, doc)).toBe(html);
 	});
+});
+
+test("keeps Composer explicit, context-sensitive and reversible across existing documents and parent categories", async ({
+	page,
+	mcp,
+}) => {
+	await page.setViewportSize({ width: 1400, height: 1000 });
+	const doc = "Mixed authored document";
+
+	await mcp.call("maket_doc", {
+		action: "new",
+		doc,
+		category: "Exemples/Formats/Affiches",
+		format: "A4",
+		orientation: "portrait",
+	});
+	await mcp.call("maket_html", {
+		action: "set",
+		doc,
+		page: 1,
+		html: '<main data-id="page" style="position:relative;width:100%;height:100%"><h1 data-id="agent-title">Agent title</h1><div data-id="placed-frame" data-noedit="" style="position:absolute;left:20mm;top:40mm;width:60mm;height:30mm;border:1px solid black"></div></main>',
+	});
+	await openWorkspace(page);
+	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await expect(pageCanvas(page, doc)).toBeVisible();
+	await expect(composeBar(page)).toHaveCount(0);
+	await closeLibrary(page);
+	await expect(page.locator("[data-library-panel]")).toHaveCSS("width", "56px");
+	const surface = page.locator("[data-workspace-surface]");
+	const initialWidth = await surface.evaluate(
+		(element) => element.getBoundingClientRect().width,
+	);
+	await pageCanvas(page, doc).locator('[data-id="agent-title"]').click();
+	await expect(page.locator(".element-toolbar")).toHaveCount(0);
+	const toggle = page.locator("[data-composer-toggle]");
+	await toggle.click();
+	await expect(
+		composeBar(page).getByRole("button", { name: "Edit text", exact: true }),
+	).toBeVisible();
+	await composeBar(page).getByText("Dynamic fields", { exact: true }).click();
+	await composeBar(page)
+		.getByRole("combobox", { name: "Use collection placeholder", exact: true })
+		.click();
+	await page.getByRole("option", { name: "page.number", exact: true }).click();
+	await expect.poll(() => pageHtml(mcp, doc)).toContain("{{ page.number }}");
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await expect(composeBar(page)).toBeVisible();
+	await expect
+		.poll(() =>
+			surface.evaluate((element) => element.getBoundingClientRect().width),
+		)
+		.toBeLessThan(initialWidth - 200);
+	await pageCanvas(page, doc).locator('[data-id="placed-frame"]').click();
+	const resize = page.getByRole("separator", {
+		name: "Resize Composer",
+		exact: true,
+	});
+	for (let step = 0; step < 5; step++) await resize.press("ArrowRight");
+	const tools = composeBar(page).locator("[data-composer-tools]");
+	const comment = tools.getByRole("button", { name: "Comment", exact: true });
+	const remove = tools.getByRole("button", { name: "Delete", exact: true });
+	await expect(comment).toHaveText("");
+	await expect(remove).toHaveText("");
+	const toolBox = await tools
+		.getByRole("button", { name: "Add text", exact: true })
+		.boundingBox();
+	const commentBox = await comment.boundingBox();
+	const removeBox = await remove.boundingBox();
+	if (!toolBox || !commentBox || !removeBox)
+		throw new Error("Selection actions missing");
+	expect(commentBox.y + commentBox.height / 2).toBe(
+		toolBox.y + toolBox.height / 2,
+	);
+	expect(removeBox.y + removeBox.height / 2).toBe(
+		toolBox.y + toolBox.height / 2,
+	);
+	expect(commentBox.x).toBeGreaterThan(toolBox.x + toolBox.width);
+	await comment.click();
+	await expect(page.getByPlaceholder("Message for the agent")).toBeFocused();
+	await page.keyboard.press("Escape");
+	await pageCanvas(page, doc).locator('[data-id="placed-frame"]').click();
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add a frame", exact: true }),
+	).toHaveAttribute("data-selected", "true");
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add a frame", exact: true }),
+	).toHaveText("");
+	await expect(composeBar(page)).not.toContainText("Choose a tool");
+	await composeBar(page)
+		.getByText("Position and size", { exact: true })
+		.click();
+	const width = composeBar(page).getByLabel("Width (mm)", { exact: true });
+	await expect(
+		page.getByText("Focus: Mixed authored document", { exact: true }),
+	).not.toBeVisible();
+	await page.screenshot({
+		animations: "disabled",
+		path: test.info().outputPath("composer-geometry.png"),
+	});
+	await width.fill("70");
+	await width.press("Tab");
+	await expect.poll(() => pageHtml(mcp, doc)).toContain("width:70mm");
+	await pageCanvas(page, doc).locator('[data-id="agent-title"]').click();
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add text", exact: true }),
+	).toHaveAttribute("data-selected", "true");
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add a frame", exact: true }),
+	).not.toHaveAttribute("data-selected");
+	await expect(
+		composeBar(page).getByRole("button", {
+			name: "Finish typing",
+			exact: true,
+		}),
+	).toBeVisible();
+	await expect(width).toHaveCount(0);
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add text", exact: true }),
+	).toBeVisible();
+	await page.screenshot({
+		animations: "disabled",
+		path: test.info().outputPath("composer-text-edit.png"),
+	});
+	await composeBar(page)
+		.getByRole("button", { name: "Finish typing", exact: true })
+		.click();
+	await composeBar(page).getByText("Dynamic fields", { exact: true }).click();
+	await composeBar(page)
+		.getByRole("combobox", { name: "Use collection placeholder", exact: true })
+		.click();
+	await expect(
+		page.getByRole("option", { name: "page.number", exact: true }),
+	).toBeVisible();
+	await page
+		.getByRole("option", { name: "page.number", exact: true })
+		.press("Escape");
+	await pageCanvas(page, doc).click({ position: { x: 8, y: 8 } });
+	await expect(composeBar(page)).toBeVisible();
+	await expect(page.locator("[data-composer-selection]")).toHaveCount(0);
+	await expect(
+		composeBar(page).getByRole("button", {
+			name: "Finish typing",
+			exact: true,
+		}),
+	).toHaveCount(0);
+	await page.locator("[data-composer-toggle]").click();
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(composeBar(page)).toHaveCount(0);
+	await expect
+		.poll(() =>
+			surface.evaluate((element) => element.getBoundingClientRect().width),
+		)
+		.toBe(initialWidth);
+	const library = await openLibraryView(page, "docs");
+	await library
+		.getByRole("button", {
+			name: "New document in Exemples/Formats",
+			exact: true,
+		})
+		.click();
+	const input = library.getByPlaceholder("Name of the new document");
+	await input.fill("Parent category creation");
+	await input.press("Enter");
+	await expect(composeBar(page)).toBeVisible();
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	expect(
+		await mcp.callText("maket_workspace", {
+			action: "state",
+			doc: "Parent category creation",
+		}),
+	).toContain("Exemples/Formats");
+	await library
+		.getByRole("button", { name: `View ${doc}`, exact: true })
+		.click();
+	await expect(composeBar(page)).toHaveCount(0);
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await toggle.click();
+	await mcp.call("maket_workspace", { action: "lock", doc, locked: true });
+	await expect(composeBar(page).getByRole("status")).toContainText(
+		"Document locked",
+	);
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add text", exact: true }),
+	).toBeDisabled();
+});
+
+test("explains why a generated flowing page cannot be composed", async ({
+	mcp,
+	page,
+}) => {
+	const doc = "Flowing Composer guard";
+	await mcp.call("maket_doc", {
+		action: "new",
+		doc,
+		format: "A6",
+		orientation: "portrait",
+	});
+	await mcp.call("maket_state", {
+		action: "init",
+		doc,
+		schema: {
+			type: "object",
+			properties: {
+				rows: {
+					type: "array",
+					items: {
+						type: "object",
+						properties: { title: { type: "string" } },
+						required: ["title"],
+					},
+				},
+			},
+			required: ["rows"],
+		},
+		data: {
+			rows: Array.from({ length: 12 }, (_, index) => ({
+				title: `Row ${index + 1}`,
+			})),
+		},
+	});
+	await mcp.call("maket_html", {
+		action: "set",
+		doc,
+		page: 1,
+		html: '<main data-id="page"><ol data-id="rows" style="margin:0;padding:0">{{#state.rows}}<li style="height:30mm">{{title}}</li>{{/state.rows}}</ol></main>',
+	});
+	await openWorkspace(page);
+	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await expect(pageCanvas(page, doc, 1)).toHaveCount(1, { timeout: 20_000 });
+	await expect(pageCanvas(page, doc, 1)).toBeVisible();
+	await closeLibrary(page);
+	await pageCanvas(page, doc, 1).click({ position: { x: 8, y: 8 } });
+	await page.locator("[data-composer-toggle]").click();
+	await expect(composeBar(page).getByRole("status")).toContainText(
+		"Generated continuation page",
+	);
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add text", exact: true }),
+	).toBeDisabled();
+	await expect(page.locator("[data-placed-selection]")).toHaveCount(0);
+});
+
+test("keeps the standalone viewer free of Composer controls and placed handles", async ({
+	page,
+}) => {
+	await page.goto("/viewer.html");
+	await page.setInputFiles(
+		'input[type="file"]',
+		fileURLToPath(new URL("./fixtures/viewer-sample.maket", import.meta.url)),
+	);
+	const doc = page.locator('[data-doc="poster"]');
+	await expect(doc).toBeVisible();
+	await doc.getByText("Grand Cru Smoked Salmon", { exact: true }).click();
+	await expect(
+		page.locator(
+			"[data-composer-toggle], [data-composer-panel], [data-placed-selection], .element-toolbar",
+		),
+	).toHaveCount(0);
+});
+
+test("arms placement without creating, types at the chosen point, and leaves other clients in consultation", async ({
+	page,
+	mcp,
+	browser,
+	baseURL,
+}) => {
+	const doc = "Explicit placement journey";
+	await page.setViewportSize({ width: 1400, height: 1000 });
+	await page.emulateMedia({ colorScheme: "dark" });
+	await mcp.call("maket_doc", {
+		action: "new",
+		doc,
+		format: "A4",
+		orientation: "portrait",
+	});
+	await openWorkspace(page);
+	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await closeLibrary(page);
+	await expect(page.locator("[data-library-panel]")).toHaveCSS("width", "56px");
+	await page.locator("[data-composer-toggle]").click();
+	const bar = composeBar(page);
+	const textTool = bar.getByRole("button", { name: "Add text", exact: true });
+	const initial = await pageHtml(mcp, doc);
+	await textTool.click();
+	await expect(textTool).toHaveAttribute("aria-pressed", "true");
+	await expect(bar.getByRole("status")).toHaveCount(0);
+	expect(await pageHtml(mcp, doc)).toBe(initial);
+	await textTool.press("Escape");
+	await expect(textTool).toHaveAttribute("aria-pressed", "false");
+	expect(await pageHtml(mcp, doc)).toBe(initial);
+	await textTool.click();
+	await textTool.click();
+	await expect(textTool).toHaveAttribute("aria-pressed", "false");
+	expect(await pageHtml(mcp, doc)).toBe(initial);
+	const context = await browser.newContext({ baseURL });
+	const observer = await context.newPage();
+	await openWorkspace(observer);
+	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await expect(pageCanvas(observer, doc)).toBeVisible();
+	await textTool.click();
+	const canvas = pageCanvas(page, doc);
+	const rect = await canvas.boundingBox();
+	if (!rect) throw new Error("missing canvas");
+	await page.mouse.click(
+		rect.x + (rect.width * 20) / 210,
+		rect.y + (rect.width * 25) / 210,
+	);
+	const editor = canvas.locator('[contenteditable="true"]');
+	await expect(editor).toBeFocused();
+	await expect(canvas.locator("[data-placed-selection]")).toBeVisible();
+	await expect(textTool).toHaveAttribute("aria-pressed", "false");
+	await expect(bar.getByLabel("Use collection placeholder")).not.toBeVisible();
+	expect(
+		await editor.evaluate((element) => getComputedStyle(element).color),
+	).toBe("rgb(31, 41, 55)");
+	await editor.fill("Placed directly where I clicked.");
+	await bar.getByRole("button", { name: "Finish typing", exact: true }).click();
+	await expect
+		.poll(() => pageHtml(mcp, doc))
+		.toContain("Placed directly where I clicked.");
+	await expect(
+		pageCanvas(observer, doc).getByText("Placed directly where I clicked."),
+	).toBeVisible();
+	await expect(
+		observer.locator('[contenteditable="true"], [data-placed-selection]'),
+	).toHaveCount(0);
+	const id = await placed(page, doc, "text").getAttribute("data-id");
+	if (!id) throw new Error("missing placed id");
+	expectBox(storedBox(await pageHtml(mcp, doc), id), {
+		left: 20,
+		top: 25,
+		width: 80,
+		height: 15,
+	});
+	await placed(page, doc, "text").click();
+	await expect(editor).toBeFocused();
+	await editor.fill("One click edits this text.");
+	await canvas.click({ position: { x: 8, y: 8 } });
+	await expect
+		.poll(() => pageHtml(mcp, doc))
+		.toContain("One click edits this text.");
+	await placed(page, doc, "text").click();
+	await expect(
+		bar.getByRole("button", { name: "Finish typing", exact: true }),
+	).toBeVisible();
+	await bar.getByRole("button", { name: "Cancel", exact: true }).click();
+	await bar.getByRole("button", { name: "Add an image", exact: true }).click();
+	await expect(page.locator("[data-composer-image-picker]")).toBeVisible();
+	await page
+		.getByRole("button", { name: "Close image picker" })
+		.press("Escape");
+	await expect(page.getByRole("listbox")).toHaveCount(0);
+	await textTool.click();
+	await page.locator("[data-composer-toggle]").click();
+	await page.locator("[data-composer-toggle]").click();
+	await expect(textTool).toHaveAttribute("aria-pressed", "false");
+	await page.screenshot({
+		path: test.info().outputPath("composer-placement-dark.png"),
+	});
+	await context.close();
+});
+
+test("finds images in a larger library without clipping or an extra confirmation", async ({
+	page,
+	mcp,
+}, testInfo) => {
+	test.setTimeout(120_000);
+	await page.setViewportSize({ width: 1280, height: 720 });
+	const imagePath = testInfo.outputPath("library-source.svg");
+	await mkdir(dirname(imagePath), { recursive: true });
+	await writeFile(
+		imagePath,
+		'<svg xmlns="http://www.w3.org/2000/svg" width="160" height="100"><rect width="160" height="100" fill="#356579"/></svg>',
+	);
+	for (let index = 1; index <= 65; index++)
+		await mcp.call("maket_image", {
+			action: "import",
+			path: imagePath,
+			filename:
+				index === 65 ? "recherche & détail #65.svg" : `library-${index}.svg`,
+			title: `Library image ${index}`,
+			category: index % 2 ? "Nature/Mountains" : "Places/Cities",
+			tags: index === 65 ? ["needle-tag"] : [],
+		});
+	const doc = "Large image picker journey";
+	await mcp.call("maket_doc", {
+		action: "new",
+		doc,
+		format: "A4",
+		orientation: "portrait",
+	});
+	await openWorkspace(page);
+	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await closeLibrary(page);
+	await page.locator("[data-composer-toggle]").click();
+	await composeBar(page)
+		.getByRole("button", { name: "Add an image", exact: true })
+		.click();
+	const picker = page.locator("[data-composer-image-picker]");
+	const search = picker.getByLabel("Search images…", { exact: true });
+	await expect(search).toBeFocused();
+	await expect(picker.getByRole("listbox").getByRole("option")).toHaveCount(40);
+	await expect(picker.getByRole("status")).toHaveText(
+		"Showing 40 of 65 images",
+	);
+	const bounds = await picker.boundingBox();
+	if (!bounds) throw new Error("picker missing");
+	expect(bounds.x).toBeGreaterThanOrEqual(8);
+	expect(bounds.y).toBeGreaterThanOrEqual(8);
+	expect(bounds.x + bounds.width).toBeLessThanOrEqual(1280 - 8);
+	expect(bounds.y + bounds.height).toBeLessThanOrEqual(720 - 8);
+	await page.screenshot({
+		path: testInfo.outputPath("composer-library-65-images.png"),
+	});
+	await picker.getByRole("button", { name: "Show more images" }).click();
+	await expect(picker.getByRole("listbox").getByRole("option")).toHaveCount(65);
+	await picker.getByLabel("Image category").selectOption("Nature");
+	await expect(picker.getByRole("listbox").getByRole("option")).toHaveCount(33);
+	await search.fill("library-23.svg");
+	await expect(picker.getByRole("listbox").getByRole("option")).toHaveCount(1);
+	await expect(
+		picker
+			.getByRole("listbox")
+			.getByRole("option", { name: "Library image 23", exact: true }),
+	).toBeVisible();
+	await search.fill("needle-tag");
+	const chosen = picker.getByRole("listbox").getByRole("option", {
+		name: "Library image 65",
+		exact: true,
+	});
+	await expect(chosen).toBeVisible();
+	await expect
+		.poll(() =>
+			chosen
+				.locator("img")
+				.evaluate(
+					(image: HTMLImageElement) => image.complete && image.naturalWidth > 0,
+				),
+		)
+		.toBe(true);
+	await chosen.click();
+	await expect(picker).toHaveCount(0);
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add an image", exact: true }),
+	).toHaveAttribute("aria-pressed", "true");
+	await placeElement(page, doc, "image");
+	await expect(placed(page, doc, "image")).toHaveCount(1);
+	await composeBar(page)
+		.getByRole("button", { name: "Add an image", exact: true })
+		.click();
+	await expect(search).toBeFocused();
+	await search.press("Escape");
+	await expect(picker).toHaveCount(0);
+	await expect(
+		composeBar(page).getByRole("button", { name: "Add an image", exact: true }),
+	).toBeFocused();
 });

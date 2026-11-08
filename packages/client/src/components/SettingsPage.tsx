@@ -13,7 +13,6 @@ import {
 	RefreshCw,
 	RotateCcw,
 	Sun,
-	X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import {
@@ -52,7 +51,6 @@ const ACCENT_PRESETS = [
 export function SettingsPage() {
 	const t = useT();
 	const mobile = useStore((state) => state.mobileReading);
-	const closeSettings = useStore((state) => state.closeSettings);
 
 	return (
 		<main
@@ -74,16 +72,6 @@ export function SettingsPage() {
 							</p>
 						)}
 					</div>
-					<button
-						type="button"
-						onClick={closeSettings}
-						aria-label={t("close_settings")}
-						title={t("close_settings")}
-						className="flex h-9 shrink-0 items-center gap-2 rounded-sm border border-border bg-input px-3 text-sm font-semibold text-text-2 transition-colors hover:border-border-hover hover:text-text-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-					>
-						<X size={16} strokeWidth={2.25} />
-						<span>{t("close")}</span>
-					</button>
 				</div>
 			</header>
 
@@ -696,7 +684,10 @@ function WorkspaceSettings() {
 function UpdateSettings() {
 	const t = useT();
 	const update = useDesktopUpdates();
-	const busy = update.status === "checking" || update.status === "downloading";
+	const busy =
+		update.status === "checking" ||
+		update.status === "downloading" ||
+		update.status === "installing";
 	const channelLocked = busy || update.status === "ready";
 	return (
 		<SettingsSection

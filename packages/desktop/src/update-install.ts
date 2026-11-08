@@ -1,5 +1,5 @@
 interface UpdateInstallationOptions {
-  prepareInstall: () => () => void;
+  prepareInstall: () => () => void | Promise<void>;
   stopRuntime: () => Promise<void>;
   startRuntime: () => Promise<void>;
   setQuitting: (quitting: boolean) => void;
@@ -17,7 +17,7 @@ export async function installDesktopUpdate({
   try {
     await stopRuntime();
     runtimeStopped = true;
-    install();
+    await install();
   } catch (error) {
     setQuitting(false);
     if (runtimeStopped) {

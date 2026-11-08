@@ -51,6 +51,7 @@ export type DesktopUpdateStatus =
 	| "available"
 	| "downloading"
 	| "ready"
+	| "installing"
 	| "up-to-date"
 	| "unavailable"
 	| "error";

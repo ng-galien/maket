@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AutoUnpackNativesPlugin } from "@electron-forge/plugin-auto-unpack-natives";
@@ -44,6 +44,15 @@ export default {
     asar: true,
     name: "Maket",
     executableName: "Maket",
+    extendInfo: {
+      SUPublicEDKey: readFileSync(join(desktopDir, "update-public-key.txt"), "utf8").trim(),
+      SUFeedURL:
+        "https://ng-galien.github.io/maket/updates/stable/darwin/" +
+        (process.env.MAKET_DESKTOP_ARCH ?? process.arch) +
+        "/appcast.xml",
+      SUEnableAutomaticChecks: false,
+      SUVerifyUpdateBeforeExtraction: true,
+    },
     appBundleId: "io.github.ng-galien.maket",
     icon: "./assets/icon",
     ignore: [/^\/(?:\.desktop-host|assets|node_modules|out|src)(?:\/|$)/, /^\/(?:forge\.config\.mjs|tsconfig\.json)$/],
@@ -54,6 +63,7 @@ export default {
       "../../plugin/codex/skills/maket",
       "assets/icon.png",
       "assets/maket-claude-desktop.mcpb",
+      "assets/app-update.yml",
       ...(localInstall ? ["assets/local-install"] : []),
     ],
     afterCopy: [
@@ -71,6 +81,16 @@ export default {
         try {
           if (platform === "darwin") {
             const appPath = join(buildPath, "Maket.app");
+            const sparkle = join(repositoryNodeModules, "electron-sparkle-updater", "native");
+            cpSync(
+              join(sparkle, "vendor", "Sparkle.framework"),
+              join(appPath, "Contents", "Frameworks", "Sparkle.framework"),
+              { recursive: true, verbatimSymlinks: true },
+            );
+            cpSync(
+              join(sparkle, "build", "Release", "sparkle_bridge.node"),
+              join(appPath, "Contents", "Resources", "sparkle_bridge.node"),
+            );
             execFileSync("codesign", ["--force", "--deep", "--sign", "-", "--timestamp=none", appPath], {
               stdio: "inherit",
             });

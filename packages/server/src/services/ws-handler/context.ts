@@ -35,7 +35,8 @@ export interface WsHandlerDeps {
 	documentStateMutations: DocumentStateMutations;
 	documentStates: DocumentStates;
 	documents: Documents;
-	itemWindows: Pick<ItemWindows, "current" | "query">;
+	itemWindows: Pick<ItemWindows, "current" | "query"> &
+		Partial<Pick<ItemWindows, "prepare">>;
 	pending: Annotations;
 	settings: SettingsService;
 	store: Store;

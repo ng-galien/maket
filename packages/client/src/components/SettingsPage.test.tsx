@@ -98,7 +98,7 @@ describe("SettingsPage", () => {
 		dispose();
 	});
 
-	it("keeps a legible close action outside the scrolling settings content", () => {
+	it("keeps the heading outside the scrolling settings content", () => {
 		render(<SettingsPage />);
 
 		const page = document.querySelector("[data-settings-page]");
@@ -106,14 +106,13 @@ describe("SettingsPage", () => {
 		const scrollRegion = document.querySelector(
 			"[data-settings-scroll-region]",
 		);
-		const close = screen.getByRole("button", { name: "Close settings" });
 
 		expect(page).toHaveClass("overflow-hidden", "bg-panel");
 		expect(header).toHaveClass("shrink-0", "bg-panel");
 		expect(scrollRegion).toHaveClass("overflow-y-auto");
-		expect(scrollRegion).not.toContainElement(close);
-		expect(close).toHaveClass("border", "bg-input", "text-text-2");
-		expect(close).toHaveTextContent("Close");
+		expect(scrollRegion).not.toContainElement(
+			screen.getByRole("heading", { name: "Settings" }),
+		);
 	});
 
 	it("applies theme and accent choices immediately", async () => {
@@ -134,7 +133,7 @@ describe("SettingsPage", () => {
 		).toBe("#0284c7");
 	});
 
-	it("moves automatic repositioning into settings and closes cleanly", async () => {
+	it("changes automatic repositioning in settings", async () => {
 		const user = userEvent.setup();
 		render(<SettingsPage />);
 
@@ -149,9 +148,6 @@ describe("SettingsPage", () => {
 			"aria-pressed",
 			"true",
 		);
-
-		await user.click(screen.getByRole("button", { name: "Close settings" }));
-		expect(useStore.getState().settingsOpen).toBe(false);
 	});
 
 	it("offers a persistent top or bottom position for the document bar", async () => {

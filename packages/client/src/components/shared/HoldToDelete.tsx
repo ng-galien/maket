@@ -4,6 +4,7 @@ import { useT } from "../../i18n/useT";
 
 interface Props {
 	label: string;
+	compact?: boolean;
 	onConfirm: () => void;
 	onCancel: () => void;
 }
@@ -13,7 +14,12 @@ interface Props {
  * Used in place of window.confirm throughout the app — see
  * Follows the "No window.prompt / window.confirm" interaction invariant.
  */
-export function HoldToDelete({ label, onConfirm, onCancel }: Props) {
+export function HoldToDelete({
+	label,
+	onConfirm,
+	onCancel,
+	compact = false,
+}: Props) {
 	const t = useT();
 	const HOLD_MS = 650;
 	const [progress, setProgress] = useState(0);
@@ -67,20 +73,22 @@ export function HoldToDelete({ label, onConfirm, onCancel }: Props) {
 	}, [onCancel]);
 
 	return (
-		<div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-danger-soft text-danger">
+		<div
+			className={`flex items-center gap-2 rounded-md bg-danger-soft text-danger ${compact ? "h-9 w-full px-2" : "px-3 py-2"}`}
+		>
 			<button
 				type="button"
 				onPointerDown={begin}
 				onPointerUp={end}
 				onPointerLeave={end}
 				onPointerCancel={end}
-				className="relative flex-1 min-w-0 flex items-center gap-2.5 py-1 select-none text-left focus:outline-none"
+				className={`relative flex-1 min-w-0 flex items-center select-none text-left focus:outline-none ${compact ? "h-9 gap-2" : "gap-2.5 py-1"}`}
 			>
 				<div
-					className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-danger/15"
+					className={`flex items-center justify-center flex-shrink-0 ${compact ? "" : "w-7 h-7 rounded-md bg-danger/15"}`}
 					style={{ transform: `scale(${1 + progress * 0.08})` }}
 				>
-					<Trash2 size={13} />
+					<Trash2 size={compact ? 16 : 13} />
 				</div>
 				<span className="relative flex-1 truncate text-sm font-semibold">
 					{label}

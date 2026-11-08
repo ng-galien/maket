@@ -26,6 +26,11 @@ describe("candidate update feed", () => {
       writeArtifact(artifacts, "maket-app-windows-x64", "maket_app-2.0.0-rc1-full.nupkg", "package"),
       writeArtifact(artifacts, "maket-app-windows-x64", "Maket-2.0.0-rc.1 Setup.exe", "installer"),
       writeArtifact(artifacts, "maket-app-windows-x64", "Maket-Windows-x64-Setup.exe", "canonical-installer"),
+      writeArtifact(output, "darwin/x64", "appcast.xml", "sparkle-x64"),
+      writeArtifact(output, "darwin/arm64", "appcast.xml", "sparkle-arm64"),
+      writeArtifact(output, "linux/x64", "latest-linux.yml", "linux-feed"),
+      writeArtifact(output, "darwin/x64", "previous.zip", "obsolete"),
+      writeArtifact(output, "win32/x64", "previous-full.nupkg", "obsolete"),
     ]);
 
     await prepareCandidateUpdateFeed({
@@ -57,6 +62,12 @@ describe("candidate update feed", () => {
     await expect(readFile(join(output, "win32", "x64", "Maket-Windows-x64-Setup.exe"), "utf8")).resolves.toBe(
       "canonical-installer",
     );
+    for (const arch of ["x64", "arm64"]) {
+      await expect(readFile(join(output, "darwin", arch, "appcast.xml"), "utf8")).resolves.toBe(`sparkle-${arch}`);
+    }
+    await expect(readFile(join(output, "linux/x64/latest-linux.yml"), "utf8")).resolves.toBe("linux-feed");
+    await expect(readFile(join(output, "darwin/x64/previous.zip"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(join(output, "win32/x64/previous-full.nupkg"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects stable versions and incomplete artifact sets", async () => {
@@ -86,7 +97,7 @@ describe("candidate update feed", () => {
     const pagesWorkflow = await readFile(resolve(import.meta.dirname, "../../../.github/workflows/pages.yml"), "utf8");
     expect(workflow).toContain("npm publish --access public --tag next");
     expect(workflow).toContain("RELEASE_ARGS+=(--prerelease)");
-    expect(workflow).toContain("candidate-feed:");
+    expect(workflow).toContain("update-feeds:");
     expect(workflow).toContain("prepare-candidate-update-feed.ts");
     expect(pagesWorkflow).toContain("preserve-candidate-update-feed.ts");
   });
@@ -176,7 +187,7 @@ describe("candidate update feed", () => {
     const publish = workflow.indexOf("  publish:");
     const desktopBuild = workflow.indexOf("  desktop-build:");
     const desktopUpload = workflow.indexOf("  desktop-upload:");
-    const candidateFeed = workflow.indexOf("  candidate-feed:");
+    const candidateFeed = workflow.indexOf("  update-feeds:");
     expect(preflight).toBeGreaterThan(-1);
     expect(publish).toBeGreaterThan(-1);
     expect(desktopBuild).toBeGreaterThan(-1);
@@ -201,7 +212,7 @@ describe("candidate update feed", () => {
     expect(publishBody).toContain("npm ci --no-audit");
     expect(desktopBuildHeader).toContain("needs: preflight");
     expect(desktopUploadHeader).toContain("needs: [publish, desktop-build]");
-    expect(candidateFeedHeader).toContain("needs: [preflight, publish, desktop-build]");
+    expect(candidateFeedHeader).toContain("needs: [preflight, publish, desktop-build, desktop-upload]");
 
     const releaseNotes = spawnSync(
       process.execPath,

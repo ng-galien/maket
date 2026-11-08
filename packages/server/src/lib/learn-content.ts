@@ -1082,7 +1082,11 @@ const AGENT_CONTENT: Record<LearnTopic, LearnDocument> = {
 		),
 	),
 	"structured-workspaces": document(
-		'A Workspace is the aggregate root for its schemas, templates, collections and their index documents, and item documents. Its items live in its data source (Maket\'s internal source today), one row per item with its data and a revision; an item document only renders an item and exists once the item is opened, pinned, annotated or exported. Build one with the method below: follow its steps in order, read every answer, and do not tell the user the Workspace works before `check` answers `"verdict": "ready"`.',
+		'A Workspace is the aggregate root for its schemas, templates, collections and their index documents, and item documents. Its items live in its data source (Maket\'s internal storage or a declared HTTP source), one row per item with its data and a revision; an item document only renders an item and exists once the item is opened, pinned, annotated or exported. Build one with the method below: follow its steps in order, read every answer, and do not tell the user the Workspace works before `check` answers `"verdict": "ready"`.',
+		section(
+			"HTTP source (read increment)",
+			"An HTTP workspace reads a declared JSON API through view and the index; opening a card rereads its detail endpoint. It is read-only: edit records at the source, and reopen a detail or repeat view to refresh. No polling or webhook runs in this increment. create/update_definition accept data_source; see maket_structured_workspace for its exact schema. Declare one collection/binding with identity and sortBy. list maps path, text/cursor/limit/sort/filter parameter names and items/next/optional total pointers; sort and filters are JSON parameter values. get maps a path containing {id} and an optional dataPointer. auth is an env:NAME reference to a bearer token; never put credentials in the definition. Server cursors and revisions remain opaque strings. Unknown totals are omitted; check diagnoses the fetched window and opened documents without scanning unseen HTTP pages. The local add_item method below applies to internal storage. HTTP .maket portability, source writes, polling and webhooks need later increments.",
+		),
 		section(
 			"Method",
 			"Three paths, in this order of preference. Every path ends with add_item and check. Each step gives the exact JSON call, every parameter with its type, what the answer contains verbatim, and what to verify before the next step.",

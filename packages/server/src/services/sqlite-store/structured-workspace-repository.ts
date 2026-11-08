@@ -1,6 +1,7 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type {
 	StructuredWorkspaceDataSchema,
+	StructuredWorkspaceDataSource,
 	StructuredWorkspaceDefinition,
 	StructuredWorkspaceItemReference,
 	StructuredWorkspaceRepresentationSchema,
@@ -19,6 +20,7 @@ export interface NewStructuredWorkspace {
 	id: string;
 	name: string;
 	description?: string;
+	dataSource?: StructuredWorkspaceDataSource;
 	dataSchema: StructuredWorkspaceDataSchema;
 	representationSchema: StructuredWorkspaceRepresentationSchema;
 }
@@ -106,6 +108,7 @@ export interface StructuredWorkspaceRepository {
 		expectedRevision: number,
 		dataSchema: StructuredWorkspaceDataSchema,
 		representationSchema: StructuredWorkspaceRepresentationSchema,
+		dataSource?: StructuredWorkspaceDataSource,
 	): StructuredWorkspaceDefinition;
 	/** Insert an item last in its collection under the next value of the
 	 * collection's sequence counter, at revision 1 unless given. A sequence is
@@ -136,6 +139,7 @@ interface WorkspaceRow {
 	name: string;
 	description: string | null;
 	data_schema: string;
+	data_source: string | null;
 	representation_schema: string;
 	revision: number;
 	created_at: string;
@@ -198,6 +202,9 @@ export function createStructuredWorkspaceRepository(
 				id: workspace.id,
 				name: workspace.name,
 				description: workspace.description ?? null,
+				data_source: workspace.dataSource
+					? JSON.stringify(workspace.dataSource)
+					: null,
 				data_schema: JSON.stringify(workspace.dataSchema),
 				representation_schema: JSON.stringify(workspace.representationSchema),
 			});
@@ -216,7 +223,10 @@ export function createStructuredWorkspaceRepository(
 		},
 		loadOpenedStructuredWorkspaceItems(workspaceId) {
 			return (
-				statements.itemsOpened.all(workspaceId) as unknown as Array<
+				statements.itemsOpened.all(
+					workspaceId,
+					workspaceId,
+				) as unknown as Array<
 					ItemRow & {
 						pinned_at: string | null;
 						locked: number | null;
@@ -266,6 +276,7 @@ export function createStructuredWorkspaceRepository(
 			expectedRevision,
 			dataSchema,
 			representationSchema,
+			dataSource,
 		) {
 			const current = statements.workspaceSelectOne.get(reference, reference) as
 				| WorkspaceRow
@@ -275,6 +286,10 @@ export function createStructuredWorkspaceRepository(
 			const result = statements.workspaceUpdate.run({
 				id: current.id,
 				expected_revision: expectedRevision,
+				data_source:
+					dataSource === undefined
+						? current.data_source
+						: JSON.stringify(dataSource),
 				data_schema: JSON.stringify(dataSchema),
 				representation_schema: JSON.stringify(representationSchema),
 			});
@@ -448,9 +463,9 @@ function prepareStatements(db: DatabaseSync): Statements {
 	return {
 		workspaceInsert: db.prepare(`
 			INSERT INTO structured_workspaces
-				(id, name, description, data_schema, representation_schema, revision)
+				(id, name, description, data_schema, representation_schema, data_source, revision)
 			VALUES
-				($id, $name, $description, $data_schema, $representation_schema, 1)
+				($id, $name, $description, $data_schema, $representation_schema, $data_source, 1)
 		`),
 		workspaceSelectOne: db.prepare(
 			"SELECT * FROM structured_workspaces WHERE id = ? OR name = ?",
@@ -460,7 +475,7 @@ function prepareStatements(db: DatabaseSync): Statements {
 		),
 		workspaceUpdate: db.prepare(`
 			UPDATE structured_workspaces
-			SET data_schema = $data_schema,
+			SET data_source = $data_source, data_schema = $data_schema,
 				representation_schema = $representation_schema,
 				revision = revision + 1,
 				updated_at = strftime('%Y-%m-%d %H:%M:%f', 'now')
@@ -520,8 +535,21 @@ function prepareStatements(db: DatabaseSync): Statements {
 			FROM structured_workspace_items AS item
 			JOIN documents AS document ON document.id = item.document_id
 			WHERE item.workspace_id = ?
-			ORDER BY item.collection_id ASC, item.sequence ASC
-		`),
+   UNION ALL
+   SELECT json_extract(document.meta, '$.structuredWorkspace.itemId') AS id,
+    0 AS sequence,
+    json_extract(document.meta, '$.structuredWorkspace.collectionId') AS collection_id,
+    json_extract(document.meta, '$.structuredWorkspace.bindingId') AS binding_id,
+    document.id AS document_id, document.name AS document_name, document.pinned_at,
+    json_extract(document.meta, '$.locked') AS locked,
+    json_extract(document.meta, '$.structuredWorkspace.workspaceId') AS owner_workspace,
+    json_extract(document.meta, '$.structuredWorkspace.itemId') AS owner_item
+   FROM documents AS document
+   JOIN structured_workspaces AS workspace ON workspace.id = json_extract(document.meta, '$.structuredWorkspace.workspaceId')
+   WHERE workspace.id = ? AND json_extract(workspace.data_source, '$.kind') = 'http'
+    AND json_extract(document.meta, '$.structuredWorkspace.role') = 'item'
+   ORDER BY collection_id ASC, sequence ASC
+  `),
 		itemNameConflicts: db.prepare(`
 			SELECT item.id, item.sequence, item.collection_id, item.binding_id,
 				item.document_id, item.document_name, document.name AS holder
@@ -593,10 +621,14 @@ function workspaceFromRow(
 		id: row.id,
 		name: row.name,
 		description: row.description ?? undefined,
+		...(row.data_source ? { dataSource: JSON.parse(row.data_source) } : {}),
 		dataSchema: JSON.parse(row.data_schema),
 		representationSchema,
 		revision: row.revision,
-		itemCounts,
+		itemCounts:
+			row.data_source && JSON.parse(row.data_source).kind === "http"
+				? {}
+				: itemCounts,
 		createdAt: row.created_at,
 		updatedAt: row.updated_at,
 	};

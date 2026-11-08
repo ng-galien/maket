@@ -123,7 +123,7 @@ async function handleMaketPageTool(
 		case "add":
 			return runAdd(args, d, deps.pageComposition);
 		case "remove":
-			return runRemove(args, d, documents, bus);
+			return runRemove(args, d, deps.pageComposition);
 		case "rename":
 			return runRename(args, d, documents, bus);
 		case "reorder":
@@ -263,29 +263,15 @@ function noFormYet(d: Document, page: Page, pageRef: number | string) {
 	);
 }
 
-function runRemove(args: Args, d: Document, documents: Documents, bus: Bus) {
+function runRemove(args: Args, d: Document, pageComposition: PageComposition) {
 	if (args.page == null)
 		return text("page is required for action=remove", true);
-	if (d.pages.length <= 1) return text("Cannot remove the last page", true);
-	const idx = resolvePageIndex(d, args.page);
-	if (idx < 0 || idx >= d.pages.length)
-		return text(
-			`Page "${args.page}" not found or out of range (1-${d.pages.length})`,
-			true,
-		);
-	const removed = d.pages.splice(idx, 1)[0];
-	if (removed) {
-		const controlled = templatePageGuard(d, removed);
-		if (controlled) {
-			d.pages.splice(idx, 0, removed);
-			return controlled;
-		}
-	}
-	if (d.activePage >= d.pages.length) d.activePage = d.pages.length - 1;
-	documents.persist(d.name);
-	bus.emit("document:loaded", { docName: d.name });
+	const page = d.pages[resolvePageIndex(d, args.page)];
+	if (!page) return text(`Page "${args.page}" not found or out of range`, true);
+	const result = pageComposition.removePage(d.name, page.id);
+	if (!result.ok) return text(result.refusal.message, true);
 	return text(
-		`Removed page "${removed?.name || "Untitled"}" (${d.pages.length} pages remaining)`,
+		`Removed page "${page.name || "Untitled"}" (${d.pages.length} pages remaining)`,
 	);
 }
 

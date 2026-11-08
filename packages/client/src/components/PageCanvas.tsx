@@ -3,6 +3,7 @@ import {
 	fitBoundTextareaHeight,
 	hasJsonFormSlot,
 	markCollectionPlaceholders,
+	PAGE_ROOT_ID,
 	type PlacedBox,
 	parseDeclaredStateValue,
 	placedCompositionFormat,
@@ -10,7 +11,7 @@ import {
 	resolveCollectionText,
 	stateActionValueAttribute,
 } from "@maket/shared";
-import { MessageCircle, Pencil, Trash2 } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 import {
 	forwardRef,
 	memo,
@@ -26,7 +27,6 @@ import { createPortal, flushSync } from "react-dom";
 import { translate, useT } from "../i18n/useT";
 import {
 	type AnnotationTarget,
-	elementBox,
 	pendingAnnotationTargets,
 	renderedElementBox,
 } from "../lib/annotationMarkers";
@@ -45,7 +45,8 @@ import {
 	sendTextEdit,
 } from "../store/ws";
 import { scopePageStyles } from "../viewer/scope-page-styles";
-import { HandComposeBar } from "./HandComposeBar";
+import { ComposerSelection } from "./ComposerSelection";
+import { HandComposePanel } from "./HandComposePanel";
 import {
 	applyPlacedBox,
 	millimetresPerPixel,
@@ -71,7 +72,7 @@ import {
 	StateEnumSelect,
 	type StateEnumSelectState,
 } from "./StateEnumSelect";
-import { HoldToDelete } from "./shared/HoldToDelete";
+import { useHandPlacement } from "./useHandPlacement";
 
 export function parseCSSVars(css: string): Record<string, string> {
 	const vars: Record<string, string> = {};
@@ -249,8 +250,7 @@ export interface CollectionPagePreview {
 /** Toolbar position in screen (viewport) coordinates */
 interface ToolbarState {
 	id: string;
-	screenTop: number;
-	screenRight: number;
+	kind: "text" | "image" | "frame" | "element";
 	editable: boolean;
 	/** The element is a placed element the person can move, resize, delete. */
 	placed: boolean;
@@ -297,7 +297,14 @@ export const PageCanvas = memo(function PageCanvas({
 		presentationPolicy({
 			surface: "canvas",
 			dataSource: readOnly ? "static" : "connected",
-			access: doc.meta?.locked ? "locked" : readOnly ? "read-only" : "writable",
+			access: doc.meta?.locked
+				? "locked"
+				: readOnly ||
+						doc?.meta?.sourceReadOnly ||
+						(doc.meta?.structuredWorkspace?.role === "item" &&
+							doc.meta.structuredWorkspace.sourceReadOnly)
+					? "read-only"
+					: "writable",
 		});
 	const stateMode =
 		activePolicy.stateRepresentation === "live" ? "live" : canvasStateMode;
@@ -345,11 +352,37 @@ export const PageCanvas = memo(function PageCanvas({
 	const canEditTemplate =
 		canInteract && !templateControlled && preview?.mode !== "rendered";
 	const focusedPageIndex = useStore((s) => s.focusedPageIndex);
+	const flowContinuation = /data-maket-flow-page=["'](?:[2-9]|\d{2,})["']/.test(
+		rawHtml,
+	);
 	const canCompose =
-		canEditTemplate && !responsive && activePolicy.surface === "canvas";
-	const canPlace = canCompose && placedCompositionFormat(canvas.format ?? "");
-	const showComposeBar =
-		canCompose && focused && pageIndex === focusedPageIndex;
+		canEditTemplate &&
+		!flowContinuation &&
+		!responsive &&
+		activePolicy.surface === "canvas";
+	const composerDocName = useStore((s) => s.composerDocName);
+	const composing =
+		composerDocName === doc.name && activePolicy.surface === "canvas";
+	const canPlace =
+		canCompose && composing && placedCompositionFormat(canvas.format ?? "");
+	const showComposer = composing && focused && pageIndex === focusedPageIndex;
+	const [composerHost, setComposerHost] = useState<HTMLElement | null>(null);
+	useEffect(() => {
+		setComposerHost(
+			showComposer ? document.getElementById("hand-composer-host") : null,
+		);
+	}, [showComposer]);
+	const composeReason = doc.meta?.locked
+		? t("hand_locked")
+		: !activePolicy.authoring
+			? t("hand_read_only")
+			: templateControlled
+				? t("hand_template")
+				: flowContinuation
+					? t("hand_flow")
+					: !canCompose
+						? t("hand_unavailable")
+						: undefined;
 	const canPersistState =
 		activePolicy.stateControls === "persist" && !structuredCollection;
 	const canUseStateControls =
@@ -515,11 +548,9 @@ export const PageCanvas = memo(function PageCanvas({
 	const dismissToolbar = useCallback(() => setToolbar(null), []);
 	const suppressClickRef = useRef(false);
 	const [placedBox, setPlacedBox] = useState<PlacedBox | null>(null);
-	const [deletingPlaced, setDeletingPlaced] = useState(false);
 	const selectedPlacedId = toolbar?.placed ? toolbar.id : null;
 
 	useLayoutEffect(() => {
-		setDeletingPlaced(false);
 		if (!selectedPlacedId || !contentRef.current) {
 			setPlacedBox(null);
 			return;
@@ -575,6 +606,7 @@ export const PageCanvas = memo(function PageCanvas({
 		const page = pageRef.current;
 		if (!page || !focused || !canPlace) return;
 		const onPointerDown = (event: PointerEvent) =>
+			!page.hasAttribute("data-hand-placement") &&
 			startPlacedMove(event, {
 				content: editingRef.current ? null : contentRef.current,
 				page: { w: canvas.w, h: canvas.h },
@@ -616,7 +648,12 @@ export const PageCanvas = memo(function PageCanvas({
 		};
 		const onClick = (e: MouseEvent) => {
 			const t = e.target as HTMLElement;
-			if (t.closest(".element-toolbar")) return;
+			if (
+				t.closest(
+					"[data-composer-toggle], [data-composer-panel], [data-inspector-select-menu]",
+				)
+			)
+				return;
 			if (t.closest(".page-canvas")) return;
 			dismissToolbar();
 		};
@@ -629,7 +666,7 @@ export const PageCanvas = memo(function PageCanvas({
 	}, [toolbar, dismissToolbar]);
 
 	const startEdit = useCallback(
-		(id: string) => {
+		(id: string, selectAll = false, point?: { x: number; y: number }) => {
 			if (!pageRef.current || !canEditTemplate) return;
 
 			const origTarget = pageRef.current.querySelector(
@@ -637,6 +674,20 @@ export const PageCanvas = memo(function PageCanvas({
 			) as HTMLElement | null;
 			if (!origTarget) return;
 			const originalHtml = origTarget.innerHTML;
+
+			setToolbar((current) =>
+				current?.id === id
+					? current
+					: {
+							id,
+							kind: "text",
+							editable: true,
+							placed:
+								canCompose &&
+								contentRef.current !== null &&
+								placedElementAt(contentRef.current, origTarget) === origTarget,
+						},
+			);
 
 			useStore.getState().setEditingElement(id);
 			useStore.getState().selectElement(id);
@@ -655,7 +706,16 @@ export const PageCanvas = memo(function PageCanvas({
 				target.focus();
 				const range = document.createRange();
 				range.selectNodeContents(target);
-				range.collapse(false);
+				if (!selectAll) {
+					range.collapse(false);
+					const caret = point
+						? document.caretPositionFromPoint?.(point.x, point.y)
+						: null;
+					if (caret && target.contains(caret.offsetNode)) {
+						range.setStart(caret.offsetNode, caret.offset);
+						range.collapse(true);
+					}
+				}
 				const sel = window.getSelection();
 				sel?.removeAllRanges();
 				sel?.addRange(range);
@@ -695,8 +755,36 @@ export const PageCanvas = memo(function PageCanvas({
 				};
 			});
 		},
-		[canEditTemplate],
+		[canEditTemplate, canCompose],
 	);
+
+	const placement = useHandPlacement({
+		doc,
+		pageIndex,
+		enabled: canPlace && showComposer,
+		pageRef,
+		suppressClickRef,
+	});
+	useLayoutEffect(() => {
+		const inserted = placement.created;
+		if (!inserted || !contentRef.current || !showComposer || !canPlace) return;
+		const target = contentRef.current.querySelector<HTMLElement>(
+			`[data-id="${CSS.escape(inserted.id)}"]`,
+		);
+		if (!target) return;
+
+		setToolbar({
+			id: inserted.id,
+			kind: inserted.kind,
+
+			editable: inserted.kind === "text",
+			placed: true,
+		});
+		useStore.getState().selectElement(inserted.id);
+		target.classList.add("selected");
+		placement.clearCreated();
+		if (inserted.kind === "text") startEdit(inserted.id, true);
+	}, [placement.created, renderHtml, canPlace, showComposer, startEdit]);
 
 	function exitEdit(commit: boolean) {
 		const state = editingRef.current;
@@ -1372,7 +1460,6 @@ export const PageCanvas = memo(function PageCanvas({
 		const el = pageRef.current;
 
 		const onClick = (e: MouseEvent) => {
-			if ((e.target as HTMLElement).closest(".element-toolbar")) return;
 			if (editingRef.current) return;
 			if (suppressClickRef.current) {
 				suppressClickRef.current = false;
@@ -1382,10 +1469,26 @@ export const PageCanvas = memo(function PageCanvas({
 			const target = (e.target as HTMLElement).closest(
 				"[data-id]",
 			) as HTMLElement | null;
-			if (!target) return;
+			const pageBackground =
+				target &&
+				contentRef.current &&
+				target.parentElement === contentRef.current &&
+				!placedBoxOf(target) &&
+				(target.dataset.id === PAGE_ROOT_ID ||
+					(!isTextEditable(target) && target.querySelector("[data-id]")));
+			if (!target || pageBackground) {
+				useStore.getState().selectElement(null);
+				setToolbar(null);
+				return;
+			}
 			e.stopPropagation();
 			const id = target.dataset.id;
 			if (!id) return;
+			if (composing && canEditTemplate && isTextEditable(target)) {
+				useStore.getState().setFocusedPage(doc.name, pageIndex);
+				startEdit(id, false, { x: e.clientX, y: e.clientY });
+				return;
+			}
 
 			useStore.getState().setFocusedPage(doc.name, pageIndex);
 			const docRoot = el.closest("[data-doc]");
@@ -1403,14 +1506,23 @@ export const PageCanvas = memo(function PageCanvas({
 
 			target.classList.add("selected");
 			useStore.getState().selectElement(id);
-			const rect = elementBox(target);
+
 			setToolbar({
 				id,
-				screenTop: rect.top,
-				screenRight: window.innerWidth - rect.right,
+				kind:
+					target.tagName === "IMG"
+						? "image"
+						: isTextEditable(target)
+							? "text"
+							: target.tagName === "DIV" &&
+									target.dataset.noedit !== undefined &&
+									placedBoxOf(target)
+								? "frame"
+								: "element",
+
 				editable: canEditTemplate && isTextEditable(target),
 				placed:
-					canPlace &&
+					canCompose &&
 					contentRef.current !== null &&
 					placedElementAt(contentRef.current, target) === target,
 			});
@@ -1427,12 +1539,35 @@ export const PageCanvas = memo(function PageCanvas({
 		toolbar?.id,
 		canEditTemplate,
 		canPlace,
+		canCompose,
+		composing,
 		canInteract,
 		doc.name,
 		pageIndex,
 	]);
 
 	const margins = canvas.margins;
+
+	const selectionTools =
+		toolbar && showComposer ? (
+			<ComposerSelection
+				key={toolbar.id}
+				selection={{
+					editable: toolbar.editable,
+					editing: isEditing,
+				}}
+				actions={{
+					onStart: () => startEdit(toolbar.id),
+					onFinish: () => exitEdit(true),
+					onCancel: () => exitEdit(false),
+					onPlaceholder: (value) => {
+						if (editingRef.current) exitEdit(false);
+						applyPlaceholder(toolbar.id, value);
+					},
+				}}
+				placeholders={stateBacked ? [] : placeholderOptions}
+			/>
+		) : null;
 
 	return (
 		<>
@@ -1454,6 +1589,7 @@ export const PageCanvas = memo(function PageCanvas({
 					display: canvas.format === "AUTO" ? "flow-root" : undefined,
 					contentVisibility: canvas.format === "AUTO" ? "visible" : undefined,
 					background: "var(--charte-color-bg, #ffffff)",
+					color: "var(--charte-color-text, var(--charte-color-ink, #1f2937))",
 					containIntrinsicSize: `${canvas.w}mm ${canvas.h}mm`,
 					position: "relative",
 					lineHeight: "normal",
@@ -1475,6 +1611,20 @@ export const PageCanvas = memo(function PageCanvas({
 				}}
 			>
 				<AuthoredPageHtml ref={contentRef} html={renderHtml} />
+				{placement.preview && (
+					<div
+						data-placement-preview
+						aria-hidden="true"
+						className="pointer-events-none absolute border-2 border-dashed border-accent bg-accent/10"
+						style={{
+							left: `${placement.preview.left}mm`,
+							top: `${placement.preview.top}mm`,
+							width: `${placement.preview.width}mm`,
+							height: `${placement.preview.height}mm`,
+							zIndex: 9999,
+						}}
+					/>
+				)}
 				<div className="annotation-overlay" aria-hidden="true">
 					{annotationMarkers.map((marker) => (
 						<div
@@ -1564,93 +1714,50 @@ export const PageCanvas = memo(function PageCanvas({
 					</div>
 				)}
 			</div>
-			{toolbar &&
-				!isEditing &&
-				createPortal(
-					<div
-						className="element-toolbar"
-						style={{
-							position: "fixed",
-							top: toolbar.screenTop - 30,
-							right: toolbar.screenRight,
-						}}
-					>
-						{toolbar.editable && (
-							<>
-								<button
-									type="button"
-									className="tb-btn tb-edit"
-									title={t("edit_text")}
-									aria-label={t("edit_text")}
-									onClick={(e) => {
-										e.stopPropagation();
-										startEdit(toolbar.id);
-									}}
-								>
-									<Pencil size={12} />
-								</button>
-								{!stateBacked && (
-									<select
-										title={t("collection_use_placeholder")}
-										aria-label={t("collection_use_placeholder")}
-										defaultValue=""
-										onClick={(e) => e.stopPropagation()}
-										onChange={(event) =>
-											applyPlaceholder(toolbar.id, event.target.value)
+			{showComposer && composerHost
+				? createPortal(
+						<HandComposePanel
+							doc={doc}
+							pageIndex={pageIndex}
+							reason={composeReason}
+							placement={placement}
+							selectionActions={
+								toolbar
+									? {
+											id: toolbar.id,
+											kind: toolbar.kind,
+											canRemove: toolbar.placed,
+											onComment: () => {
+												if (editingRef.current) exitEdit(true);
+												openComment(toolbar.id);
+											},
+											onRemove: () => {
+												if (editingRef.current) exitEdit(false);
+												sendRemovePlacedElement(
+													doc.name,
+													pageIndex,
+													toolbar.id,
+												);
+												setToolbar(null);
+											},
 										}
-										className="h-7 max-w-36 rounded-md bg-panel border border-border text-xs text-text-2 px-2 outline-none"
-									>
-										<option value="">{t("collection_placeholder")}</option>
-										{placeholderOptions.map((option) => (
-											<option key={option.value} value={option.value}>
-												{option.label}
-											</option>
-										))}
-									</select>
-								)}
-							</>
-						)}
-						{toolbar.placed && !deletingPlaced && (
-							<button
-								type="button"
-								className="tb-btn tb-delete"
-								title={t("hand_delete_element")}
-								aria-label={t("hand_delete_element")}
-								onClick={(e) => {
-									e.stopPropagation();
-									setDeletingPlaced(true);
-								}}
-							>
-								<Trash2 size={12} />
-							</button>
-						)}
-						{toolbar.placed && deletingPlaced && (
-							<HoldToDelete
-								label={t("hand_delete_element")}
-								onConfirm={() => {
-									sendRemovePlacedElement(doc.name, pageIndex, toolbar.id);
-									setDeletingPlaced(false);
-									setToolbar(null);
-								}}
-								onCancel={() => setDeletingPlaced(false)}
-							/>
-						)}
-						<button
-							type="button"
-							className="tb-btn tb-comment"
-							title={t("comment")}
-							aria-label={t("comment")}
-							onClick={(e) => {
-								e.stopPropagation();
-								openComment(toolbar.id);
-							}}
+									: undefined
+							}
+							selection={
+								selectedPlacedId && placedBox
+									? { id: selectedPlacedId, box: placedBox }
+									: null
+							}
 						>
-							<MessageCircle size={12} />
-						</button>
-					</div>,
-					document.body,
-				)}
-			{showComposeBar && <HandComposeBar doc={doc} pageIndex={pageIndex} />}
+							{toolbar && (isEditing || toolbar.editable) && (
+								<section data-composer-selection={toolbar.id}>
+									{selectionTools}
+								</section>
+							)}
+						</HandComposePanel>,
+						composerHost,
+					)
+				: null}
 			{stateEditor &&
 				stateView &&
 				createPortal(

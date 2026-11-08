@@ -113,6 +113,8 @@ export interface DocMeta {
 				collectionId: string;
 				itemId: string;
 				bindingId: string;
+				sourceReadOnly?: boolean;
+				sourceRevision?: string;
 		  };
 }
 

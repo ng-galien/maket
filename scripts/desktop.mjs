@@ -73,12 +73,28 @@ switch (action) {
     }
     await buildClient();
     await buildDesktop();
+    if (process.platform === "darwin") {
+      const archIndex = args.findIndex((arg) => arg.startsWith("--arch="));
+      const arch = archIndex >= 0 ? args[archIndex].slice(7) : process.arch;
+      const electronVersion = JSON.parse(
+        readFileSync(join(ROOT, "node_modules/electron/package.json"), "utf8"),
+      ).version;
+      await run(process.execPath, [
+        join(ROOT, "node_modules/electron-sparkle-updater/bin/electron-sparkle-updater.js"),
+        "rebuild",
+        "--electron-version",
+        electronVersion,
+        "--arch",
+        arch,
+      ]);
+    }
     await withLocalInstallMarker(localInstall, async () => {
       await run(
         process.execPath,
         [FORGE_CLI, action, ...args],
         {
           ...process.env,
+          MAKET_DESKTOP_ARCH: args.find((arg) => arg.startsWith("--arch="))?.slice(7) ?? process.arch,
           MAKET_LOCAL_INSTALL: localInstall ? "1" : "0",
         },
         DESKTOP_DIR,
@@ -136,6 +152,7 @@ async function buildClient() {
 
 async function buildDesktop({ sourcemap = false } = {}) {
   buildDesktopIcons();
+  writeFileSync(join(DESKTOP_ASSETS, "app-update.yml"), "updaterCacheDirName: maket-updater\n");
   await buildClaudeDesktopMcpb();
   await rm(DESKTOP_OUTPUT, { recursive: true, force: true });
   mkdirSync(DESKTOP_OUTPUT, { recursive: true });

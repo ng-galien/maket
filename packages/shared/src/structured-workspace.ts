@@ -68,10 +68,40 @@ export interface StructuredWorkspaceItemReference {
 	documentName: string;
 }
 
+/** A declared HTTP JSON resource. Parameters carry text/cursor/limit verbatim;
+ * sort and filters carry JSON. Secrets remain environment references. */
+export interface StructuredWorkspaceHttpSource {
+	kind: "http";
+	baseUrl: string;
+	collectionId: string;
+	bindingId: string;
+	auth?: string;
+	list: {
+		path: string;
+		params: {
+			cursor: string;
+			limit: string;
+			text?: string;
+			sort: string;
+			filters?: string;
+		};
+		itemsPointer: string;
+		nextPointer: string;
+		totalPointer?: string;
+		revisionPointer?: string;
+	};
+	get: { path: string; dataPointer?: string; revisionPointer?: string };
+}
+
+export type StructuredWorkspaceDataSource =
+	| { kind: "local" }
+	| StructuredWorkspaceHttpSource;
+
 export interface StructuredWorkspaceDefinition {
 	id: string;
 	name: string;
 	description?: string;
+	dataSource?: StructuredWorkspaceDataSource;
 	dataSchema: StructuredWorkspaceDataSchema;
 	representationSchema: StructuredWorkspaceRepresentationSchema;
 	revision: number;

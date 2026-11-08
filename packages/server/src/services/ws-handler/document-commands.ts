@@ -15,80 +15,128 @@ import {
 } from "../structured-workspace-policy.js";
 import type { WsHandlerContext } from "./context.js";
 
-export function handleLoadDocument(
+export async function handleLoadDocument(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "load_document" }>,
 	ws: WebSocket,
-): void {
-	let requested = openedItemDocument(ctx, msg);
-	if (!requested) requested = ctx.documents.resolve(msg.name);
-	if (!requested) {
-		const loaded = ctx.store.loadOne(msg.name);
-		if (loaded) {
-			ctx.documents.all().set(loaded.name, loaded);
-			requested = loaded;
-		}
-	}
-	if (!requested) return;
-	const owner = requested.meta.structuredWorkspace;
-	if (owner) {
-		if (msg.structuredWorkspace?.workspaceId !== owner.workspaceId) {
-			ctx.bus.emit("toast", {
-				key: "toast_detail",
-				params: {
-					detail: `Document "${requested.name}" must be opened from its Workspace tree.`,
-				},
-				level: "info",
-			});
-			return;
-		}
-		const workspace = ctx.structuredWorkspaces.get(owner.workspaceId);
-		if (owner.role !== "template" && workspace?.integrity.status !== "ready") {
-			ctx.bus.emit("toast", {
-				key: "toast_detail",
-				params: {
-					detail: `Workspace "${workspace?.name ?? owner.workspaceId}" is incomplete; projections cannot be opened.`,
-				},
-				level: "info",
-			});
-			return;
-		}
-	}
-	const structuredWorkspace =
-		owner?.role === "collection"
-			? {
-					workspaceId: owner.workspaceId,
-					collectionId: owner.collectionId,
-				}
+): Promise<void> {
+	try {
+		const prepared = msg.structuredWorkspace
+			? ctx.structuredWorkspaces.prepareItem(
+					msg.structuredWorkspace.workspaceId,
+					msg.name,
+				)
 			: undefined;
-	ctx.wsRegistry.watch(ws, requested.name);
-	const state: WorkspaceStateSignal = {
-		type: "state",
-		doc: ctx.documents.lightView(
-			ctx.documentRenderer.render(requested, { structuredWorkspace }),
-		),
-		documentState: ctx.documentRenderer.stateView(requested),
-		docList: ctx.documents.list({
-			includeWorkspaceDocuments: ctx.wsRegistry.isViewer(ws),
-		}),
-		collections: ctx.collections.loadAll(),
-		...(structuredWorkspace
-			? {
-					structuredWindows: [
-						ctx.itemWindows.current(
-							structuredWorkspace.workspaceId,
-							structuredWorkspace.collectionId,
-						),
-					],
-				}
-			: {}),
-		collectionCursors: ctx.collectionCursors.snapshot(),
-		annotations: ctx.pending.all(),
-		charteCss: ctx.documents.charteCss(requested),
-		addToWorkspace: true,
-		focus: true,
-	};
-	ws.send(JSON.stringify(state));
+		if (prepared) await prepared;
+		const requestedIndex = ctx.documents.resolveOrLoad(msg.name)?.meta
+			.structuredWorkspace;
+		if (
+			requestedIndex?.role === "collection" &&
+			msg.structuredWorkspace?.workspaceId === requestedIndex.workspaceId
+		) {
+			const current = ctx.itemWindows.current(
+				requestedIndex.workspaceId,
+				requestedIndex.collectionId,
+			);
+			const preparedIndex =
+				current.items.length === 0
+					? ctx.itemWindows.prepare?.(
+							requestedIndex.workspaceId,
+							requestedIndex.collectionId,
+							current.query,
+						)
+					: undefined;
+			if (preparedIndex) {
+				await preparedIndex;
+				ctx.itemWindows.query(
+					requestedIndex.workspaceId,
+					requestedIndex.collectionId,
+					current.query,
+				);
+			}
+		}
+		let requested = openedItemDocument(ctx, msg);
+		if (!requested) requested = ctx.documents.resolve(msg.name);
+		if (!requested) {
+			const loaded = ctx.store.loadOne(msg.name);
+			if (loaded) {
+				ctx.documents.all().set(loaded.name, loaded);
+				requested = loaded;
+			}
+		}
+		if (!requested) return;
+		const owner = requested.meta.structuredWorkspace;
+		if (owner) {
+			if (msg.structuredWorkspace?.workspaceId !== owner.workspaceId) {
+				ctx.bus.emit("toast", {
+					key: "toast_detail",
+					params: {
+						detail: `Document "${requested.name}" must be opened from its Workspace tree.`,
+					},
+					level: "info",
+				});
+				return;
+			}
+			const workspace = ctx.structuredWorkspaces.get(owner.workspaceId);
+			if (
+				owner.role !== "template" &&
+				workspace?.integrity.status !== "ready"
+			) {
+				ctx.bus.emit("toast", {
+					key: "toast_detail",
+					params: {
+						detail: `Workspace "${workspace?.name ?? owner.workspaceId}" is incomplete; projections cannot be opened.`,
+					},
+					level: "info",
+				});
+				return;
+			}
+		}
+		const structuredWorkspace =
+			owner?.role === "collection"
+				? {
+						workspaceId: owner.workspaceId,
+						collectionId: owner.collectionId,
+					}
+				: undefined;
+		ctx.wsRegistry.watch(ws, requested.name);
+		const state: WorkspaceStateSignal = {
+			type: "state",
+			doc: ctx.documents.lightView(
+				ctx.documentRenderer.render(requested, { structuredWorkspace }),
+			),
+			documentState: ctx.documentRenderer.stateView(requested),
+			docList: ctx.documents.list({
+				includeWorkspaceDocuments: ctx.wsRegistry.isViewer(ws),
+			}),
+			collections: ctx.collections.loadAll(),
+			...(structuredWorkspace
+				? {
+						structuredWindows: [
+							ctx.itemWindows.current(
+								structuredWorkspace.workspaceId,
+								structuredWorkspace.collectionId,
+							),
+						],
+					}
+				: {}),
+			collectionCursors: ctx.collectionCursors.snapshot(),
+			annotations: ctx.pending.all(),
+			charteCss: ctx.documents.charteCss(requested),
+			addToWorkspace: true,
+			focus: true,
+		};
+		ws.send(JSON.stringify(state));
+	} catch (error) {
+		ctx.bus.emit("toast", {
+			key: "toast_detail",
+			params: {
+				detail: error instanceof Error ? error.message : String(error),
+			},
+			level: "error",
+		});
+		return;
+	}
 }
 
 /** An item document opened from its Workspace: created on first open, its

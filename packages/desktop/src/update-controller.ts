@@ -11,6 +11,8 @@ import {
   UpdateSourceType,
   updateElectronApp,
 } from "update-electron-app";
+import { LinuxUpdater } from "./linux-updater.js";
+import { SparkleUpdater } from "./sparkle-updater.js";
 import type { UpdatePreferences } from "./update-preferences.js";
 
 const UPDATE_REPOSITORY = "ng-galien/maket";
@@ -35,16 +37,25 @@ export class UpdateController {
   private readonly currentVersion: string;
   private readonly platform: NodeJS.Platform;
   private readonly arch: string;
+  private readonly updater: typeof autoUpdater | SparkleUpdater | LinuxUpdater;
   private readonly startUpdates: (options: IUpdateElectronAppOptions) => IUpdateElectronApp;
 
   constructor(private readonly options: UpdateControllerOptions) {
     this.currentVersion = options.currentVersion ?? app.getVersion();
     this.platform = options.platform ?? process.platform;
     this.arch = options.arch ?? process.arch;
+    this.updater =
+      this.platform === "darwin"
+        ? new SparkleUpdater(this.arch)
+        : this.platform === "linux"
+          ? new LinuxUpdater(this.arch)
+          : autoUpdater;
     this.startUpdates = options.startUpdates ?? updateElectronApp;
     this.state = this.baseState("idle");
   }
 
+  // The controller owns IPC state while native engines own update execution.
+  // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
   start(): void {
     if (this.started) return;
     this.started = true;
@@ -55,13 +66,18 @@ export class UpdateController {
       });
       return;
     }
-    autoUpdater.on("checking-for-update", () => this.publish(this.baseState("checking")));
-    autoUpdater.on("update-available", () => this.publish(this.baseState("downloading")));
-    autoUpdater.on("update-not-available", () => this.publish(this.baseState("up-to-date")));
-    autoUpdater.on("update-downloaded", (_event, _notes, version) =>
+    this.updater.on("checking-for-update", () => this.publish(this.baseState("checking")));
+    this.updater.on("update-available", (version?: unknown) =>
+      this.publish({ ...this.baseState("downloading"), version: typeof version === "string" ? version : undefined }),
+    );
+    if (this.updater instanceof SparkleUpdater || this.updater instanceof LinuxUpdater) {
+      this.updater.on("download-progress", (progress: number) => this.publish({ ...this.state, progress }));
+    }
+    this.updater.on("update-not-available", () => this.publish(this.baseState("up-to-date")));
+    this.updater.on("update-downloaded", (_event, _notes, version) =>
       this.publish({ ...this.baseState("ready"), version }),
     );
-    autoUpdater.on("error", (error) => this.publishUnavailable(error));
+    this.updater.on("error", (error) => this.publishUnavailable(error));
     this.startUpdateLoop();
   }
 
@@ -80,7 +96,12 @@ export class UpdateController {
 
   setChannel(channel: DesktopUpdateChannel): DesktopUpdateState {
     if (channel === this.getChannel()) return this.state;
-    if (this.state.status === "checking" || this.state.status === "downloading" || this.state.status === "ready") {
+    if (
+      this.state.status === "checking" ||
+      this.state.status === "downloading" ||
+      this.state.status === "ready" ||
+      this.state.status === "installing"
+    ) {
       throw new Error("The update channel cannot change while an update is in progress");
     }
     this.options.preferences.setChannel(channel);
@@ -101,11 +122,11 @@ export class UpdateController {
       return;
     }
     if (this.inFlightCheck) return this.inFlightCheck;
-    if (this.state.status === "downloading") return;
+    if (this.state.status === "downloading" || this.state.status === "installing") return;
     this.publish(this.baseState("checking"));
     this.inFlightCheck = (async () => {
       try {
-        await autoUpdater.checkForUpdates();
+        await this.updater.checkForUpdates();
       } catch (error) {
         this.publishUnavailable(error);
       } finally {
@@ -115,31 +136,44 @@ export class UpdateController {
     return this.inFlightCheck;
   }
 
-  install(): void {
-    this.prepareInstall()();
+  async install(): Promise<void> {
+    await this.prepareInstall()();
   }
 
-  prepareInstall(): () => void {
+  prepareInstall(): () => Promise<void> {
     if (this.state.status !== "ready") {
       throw new Error("No Maket App update is ready to install");
     }
     const channel = this.state.channel;
     const version = this.state.version;
-    return () => {
+    return async () => {
       if (this.state.status !== "ready" || this.state.channel !== channel || this.state.version !== version) {
         throw new Error("The downloaded Maket App update is no longer ready to install");
       }
-      autoUpdater.quitAndInstall();
+      this.publish({ ...this.state, status: "installing" });
+      try {
+        await this.updater.quitAndInstall();
+      } catch (error) {
+        this.publishUnavailable(error);
+        throw error;
+      }
     };
   }
 
   // `autoUpdater.setFeedURL` throws on an installation Squirrel refuses (an
   // unsigned or damaged bundle). A broken updater must degrade to "unavailable",
   // never take the application down with it.
+  // Platform engines have distinct startup contracts, selected only at this boundary.
+  // code-moniker: ignore[maket-ownership-keeps-behavior-with-its-owner]
   private startUpdateLoop(): void {
     try {
       this.updateLoop?.stopUpdates();
       this.publish(this.baseState("checking"));
+      if (this.updater instanceof SparkleUpdater || this.updater instanceof LinuxUpdater) {
+        this.updater.start(this.getChannel());
+        this.updateLoop = this.updater;
+        return;
+      }
       this.updateLoop = this.startUpdates({
         updateSource: updateSourceFor(this.getChannel(), this.platform, this.arch),
         updateInterval: "1 hour",

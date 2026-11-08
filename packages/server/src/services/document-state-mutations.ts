@@ -11,6 +11,7 @@ import { MessageError } from "../lib/message-error.js";
 import { assertStateMermaidSources } from "../lib/state-mermaid.js";
 import type { DocumentStates, DocumentStateView } from "./document-states.js";
 import type { Documents } from "./documents.js";
+import { itemSourceError } from "./item-sources/item-source-error.js";
 import type { DocumentStateRetentionChange } from "./sqlite-store/document-state-repository.js";
 import type { Store } from "./store.js";
 import type { StructuredWorkspaces } from "./structured-workspaces.js";
@@ -225,6 +226,11 @@ function assertDataMutationAllowed(
 		);
 	}
 	const workspace = deps.store.loadStructuredWorkspace(owner.workspaceId);
+	if (workspace?.dataSource?.kind === "http")
+		throw itemSourceError(
+			"read_only",
+			"The HTTP item source is read-only; edit this record at its source.",
+		);
 	const item =
 		workspace?.id === owner.workspaceId
 			? deps.store.loadStructuredWorkspaceItem(workspace.id, owner.itemId)

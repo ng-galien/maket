@@ -25,11 +25,21 @@ export function handleRenameStructuredWorkspace(
 
 /** A new query replaces the collection window, the window's cursor extends
  * it; the listeners broadcast the window to every client. */
-export function handleStructuredCollectionQuery(
+export async function handleStructuredCollectionQuery(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "structured_collection_query" }>,
-): void {
+): Promise<void> {
 	try {
+		const prepared = ctx.itemWindows.prepare?.(
+			msg.workspaceId,
+			msg.collectionId,
+			{
+				...(msg.text === undefined ? {} : { text: msg.text }),
+				...(msg.filters === undefined ? {} : { filters: msg.filters }),
+				...(msg.cursor === undefined ? {} : { cursor: msg.cursor }),
+			},
+		);
+		if (prepared) await prepared;
 		ctx.itemWindows.query(msg.workspaceId, msg.collectionId, {
 			...(msg.text === undefined ? {} : { text: msg.text }),
 			...(msg.filters === undefined ? {} : { filters: msg.filters }),

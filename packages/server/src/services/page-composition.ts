@@ -103,6 +103,7 @@ export interface PageComposition {
 	createDocument(input: NewDocument): CompositionResult<Document>;
 	/** Appends a page at the end of a writable document. */
 	appendPage(docName: string, input: NewPage): CompositionResult<Page>;
+	removePage(docName: string, pageId: string): CompositionResult<Page>;
 	/** Replaces the canvas of a writable document. */
 	setCanvas(docName: string, canvas: Canvas): CompositionResult<Document>;
 	/** Places a new element on a page and returns its `data-id`. */
@@ -146,7 +147,7 @@ const FRAME_STYLE =
 const IMAGE_STYLE =
 	"box-sizing:border-box;margin:0;padding:0;display:block;object-fit:cover";
 const TEXT_STYLE =
-	"box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3";
+	"box-sizing:border-box;margin:0;padding:1mm;font-size:12pt;line-height:1.3;color:var(--charte-color-text,var(--charte-color-ink,#1f2937))";
 
 type DomElement = {
 	getAttribute(name: string): string | null;
@@ -310,7 +311,6 @@ function mutatePage<T>(
 	if (!result.ok) return result;
 	const nextHtml = stripActiveHtml(body.innerHTML);
 	try {
-		validateDocumentStatePageTemplate({ ...page, html: nextHtml });
 		validateStateTemplateUpdate(doc, deps.store, { ...page, html: nextHtml });
 	} catch (error) {
 		return refuse("invalid", errorMessage(error));
@@ -420,6 +420,38 @@ function appendPageTo(
 	return { ok: true, value: page };
 }
 
+function removePageFrom(
+	deps: PageCompositionDeps,
+	docName: string,
+	pageId: string,
+): CompositionResult<Page> {
+	const writable = writableDocument(deps, docName);
+	if (!writable.ok) return writable;
+	const doc = writable.value;
+	const index = doc.pages.findIndex((page) => page.id === pageId);
+	const page = doc.pages[index];
+	if (!page) return refuse("not_found", "Page not found");
+	if (doc.pages.length <= 1)
+		return refuse("invalid", "Cannot remove the last page");
+	const nextPage = doc.pages[index + 1] ?? doc.pages[index - 1];
+	if (!nextPage) return refuse("invalid", "Cannot remove the last page");
+	const controlled = templateControlledPageMessage(doc, page);
+	if (controlled) return refuse("template_controlled", controlled);
+	const before = [...doc.pages];
+	const active = doc.activePage;
+	doc.pages.splice(index, 1);
+	doc.activePage = Math.min(index, doc.pages.length - 1);
+	try {
+		deps.documents.persist(doc.name);
+	} catch (error) {
+		doc.pages = before;
+		doc.activePage = active;
+		return refuse("invalid", errorMessage(error));
+	}
+	deps.bus.emit("document:loaded", { docName: doc.name });
+	return { ok: true, value: nextPage };
+}
+
 function setCanvasOf(
 	deps: PageCompositionDeps,
 	docName: string,
@@ -521,6 +553,7 @@ export function createPageComposition(
 	return {
 		createDocument: (input) => createDocumentIn(deps, input),
 		appendPage: (docName, input) => appendPageTo(deps, docName, input),
+		removePage: (docName, pageId) => removePageFrom(deps, docName, pageId),
 		setCanvas: (docName, canvas) => setCanvasOf(deps, docName, canvas),
 		addElement: (docName, pageIndex, spec) =>
 			addElementTo(deps, { docName, pageIndex }, spec),

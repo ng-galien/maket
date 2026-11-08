@@ -380,10 +380,6 @@ button[data-library-pin]:focus-visible {
 .placed-handle-s { left: 50%; top: 100%; cursor: ns-resize; }
 .placed-handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
 .placed-handle-w { left: 0; top: 50%; cursor: ew-resize; }
-.tb-delete:hover {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
 
 .page-canvas.is-annotating [data-id] { cursor: crosshair; }
 .page-canvas.is-annotating [data-id]:hover { outline: 2px solid var(--color-accent-border); outline-offset: 2px; }
@@ -590,51 +586,6 @@ button[data-library-pin]:focus-visible {
 [data-reader-appearance="embed"] .page-canvas.reader-page {
   border: 0;
   box-shadow: none;
-}
-
-/* ============================================================
-   Element hover toolbar
-   ============================================================ */
-.element-toolbar {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--color-panel);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-  opacity: 0;
-  animation: toolbar-in var(--duration-base) var(--ease-out) forwards;
-}
-@keyframes toolbar-in {
-  to {
-    opacity: 1;
-  }
-}
-.tb-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: var(--radius-xs);
-  background: transparent;
-  color: var(--color-text-2);
-  cursor: pointer;
-  padding: 0;
-  transition: all var(--duration-fast) var(--ease-out);
-}
-.tb-btn svg {
-  pointer-events: none;
-}
-.tb-edit:hover {
-  background: var(--color-editing-soft);
-  color: var(--color-editing);
-}
-.tb-comment:hover {
-  background: var(--color-warning-soft);
-  color: var(--color-warning);
 }
 
 /* ============================================================
@@ -869,3 +820,8 @@ button[data-library-pin]:focus-visible {
 [data-mobile-explorer-search] input::-webkit-search-cancel-button {
 	display: none;
 }
+
+/* Placement belongs to the page, with an explicit tool state. */
+.page-canvas[data-hand-placement],
+.page-canvas[data-hand-placement] [data-id] { cursor: crosshair; }
+.page-canvas[data-hand-placement] [data-id]:hover { outline-color: transparent; }

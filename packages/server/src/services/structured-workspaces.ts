@@ -7,6 +7,7 @@ import type {
 	StructuredWorkspaceCollectionDocumentView,
 	StructuredWorkspaceCollectionRepresentation,
 	StructuredWorkspaceDataSchema,
+	StructuredWorkspaceDataSource,
 	StructuredWorkspaceDefinition,
 	StructuredWorkspaceFinding,
 	StructuredWorkspaceItemReference,
@@ -47,6 +48,7 @@ import { createDocument, type Document, type Page } from "../types.js";
 import type { Bus } from "./bus.js";
 import type { DocumentStates } from "./document-states.js";
 import type { Documents } from "./documents.js";
+import { validateDataSource } from "./item-sources/http-source-definition.js";
 import {
 	itemGroupKey,
 	itemGroupLabel,
@@ -115,6 +117,7 @@ export interface CreateStructuredWorkspaceInput {
 	description?: string;
 	dataSchema: StructuredWorkspaceDataSchema;
 	representationSchema?: StructuredWorkspaceRepresentationInput;
+	dataSource?: StructuredWorkspaceDataSource;
 	/** Persist a definition with errors instead of refusing it. */
 	allowIncomplete?: boolean;
 }
@@ -134,6 +137,7 @@ export interface UpdateStructuredWorkspaceInput {
 	expectedRevision: number;
 	dataSchema?: StructuredWorkspaceDataSchema;
 	representationSchema?: StructuredWorkspaceRepresentationInput;
+	dataSource?: StructuredWorkspaceDataSource;
 	/** Replace the definition even when it has errors instead of keeping the
 	 * previous one. */
 	allowIncomplete?: boolean;
@@ -200,6 +204,11 @@ export interface StructuredWorkspaces {
 	 * the source. Null when no item of a ready workspace bears that name.
 	 */
 	openItem(workspaceId: string, documentName: string): Document | null;
+	/** Read a remote item before opening it; no preparation needed for local items. */
+	prepareItem(
+		workspaceId: string,
+		documentName: string,
+	): Promise<void> | undefined;
 	/** Create, without announcing them, the missing documents of the named
 	 * items, or of every item of the ready workspaces, and refresh their
 	 * mirrors. Answers the names of the documents this export holds, and the
@@ -406,6 +415,11 @@ export function createStructuredWorkspaces(
 		itemOfDocument(documentName) {
 			return itemOfDocument(deps, documentName);
 		},
+		prepareItem(workspaceId, documentName) {
+			const source = deps.itemSources.sourceFor(workspaceId);
+			const item = source.referenceForDocument?.(documentName);
+			return item ? source.refresh({ scope: "item", id: item.id }) : undefined;
+		},
 		openItem(workspaceId, documentName) {
 			const document = openItem(deps, workspaceId, documentName);
 			if (document) exportOnly.delete(document.id);
@@ -419,6 +433,11 @@ export function createStructuredWorkspaces(
 		},
 		portableItems(workspaceId) {
 			const workspace = loadedWorkspace(deps.store, workspaceId);
+			if (workspace?.dataSource?.kind === "http")
+				throw itemSourceError(
+					"query_unsupported",
+					"HTTP workspace .maket portability is not supported by this read increment.",
+				);
 			const items: BundleStructuredWorkspaceItem[] = [];
 			if (!workspace) return items;
 			forEachItemRow(deps.store, workspace, (row) => {
@@ -450,16 +469,7 @@ export function createStructuredWorkspaces(
 			});
 		},
 		getItem(workspaceId, itemId) {
-			const row = loadedWorkspace(deps.store, workspaceId)
-				? deps.store.loadStructuredWorkspaceItem(workspaceId, itemId)
-				: null;
-			if (!row) return null;
-			const item = itemReference(row);
-			try {
-				return presentItem(deps, deps.itemSources.sourceFor(workspaceId), item);
-			} catch {
-				return null;
-			}
+			return getWorkspaceItem(deps, workspaceId, itemId);
 		},
 		restorePortable(snapshot, documentsBySourceId) {
 			return restorePortableWorkspace(deps, snapshot, documentsBySourceId);
@@ -1375,9 +1385,9 @@ function updateDefinition(
 	deps: EngineDeps,
 	input: UpdateStructuredWorkspaceInput,
 ): StructuredWorkspaceView {
-	if (!input.dataSchema && !input.representationSchema) {
+	if (!input.dataSchema && !input.representationSchema && !input.dataSource) {
 		throw new Error(
-			"data_schema or representation_schema is required for update_definition.",
+			"data_schema, representation_schema or data_source is required for update_definition.",
 		);
 	}
 	const workspace = requiredWorkspace(deps.store, input.workspace);
@@ -1427,7 +1437,23 @@ function replaceDefinition(
 ): StructuredWorkspaceView {
 	const { dataSchema, representationSchema } = next;
 	assertTemplatesUnlocked(deps.documents, representationSchema);
-	const candidate = { ...workspace, dataSchema, representationSchema };
+	const candidate = {
+		...workspace,
+		dataSchema,
+		representationSchema,
+		...(input.dataSource === undefined ? {} : { dataSource: input.dataSource }),
+	};
+	validateDataSource(candidate.dataSource, representationSchema);
+	if (
+		input.dataSource &&
+		JSON.stringify(input.dataSource) !== JSON.stringify(workspace.dataSource) &&
+		(workspace.dataSource?.kind === "http" ||
+			Object.values(workspace.itemCounts).some((count) => count > 0))
+	)
+		throw itemSourceError(
+			"invalid_record",
+			"Changing an existing source is outside this HTTP read increment; create a new workspace instead.",
+		);
 	const call = `maket_structured_workspace action=update_definition workspace=${workspace.id} expected_workspace_revision=${workspace.revision} representation_schema=<corrected>`;
 	const repointed = identityChanges(workspace, representationSchema, call);
 	if (repointed.length > 0)
@@ -1448,12 +1474,22 @@ function replaceDefinition(
 			input.expectedRevision,
 			dataSchema,
 			representationSchema,
+			candidate.dataSource,
 		);
 		retireReplacedTemplates(deps, updated);
 		reconcileTemplateOwnership(deps, updated);
 		return workspaceView(deps, updated);
 	}
-	const currentCollectionDocuments = ensureCollectionDocuments(deps, workspace);
+	const currentCollectionDocuments = Object.keys(
+		workspace.representationSchema.collections,
+	).flatMap((collectionId) => {
+		const document = findCollectionDocument(
+			deps.documents,
+			workspace.id,
+			collectionId,
+		);
+		return document ? [collectionDocumentView(collectionId, document)] : [];
+	});
 	const collectionPlans = Object.entries(
 		representationSchema.collections,
 	).flatMap(([collectionId, collection]) => {
@@ -1483,7 +1519,10 @@ function replaceDefinition(
 		(document) => !representationSchema.collections[document.collectionId],
 	);
 
-	const breaches = itemBreaches(deps, workspace, next, call);
+	const breaches =
+		workspace.dataSource?.kind === "http"
+			? []
+			: itemBreaches(deps, workspace, next, call);
 	if (breaches.length > 0)
 		throw refusal(
 			`Structured Workspace "${workspace.name}" keeps its definition at revision ${workspace.revision}: ${breaches.length}${breaches.length === MAX_REPORTED_BREACHES ? " or more" : ""} item breach(es) of the new definition, first: ${breaches[0]?.message}`,
@@ -1531,6 +1570,7 @@ function replaceDefinition(
 		input.expectedRevision,
 		dataSchema,
 		representationSchema,
+		candidate.dataSource,
 	);
 	retireReplacedTemplates(deps, updated);
 	reconcileTemplateOwnership(deps, updated);
@@ -1578,7 +1618,8 @@ function identityChanges(
 			if (
 				!before?.identity ||
 				collection.identity === before.identity ||
-				(workspace.itemCounts[collectionId] ?? 0) === 0
+				(workspace.dataSource?.kind !== "http" &&
+					(workspace.itemCounts[collectionId] ?? 0) === 0)
 			)
 				return [];
 			return [
@@ -1757,12 +1798,16 @@ function createWorkspace(
 				? {}
 				: { description: input.description }),
 			dataSchema: input.dataSchema,
+			...(input.dataSource === undefined
+				? {}
+				: { dataSource: input.dataSource }),
 			representationSchema,
 			revision: 0,
 			itemCounts: {},
 			createdAt: "",
 			updatedAt: "",
 		};
+		validateDataSource(candidate.dataSource, candidate.representationSchema);
 		const errors = definitionErrors(
 			deps,
 			candidate,
@@ -1782,6 +1827,7 @@ function createWorkspace(
 		id: candidate.id,
 		name: candidate.name,
 		description: candidate.description,
+		dataSource: candidate.dataSource,
 		dataSchema: candidate.dataSchema,
 		representationSchema: candidate.representationSchema,
 	});
@@ -1798,6 +1844,8 @@ async function addItem(
 	input: AddStructuredWorkspaceItemInput,
 ): Promise<StructuredWorkspaceItemView> {
 	const workspace = requiredReadyWorkspace(deps, input.workspace);
+	if (workspace.dataSource?.kind === "http")
+		sourceWrite(deps.itemSources.sourceFor(workspace.id), "create");
 	assertCollectionUnlocked(deps, workspace, input.collectionId);
 	const collection = requiredCollection(workspace, input.collectionId);
 	const binding = collection.bindings[input.bindingId];
@@ -1858,6 +1906,8 @@ async function updateItem(
 	data: Record<string, unknown>,
 ): Promise<StructuredWorkspaceItemView> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
+	if (workspace.dataSource?.kind === "http")
+		sourceWrite(deps.itemSources.sourceFor(workspace.id), "put");
 	const item = requiredItem(deps.store, workspace, itemId);
 	assertIdentityKept(workspace, item, data);
 	assertValidItemData(workspace.dataSchema, data);
@@ -1960,6 +2010,8 @@ async function deleteItem(
 	itemId: string,
 ): Promise<boolean> {
 	const workspace = requiredReadyWorkspace(deps, workspaceName);
+	if (workspace.dataSource?.kind === "http")
+		sourceWrite(deps.itemSources.sourceFor(workspace.id), "delete");
 	const item = requiredItem(deps.store, workspace, itemId);
 	const document = itemDocument(deps.documents, item);
 	if (document) assertDocumentUnlocked(document);
@@ -2304,7 +2356,10 @@ function presentItem(
 		...item,
 		...(pinnedAt ? { pinnedAt } : {}),
 		data: record.data,
-		dataRevision: Number(record.revision),
+		dataRevision:
+			Number.isFinite(Number(record.revision)) && Number(record.revision) > 0
+				? Number(record.revision)
+				: 1,
 	};
 }
 
@@ -2386,9 +2441,17 @@ function refreshItemMirror(
 		item.id,
 	);
 	if (!record) return;
+	if (
+		workspace.dataSource?.kind === "http" &&
+		document.meta.structuredWorkspace?.role === "item"
+	) {
+		document.meta.structuredWorkspace.sourceReadOnly = true;
+		document.meta.structuredWorkspace.sourceRevision = record.revision;
+		deps.documents.persist(document.name);
+	}
 	deps.documentStates.mirror(
 		document.name,
-		Number(record.revision),
+		workspace.dataSource?.kind === "http" ? 1 : Number(record.revision),
 		itemSchema(workspace, item),
 		record.data,
 		{ announce },
@@ -2408,6 +2471,11 @@ function itemOfDocument(
 		owner.role === "template"
 	)
 		return null;
+	if (
+		deps.store.loadStructuredWorkspace(owner.workspaceId)?.dataSource?.kind ===
+		"http"
+	)
+		return { workspaceId: owner.workspaceId, itemId: owner.itemId };
 	const row = deps.store.loadStructuredWorkspaceItem(
 		owner.workspaceId,
 		owner.itemId,
@@ -2422,6 +2490,18 @@ function openItem(
 	workspaceId: string,
 	documentName: string,
 ): Document | null {
+	const remoteWorkspace = loadedWorkspace(deps.store, workspaceId);
+	if (remoteWorkspace?.dataSource?.kind === "http") {
+		const source = deps.itemSources.sourceFor(workspaceId);
+		const item = source.referenceForDocument?.(documentName);
+		if (!item || !source.get(item.id)) return null;
+		if (workspaceIntegrity(deps, remoteWorkspace).status !== "ready")
+			return null;
+		return openedItemDocument(deps, remoteWorkspace, {
+			...item,
+			documentId: itemDocumentId(workspaceId, item.id),
+		}).document;
+	}
 	const found =
 		deps.store.loadStructuredWorkspaceItemByDocumentName(documentName);
 	if (!found || found.workspaceId !== workspaceId) return null;
@@ -3901,7 +3981,10 @@ function itemFindings(
 	const ref = workspace.id;
 	const [firstCollectionId, firstCollection] =
 		Object.entries(workspace.representationSchema.collections ?? {})[0] ?? [];
-	if (Object.values(workspace.itemCounts).every((count) => count === 0))
+	if (
+		workspace.dataSource?.kind !== "http" &&
+		Object.values(workspace.itemCounts).every((count) => count === 0)
+	)
 		findings.push({
 			severity: "hint",
 			object: "item",
@@ -3919,6 +4002,18 @@ function itemFindings(
 	for (const [collectionId, collection] of Object.entries(
 		workspace.representationSchema.collections ?? {},
 	)) {
+		if (workspace.dataSource?.kind === "http") {
+			const items = deps.itemWindows.current(workspace.id, collectionId).items;
+			for (const item of items)
+				findings.push(
+					...recordFindings(
+						workspace,
+						{ collectionId, collection, item },
+						conflicts.get(item.id),
+					),
+				);
+			continue;
+		}
 		if ((workspace.itemCounts[collectionId] ?? 0) === 0) continue;
 		forEachSourceBatch(source, collectionId, (items) => {
 			for (const item of items)
@@ -4080,4 +4175,32 @@ function pagesInSync(template: Document, pages: Page[]): boolean {
 				JSON.stringify(source.jsonForms ?? null)
 		);
 	});
+}
+
+function getWorkspaceItem(
+	deps: EngineDeps,
+	workspaceId: string,
+	itemId: string,
+): StructuredWorkspaceItemView | null {
+	const workspace = loadedWorkspace(deps.store, workspaceId);
+	if (workspace?.dataSource?.kind === "http") {
+		const source = deps.itemSources.sourceFor(workspaceId);
+		const item = source.reference?.(itemId);
+		return item
+			? presentItem(deps, source, {
+					...item,
+					documentId: itemDocumentId(workspaceId, itemId),
+				})
+			: null;
+	}
+	const row = loadedWorkspace(deps.store, workspaceId)
+		? deps.store.loadStructuredWorkspaceItem(workspaceId, itemId)
+		: null;
+	if (!row) return null;
+	const item = itemReference(row);
+	try {
+		return presentItem(deps, deps.itemSources.sourceFor(workspaceId), item);
+	} catch {
+		return null;
+	}
 }

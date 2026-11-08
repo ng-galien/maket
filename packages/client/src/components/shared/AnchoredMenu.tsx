@@ -57,6 +57,7 @@ export function computeAnchoredMenuPosition({
 	};
 }
 
+// biome-ignore-start lint/a11y/useAriaPropsSupportedByRole: The configurable role is restricted to menu and listbox, both of which support aria-label.
 export function AnchoredMenu({
 	anchorRef,
 	onClose,
@@ -64,6 +65,8 @@ export function AnchoredMenu({
 	align = "end",
 	className = "w-52",
 	ariaLabel,
+	role = "menu",
+	id,
 }: {
 	anchorRef: React.RefObject<HTMLElement | null>;
 	onClose: () => void;
@@ -71,6 +74,8 @@ export function AnchoredMenu({
 	align?: "start" | "end";
 	className?: string;
 	ariaLabel?: string;
+	role?: "menu" | "listbox";
+	id?: string;
 }) {
 	const menuRef = useRef<HTMLDivElement>(null);
 	const closeRef = useRef(onClose);
@@ -102,14 +107,21 @@ export function AnchoredMenu({
 			);
 		};
 		place();
-		firstEnabledMenuItem(menu)?.focus();
 
 		const closeFromOutside = (event: MouseEvent) => {
 			if (menu.contains(event.target as Node)) return;
 			if (anchor.contains(event.target as Node)) return;
 			closeWithoutRestoringFocus();
 		};
-		const closeForViewportChange = () => closeWithoutRestoringFocus();
+		const closeForViewportChange = (event: Event) => {
+			if (
+				event.type === "scroll" &&
+				event.target instanceof Node &&
+				menu.contains(event.target)
+			)
+				return;
+			closeWithoutRestoringFocus();
+		};
 		document.addEventListener("mousedown", closeFromOutside);
 		window.addEventListener("scroll", closeForViewportChange, true);
 		window.addEventListener("resize", closeForViewportChange);
@@ -123,14 +135,24 @@ export function AnchoredMenu({
 		};
 	}, [align, anchorRef]);
 
+	useLayoutEffect(() => {
+		const menu = menuRef.current;
+		if (!position || !menu) return;
+		(
+			menu.querySelector<HTMLButtonElement>(
+				'[role="option"][aria-selected="true"]:not(:disabled)',
+			) ?? firstEnabledMenuItem(menu)
+		)?.focus({ preventScroll: true });
+	}, [position]);
+
 	const style: CSSProperties = position
 		? { top: position.top, left: position.left }
 		: { top: 0, left: 0, visibility: "hidden" };
 	return createPortal(
 		<div
-			id={menuId}
+			id={id ?? menuId}
 			ref={menuRef}
-			role="menu"
+			role={role}
 			aria-label={ariaLabel}
 			data-placement={position?.placement}
 			onKeyDown={(event) => {
@@ -158,6 +180,8 @@ export function AnchoredMenu({
 		document.body,
 	);
 }
+
+// biome-ignore-end lint/a11y/useAriaPropsSupportedByRole: End of the configurable-role primitive.
 
 export function AnchoredMenuItem({
 	icon,
@@ -220,7 +244,7 @@ function firstEnabledMenuItem(menu: HTMLDivElement): HTMLButtonElement | null {
 function enabledMenuItems(menu: HTMLDivElement): HTMLButtonElement[] {
 	return Array.from(
 		menu.querySelectorAll<HTMLButtonElement>(
-			'[role="menuitem"]:not(:disabled)',
+			'[role="menuitem"]:not(:disabled), [role="option"]:not(:disabled)',
 		),
 	);
 }

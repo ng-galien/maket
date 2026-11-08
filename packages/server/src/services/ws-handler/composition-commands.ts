@@ -15,6 +15,7 @@ import {
 	placedCompositionFormat,
 	type WorkspaceCommand,
 } from "@maket/shared";
+import type WebSocket from "ws";
 import type { CompositionRefusal } from "../page-composition.js";
 import type { WsHandlerContext } from "./context.js";
 import { log } from "./context.js";
@@ -86,6 +87,7 @@ export function handleCreateDocument(
 export function handleAddPage(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "page_add" }>,
+	ws: WebSocket,
 ): void {
 	if (typeof msg.docName !== "string") return;
 	const doc = ctx.documents.resolveOrLoad(msg.docName);
@@ -94,6 +96,40 @@ export function handleAddPage(
 		html: BLANK_PAGE_HTML,
 	});
 	if (!result.ok) refused(ctx, "page_add", msg.docName, result.refusal);
+	if (msg.requestId)
+		ws.send(
+			JSON.stringify({
+				type: "page_change_result",
+				requestId: msg.requestId,
+				...(result.ok
+					? { ok: true, pageId: result.value.id }
+					: { ok: false, error: result.refusal.message }),
+			}),
+		);
+}
+
+export function handleRemovePage(
+	ctx: WsHandlerContext,
+	msg: Extract<WorkspaceCommand, { type: "page_remove" }>,
+	ws: WebSocket,
+): void {
+	if (
+		typeof msg.docName !== "string" ||
+		typeof msg.pageId !== "string" ||
+		typeof msg.requestId !== "string"
+	)
+		return;
+	const result = ctx.pageComposition.removePage(msg.docName, msg.pageId);
+	if (!result.ok) refused(ctx, "page_remove", msg.docName, result.refusal);
+	ws.send(
+		JSON.stringify({
+			type: "page_change_result",
+			requestId: msg.requestId,
+			...(result.ok
+				? { ok: true, pageId: result.value.id }
+				: { ok: false, error: result.refusal.message }),
+		}),
+	);
 }
 
 export function handleSetCanvasFormat(
@@ -130,6 +166,7 @@ export function handleSetCanvasFormat(
 export function handleAddPlacedElement(
 	ctx: WsHandlerContext,
 	msg: Extract<WorkspaceCommand, { type: "element_add" }>,
+	ws: WebSocket,
 ): void {
 	if (typeof msg.docName !== "string" || typeof msg.pageIndex !== "number")
 		return;
@@ -137,10 +174,20 @@ export function handleAddPlacedElement(
 		!(PLACED_ELEMENT_KINDS as readonly string[]).includes(msg.kind) ||
 		!isPlacedBox(msg.box)
 	) {
+		const error = "element_add needs a known kind and a box in millimetres";
 		refused(ctx, "element_add", msg.docName, {
 			code: "invalid",
-			message: "element_add needs a known kind and a box in millimetres",
+			message: error,
 		});
+		if (typeof msg.requestId === "string")
+			ws.send(
+				JSON.stringify({
+					type: "element_add_result",
+					requestId: msg.requestId,
+					ok: false,
+					error,
+				}),
+			);
 		return;
 	}
 	const result = ctx.pageComposition.addElement(msg.docName, msg.pageIndex, {
@@ -150,6 +197,16 @@ export function handleAddPlacedElement(
 		text: typeof msg.text === "string" ? msg.text : undefined,
 	});
 	if (!result.ok) refused(ctx, "element_add", msg.docName, result.refusal);
+	if (typeof msg.requestId === "string")
+		ws.send(
+			JSON.stringify({
+				type: "element_add_result",
+				requestId: msg.requestId,
+				...(result.ok
+					? { ok: true, elementId: result.value }
+					: { ok: false, error: result.refusal.message }),
+			}),
+		);
 }
 
 export function handleSetPlacedElementBox(

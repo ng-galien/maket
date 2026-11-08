@@ -20,7 +20,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { createPortal } from "react-dom";
 import {
 	configurationNoticeRequired,
 	useDesktopConfiguration,
@@ -36,12 +35,9 @@ import { DocsTab } from "./DocsTab";
 import { MessagesPanel } from "./MessagesPanel";
 import { PhotosTab } from "./PhotosTab";
 import { StructuredWorkspacesTab } from "./StructuredWorkspacesTab";
-import { ResizeHandleFeedback } from "./shared/ResizeHandleFeedback";
-import {
-	clampPanelWidth,
-	loadPanelWidth,
-	savePanelWidth,
-} from "./sidePanelResize";
+import { PanelResizeHandle } from "./shared/PanelResizeHandle";
+import { Tooltip } from "./shared/Tooltip";
+import { clampPanelWidth, loadPanelWidth } from "./sidePanelResize";
 
 type LibraryView =
 	| "docs"
@@ -196,12 +192,7 @@ export function LibraryPanel({
 						panelRef={panelRef}
 						onTogglePinned={toggleLibraryPinned}
 						onCollectionNavigate={() => {
-							if (
-								mobileReader ||
-								viewportWidth < 960 ||
-								(useStore.getState().structuredWorkspaceLayout === "split" &&
-									viewportWidth - width < COLLECTION_WORKSPACE_MIN_WIDTH)
-							)
+							if (mobileReader || (!pinned && (viewportWidth < 960 || overlay)))
 								closeLastPanel();
 						}}
 					/>
@@ -244,7 +235,7 @@ function NavigationRail({
 							{option.value === "exchange" && (
 								<span aria-hidden="true" className="my-1 h-px w-6 bg-border" />
 							)}
-							<RailTooltip label={option.label}>
+							<Tooltip side="right" className="w-11" label={option.label}>
 								<button
 									type="button"
 									data-library-rail-view={option.value}
@@ -278,7 +269,7 @@ function NavigationRail({
 										</span>
 									)}
 								</button>
-							</RailTooltip>
+							</Tooltip>
 						</div>
 					);
 				})}
@@ -442,7 +433,7 @@ function NavigationUtilityButton({
 	children: ReactNode;
 }) {
 	return (
-		<RailTooltip label={label}>
+		<Tooltip side="right" className="w-11" label={label}>
 			<button
 				type="button"
 				onClick={onClick}
@@ -460,52 +451,7 @@ function NavigationUtilityButton({
 				</span>
 				{badge}
 			</button>
-		</RailTooltip>
-	);
-}
-
-function RailTooltip({
-	label,
-	children,
-}: {
-	label: ReactNode;
-	children: ReactNode;
-}) {
-	const anchorRef = useRef<HTMLDivElement>(null);
-	const [position, setPosition] = useState<{
-		left: number;
-		top: number;
-	} | null>(null);
-	const show = () => {
-		const bounds = anchorRef.current?.getBoundingClientRect();
-		if (!bounds) return;
-		setPosition({
-			left: bounds.right + 8,
-			top: bounds.top + bounds.height / 2,
-		});
-	};
-	return (
-		<div
-			ref={anchorRef}
-			className="relative flex w-11 shrink-0 justify-center"
-			onMouseEnter={show}
-			onMouseLeave={() => setPosition(null)}
-			onFocus={show}
-			onBlur={() => setPosition(null)}
-		>
-			{children}
-			{position &&
-				createPortal(
-					<div
-						role="tooltip"
-						style={{ left: position.left, top: position.top }}
-						className="pointer-events-none fixed z-[var(--z-popover)] -translate-y-1/2 whitespace-nowrap rounded-sm bg-text-1 px-2 py-1 text-xs font-semibold text-panel shadow-md"
-					>
-						{label}
-					</div>,
-					document.body,
-				)}
-		</div>
+		</Tooltip>
 	);
 }
 
@@ -564,81 +510,6 @@ function UpdateRailTooltip({
 					<span className="block h-full w-2/3 animate-pulse bg-panel" />
 				</div>
 			)}
-		</div>
-	);
-}
-
-function PanelResizeHandle({
-	panel,
-	width,
-	setWidth,
-	panelRef,
-}: {
-	panel: "library";
-	width: number;
-	setWidth: (width: number) => void;
-	panelRef: React.RefObject<HTMLElement | null>;
-}) {
-	const cancelResizeRef = useRef<(() => void) | null>(null);
-	const [resizing, setResizing] = useState(false);
-	const t = useT();
-	useEffect(() => () => cancelResizeRef.current?.(), []);
-
-	const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
-		event.preventDefault();
-		const startX = event.clientX;
-		const startWidth = panelRef.current?.getBoundingClientRect().width ?? width;
-		setResizing(true);
-		panelRef.current?.setAttribute("data-resizing", "true");
-		document.body.style.cursor = "col-resize";
-		document.body.style.userSelect = "none";
-		const move = (moveEvent: PointerEvent) =>
-			setWidth(clampPanelWidth(startWidth + moveEvent.clientX - startX));
-		const stop = () => {
-			savePanelWidth(
-				panel,
-				panelRef.current?.getBoundingClientRect().width ?? width,
-			);
-			setResizing(false);
-			document.body.style.cursor = "";
-			document.body.style.userSelect = "";
-			panelRef.current?.removeAttribute("data-resizing");
-			window.removeEventListener("pointermove", move);
-			window.removeEventListener("pointerup", stop);
-			window.removeEventListener("pointercancel", stop);
-			window.removeEventListener("blur", stop);
-			cancelResizeRef.current = null;
-		};
-		cancelResizeRef.current?.();
-		cancelResizeRef.current = stop;
-		window.addEventListener("pointermove", move);
-		window.addEventListener("pointerup", stop);
-		window.addEventListener("pointercancel", stop);
-		window.addEventListener("blur", stop);
-	};
-
-	return (
-		<div
-			role="separator"
-			tabIndex={0}
-			aria-orientation="vertical"
-			aria-label={t("resize_library_panel")}
-			aria-valuemin={320}
-			aria-valuemax={Math.min(760, window.innerWidth - 16)}
-			aria-valuenow={Math.round(width)}
-			data-resizing={resizing || undefined}
-			onPointerDown={startResize}
-			onKeyDown={(event) => {
-				if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-				event.preventDefault();
-				const delta = event.key === "ArrowRight" ? 16 : -16;
-				const next = clampPanelWidth(width + delta);
-				setWidth(next);
-				savePanelWidth(panel, next);
-			}}
-			className="group/resize absolute inset-y-3 -right-1.5 z-10 flex w-3 cursor-col-resize items-center justify-center focus-visible:outline-none"
-		>
-			<ResizeHandleFeedback orientation="vertical" active={resizing} />
 		</div>
 	);
 }

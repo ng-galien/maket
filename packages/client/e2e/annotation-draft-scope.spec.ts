@@ -11,10 +11,10 @@ test("cancelled desktop drafts never move to another annotation target", async (
 	});
 	await openWorkspace(page);
 	await mcp.call("maket_workspace", { action: "focus", doc, page: 1 });
+	await page.getByRole("button", { name: "Annotate", exact: true }).click();
 	const field = page.getByPlaceholder("Message for the agent");
 	const open = async (id: string) => {
 		await page.locator(`[data-doc="${doc}"] [data-id="${id}"]`).click();
-		await page.locator(".tb-comment").click();
 		await expect(field).toBeVisible();
 	};
 	await open("a");

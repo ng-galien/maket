@@ -1,58 +1,29 @@
 # Maket App updates
 
-`maket` remains the server and CLI package. `maket-app` is the Electron distribution; the visible product name remains **Maket**.
+Maket App downloads updates in the background. Settings displays the installed version, download progress and a **Restart** action when the update is ready. Restart stops the embedded server, installs the update and relaunches Maket. An installation refusal restores the server. No browser or manually launched installer is involved in subsequent updates.
 
-## Release channels
+## Platform engines
 
-- **Stable** consumes non-draft, non-prerelease GitHub Releases through Electron's public update service. A stable release must contain the macOS ZIP and the Windows Squirrel assets (`Setup.exe`, `RELEASES`, and the full `.nupkg`).
-- **Candidate** consumes a dedicated static feed under `https://ng-galien.github.io/maket/updates/candidate/{platform}/{arch}`. Release candidates use SemVer versions such as `2.0.0-rc.1` and are published as GitHub prereleases.
-- **Snapshot** is an unsigned, local-install build of every push to `main`. GitHub Actions retains the macOS Intel, macOS Apple Silicon, Windows x64, and Linux x64 artifacts for 14 days. The local-install marker disables public update checks so a snapshot cannot accidentally move onto a release channel.
+- **macOS:** Sparkle verifies each archive against the Ed25519 public key in `packages/desktop/update-public-key.txt`, embedded as `SUPublicEDKey` in the application. Forge signs the completed app bundle ad hoc. No paid Apple certificate or notarization is used. Initial installation still follows macOS security rules. Existing releases using Squirrel and ad-hoc signatures need one manual installation of the Sparkle-enabled version.
+- **Windows:** Electron's Squirrel updater uses the public Electron update service for stable releases and the existing static candidate feed for prereleases. The installer remains unsigned.
+- **Linux:** the updater detects the package manager that owns the running executable and downloads the matching DEB or RPM. The system may ask for authorization to install it. Unpackaged executables cannot update through a package manager.
 
-The public Electron service intentionally excludes GitHub prereleases. The candidate feed is therefore a separate distribution surface, not a compatibility alias for the stable feed. On Windows, the Squirrel `RELEASES` file and referenced `.nupkg` are deployed together under the candidate feed URL.
+The updater permits newer major versions. Stable receives final releases; Candidate receives prereleases and final releases. Local installers marked `--local-install`, snapshots and development builds do not contact public update feeds.
 
-## Application behavior
+## Signing and publication
 
-The selected channel is persisted in the Electron user-data directory. Maket App checks on startup and then hourly. The renderer receives only a small state contract:
+The private update key is a 32-byte Ed25519 seed encoded in base64. Keep it outside the repository and preserve it across releases. Only its public half belongs in source. CI uses the repository secret `MAKET_UPDATE_PRIVATE_KEY`; local signing accepts `MAKET_UPDATE_KEY_FILE`. Neither is a paid certificate. Losing the private key prevents existing ad-hoc installations from trusting new archives.
 
-- channel and installed version;
-- checking, downloading, ready, up-to-date, or error status;
-- target version when Electron provides it;
-- optional numeric progress for a future updater implementation.
+`npm run desktop -- make --arch=<arch>` builds with the Node major in `.desktop-node-version`. On macOS it rebuilds the Sparkle bridge for the target Electron version and architecture, copies the framework and bridge into the app, then applies the ad-hoc signature. Linux includes its updater cache configuration.
 
-Electron's built-in updater does not expose byte download progress. The current UI therefore uses an indeterminate thin progress line and spinner while downloading. Once the update is ready, the user can restart from Settings; Maket stops its embedded server before `quitAndInstall()`.
+A release tag passes version, ancestry and changelog checks before building all four platform targets. macOS archive signing occurs before publication; missing keys or a key that differs from the embedded public key fail the build. The release publishes installers and signatures, then deploys the update feeds after the assets have been attached.
 
-Local and CI installers use the same pipeline: `npm run desktop -- make --arch=<arch>`. Add `--local-install` for a local test installer; this only adds the `local-install` marker that disables public update checks. Packaging requires the Node major declared in `.desktop-node-version` (currently Node 22) and fails immediately on other Node majors; `npm run desktop -- check` diagnoses the active runtime. Snapshot CI adds the local marker; candidate and stable release builds omit it and keep automatic updates enabled.
+The feed deployment verifies macOS archive signatures again, writes architecture-specific Sparkle appcasts and Linux SHA-512 download metadata, and preserves newer releases already present in either channel. Routine website deployments preserve these feeds. Update archives are versioned GitHub Release assets; they are not copied into the website.
 
-This packaging constraint is deliberately separate from the general `node >=22` project engine. It must not become permanent by accident: when Forge and its makers are upgraded, change `.desktop-node-version` in the same pull request, then validate macOS arm64/x64, Windows x64, and Linux x64 installers plus one update from the previous candidate. The guard, CI, and documentation will all follow that single change.
+The five canonical human downloads remain DMG for macOS arm64/x64, Setup.exe for Windows x64, and DEB/RPM for Linux x64. They are needed for initial installation.
 
-An unreachable or incomplete release feed is reported as neutral `unavailable` state in Settings. It never creates an error badge in the application rail; Maket retries through the normal update loop. The red error state is reserved for an internal application failure, not network or release-service availability.
+## Release verification
 
-## Publishing
+Use a packaged installation with public updates enabled, not a marked snapshot. Verify a patch version updating to the following minor version, the relaunch version, and preservation of documents, assets, settings and MCP connections. Test with a separate workspace and a backup before exercising a schema migration. Also verify refusal of an altered archive, recovery after an installation error, and normal operation when the feed is unreachable.
 
-`desktop-snapshot.yml` runs on every push to `main` and can also be dispatched manually. Its four unsigned artifacts are the inspection surface before a release; they are not attached to a GitHub Release.
-
-The existing `publish.yml` workflow remains responsible for the npm/MCP package and the GitHub Release. A version tag first passes a preflight that checks its version, ancestry on `main`, and changelog section. The desktop matrix must then finish unsigned installers for macOS Intel, macOS Apple Silicon, and Windows x64 plus Linux x64 DEB and RPM packages. Only after all four builds succeed may the workflow publish npm, publish the MCP Registry entry, and create the GitHub Release; a final job attaches the already-built installers. This ordering prevents a broken desktop package from leaving a registry-only release.
-
-Prerelease packages use the npm `next` tag and GitHub prerelease classification. For prereleases, a final job generates the macOS and Windows updater metadata, deploys the candidate feed through GitHub Pages, and preserves that feed across later documentation deployments. Linux updates remain manual. The manual `workflow_dispatch` path is only a registry catch-up from `main`; it does not create a release or build installers.
-
-Each build keeps the Forge filenames needed by the update services and adds stable, version-independent names for human downloads:
-
-- `Maket-macOS-arm64.dmg` and `Maket-macOS-x64.dmg`;
-- `Maket-Windows-x64-Setup.exe`;
-- `Maket-Linux-x64.deb` and `Maket-Linux-x64.rpm`.
-
-The README names these files and links to the latest release without predicting that an asset already exists. The website resolves the canonical names against GitHub's latest-release API: it exposes direct downloads only for assets actually present and otherwise keeps the snapshot workflow as a working fallback. Each platform also publishes a manifest and its own SHA-256 checksum file, avoiding cross-platform overwrite while jobs upload in parallel.
-
-Desktop publication requires no signing secrets. Forge applies an ad-hoc macOS signature so the unsigned application bundle remains structurally valid, but the release is not notarized. Operators must therefore expect Gatekeeper on macOS and SmartScreen on Windows to request a manual confirmation on first launch. A stable or candidate tag must not be pushed until the four snapshot targets have been inspected.
-
-The same entry point exposes `npm run desktop -- publish` for a manually reviewed draft release. CI uses `npm run desktop -- make` followed by an explicit upload so all platform artifacts converge on one release.
-
-## Release-candidate rollout
-
-1. Align all workspace versions to `X.Y.Z-rc.N`, prepare that changelog section, and inspect the latest four-platform snapshot.
-2. Create and push `vX.Y.Z-rc.N`; preflight validates the tag and release contract without publishing anything.
-3. CI builds unsigned macOS and Windows installers and the Linux DEB and RPM packages. Any failure stops the release before registry publication.
-4. CI publishes npm on `next`, publishes the MCP Registry entry, creates the GitHub prerelease, and attaches the already-built installers.
-5. CI deploys the Squirrel update assets and macOS `RELEASES.json` into the candidate static feed.
-6. Verify the three public feed endpoints and manually install all five canonical downloads. From RC2 onward, test an update from the previous candidate on macOS and Windows before promotion.
-7. Publish `vX.Y.Z` as a normal release; stable clients will then discover it through the public Electron service.
+The native engine and package installation must be exercised on each supported platform. Passing JavaScript tests alone does not validate installation or relaunch.

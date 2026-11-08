@@ -5,7 +5,7 @@ import {
 	migrateItemsToSequence,
 } from "./structured-workspace-migration.js";
 
-const SCHEMA_VERSION = 22;
+const SCHEMA_VERSION = 23;
 const MINIMUM_MIGRATABLE_VERSION = 5;
 
 const log = (...a: unknown[]) =>
@@ -103,6 +103,7 @@ const SCHEMA_SQL = `
 		description           TEXT,
 		data_schema           TEXT NOT NULL CHECK (json_valid(data_schema)),
 		representation_schema TEXT NOT NULL CHECK (json_valid(representation_schema)),
+        data_source TEXT CHECK (data_source IS NULL OR json_valid(data_source)),
 		revision              INTEGER NOT NULL CHECK (revision > 0),
 		created_at            TEXT NOT NULL DEFAULT (datetime('now')),
 		updated_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f', 'now'))
@@ -166,6 +167,7 @@ const MIGRATIONS: readonly SchemaMigration[] = [
 	{ version: 20, up: migrateToV20 },
 	{ version: 21, up: migrateToV21 },
 	{ version: 22, up: migrateToV22 },
+	{ version: 23, up: migrateToV23 },
 ];
 
 export function initializeSQLiteSchema(db: DatabaseSync): void {
@@ -224,6 +226,7 @@ function replaySchemaInvariants(db: DatabaseSync): void {
 	migrateToV20(db);
 	migrateToV21(db);
 	migrateToV22(db);
+	migrateToV23(db);
 }
 
 function migrateToV8(db: DatabaseSync): void {
@@ -531,6 +534,13 @@ function migrateToV22(db: DatabaseSync): void {
 	for (const declared of declareItemIdentities(db))
 		log(
 			`SQLite: Structured Workspace "${declared.workspace}" collection "${declared.collectionId}" identifies its items by "/${declared.property}"${declared.kept ? " (its existing id property)" : " (row ids copied there)"}`,
+		);
+}
+
+function migrateToV23(db: DatabaseSync): void {
+	if (!hasColumn(db, "structured_workspaces", "data_source"))
+		db.exec(
+			"ALTER TABLE structured_workspaces ADD COLUMN data_source TEXT CHECK (data_source IS NULL OR json_valid(data_source))",
 		);
 }
 

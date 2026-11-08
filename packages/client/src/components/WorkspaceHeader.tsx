@@ -4,6 +4,7 @@ import {
 	Lock,
 	Maximize,
 	PanelLeft,
+	PencilRuler,
 	Square,
 	Unlock,
 } from "lucide-react";
@@ -23,7 +24,11 @@ import { MobileDocumentActions } from "./MobileDocumentActions";
 import { fitReadingDocument, ReaderDocumentPicker } from "./ReadingWorkspace";
 import { StateDockButton } from "./StateDataControls";
 import { selectStructuredCollectionNavigation } from "./StructuredCollectionWorkspace";
-import { WORKSPACE_ICON_BUTTON_CLASS } from "./shared/toolbarButtonStyles";
+import { Tooltip } from "./shared/Tooltip";
+import {
+	WORKSPACE_ICON_BUTTON_CLASS,
+	WORKSPACE_TOGGLE_BUTTON_CLASS,
+} from "./shared/toolbarButtonStyles";
 
 /** Stable document toolbar composed from the existing commands. */
 // This shell adapter intentionally composes document controls owned by existing modules.
@@ -201,6 +206,7 @@ export function WorkspaceHeader({
 				<div className="flex shrink-0 items-center gap-0.5 overflow-x-auto">
 					<ReadingButton doc={focusedDoc} />
 					{!structuredNavigation && <AnnotationToggle doc={focusedDoc} />}
+					<ComposerButton doc={focusedDoc} />
 					<FitButton />
 					<DocumentLockButton doc={focusedDoc} onToggle={onDocumentLock} />
 					<DocumentOutputButtons docName={focusedDoc.name} />
@@ -331,34 +337,38 @@ function ReadingButton({ doc }: { doc: Document }) {
 			),
 		});
 		return (
-			<button
-				type="button"
-				data-workspace-layout-toggle
-				aria-label={label}
-				aria-pressed={split}
-				title={label}
-				onClick={() => setLayout(split ? "single" : "split")}
-				className={`${WORKSPACE_ICON_BUTTON_CLASS} max-[955px]:hidden`}
-			>
-				{split ? (
-					<PanelLeft size={19} strokeWidth={1.8} />
-				) : (
-					<Square size={19} strokeWidth={1.8} />
-				)}
-			</button>
+			<Tooltip>
+				<button
+					type="button"
+					data-workspace-layout-toggle
+					aria-label={label}
+					aria-pressed={split}
+					title={label}
+					onClick={() => setLayout(split ? "single" : "split")}
+					className={`${WORKSPACE_ICON_BUTTON_CLASS} max-[955px]:hidden`}
+				>
+					{split ? (
+						<PanelLeft size={19} strokeWidth={1.8} />
+					) : (
+						<Square size={19} strokeWidth={1.8} />
+					)}
+				</button>
+			</Tooltip>
 		);
 	}
 	return (
-		<button
-			type="button"
-			onClick={openReadingView}
-			title={t("reading_view")}
-			aria-label={t("reading_view")}
-			data-doc-name={doc.name}
-			className={WORKSPACE_ICON_BUTTON_CLASS}
-		>
-			<BookOpen size={19} strokeWidth={1.8} />
-		</button>
+		<Tooltip>
+			<button
+				type="button"
+				onClick={openReadingView}
+				title={t("reading_view")}
+				aria-label={t("reading_view")}
+				data-doc-name={doc.name}
+				className={WORKSPACE_ICON_BUTTON_CLASS}
+			>
+				<BookOpen size={19} strokeWidth={1.8} />
+			</button>
+		</Tooltip>
 	);
 }
 
@@ -367,19 +377,21 @@ function FitButton() {
 	const doc = useFocusedDoc();
 	const ownership = doc?.meta?.structuredWorkspace;
 	return (
-		<button
-			type="button"
-			onClick={() =>
-				ownership && ownership.role !== "template" && doc
-					? fitReadingDocument(doc.name)
-					: fitToView()
-			}
-			title={t("fit")}
-			aria-label={t("fit")}
-			className={WORKSPACE_ICON_BUTTON_CLASS}
-		>
-			<Maximize size={19} strokeWidth={1.8} />
-		</button>
+		<Tooltip>
+			<button
+				type="button"
+				onClick={() =>
+					ownership && ownership.role !== "template" && doc
+						? fitReadingDocument(doc.name)
+						: fitToView()
+				}
+				title={t("fit")}
+				aria-label={t("fit")}
+				className={WORKSPACE_ICON_BUTTON_CLASS}
+			>
+				<Maximize size={19} strokeWidth={1.8} />
+			</button>
+		</Tooltip>
 	);
 }
 
@@ -394,24 +406,26 @@ function DocumentLockButton({
 	const locked = doc.meta?.locked === true;
 	const label = locked ? t("doc_unlock") : t("doc_lock");
 	return (
-		<button
-			type="button"
-			onClick={() => onToggle(doc.name, !locked)}
-			title={label}
-			aria-label={label}
-			aria-pressed={locked}
-			className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
-				locked
-					? "bg-accent-soft text-accent"
-					: "text-text-2 hover:bg-input hover:text-text-1"
-			}`}
-		>
-			{locked ? (
-				<Unlock size={19} strokeWidth={1.8} />
-			) : (
-				<Lock size={19} strokeWidth={1.8} />
-			)}
-		</button>
+		<Tooltip>
+			<button
+				type="button"
+				onClick={() => onToggle(doc.name, !locked)}
+				title={label}
+				aria-label={label}
+				aria-pressed={locked}
+				className={`flex h-9 w-9 items-center justify-center rounded-md transition-colors ${
+					locked
+						? "bg-accent-soft text-accent"
+						: "text-text-2 hover:bg-input hover:text-text-1"
+				}`}
+			>
+				{locked ? (
+					<Unlock size={19} strokeWidth={1.8} />
+				) : (
+					<Lock size={19} strokeWidth={1.8} />
+				)}
+			</button>
+		</Tooltip>
 	);
 }
 
@@ -476,5 +490,41 @@ function MobileDocumentHeader({
 				/>
 			)}
 		</header>
+	);
+}
+
+function ComposerButton({ doc }: { doc: Document }) {
+	const t = useT();
+	const composerDocName = useStore((s) => s.composerDocName);
+	const readOnly = useStore((s) => s.readOnly);
+	const structuredNavigation = useStore((s) =>
+		Boolean(selectStructuredCollectionNavigation(s)),
+	);
+	const active = composerDocName === doc.name && !structuredNavigation;
+	return (
+		<Tooltip>
+			<button
+				type="button"
+				data-composer-toggle
+				aria-label={t("hand_composer")}
+				title={t(
+					readOnly
+						? "hand_read_only"
+						: structuredNavigation
+							? "hand_template"
+							: doc.meta?.locked
+								? "hand_locked"
+								: "hand_composer",
+				)}
+				aria-pressed={active}
+				disabled={readOnly || structuredNavigation}
+				onClick={() =>
+					useStore.getState().setComposerDocName(active ? null : doc.name)
+				}
+				className={`${WORKSPACE_TOGGLE_BUTTON_CLASS} ${active ? "bg-accent-soft text-accent" : "text-text-2 hover:bg-input hover:text-text-1"}`}
+			>
+				<PencilRuler size={19} strokeWidth={1.8} />
+			</button>
+		</Tooltip>
 	);
 }

@@ -399,7 +399,7 @@ describe("ReadingWorkspace", () => {
 		expect(
 			screen.getByRole("navigation", { name: "Reader navigation" })
 				.lastElementChild,
-		).toBe(close);
+		).toContainElement(close);
 		await user.click(close);
 		expect(document.querySelector("[data-canvas-workspace]")).not.toBeNull();
 

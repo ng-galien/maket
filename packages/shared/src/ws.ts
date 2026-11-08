@@ -398,6 +398,7 @@ export interface CreateDocumentCommand {
 /** Appends a blank page at the end of a document. */
 export interface AddPageCommand {
 	type: "page_add";
+	requestId?: string;
 	docName: string;
 }
 
@@ -414,6 +415,8 @@ export interface SetCanvasFormatCommand {
  * `text` is the initial content of `kind: "text"`. */
 export interface AddPlacedElementCommand {
 	type: "element_add";
+	/** Requests a direct confirmation identifying the created element. */
+	requestId?: string;
 	docName: string;
 	pageIndex: number;
 	kind: PlacedElementKind;
@@ -521,7 +524,27 @@ export interface SetSettingsCommand {
 	settings: Partial<Settings>;
 }
 
+/** Placement confirmation for the requesting client only. */
+export type ElementAddResultSignal = {
+	type: "element_add_result";
+	requestId: string;
+} & ({ ok: true; elementId: string } | { ok: false; error: string });
+
+export interface RemovePageCommand {
+	type: "page_remove";
+	requestId: string;
+	docName: string;
+	pageId: string;
+}
+
+export type PageChangeResultSignal = {
+	type: "page_change_result";
+	requestId: string;
+} & ({ ok: true; pageId: string } | { ok: false; error: string });
+
 export type WorkspaceSignal =
+	| PageChangeResultSignal
+	| ElementAddResultSignal
 	| WorkspaceStateSignal
 	| StatePageProjectionSignal
 	| StatePatchResultSignal
@@ -547,6 +570,7 @@ export type WorkspaceSignal =
 	| ConnectionCheckedSignal;
 
 export type WorkspaceCommand =
+	| RemovePageCommand
 	| LoadDocumentCommand
 	| DeleteDocumentCommand
 	| RenameDocumentCommand

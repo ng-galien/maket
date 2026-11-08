@@ -305,11 +305,14 @@ export const WorkspaceDoc = memo(function WorkspaceDoc({
 						? "read-only"
 						: doc?.meta?.locked
 							? "locked"
-							: readOnly
+							: readOnly ||
+									doc?.meta?.sourceReadOnly ||
+									(doc?.meta?.structuredWorkspace?.role === "item" &&
+										doc.meta.structuredWorkspace.sourceReadOnly)
 								? "read-only"
 								: "writable",
 			}),
-		[annotating, dataSource, doc?.meta?.locked, readOnly, surface],
+		[annotating, dataSource, doc?.meta, readOnly, surface],
 	);
 
 	if (!doc) return null;

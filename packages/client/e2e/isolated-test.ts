@@ -50,6 +50,8 @@ async function startServer(
 		env: {
 			...process.env,
 			MAKET_PORT: "0",
+			MAKET_PUBLIC_DIR:
+				process.env.MAKET_PUBLIC_DIR ?? path.join(ROOT, ".e2e-maket/public"),
 			MAKET_DATA_DIR: dataDir,
 			MAKET_SETTINGS_FILE: path.join(dataDir, "settings.json"),
 			MAKET_BASE_PATH: gatewayBasePath,

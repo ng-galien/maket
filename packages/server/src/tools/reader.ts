@@ -172,6 +172,10 @@ function pageAnswer(
 				Boolean(document.pages[page - 1]?.jsonForms) ||
 				content.html.includes("data-maket-bind"),
 			locked: document.meta?.locked === true,
+			...(document.meta.structuredWorkspace?.role === "item" &&
+			document.meta.structuredWorkspace.sourceReadOnly
+				? { readOnly: true }
+				: {}),
 			...(content.state ? { state: content.state } : {}),
 		},
 		{

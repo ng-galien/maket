@@ -55,6 +55,8 @@ beforeEach(() => {
 		settingsOpen: false,
 		themeMode: "light",
 		darkMode: false,
+		annotationDocName: null,
+		composerDocName: null,
 		readOnly: false,
 		documentStates: {},
 		stateCanvasModes: {},
@@ -71,6 +73,41 @@ afterEach(() => {
 });
 
 describe("WorkspaceHeader", () => {
+	it("orders the modes, shares tooltips and keeps annotation and Composer exclusive", async () => {
+		const doc = makeDoc("Mode controls");
+		useStore.setState({
+			docs: new Map([[doc.name, doc]]),
+			workspaceDocNames: [doc.name],
+			focusedDocName: doc.name,
+		});
+		const user = userEvent.setup();
+		render(<WorkspaceHeader />);
+		const reading = screen.getByRole("button", { name: "Reading view" });
+		const annotation = screen.getByRole("button", { name: "Annotate" });
+		const composer = screen.getByRole("button", { name: "Compose" });
+		expect(
+			reading.compareDocumentPosition(annotation) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		expect(
+			annotation.compareDocumentPosition(composer) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+		for (const button of [reading, annotation, composer])
+			expect(button).not.toHaveAttribute("title");
+		await user.hover(reading);
+		expect(screen.getByRole("tooltip")).toHaveTextContent("Reading view");
+		await user.unhover(reading);
+		await user.click(composer);
+		expect(composer).toHaveAttribute("aria-pressed", "true");
+		await user.click(annotation);
+		expect(annotation).toHaveAttribute("aria-pressed", "true");
+		expect(composer).toHaveAttribute("aria-pressed", "false");
+		await user.click(composer);
+		expect(annotation).toHaveAttribute("aria-pressed", "false");
+		expect(composer).toHaveAttribute("aria-pressed", "true");
+	});
+
 	it("does not offer pin commands in a read-only document menu", async () => {
 		const doc = makeDoc("read-only-menu");
 		useStore.setState({

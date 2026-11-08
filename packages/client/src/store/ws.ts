@@ -2,7 +2,9 @@ import type {
 	ActivityKey,
 	Collection,
 	DocumentStateClientView,
+	ElementAddResultSignal,
 	LocalizedMessage,
+	PageChangeResultSignal,
 	PlacedBox,
 	PlacedElementKind,
 	Settings,
@@ -42,6 +44,8 @@ export function translateToast(
 }
 
 let ws: WebSocket | null = null;
+let pendingCompose: { name: string; category: string; until: number } | null =
+	null;
 const backgroundLoadDocs = new Set<string>();
 const requestedLoadDocs = new Map<string, number>();
 const cancelledLoadDocs = new Set<string>();
@@ -68,11 +72,52 @@ export function sendTextEdit(
 }
 
 export function sendCreateDocument(name: string, category: string): void {
-	wsSend({ type: "document_create", name, category });
+	if (
+		wsSend({ type: "document_create", name, category }) &&
+		!useStore.getState().docList.some((doc) => doc.name === name)
+	)
+		pendingCompose = { name, category, until: Date.now() + 30_000 };
 }
 
-export function sendAddPage(docName: string): void {
-	wsSend({ type: "page_add", docName });
+type PageChangeOutcome =
+	| Omit<Extract<PageChangeResultSignal, { ok: true }>, "type" | "requestId">
+	| Omit<Extract<PageChangeResultSignal, { ok: false }>, "type" | "requestId">;
+const pageRequests = new Map<string, (result: PageChangeOutcome) => void>();
+function sendPageCommand(
+	command:
+		| { type: "page_add"; docName: string }
+		| { type: "page_remove"; docName: string; pageId: string },
+): Promise<PageChangeOutcome> {
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve) => {
+		const timer = setTimeout(
+			() =>
+				pageRequests.get(requestId)?.({
+					ok: false,
+					error: translate("hand_placement_timeout"),
+				}),
+			10_000,
+		);
+		pageRequests.set(requestId, (result) => {
+			clearTimeout(timer);
+			pageRequests.delete(requestId);
+			resolve(result);
+		});
+		if (!wsSend({ ...command, requestId }))
+			pageRequests.get(requestId)?.({
+				ok: false,
+				error: translate("hand_placement_not_sent"),
+			});
+	});
+}
+export function sendAddPage(docName: string): Promise<PageChangeOutcome> {
+	return sendPageCommand({ type: "page_add", docName });
+}
+export function sendRemovePage(
+	docName: string,
+	pageId: string,
+): Promise<PageChangeOutcome> {
+	return sendPageCommand({ type: "page_remove", docName, pageId });
 }
 
 export function sendCanvasFormat(
@@ -81,6 +126,25 @@ export function sendCanvasFormat(
 	orientation: "portrait" | "landscape",
 ): void {
 	wsSend({ type: "canvas_format_set", docName, format, orientation });
+}
+
+type PlacementOutcome =
+	| Omit<Extract<ElementAddResultSignal, { ok: true }>, "type" | "requestId">
+	| Omit<Extract<ElementAddResultSignal, { ok: false }>, "type" | "requestId">;
+const placementRequests = new Map<
+	string,
+	{
+		resolve: (result: PlacementOutcome) => void;
+		timeout: ReturnType<typeof setTimeout>;
+	}
+>();
+
+function settlePlacement(requestId: string, result: PlacementOutcome): void {
+	const request = placementRequests.get(requestId);
+	if (!request) return;
+	clearTimeout(request.timeout);
+	placementRequests.delete(requestId);
+	request.resolve(result);
 }
 
 export function sendAddPlacedElement(
@@ -92,8 +156,32 @@ export function sendAddPlacedElement(
 		asset?: string;
 		text?: string;
 	},
-): void {
-	wsSend({ type: "element_add", docName, pageIndex, ...element });
+): Promise<PlacementOutcome> {
+	const requestId = crypto.randomUUID();
+	return new Promise((resolve) => {
+		const timeout = setTimeout(
+			() =>
+				settlePlacement(requestId, {
+					ok: false,
+					error: translate("hand_placement_timeout"),
+				}),
+			10_000,
+		);
+		placementRequests.set(requestId, { resolve, timeout });
+		if (
+			!wsSend({
+				type: "element_add",
+				requestId,
+				docName,
+				pageIndex,
+				...element,
+			})
+		)
+			settlePlacement(requestId, {
+				ok: false,
+				error: translate("hand_placement_not_sent"),
+			});
+	});
 }
 
 export function sendPlacedElementBox(
@@ -485,10 +573,18 @@ function handleWsOpen(): void {
 }
 
 function handleWsClose(): void {
+	pendingCompose = null;
 	closeConnection(RECONNECT_DELAY_MS);
 }
 
 function closeConnection(reconnectDelay: number): void {
+	for (const settle of pageRequests.values())
+		settle({ ok: false, error: translate("hand_placement_not_sent") });
+	for (const id of placementRequests.keys())
+		settlePlacement(id, {
+			ok: false,
+			error: translate("hand_placement_not_sent"),
+		});
 	settleConnectionCheck();
 	useStore.getState().setConnected(false);
 	useStore.getState().clearStatePatches();
@@ -512,6 +608,12 @@ function handleWsMessage(e: MessageEvent): void {
 
 function applyWorkspaceSignal(msg: WorkspaceSignal): void {
 	switch (msg.type) {
+		case "page_change_result":
+			pageRequests.get(msg.requestId)?.(msg);
+			break;
+		case "element_add_result":
+			settlePlacement(msg.requestId, msg);
+			break;
 		case "state":
 			applyStateMessage(msg);
 			break;
@@ -728,6 +830,18 @@ function applyStateMessage(
 				pageIndex: useStore.getState().focusedPageIndex,
 			});
 		}
+	}
+	if (pendingCompose && pendingCompose.until < Date.now())
+		pendingCompose = null;
+	if (
+		openingState &&
+		pendingCompose?.name === doc.name &&
+		pendingCompose.category === doc.category
+	) {
+		pendingCompose = null;
+		useStore.getState().setFocusedDoc(doc.name);
+		useStore.getState().setComposerDocName(doc.name);
+		requestFit({ docName: doc.name, pageIndex: 0 });
 	}
 	if (openingState && pendingLoadDoc === doc.name) pendingLoadDoc = null;
 	updateWorkspaceHydration();

@@ -3,6 +3,7 @@ import { exportDocumentPdf, printDocument } from "../documentOutput";
 import { useT } from "../i18n/useT";
 import { AnchoredMenuItem } from "./shared/AnchoredMenu";
 import { PdfIcon } from "./shared/PdfIcon";
+import { Tooltip } from "./shared/Tooltip";
 import {
 	READER_ICON_BUTTON_CLASS,
 	WORKSPACE_ICON_BUTTON_CLASS,
@@ -55,24 +56,28 @@ export function DocumentOutputButtons({
 	const iconSize = surface === "reader" ? 17 : 19;
 	return (
 		<>
-			<button
-				type="button"
-				onClick={() => void printDocument(docName)}
-				title={t("print")}
-				aria-label={t("print")}
-				className={className}
-			>
-				<Printer size={iconSize} strokeWidth={1.8} />
-			</button>
-			<button
-				type="button"
-				onClick={() => void exportDocumentPdf(docName)}
-				title={t("export_pdf")}
-				aria-label={t("export_pdf")}
-				className={className}
-			>
-				<PdfIcon size={iconSize} />
-			</button>
+			<Tooltip>
+				<button
+					type="button"
+					onClick={() => void printDocument(docName)}
+					title={t("print")}
+					aria-label={t("print")}
+					className={className}
+				>
+					<Printer size={iconSize} strokeWidth={1.8} />
+				</button>
+			</Tooltip>
+			<Tooltip>
+				<button
+					type="button"
+					onClick={() => void exportDocumentPdf(docName)}
+					title={t("export_pdf")}
+					aria-label={t("export_pdf")}
+					className={className}
+				>
+					<PdfIcon size={iconSize} />
+				</button>
+			</Tooltip>
 		</>
 	);
 }

@@ -8,6 +8,7 @@ import {
 	CollectionWorkspace,
 	selectCollectionWorkspaceLayout,
 } from "./CollectionWorkspace";
+import { ComposerPanelHost } from "./ComposerPanelHost";
 import { LibraryPanel } from "./LibraryPanel";
 import { MobileExplorer } from "./MobileExplorer";
 import { MobileReadingNavigation } from "./MobileReadingNavigation";
@@ -28,6 +29,11 @@ export function AppShell({ locked }: { locked: boolean }) {
 	const mobileReader = useMobileReader();
 	useMobileNavigation(mobileReader);
 	const focusedDocName = useStore((state) => state.focusedDocName);
+	const composerDocName = useStore((s) => s.composerDocName);
+	useEffect(() => {
+		if (composerDocName && composerDocName !== focusedDocName)
+			useStore.getState().setComposerDocName(null);
+	}, [composerDocName, focusedDocName]);
 	useEffect(() => {
 		if (mobileReader && !focusedDocName && !useStore.getState().libraryOpen)
 			useStore.getState().setLibraryView("structured-workspaces");
@@ -145,6 +151,11 @@ export function AppShell({ locked }: { locked: boolean }) {
 						</>
 					)}
 				</section>
+				{!mobileReader &&
+					!settingsOpen &&
+					!structuredNavigation &&
+					composerDocName === focusedDocName &&
+					focusedDocName && <ComposerPanelHost />}
 			</div>
 			{mobileReader && <MobileReadingNavigation />}
 			<Popover />

@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLang } from "../i18n/useT";
 import type { DocSummary } from "../store/types";
 import { useStore } from "../store/useStore";
-import { sendPinDoc } from "../store/ws";
+import { sendCreateDocument, sendPinDoc } from "../store/ws";
 import { DocsTab } from "./DocsTab";
 
 vi.mock("../store/ws", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../store/ws")>()),
 	sendPinDoc: vi.fn(),
+	sendCreateDocument: vi.fn(),
 }));
 
 function summary(
@@ -50,6 +51,7 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	vi.mocked(sendPinDoc).mockClear();
+	vi.mocked(sendCreateDocument).mockClear();
 	useStore.setState({ docList: [], readOnly: false });
 });
 
@@ -60,6 +62,26 @@ function rowNames(container: ParentNode): string[] {
 }
 
 describe("DocsTab pinned documents", () => {
+	it.each(["empty", "all pinned"])(
+		"creates a document when the library is %s",
+		async (state) => {
+			useStore.setState({
+				docList: state === "empty" ? [] : DOCS.filter((doc) => doc.pinnedAt),
+			});
+			const user = userEvent.setup();
+			render(<DocsTab />);
+			await user.click(screen.getByRole("button", { name: "New document" }));
+			await user.type(
+				screen.getByPlaceholderText("Name of the new document"),
+				"First document{Enter}",
+			);
+			expect(sendCreateDocument).toHaveBeenCalledWith(
+				"First document",
+				"general",
+			);
+		},
+	);
+
 	it("shows pinned documents as a first group, most recently pinned first", () => {
 		const { container } = render(<DocsTab />);
 
@@ -100,6 +122,7 @@ describe("DocsTab pinned documents", () => {
 		render(<DocsTab />);
 
 		expect(screen.queryByRole("button", { name: /^Pin / })).toBeNull();
+		expect(screen.queryByRole("button", { name: "New document" })).toBeNull();
 		expect(
 			within(screen.getByRole("region", { name: "Pinned" })).getAllByRole(
 				"img",

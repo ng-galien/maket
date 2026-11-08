@@ -30,10 +30,13 @@ vi.mock("./DocsTab", async () => {
 	const { LibraryToolbar, LibraryToolbarActions, LibraryToolbarRow } =
 		await import("./shared/LibraryToolbar");
 	return {
-		DocsTab: () => (
+		DocsTab: ({ onNavigate }: { onNavigate?: () => void }) => (
 			<LibraryToolbar>
 				<LibraryToolbarRow>
 					<LibraryToolbarActions>
+						<button type="button" onClick={onNavigate}>
+							Open a document
+						</button>
 						<span>Document actions</span>
 					</LibraryToolbarActions>
 				</LibraryToolbarRow>
@@ -72,6 +75,27 @@ afterEach(() => {
 });
 
 describe("LibraryPanel", () => {
+	it.each([900, 1300])(
+		"keeps the pinned library open after document selection at %s px",
+		async (viewportWidth) => {
+			window.innerWidth = viewportWidth;
+			localStorage.setItem("maket-library-width", "438");
+			useStore.setState({
+				libraryPinned: true,
+				structuredWorkspaceLayout: "split",
+			});
+			render(<LibraryPanel />);
+			await userEvent
+				.setup()
+				.click(screen.getByRole("button", { name: "Open a document" }));
+			expect(useStore.getState().libraryOpen).toBe(true);
+			expect(useStore.getState().libraryPinned).toBe(true);
+			expect(
+				screen.getByRole("button", { name: "Open a document" }),
+			).toBeVisible();
+		},
+	);
+
 	it.each([false, true])(
 		"overlays a narrow collection library without changing its pinned preference (%s)",
 		async (pinned) => {
