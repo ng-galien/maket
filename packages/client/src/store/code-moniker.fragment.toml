@@ -31,6 +31,16 @@ expr      = "$recentering_at_workspace_source AND $recentering_at_workspace_imme
 message   = "Automatic recentering must use `requestFit`; only explicit Fit-to-view commands and followed page links may import immediate fit functions."
 
 [[refs.where]]
+id        = "recentering@workspace-call-flow-reserves-deferred-explicit-fit-for-reveal"
+severity  = "error"
+rationale = "The library View command explicitly reveals an open document after navigation settles, even when automatic repositioning is off. Other state changes must still honor that preference through requestFit."
+expr      = """
+  $recentering_at_workspace_source AND kind = 'imports_symbol' AND target.name = 'requestExplicitFit'
+  => source ~ '**/dir:packages/dir:client/dir:src/dir:components/module:DocsTab'
+"""
+message   = "Only the library View command may import requestExplicitFit; automatic changes must use requestFit."
+
+[[refs.where]]
 id        = "recentering@workspace-dependency-uses-named-zoom-bridge-imports"
 severity  = "error"
 rationale = "Named imports let the automatic-recentering rule distinguish deferred `requestFit` from immediate manual fit commands. Namespace imports and re-exports would hide that distinction from review."

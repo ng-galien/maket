@@ -80,14 +80,18 @@ export function fitToDoc(docName: string, pageIndex?: number): void {
  * Board has measurable content.
  */
 export function requestFit(target?: FitTarget): void {
-	runAutomaticReposition(() => {
-		_workspaceRemovalSuppressesAutoFit = false;
-		if (_requestFit) {
-			_requestFit(target);
-		} else {
-			_pendingFit = { target };
-		}
-	});
+	runAutomaticReposition(() => requestExplicitFit(target));
+}
+
+/** User-requested reveal: wait for layout like an automatic fit, but do not
+ * gate the command on the automatic repositioning preference. */
+export function requestExplicitFit(target?: FitTarget): void {
+	_workspaceRemovalSuppressesAutoFit = false;
+	if (_requestFit) {
+		_requestFit(target);
+	} else {
+		_pendingFit = { target };
+	}
 }
 
 export function cancelFit(): void {

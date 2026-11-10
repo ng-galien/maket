@@ -1,10 +1,12 @@
 import { categoryPathContains, normalizeCategoryPath } from "@maket/shared";
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useT } from "../i18n/useT";
 import { pinnedDocuments } from "../lib/pinnedDocuments";
 import type { DocSummary } from "../store/types";
 import { useStore, useWorkspaceDocNames } from "../store/useStore";
 import { sendPinDoc, wsSend } from "../store/ws";
+import { requestExplicitFit } from "../store/zoomBridge";
 import { BulkActionBar } from "./docs/BulkActionBar";
 import { CategoryPicker } from "./docs/CategoryPicker";
 import {
@@ -127,8 +129,12 @@ function useDocsTabModel(onNavigate?: () => void): DocsTabModel {
 		}
 	};
 	const focusDoc = (name: string) => {
-		openWorkspaceDocument(name);
-		onNavigate?.();
+		flushSync(() => {
+			openWorkspaceDocument(name);
+			onNavigate?.();
+		});
+		if (useStore.getState().workspaceView === "canvas")
+			requestExplicitFit({ docName: name });
 	};
 
 	const selection = {

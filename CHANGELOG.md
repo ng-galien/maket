@@ -13,6 +13,18 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-11-10
+
+### Fixed
+
+- The document library's **View** button selects and fits the whole document even when automatic repositioning is disabled or the document is already selected. The pinned navigation panel stays open.
+- Updated Express transitive dependencies and other security-sensitive dependencies.
+
+### Internal
+
+- Browser regression tests verify document selection and framing with automatic repositioning enabled or disabled, with pinned or unpinned navigation, and after manually moving the canvas.
+- Refreshed compatible dependencies in the lockfile.
+
 ## [2.3.1] - 2026-11-10
 
 ### Fixed
@@ -726,7 +738,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v2.3.2...HEAD
+[2.3.2]: https://github.com/ng-galien/maket/compare/v2.3.1...v2.3.2
 [2.3.1]: https://github.com/ng-galien/maket/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/ng-galien/maket/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/ng-galien/maket/compare/v2.2.0...v2.2.1
