@@ -94,7 +94,10 @@ describe("SettingsPage", () => {
 			expect(screen.getByRole("button", { name: "Candidates" })).toBeDisabled(),
 		);
 		expect(screen.getByRole("button", { name: "Stable" })).toBeDisabled();
-		expect(screen.getByRole("button", { name: "Restart" })).toBeVisible();
+		expect(
+			screen.getByRole("button", { name: "Restart and install" }),
+		).toBeVisible();
+		expect(screen.getByRole("button", { name: "Check" })).toBeDisabled();
 		dispose();
 	});
 
@@ -281,9 +284,11 @@ describe("SettingsPage", () => {
 		);
 
 		expect(installClaudeDesktop).toHaveBeenCalledOnce();
-		expect(screen.getByRole("status")).toHaveTextContent(
-			"Claude Desktop is open on the Maket details. Click Uninstall if needed, then Install, and check again here.",
-		);
+		expect(
+			screen.getByText(
+				"Claude Desktop is open on the Maket details. Click Uninstall if needed, then Install, and check again here.",
+			),
+		).toHaveAttribute("role", "status");
 		expect(
 			screen.getByText(/Maket 2\.0\.0 connector is not installed/),
 		).toBeVisible();

@@ -13,6 +13,17 @@ from the git log since the last tag — paste into `[Unreleased]` and edit.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-10
+
+### Fixed
+
+- Settings keeps checking for updates separate from restarting to install a downloaded update. Repeated clicks cannot trigger duplicate installations, and a manual check remains available when the update service stops reporting progress.
+- The Settings notification clears after consultation and stays cleared after relaunch. New actions bring it back; configuration and update actions remain visible until completed.
+
+### Changed
+
+- Update settings show the installed version, download progress and a distinct **Restart and install** action.
+
 ## [2.3.0] - 2026-11-08
 
 ### Fixed
@@ -715,7 +726,8 @@ Initial public release.
   `@maket/stdio-bridge`) shipped as `@ng-galien/maket` on npm via OIDC
   trusted publishing.
 
-[Unreleased]: https://github.com/ng-galien/maket/compare/v2.3.0...HEAD
+[Unreleased]: https://github.com/ng-galien/maket/compare/v2.3.1...HEAD
+[2.3.1]: https://github.com/ng-galien/maket/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/ng-galien/maket/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/ng-galien/maket/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/ng-galien/maket/compare/v2.1.0...v2.2.0

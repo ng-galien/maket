@@ -26,6 +26,7 @@ import {
 	checkDesktopUpdates,
 	installDesktopUpdate,
 	selectDesktopUpdateChannel,
+	useDesktopUpdateCheckPending,
 	useDesktopUpdates,
 } from "../desktopUpdates";
 import { getLang, setLang, useT } from "../i18n/useT";
@@ -684,16 +685,81 @@ function WorkspaceSettings() {
 function UpdateSettings() {
 	const t = useT();
 	const update = useDesktopUpdates();
+	const checking = useDesktopUpdateCheckPending();
 	const busy =
 		update.status === "checking" ||
 		update.status === "downloading" ||
 		update.status === "installing";
 	const channelLocked = busy || update.status === "ready";
+	const unavailable =
+		update.reason === "development-build" || update.reason === "local-build";
 	return (
 		<SettingsSection
 			title={t("settings_updates")}
 			description={t("settings_updates_description")}
 		>
+			<SettingRow
+				label={
+					update.currentVersion
+						? `Maket ${update.currentVersion}`
+						: t("settings_update_status")
+				}
+				description={
+					update.currentVersion ? t("settings_update_status") : undefined
+				}
+			>
+				<UpdateActionButton
+					disabled={
+						checking ||
+						update.status === "downloading" ||
+						update.status === "ready" ||
+						update.status === "installing" ||
+						unavailable
+					}
+					onClick={() => void checkDesktopUpdates()}
+				>
+					{checking ? (
+						<LoaderCircle size={13} className="animate-spin" />
+					) : (
+						<RefreshCw size={13} />
+					)}
+					{t(checking ? "settings_update_checking" : "settings_update_check")}
+				</UpdateActionButton>
+			</SettingRow>
+			{update.status !== "idle" &&
+				(update.status !== "checking" || !checking) && (
+					<div className="py-4">
+						<div className="flex items-center justify-between gap-4 max-sm:flex-col max-sm:items-start">
+							<p
+								role="status"
+								aria-label={t("settings_updates")}
+								aria-live="polite"
+								className="text-sm text-text-2"
+							>
+								{updateStatusText(update, t)}
+							</p>
+							{(update.status === "ready" ||
+								update.status === "installing") && (
+								<UpdateActionButton
+									disabled={update.status === "installing"}
+									onClick={() => void installDesktopUpdate()}
+								>
+									{update.status === "installing" ? (
+										<LoaderCircle size={13} className="animate-spin" />
+									) : (
+										<RotateCcw size={13} />
+									)}
+									{t(
+										update.status === "installing"
+											? "settings_update_installing"
+											: "settings_update_restart",
+									)}
+								</UpdateActionButton>
+							)}
+						</div>
+						<UpdateProgress state={update} />
+					</div>
+				)}
 			<SettingRow
 				label={t("settings_update_channel")}
 				description={t("settings_update_channel_description")}
@@ -712,37 +778,6 @@ function UpdateSettings() {
 						onClick={() => void selectDesktopUpdateChannel("candidate")}
 					/>
 				</ChoiceGroup>
-			</SettingRow>
-			<SettingRow
-				label={t("settings_update_status")}
-				description={updateStatusText(update, t)}
-			>
-				<div className="flex items-center gap-3">
-					{update.currentVersion ? (
-						<span className="text-xs tabular-nums text-text-3">
-							v{update.currentVersion}
-						</span>
-					) : null}
-					{update.status === "ready" ? (
-						<UpdateActionButton onClick={() => void installDesktopUpdate()}>
-							<RotateCcw size={13} />
-							{t("settings_update_restart")}
-						</UpdateActionButton>
-					) : (
-						<UpdateActionButton
-							disabled={busy}
-							onClick={() => void checkDesktopUpdates()}
-						>
-							{busy ? (
-								<LoaderCircle size={13} className="animate-spin" />
-							) : (
-								<RefreshCw size={13} />
-							)}
-							{t("settings_update_check")}
-						</UpdateActionButton>
-					)}
-				</div>
-				<UpdateProgress state={update} />
 			</SettingRow>
 		</SettingsSection>
 	);
@@ -774,13 +809,21 @@ function UpdateProgress({
 }: {
 	state: ReturnType<typeof useDesktopUpdates>;
 }) {
-	if (state.status !== "checking" && state.status !== "downloading")
-		return null;
+	const t = useT();
+	if (state.status !== "downloading") return null;
 	const determinate = state.progress != null;
 	return (
 		<div
 			className="mt-2 h-0.5 w-full overflow-hidden bg-border"
-			aria-hidden="true"
+			role="progressbar"
+			aria-label={t("settings_update_status_downloading")}
+			aria-valuemin={0}
+			aria-valuemax={100}
+			aria-valuenow={
+				determinate
+					? Math.round(Math.max(0, Math.min(100, state.progress ?? 0)))
+					: undefined
+			}
 		>
 			<span
 				className={`block h-full bg-accent ${determinate ? "" : "w-2/3 animate-pulse"}`}
@@ -803,7 +846,11 @@ function updateStatusText(
 		? ` · ${t(`settings_update_reason_${state.reason}`)}`
 		: "";
 	const message = state.message ? ` · ${state.message}` : "";
-	return `${t(`settings_update_status_${state.status}`)}${version}${reason}${message}`;
+	const progress =
+		state.status === "downloading" && state.progress != null
+			? ` · ${Math.round(Math.max(0, Math.min(100, state.progress)))} %`
+			: "";
+	return `${t(`settings_update_status_${state.status}`)}${version}${progress}${reason}${message}`;
 }
 
 function SettingsSection({

@@ -186,6 +186,25 @@ describe("UpdateController", () => {
     expect(updater.quitAndInstall).toHaveBeenCalledOnce();
   });
 
+  it("preserves a downloaded update when another check is requested", async () => {
+    const controller = new UpdateController({
+      platform: "win32",
+      enabled: true,
+      preferences: { getChannel: () => "stable", setChannel: vi.fn() },
+      startUpdates: () => ({ stopUpdates: vi.fn() }),
+    });
+    controller.start();
+    updater.emit("update-downloaded", {}, "notes", "2.3.0");
+    await controller.check();
+    expect(updater.checkForUpdates).not.toHaveBeenCalled();
+    expect(controller.getState()).toMatchObject({ status: "ready", version: "2.3.0" });
+    const first = controller.prepareInstall();
+    const second = controller.prepareInstall();
+    await first();
+    await expect(second()).rejects.toThrow("no longer ready");
+    expect(updater.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
   it("invalidates a prepared installation if updater state changes", async () => {
     const controller = new UpdateController({
       platform: "win32",

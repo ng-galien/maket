@@ -3,6 +3,7 @@ import {
 	checkDesktopUpdates,
 	getDesktopUpdateState,
 	initializeDesktopUpdates,
+	installDesktopUpdate,
 	resetDesktopUpdatesForTests,
 	selectDesktopUpdateChannel,
 } from "./desktopUpdates";
@@ -15,6 +16,56 @@ beforeEach(() => {
 afterEach(() => resetDesktopUpdatesForTests());
 
 describe("desktop updates state", () => {
+	it("separates repeated checks from installation and sends only one install request", async () => {
+		let publish:
+			| ((state: ReturnType<typeof getDesktopUpdateState>) => void)
+			| undefined;
+		let finishCheck: (() => void) | undefined;
+		const check = vi.fn(
+			() =>
+				new Promise<void>((resolve) => {
+					finishCheck = resolve;
+				}),
+		);
+		const install = vi.fn(async () => {});
+		window.maketDesktop = {
+			updates: {
+				getState: async () => ({
+					status: "up-to-date",
+					channel: "stable",
+					currentVersion: "2.3.0",
+				}),
+				onState: (listener: typeof publish) => {
+					publish = listener;
+					return () => {};
+				},
+				check,
+				install,
+			},
+		} as unknown as NonNullable<Window["maketDesktop"]>;
+		initializeDesktopUpdates();
+		await vi.waitFor(() =>
+			expect(getDesktopUpdateState().status).toBe("up-to-date"),
+		);
+		const first = checkDesktopUpdates();
+		await checkDesktopUpdates();
+		expect(check).toHaveBeenCalledOnce();
+		finishCheck?.();
+		await first;
+		publish?.({
+			status: "ready",
+			channel: "stable",
+			currentVersion: "2.3.0",
+			version: "2.4.0",
+		});
+		await checkDesktopUpdates();
+		expect(getDesktopUpdateState().status).toBe("ready");
+		expect(check).toHaveBeenCalledOnce();
+		expect(install).not.toHaveBeenCalled();
+		await Promise.all([installDesktopUpdate(), installDesktopUpdate()]);
+		expect(getDesktopUpdateState().status).toBe("installing");
+		expect(install).toHaveBeenCalledOnce();
+	});
 	it("mirrors the state published by the desktop bridge", async () => {
 		let publish:
 			| ((state: ReturnType<typeof getDesktopUpdateState>) => void)

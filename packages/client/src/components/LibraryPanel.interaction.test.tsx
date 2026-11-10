@@ -339,6 +339,8 @@ describe("LibraryPanel", () => {
 			libraryOpen: false,
 		});
 		expect(settings).toHaveAttribute("aria-current", "page");
+		await user.click(settings);
+		expect(settings).not.toHaveAttribute("aria-current");
 	});
 
 	it("does not show an error badge when the update service is unavailable", async () => {
@@ -363,7 +365,8 @@ describe("LibraryPanel", () => {
 		expect(settings.querySelector(".bg-danger")).toBeNull();
 	});
 
-	it("keeps configuration attention on the Settings badge without a competing popover", async () => {
+	it("marks configuration notices read when Settings opens without performing the action", async () => {
+		const user = userEvent.setup();
 		window.maketDesktop = {
 			configuration: {
 				getPlan: async () => ({
@@ -402,7 +405,14 @@ describe("LibraryPanel", () => {
 
 		render(<LibraryPanel />);
 		const settings = screen.getByRole("button", { name: "Settings" });
-		expect(settings.querySelector(".bg-accent")).not.toBeNull();
+		expect(settings.querySelector("[data-settings-notice]")).not.toBeNull();
+		await user.click(settings);
+		expect(settings.querySelector("[data-settings-notice]")).toBeNull();
+		await user.click(settings);
+		expect(settings.querySelector("[data-settings-notice]")).toBeNull();
+		expect(getDesktopConfigurationState().plan?.runtime.status).toBe(
+			"action-required",
+		);
 		expect(screen.queryByRole("status")).toBeNull();
 	});
 });

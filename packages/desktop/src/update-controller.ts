@@ -122,7 +122,8 @@ export class UpdateController {
       return;
     }
     if (this.inFlightCheck) return this.inFlightCheck;
-    if (this.state.status === "downloading" || this.state.status === "installing") return;
+    if (this.state.status === "downloading" || this.state.status === "ready" || this.state.status === "installing")
+      return;
     this.publish(this.baseState("checking"));
     this.inFlightCheck = (async () => {
       try {

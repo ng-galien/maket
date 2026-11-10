@@ -41,27 +41,40 @@ export function initializeDesktopConfiguration(): () => void {
 	return resetInitialization;
 }
 
-export function configurationActionRequired(
+export function configurationNoticeKeys(
 	plan: DesktopConfigurationPlan | null,
-): boolean {
-	return Boolean(
-		plan &&
-			(plan.runtime.status === "action-required" ||
-				plan.manualClients.some(
-					(client) => client.detected && client.status !== "valid",
-				) ||
-				plan.findings.some(
-					(finding) => finding.detected && finding.status !== "valid",
-				)),
-	);
-}
-
-export function configurationNoticeRequired(
-	plan: DesktopConfigurationPlan | null,
-): boolean {
-	return (
-		configurationActionRequired(plan) || Boolean(plan?.restartClients.length)
-	);
+): string[] {
+	if (!plan) return [];
+	const keys: unknown[][] = [];
+	if (plan.runtime.status === "action-required")
+		keys.push([
+			"runtime",
+			plan.runtime.owner,
+			plan.runtime.host,
+			plan.runtime.port,
+		]);
+	for (const finding of plan.findings)
+		if (finding.detected && finding.status !== "valid")
+			keys.push([
+				"client",
+				finding.client,
+				finding.scope,
+				finding.path,
+				finding.status,
+				finding.mcpStatus,
+				finding.skillStatus,
+			]);
+	for (const client of plan.manualClients)
+		if (client.detected && client.status !== "valid")
+			keys.push([
+				"manual",
+				client.client,
+				client.status,
+				client.bundledVersion,
+				client.installedVersion,
+			]);
+	for (const client of plan.restartClients) keys.push(["restart", client]);
+	return keys.map((key) => JSON.stringify(key)).sort();
 }
 
 export function configurableFindings(

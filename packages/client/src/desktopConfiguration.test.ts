@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	applyDesktopOnboarding,
 	configurableFindings,
-	configurationActionRequired,
+	configurationNoticeKeys,
 	getDesktopConfigurationState,
 	initializeDesktopConfiguration,
 	resetDesktopConfigurationForTests,
@@ -66,7 +66,7 @@ describe("desktop configuration state", () => {
 
 		expect(getPlan).toHaveBeenCalledOnce();
 		expect(
-			configurationActionRequired(getDesktopConfigurationState().plan),
+			configurationNoticeKeys(getDesktopConfigurationState().plan).length > 0,
 		).toBe(true);
 		expect(
 			configurableFindings(getDesktopConfigurationState().plan),
@@ -112,7 +112,7 @@ describe("desktop configuration state", () => {
 
 		expect(applyOnboarding).toHaveBeenCalledWith({ actions: ["codex"] });
 		expect(
-			configurationActionRequired(getDesktopConfigurationState().plan),
-		).toBe(false);
+			configurationNoticeKeys(getDesktopConfigurationState().plan),
+		).toEqual([]);
 	});
 });

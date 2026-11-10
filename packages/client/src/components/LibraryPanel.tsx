@@ -3,7 +3,6 @@ import {
 	Files,
 	HelpCircle,
 	Image,
-	LoaderCircle,
 	MessageCircle,
 	Palette,
 	PanelLeft,
@@ -20,13 +19,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	configurationNoticeRequired,
-	useDesktopConfiguration,
-} from "../desktopConfiguration";
+import { useDesktopConfiguration } from "../desktopConfiguration";
 import { useDesktopUpdates } from "../desktopUpdates";
 import { getLang, useT } from "../i18n/useT";
 import { useMobileReader } from "../lib/mobileReader";
+import { useSettingsNotices } from "../settingsNotices";
 import { useStore } from "../store/useStore";
 import { wsSend } from "../store/ws";
 import { ChartesTab } from "./ChartesTab";
@@ -384,6 +381,7 @@ function NavigationUtilities({
 	configuration: ReturnType<typeof useDesktopConfiguration>;
 }) {
 	const t = useT();
+	const notices = useSettingsNotices(settingsOpen, update, configuration);
 	return (
 		<div className="flex shrink-0 flex-col items-center gap-1 border-t border-border py-2">
 			<NavigationUtilityButton
@@ -397,18 +395,11 @@ function NavigationUtilities({
 			</NavigationUtilityButton>
 			<div className="relative">
 				<NavigationUtilityButton
-					label={<UpdateRailTooltip update={update} />}
+					label={<SettingsRailTooltip update={update} notices={notices} />}
 					ariaLabel={t("settings")}
 					active={settingsOpen}
 					onClick={toggleSettings}
-					badge={
-						<SettingsRailBadge
-							update={update}
-							configurationRequired={configurationNoticeRequired(
-								configuration.plan,
-							)}
-						/>
-					}
+					badge={<SettingsRailBadge update={update} notices={notices} />}
 				>
 					<SettingsIcon size={21} strokeWidth={1.65} />
 				</NavigationUtilityButton>
@@ -457,57 +448,41 @@ function NavigationUtilityButton({
 
 function SettingsRailBadge({
 	update,
-	configurationRequired,
+	notices,
 }: {
 	update: ReturnType<typeof useDesktopUpdates>;
-	configurationRequired: boolean;
+	notices: ReturnType<typeof useSettingsNotices>;
 }) {
-	if (update.status === "checking" || update.status === "downloading") {
-		return (
-			<span className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-panel text-accent ring-1 ring-border">
-				<LoaderCircle size={10} className="animate-spin" />
-			</span>
-		);
-	}
-	if (
-		update.status !== "ready" &&
-		update.status !== "error" &&
-		!configurationRequired
-	)
-		return null;
+	if (!notices.update && !notices.configuration) return null;
 	return (
 		<span
+			data-settings-notice
 			aria-hidden="true"
-			className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-panel ${update.status === "error" ? "bg-danger" : "bg-accent"}`}
+			className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-panel ${notices.update && update.status === "error" ? "bg-danger" : "bg-accent"}`}
 		/>
 	);
 }
 
-function UpdateRailTooltip({
+function SettingsRailTooltip({
 	update,
+	notices,
 }: {
 	update: ReturnType<typeof useDesktopUpdates>;
+	notices: ReturnType<typeof useSettingsNotices>;
 }) {
 	const t = useT();
-	const active =
-		update.status === "checking" || update.status === "downloading";
-	const version = update.currentVersion
-		? ` · v${update.currentVersion}${update.version ? ` → v${update.version}` : ""}`
-		: "";
-	const reason = update.reason
-		? ` · ${t(`settings_update_reason_${update.reason}`)}`
-		: "";
 	return (
-		<div className="min-w-40 py-0.5">
+		<div>
 			<div>{t("settings")}</div>
-			<div className="mt-0.5 font-normal opacity-75">
-				{t(`settings_update_status_${update.status}`)}
-				{version}
-				{reason}
-			</div>
-			{active && (
-				<div className="mt-1.5 h-px overflow-hidden bg-panel/30">
-					<span className="block h-full w-2/3 animate-pulse bg-panel" />
+			{notices.update && (
+				<div className="mt-0.5 font-normal opacity-75">
+					{t(`settings_update_status_${update.status}`)}
+					{update.version ? ` · ${update.version}` : ""}
+				</div>
+			)}
+			{notices.configuration && (
+				<div className="mt-0.5 font-normal opacity-75">
+					{t("settings_notice_configuration")}
 				</div>
 			)}
 		</div>

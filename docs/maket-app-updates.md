@@ -1,6 +1,8 @@
 # Maket App updates
 
-Maket App downloads updates in the background. Settings displays the installed version, download progress and a **Restart** action when the update is ready. Restart stops the embedded server, installs the update and relaunches Maket. An installation refusal restores the server. No browser or manually launched installer is involved in subsequent updates.
+Maket App downloads updates in the background. Settings displays the installed version, download progress and a separate **Restart and install** action when the update is ready. **Check** only searches for updates; it never installs one. Restart and install stops the embedded server, installs the update and relaunches Maket. An installation refusal restores the server. No browser or manually launched installer is involved in subsequent updates.
+
+The dot on Settings marks an action you have not viewed, such as an update ready to install or an agent configuration to review. Opening Settings clears the dot, including after relaunch. The action remains listed until completed; a new action brings the dot back.
 
 ## Platform engines
 

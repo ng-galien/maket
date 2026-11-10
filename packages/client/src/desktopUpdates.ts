@@ -12,11 +12,20 @@ const DEVELOPMENT_STATE: DesktopUpdateState = {
 
 let state = DEVELOPMENT_STATE;
 let initialized = false;
+let checking = false;
 let removeDesktopListener: (() => void) | null = null;
 const listeners = new Set<() => void>();
 
 export function useDesktopUpdates(): DesktopUpdateState {
 	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+export function useDesktopUpdateCheckPending(): boolean {
+	return useSyncExternalStore(
+		subscribe,
+		() => checking,
+		() => false,
+	);
 }
 
 export function getDesktopUpdateState(): DesktopUpdateState {
@@ -72,11 +81,19 @@ export async function selectDesktopUpdateChannel(
 }
 
 export async function checkDesktopUpdates(): Promise<void> {
+	if (
+		checking ||
+		state.status === "downloading" ||
+		state.status === "ready" ||
+		state.status === "installing"
+	)
+		return;
 	const updates = window.maketDesktop?.updates;
 	if (!updates) {
 		publish({ ...DEVELOPMENT_STATE, channel: state.channel });
 		return;
 	}
+	checking = true;
 	publish({
 		...state,
 		status: "checking",
@@ -87,12 +104,18 @@ export async function checkDesktopUpdates(): Promise<void> {
 		await updates.check();
 	} catch (error) {
 		publishError(error);
+	} finally {
+		checking = false;
+		for (const listener of listeners) listener();
 	}
 }
 
 export async function installDesktopUpdate(): Promise<void> {
+	const updates = window.maketDesktop?.updates;
+	if (!updates || state.status !== "ready") return;
+	publish({ ...state, status: "installing" });
 	try {
-		await window.maketDesktop?.updates.install();
+		await updates.install();
 	} catch (error) {
 		publishError(error);
 	}
@@ -125,6 +148,7 @@ export function resetDesktopUpdatesForTests(): void {
 	removeDesktopListener?.();
 	removeDesktopListener = null;
 	initialized = false;
+	checking = false;
 	state = DEVELOPMENT_STATE;
 	listeners.clear();
 }
