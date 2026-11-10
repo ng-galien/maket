@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 const CANDIDATE_UPDATE_ROOT = "https://ng-galien.github.io/maket/updates/candidate";
@@ -22,7 +23,7 @@ export async function preserveCandidateUpdateFeed({
 
 async function preserveMacFeed(arch: "x64" | "arm64", outputDir: string, fetchImpl: typeof fetch): Promise<void> {
   const baseUrl = `${CANDIDATE_UPDATE_ROOT}/darwin/${arch}`;
-  const manifestResponse = await fetchImpl(`${baseUrl}/RELEASES.json`);
+  const manifestResponse = await fetchCandidateResource(`${baseUrl}/RELEASES.json`, fetchImpl);
   if (manifestResponse.status === 404) return;
   if (!manifestResponse.ok) throw new Error(`Candidate macOS ${arch} feed returned ${manifestResponse.status}`);
   const manifestText = await manifestResponse.text();
@@ -32,7 +33,7 @@ async function preserveMacFeed(arch: "x64" | "arm64", outputDir: string, fetchIm
   };
   const current = manifest.releases?.find((release) => release.version === manifest.currentRelease);
   const artifactUrl = requireCandidateArtifactUrl(current?.updateTo?.url, baseUrl);
-  const artifactResponse = await fetchImpl(artifactUrl);
+  const artifactResponse = await fetchCandidateResource(artifactUrl, fetchImpl);
   if (!artifactResponse.ok) throw new Error(`Candidate macOS ${arch} artifact returned ${artifactResponse.status}`);
   const targetDir = resolve(outputDir, "darwin", arch);
   await mkdir(targetDir, { recursive: true });
@@ -44,7 +45,7 @@ async function preserveMacFeed(arch: "x64" | "arm64", outputDir: string, fetchIm
 
 async function preserveWindowsFeed(outputDir: string, fetchImpl: typeof fetch): Promise<void> {
   const baseUrl = `${CANDIDATE_UPDATE_ROOT}/win32/x64`;
-  const releasesResponse = await fetchImpl(`${baseUrl}/RELEASES`);
+  const releasesResponse = await fetchCandidateResource(`${baseUrl}/RELEASES`, fetchImpl);
   if (releasesResponse.status === 404) return;
   if (!releasesResponse.ok) throw new Error(`Candidate Windows feed returned ${releasesResponse.status}`);
   const releasesText = await releasesResponse.text();
@@ -60,11 +61,33 @@ async function preserveWindowsFeed(outputDir: string, fetchImpl: typeof fetch): 
   await Promise.all(
     packageNames.map(async (name) => {
       const artifactUrl = requireCandidateArtifactUrl(`${baseUrl}/${name}`, baseUrl);
-      const response = await fetchImpl(artifactUrl);
+      const response = await fetchCandidateResource(artifactUrl, fetchImpl);
       if (!response.ok) throw new Error(`Candidate Windows artifact returned ${response.status}`);
       await writeFile(join(targetDir, basename(artifactUrl.pathname)), Buffer.from(await response.arrayBuffer()));
     }),
   );
+}
+
+async function fetchCandidateResource(input: string | URL, fetchImpl: typeof fetch): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const url = new URL(input);
+    if (attempt > 0) url.searchParams.set("maket-preserve-retry", `${Date.now()}-${attempt}`);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetchImpl(url, {
+        signal: controller.signal,
+        ...(attempt > 0 ? { headers: { "Cache-Control": "no-cache" } } : {}),
+      });
+      if (attempt === 3 || ![408, 429, 500, 502, 503, 504].includes(response.status)) return response;
+      await response.body?.cancel();
+    } catch (error) {
+      if (attempt === 3) throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+    await delay(500 * (attempt + 1));
+  }
 }
 
 function requireCandidateArtifactUrl(value: string | undefined, baseUrl: string): URL {
